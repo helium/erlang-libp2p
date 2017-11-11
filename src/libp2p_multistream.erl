@@ -9,7 +9,7 @@
 
 -export_type([multistream/0]).
 
--export([new/0, new/1, ls/1, select/2, select_one/2]).
+-export([new/0, new/1, ls/1, handshake/1, select/2, select_one/2]).
 
 -define(PROTOCOL_ID, "/multistream/1.0.0").
 -define(MAX_LINE_LENGTH, 64 * 1024).
@@ -28,10 +28,7 @@ new(Handlers) ->
 
 -spec select(string(), libp2p_connection:connection()) -> ok | {error, term()}.
 select(Protocol, Connection) ->
-    case handshake_client(Connection) of
-        ok -> attempt_select(Protocol, Connection);
-        {error, Reason} -> {error, Reason}
-    end.
+    attempt_select(Protocol, Connection).
 
 -spec select_one([string()], libp2p_connection:connection()) -> string() | {error, term()}.
 select_one([], _Connection) ->
@@ -46,12 +43,16 @@ select_one([Protocol | Rest], Connection) ->
 -spec ls(libp2p_connection:connection()) -> [string()] | {error, term()}.
 ls(Connection) ->
     case write(Connection, "ls") of
-        ok -> read_lines(Connection, read_varint(Connection), []);
+        ok ->
+            case read_varint(Connection) of
+                {error, Reason} -> {error, Reason};
+                Size -> read_lines(Connection, Size)
+            end;
         {error, Error} -> {error, Error}
     end.
 
--spec handshake_client(libp2p_connection:connection()) -> ok | {error, term()}.
-handshake_client(Connection) ->
+-spec handshake(libp2p_connection:connection()) -> ok | {error, term()}.
+handshake(Connection) ->
     case read_line(Connection) of
         ?PROTOCOL_ID -> write(Connection, ?PROTOCOL_ID);
         {error, Reason} -> {error, Reason};
@@ -80,13 +81,34 @@ write(Connection, Msg) when is_binary(Msg) ->
     Data = <<(small_ints:encode_varint(byte_size(Msg) + 1))/binary, Msg/binary, $\n>>,
     libp2p_connection:send(Connection, Data).
 
--spec read_lines(libp2p_connection:connection(), non_neg_integer() | {error, term()}, list()) -> [string()] | {error, term()}.
-read_lines(_Connection, Error={error, _}, _Acc) ->
-    Error;
-read_lines(_Connection, 0, Acc) ->
+
+read_lines(Connection, Size) ->
+    case libp2p_connection:recv(Connection, Size) of
+        {error, Reason} -> {error, Reason};
+        <<Data:Size/binary>> ->
+            {Count, Rest} = small_ints:decode_varint(Data),
+            decode_lines(Rest, Count, [])
+    end.
+
+-spec decode_lines(binary(), non_neg_integer() | {error, term()}, list()) -> [string()] | {error, term()}.
+decode_lines(_Bin, 0, Acc) ->
     lists:reverse(Acc);
-read_lines(Connection, Count, Acc) ->
-    [read_line(Connection) | read_lines(Connection, Count-1, Acc)].
+decode_lines(Bin, Count, Acc) ->
+    {Line, Rest} = decode_line(Bin),
+    [Line | decode_lines(Rest, Count-1, Acc)].
+
+-spec decode_line(binary()) -> {list(), binary()} | {error, term()}.
+decode_line(Bin) ->
+    {Size, Rest} = small_ints:decode_varint(Bin),
+    decode_line_body(Rest, Size).
+
+-spec decode_line_body(binary(), non_neg_integer()) -> {list(), binary()} | {error, term()}.
+decode_line_body(Bin, Size) ->
+    DataSize = Size -1,
+    case Bin of
+        <<Data:DataSize/binary, $\n, Rest/binary>> -> {binary_to_list(Data), Rest};
+        <<Data:Size/binary>> -> {error, {missing_terminator, Data}}
+    end.
 
 -spec read_line(libp2p_connection:connection()) -> string() | {error, term()}.
 read_line(Connection) ->
@@ -96,14 +118,13 @@ read_line(Connection) ->
         Size when Size > ?MAX_LINE_LENGTH ->
             {error, {line_too_long, Size}};
         Size ->
-            DataSize = Size -1,
             case libp2p_connection:recv(Connection, Size) of
-                <<Data:DataSize/binary, $\n>> -> binary_to_list(Data);
-                <<Data:Size/binary>> -> {error, {missing_terminator, Data}};
-                {error, Error} -> {error, Error}
+                {error, Error} -> {error, Error};
+                <<Data:Size/binary>> ->
+                    {Line, <<>>} = decode_line_body(Data, Size),
+                    Line
             end
     end.
-
 
 -spec read_varint(libp2p_connection:connection()) -> non_neg_integer() | {error, term()}.
 read_varint(Connection) ->
