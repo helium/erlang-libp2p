@@ -43,11 +43,7 @@ select_one([Protocol | Rest], Connection) ->
 -spec ls(libp2p_connection:connection()) -> [string()] | {error, term()}.
 ls(Connection) ->
     case write(Connection, "ls") of
-        ok ->
-            case read_varint(Connection) of
-                {error, Reason} -> {error, Reason};
-                Size -> read_lines(Connection, Size)
-            end;
+        ok -> read_lines(Connection);
         {error, Error} -> {error, Error}
     end.
 
@@ -81,13 +77,16 @@ write(Connection, Msg) when is_binary(Msg) ->
     Data = <<(small_ints:encode_varint(byte_size(Msg) + 1))/binary, Msg/binary, $\n>>,
     libp2p_connection:send(Connection, Data).
 
-
-read_lines(Connection, Size) ->
-    case libp2p_connection:recv(Connection, Size) of
+read_lines(Connection) ->
+    case read_varint(Connection) of
         {error, Reason} -> {error, Reason};
-        <<Data:Size/binary>> ->
-            {Count, Rest} = small_ints:decode_varint(Data),
-            decode_lines(Rest, Count, [])
+        Size ->
+            case libp2p_connection:recv(Connection, Size) of
+                {error, Reason} -> {error, Reason};
+                <<Data:Size/binary>> ->
+                    {Count, Rest} = small_ints:decode_varint(Data),
+                    decode_lines(Rest, Count, [])
+            end
     end.
 
 -spec decode_lines(binary(), non_neg_integer() | {error, term()}, list()) -> [string()] | {error, term()}.
