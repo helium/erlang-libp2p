@@ -9,12 +9,14 @@
 
 -export_type([connection/0]).
 
--export([new/2, send/2, recv/2, acknowledge/1, set_options/2, close/1]).
+-export([new/2, send/2, recv/2, recv/3, acknowledge/1, set_options/2, close/1]).
 
 -callback send(any(), iodata()) -> ok | {error, term()}.
--callback recv(any(), non_neg_integer()) -> binary() | {error, term()}.
+-callback recv(any(), non_neg_integer(), pos_integer()) -> binary() | {error, term()}.
 -callback close(any()) -> ok.
 -callback set_options(any(), any()) -> ok | {error, term()}.
+
+-define(RECV_TIMEOUT, 5000).
 
 -spec new(atom(), any()) -> connection().
 new(Module, State) ->
@@ -26,8 +28,12 @@ send(#connection{module=Module, state=State}, Data) ->
     Module:send(State, Data).
 
 -spec recv(connection(), non_neg_integer()) -> binary() | {error, term()}.
-recv(#connection{module=Module, state=State}, Length) ->
-    Module:recv(State, Length).
+recv(Conn=#connection{}, Length) ->
+    recv(Conn, Length, ?RECV_TIMEOUT).
+
+-spec recv(connection(), non_neg_integer(), pos_integer()) -> binary() | {error, term()}.
+recv(#connection{module=Module, state=State}, Length, Timeout) ->
+    Module:recv(State, Length, Timeout).
 
 -spec acknowledge(connection()) -> ok.
 acknowledge(#connection{module=Module, state=State}) ->

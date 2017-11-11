@@ -2,7 +2,7 @@
 
 -behaviour(libp2p_connection).
 
--export([new_listener/3, dial/1, send/2, recv/2, acknowledge/2, set_options/2, close/1]).
+-export([new_listener/3, dial/1, send/2, recv/3, acknowledge/2, set_options/2, close/1]).
 
 -record(tcp_state, {
           socket :: gen_tcp:socket(), 
@@ -39,8 +39,8 @@ tcp_addr(MAddr, Options) when is_binary(MAddr) ->
 tcp_addr(Protocols=[{AddrType, Address}, {"tcp", PortStr}], Options) ->
     Port = list_to_integer(PortStr),
     case AddrType of
-        "ip4" -> {Address, Port, [inet | Options]};
-        "ip6" -> {Address, Port, [inet6 | Options]};
+        "ip4" -> {Address, Port, [inet, binary, {active, false} | Options]};
+        "ip6" -> {Address, Port, [inet6, binary, {active, false} | Options]};
         _ -> {error, {unsupported_address, Protocols}}
     end;
 tcp_addr(Protocols, _Options) ->
@@ -55,9 +55,12 @@ tcp_addr(Protocols, _Options) ->
 send(#tcp_state{socket=Socket, transport=Transport}, Data) ->
     Transport:send(Socket, Data).
 
--spec recv(any(), non_neg_integer()) -> binary() | {error, term()}.
-recv(#tcp_state{socket=Socket, transport=Transport}, Length) ->
-    Transport:recv(Socket, Length).
+-spec recv(any(), non_neg_integer(), pos_integer()) -> binary() | {error, term()}.
+recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
+    case Transport:recv(Socket, Length, Timeout) of
+        {ok, Data} -> Data;
+        Error -> Error
+    end.
 
 -spec close(any()) -> ok.
 close(#tcp_state{socket=Socket, transport=Transport}) ->
