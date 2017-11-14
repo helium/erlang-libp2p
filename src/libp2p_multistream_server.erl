@@ -1,67 +1,83 @@
 -module(libp2p_multistream_server).
 
 -behavior(libp2p_connection_protocol).
+-behavior(gen_server).
 
--export([start_link/3, init/3,
-         new/1, new/2, handle/1]).
+-export([start_link/3, init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
 
--record(multistream_server, {
+-define(TIMEOUT, 5000).
+
+-record(state, {
           connection :: libp2p_connection:connection(),
-          handlers :: maps:map()
+          handlers=#{} :: maps:map()
          }).
-
--type server() :: #multistream_server{}.
-
--spec new(libp2p_connection:connection()) -> server().
-new(Connection) ->
-    new(Connection, #{}).
-
--spec new(libp2p_connection:connection(), maps:map()) -> server().
-new(Connection, Handlers) ->
-    #multistream_server{connection=Connection, handlers=Handlers}.
 
 %%
 %% libp2p_connection_protocol
 %%
 
 start_link(Ref, Connection, Opts) ->
-    Pid = spawn_link(?MODULE, init, [Ref, Connection, Opts]),
-    {ok, Pid}.
+    {ok, proc_lib:spawn_link(?MODULE, init, [{Ref, Connection, Opts}])}.
 
-init(Ref, Connection, _Opts) ->
+%%
+%% gen_server
+%%
+
+init({Ref, Connection, _Opts}) ->
     libp2p_connection:acknowledge(Connection, Ref),
-    try
-        handle(new(Connection))
-    catch
-        throw:{error, Reason} ->
-            io:format("ERROR ~p~n", [Reason]),
-            libp2p_connection:close(Connection)
-    end.
+    self() ! handshake,
+    inert:start(),
+    gen_server:enter_loop(?MODULE, [], #state{connection=Connection}, ?TIMEOUT).
 
-%%
-%% Command Serving
-%%
-
-handle(State=#multistream_server{connection=Conn, handlers=Handlers}) ->
-    handshake(Conn),
-    io:format("HANDSHAKE DONE~n"),
+handle_info({inert_read, _, _}, State=#state{connection=Conn, handlers=Handlers}) ->
+    io:format("GOT READ"),
     case read(Conn) of
         "ls" ->
-            handle_ls(Conn, Handlers);
+            handle_ls(Conn, Handlers),
+            fdset(Conn),
+            {noreply, State};
         Line ->
             case maps:find(Line, Handlers) of
-                {ok, {M, F, A}} -> M:F(Conn, A);
-                error -> write(Conn, "na")
+                {ok, {M, F, A}} ->
+                    M:F(Conn, A),
+                    {stop, normal, State};
+                error ->
+                    write(Conn, "na"),
+                    fdset(Conn),
+                    {noreply, State}
             end
-    end,
-    handle(State).
+    end;
+handle_info(handshake, State=#state{connection=Connection}) ->
+    handshake(Connection),
+    fdset(Connection),
+    {noreply, State};
+handle_info(timeout, State) ->
+    {stop, normal, State};
+handle_info(Msg, State) ->
+    io:format("UNHANDLED: ~p~n", [Msg]),
+    {stop, normal, State}.
+
+handle_call(_Request, _From, State) ->
+        {reply, ok, State}.
+
+handle_cast(_Msg, State) ->
+        {noreply, State}.
+
+terminate(_Reason, #state{connection=Connection}) ->
+    libp2p_connection:close(Connection).
+
+%%
+%% Internal
+%%
+
+fdset(Connection) ->
+    inert:fdset(libp2p_connection:getfd(Connection)).
 
 handle_ls(Conn, Handlers) ->
     case libp2p_multistream:write_lines(Conn, maps:keys(Handlers)) of
         ok -> ok;
-        {error, Reason} -> throw({error, Reason})
+        {error, Reason} -> exit({error, Reason})
     end.
-
 
 -spec handshake(libp2p_connection:connection()) -> ok | {error, term()}.
 handshake(Connection) ->
@@ -69,17 +85,17 @@ handshake(Connection) ->
     write(Connection, Id),
     case read(Connection) of
         Id -> ok;
-        ClientId -> throw({error, {protocol_mismatch, ClientId}})
+        ClientId -> exit({error, {protocol_mismatch, ClientId}})
     end.
 
 write(Conn, Data) ->
     case libp2p_multistream:write(Conn, Data) of
         ok -> ok;
-        {error, Reason} -> throw({error, Reason})
+        {error, Reason} -> exit({error, Reason})
     end.
 
 read(Conn) ->
     case libp2p_multistream:read(Conn) of
-        {error, Reason} -> throw({error, Reason});
+        {error, Reason} -> exit({error, Reason});
         Data -> Data
     end.

@@ -2,7 +2,7 @@
 
 -behaviour(libp2p_connection).
 
--export([new_listener/3, new_connection/1, dial/1, send/2, recv/3, acknowledge/2, set_options/2, close/1]).
+-export([new_listener/3, new_connection/1, dial/1, send/2, recv/3, acknowledge/2, getfd/1, close/1]).
 
 -record(tcp_state, {
           socket :: gen_tcp:socket(), 
@@ -38,7 +38,7 @@ dial(MAddr) when is_list(MAddr) ->
 dial(MAddr) ->
     case tcp_addr(MAddr) of
         {Address, Port, Options} -> 
-            {ok, Socket} = gen_tcp:connect(Address, Port, Options),
+            {ok, Socket} = gen_tcp:connect(Address, Port, [binary, {active, false} | Options]),
             new_connection(Socket);
         Error -> Error
     end.
@@ -49,8 +49,8 @@ tcp_addr(MAddr) when is_binary(MAddr) ->
 tcp_addr(Protocols=[{AddrType, Address}, {"tcp", PortStr}]) ->
     Port = list_to_integer(PortStr),
     case AddrType of
-        "ip4" -> {Address, Port, [inet, binary, {active, false}]};
-        "ip6" -> {Address, Port, [inet6, binary, {active, false}]};
+        "ip4" -> {Address, Port, [inet]};
+        "ip6" -> {Address, Port, [inet6]};
         _ -> {error, {unsupported_address, Protocols}}
     end;
 tcp_addr(Protocols) ->
@@ -80,6 +80,8 @@ close(#tcp_state{socket=Socket, transport=Transport}) ->
 acknowledge(#tcp_state{}, Ref) ->
     ranch:accept_ack(Ref).
 
--spec set_options(state(), any()) -> ok | {error, term()}.
-set_options(#tcp_state{socket=Socket, transport=Transport}, Options) ->
-    Transport:setopts(Socket, Options).
+-spec getfd(state()) -> non_neg_integer().
+getfd(#tcp_state{socket=Socket}) ->
+    {ok, FD} = inet:getfd(Socket),
+    FD.
+

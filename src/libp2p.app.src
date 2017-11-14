@@ -16,7 +16,7 @@
  [{description, "An Erlangng implementation of libp2p"},
   {vsn, "0.1.0"},
   {registered, []},
-  {applications, [kernel, stdlib, ranch]},
+  {applications, [kernel, stdlib, ranch, inert]},
   {env,[]},
 
   %% hex.pm packaging:
