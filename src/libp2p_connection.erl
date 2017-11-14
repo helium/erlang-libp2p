@@ -9,8 +9,9 @@
 
 -export_type([connection/0]).
 
--export([new/2, send/2, recv/2, recv/3, acknowledge/1, set_options/2, close/1]).
+-export([new/2, send/2, recv/2, recv/3, acknowledge/2, set_options/2, close/1]).
 
+-callback acknowledge(any(), reference()) -> ok.
 -callback send(any(), iodata()) -> ok | {error, term()}.
 -callback recv(any(), non_neg_integer(), pos_integer()) -> binary() | {error, term()}.
 -callback close(any()) -> ok.
@@ -35,9 +36,9 @@ recv(Conn=#connection{}, Length) ->
 recv(#connection{module=Module, state=State}, Length, Timeout) ->
     Module:recv(State, Length, Timeout).
 
--spec acknowledge(connection()) -> ok.
-acknowledge(#connection{module=Module, state=State}) ->
-    Module:acknowledge(State).
+-spec acknowledge(connection(), reference()) -> ok.
+acknowledge(#connection{module=Module, state=State}, Ref) ->
+    Module:acknowledge(State, Ref).
 
 -spec close(connection()) -> ok.
 close(#connection{module=Module, state=State}) ->

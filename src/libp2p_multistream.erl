@@ -1,74 +1,12 @@
 -module(libp2p_multistream).
 
--record(multistream, {
-          handlers={} :: handlers()
-         }).
+-export([protocol_id/0, read/1, read_lines/1, write/2, write_lines/2]).
 
--type handlers() ::#{string() => atom()} | {}.
--type multistream() :: #multistream{}.
-
--export_type([multistream/0]).
-
--export([new/0, new/1, ls/1, handshake/1, select/2, select_one/2]).
-
--define(PROTOCOL_ID, "/multistream/1.0.0").
 -define(MAX_LINE_LENGTH, 64 * 1024).
 
--spec new() -> multistream().
-new() ->
-    #multistream{}.
 
--spec new(handlers()) -> multistream().
-new(Handlers) ->
-    #multistream{handlers=Handlers}.
-
-%%
-%% Client API
-%%
-
--spec select(string(), libp2p_connection:connection()) -> ok | {error, term()}.
-select(Protocol, Connection) ->
-    attempt_select(Protocol, Connection).
-
--spec select_one([string()], libp2p_connection:connection()) -> string() | {error, term()}.
-select_one([], _Connection) ->
-    {error, protocol_unsupported};
-select_one([Protocol | Rest], Connection) ->
-    case attempt_select(Protocol, Connection) of
-        ok -> Protocol;
-        {error, {protocol_unsupported, Protocol}} -> select_one(Rest, Connection);
-        {error, Reason} -> {error, Reason}
-    end.
-
--spec ls(libp2p_connection:connection()) -> [string()] | {error, term()}.
-ls(Connection) ->
-    case write(Connection, "ls") of
-        ok -> read_lines(Connection);
-        {error, Error} -> {error, Error}
-    end.
-
--spec handshake(libp2p_connection:connection()) -> ok | {error, term()}.
-handshake(Connection) ->
-    case read_line(Connection) of
-        ?PROTOCOL_ID -> write(Connection, ?PROTOCOL_ID);
-        {error, Reason} -> {error, Reason};
-        Data -> {error, {protocol_mismatch, Data}}
-    end.
-
--spec attempt_select(string(), libp2p_connection:connection()) -> ok | {error, term()}.
-attempt_select(Protocol, Connection) ->
-    case write(Connection, Protocol) of
-        ok -> case read_line(Connection) of
-                  Protocol -> ok;
-                  "na" -> {error, {protocol_unsupported, Protocol}};
-                  {error, Reason} -> {error, Reason}
-              end;
-        {error, Reason} -> {error, Reason}
-    end.
-
-%%
-%% Utilities
-%%
+protocol_id() ->
+    "/multistream/1.0.0".
 
 -spec write(libp2p_connection:connection(), binary() | string()) -> ok | {error, term()}.
 write(Connection, Msg) when is_list(Msg) ->
@@ -77,6 +15,29 @@ write(Connection, Msg) when is_binary(Msg) ->
     Data = <<(small_ints:encode_varint(byte_size(Msg) + 1))/binary, Msg/binary, $\n>>,
     libp2p_connection:send(Connection, Data).
 
+write_lines(Connection, Lines) ->
+    EncodedLines = encode_lines(Lines, <<>>),
+    EncodedCount = small_ints:encode_varint(length(Lines)),
+    Size = small_ints:encode_varint(byte_size(EncodedCount) + byte_size(EncodedLines)),
+    libp2p_connection:send(Connection, <<Size/binary, EncodedCount/binary, EncodedLines/binary>>).
+
+-spec read(libp2p_connection:connection()) -> string() | {error, term()}.
+read(Connection) ->
+    case read_varint(Connection) of
+        {error, Error} ->
+            {error, Error};
+        Size when Size > ?MAX_LINE_LENGTH ->
+            {error, {line_too_long, Size}};
+        Size ->
+            case libp2p_connection:recv(Connection, Size) of
+                {error, Error} -> {error, Error};
+                <<Data:Size/binary>> ->
+                    {Line, <<>>} = decode_line_body(Data, Size),
+                    Line
+            end
+    end.
+
+-spec read_lines(libp2p_connection:connection()) -> [string()] | {error, term()}.
 read_lines(Connection) ->
     case read_varint(Connection) of
         {error, Reason} -> {error, Reason};
@@ -88,6 +49,13 @@ read_lines(Connection) ->
                     decode_lines(Rest, Count, [])
             end
     end.
+
+encode_lines([], Acc) ->
+    Acc;
+encode_lines([Line | Tail], Acc) ->
+    LineData = list_to_binary(Line),
+    LineSize = small_ints:encode_varint(byte_size(LineData) + 1),
+    <<LineSize/binary, LineData/binary, $\n, (encode_lines(Tail, Acc))>>.
 
 -spec decode_lines(binary(), non_neg_integer() | {error, term()}, list()) -> [string()] | {error, term()}.
 decode_lines(_Bin, 0, Acc) ->
@@ -107,22 +75,6 @@ decode_line_body(Bin, Size) ->
     case Bin of
         <<Data:DataSize/binary, $\n, Rest/binary>> -> {binary_to_list(Data), Rest};
         <<Data:Size/binary>> -> {error, {missing_terminator, Data}}
-    end.
-
--spec read_line(libp2p_connection:connection()) -> string() | {error, term()}.
-read_line(Connection) ->
-    case read_varint(Connection) of
-        {error, Error} ->
-            {error, Error};
-        Size when Size > ?MAX_LINE_LENGTH ->
-            {error, {line_too_long, Size}};
-        Size ->
-            case libp2p_connection:recv(Connection, Size) of
-                {error, Error} -> {error, Error};
-                <<Data:Size/binary>> ->
-                    {Line, <<>>} = decode_line_body(Data, Size),
-                    Line
-            end
     end.
 
 -spec read_varint(libp2p_connection:connection()) -> non_neg_integer() | {error, term()}.
