@@ -15,15 +15,17 @@ endif
 compile:
 	$(REBAR) compile
 
+shell:
+	$(REBAR) shell
+
 clean:
 	$(REBAR) clean
-	$(REBAR) as prod clean
 
 cover: test
 	$(REBAR) cover
 
 test: compile
-	$(REBAR) eunit
+	$(REBAR) as test do eunit
 
 typecheck:
 	$(REBAR) dialyzer

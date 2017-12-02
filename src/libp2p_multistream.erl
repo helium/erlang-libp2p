@@ -26,12 +26,12 @@ read(Connection) ->
     case read_varint(Connection) of
         {error, Error} ->
             {error, Error};
-        Size when Size > ?MAX_LINE_LENGTH ->
+        {ok, Size} when Size > ?MAX_LINE_LENGTH ->
             {error, {line_too_long, Size}};
-        Size ->
+        {ok, Size} ->
             case libp2p_connection:recv(Connection, Size) of
                 {error, Error} -> {error, Error};
-                <<Data:Size/binary>> ->
+                {ok, <<Data:Size/binary>>} ->
                     {Line, <<>>} = decode_line_body(Data, Size),
                     Line
             end
@@ -41,10 +41,10 @@ read(Connection) ->
 read_lines(Connection) ->
     case read_varint(Connection) of
         {error, Reason} -> {error, Reason};
-        Size ->
+        {ok, Size} ->
             case libp2p_connection:recv(Connection, Size) of
                 {error, Reason} -> {error, Reason};
-                <<Data:Size/binary>> ->
+                {ok, <<Data:Size/binary>>} ->
                     {Count, Rest} = small_ints:decode_varint(Data),
                     decode_lines(Rest, Count, [])
             end
@@ -77,15 +77,15 @@ decode_line_body(Bin, Size) ->
         <<Data:Size/binary>> -> {error, {missing_terminator, Data}}
     end.
 
--spec read_varint(libp2p_connection:connection()) -> non_neg_integer() | {error, term()}.
+-spec read_varint(libp2p_connection:connection()) -> {ok, non_neg_integer()} | {error, term()}.
 read_varint(Connection) ->
     read_varint(Connection, 0, 0).
 
 read_varint(Connection, Position, Acc) ->
     case libp2p_connection:recv(Connection, 1) of
-        <<1:1, Number:7>> ->
+        {ok, <<1:1, Number:7>>} ->
             read_varint(Connection, Position + 7, (Number bsl Position) + Acc);
-        <<0:1, Number:7>> ->
-            (Number bsl Position) + Acc;
+        {ok, <<0:1, Number:7>>} ->
+            {ok, (Number bsl Position) + Acc};
         {error, Error} -> {error, Error}
     end.
