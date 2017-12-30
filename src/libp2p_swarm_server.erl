@@ -10,7 +10,6 @@
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 -export([dial/3, listen/2, connect/2, 
-         request_connect/3, completed_connect/3, 
          listen_addrs/1, add_connection_handler/3, 
          add_stream_handler/3, stream_handlers/1]).
 
@@ -34,16 +33,6 @@ listen(Pid, Addr) ->
 -spec listen_addrs(pid()) -> [string()].
 listen_addrs(Pid) ->
     gen_server:call(Pid, listen_addrs).
-
--spec request_connect(pid(), reference(), libp2p_connection:connection())
-                    -> {ok, {atom(), atom(), [term()]}} | {error, term()}.
-request_connect(Pid, Ref, Connection) ->
-    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-    gen_server:call(Pid, {connect_request, RemoteAddr, Ref, Connection}).
-
-completed_connect(Pid, SessionPid, Connection) ->
-    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-    gen_server:call(Pid, {connect_completed, RemoteAddr, SessionPid}).
 
 -spec add_connection_handler(pid(), string(), {libp2p_transport:connection_handler(), libp2p_transport:connection_handler()}) -> ok.
 add_connection_handler(Pid, Key, HandlerDef) ->
