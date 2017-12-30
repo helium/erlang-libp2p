@@ -71,7 +71,7 @@ init([TID]) ->
                       {libp2p_yamux_session, start_server},
                       {libp2p_yamux_session, start_client}},
     libp2p_config:insert_connection_handler(TID, DefConnHandler),
-    IdentifyHandler = {"identify/1.0.0", {libp2p_stream_identify, start}},
+    IdentifyHandler = {"identify/1.0.0", {libp2p_stream_identify, enter_loop}},
     libp2p_config:insert_stream_handler(TID, IdentifyHandler),
     {ok, #state{tid=TID}}.
 
@@ -164,7 +164,7 @@ listen_on(TID, Addr, State=#state{}) ->
 
 
 -spec connect_to(ets:tab(), string(), #state{}) 
-                -> {ok, libp2p_session:ref(), #state{}} | {error, term()}.
+                -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
 connect_to(TID, Addr, State) ->
     {ok, Transport, {ConnAddr, _}} = libp2p_transport:for_addr(Addr),
     case libp2p_config:lookup_session(TID, ConnAddr) of
@@ -185,7 +185,7 @@ connect_to(TID, Addr, State) ->
             end
     end.
 
--spec start_client_stream(ets:tab(), string(), libp2p_session:ref())
+-spec start_client_stream(ets:tab(), string(), libp2p_session:pid())
                          -> {ok, libp2p_connection:connection()} | {error, term()}.
 start_client_stream(_TID, Path, SessionPid) ->
     case libp2p_session:open(SessionPid) of
@@ -199,7 +199,7 @@ start_client_stream(_TID, Path, SessionPid) ->
     end.
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, libp2p_session:ref()} | {error, term()}.
+                          -> {ok, libp2p_session:pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of

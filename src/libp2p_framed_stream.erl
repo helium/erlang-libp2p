@@ -1,14 +1,14 @@
 -module(libp2p_framed_stream).
 
-% -behavior(gen_server).
+-behavior(gen_server).
 
 
 % gen_server
--export([handle_call/3, handle_cast/2, handle_info/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 % API
--export([start/3, send/2, recv/1]).
+-export([enter_loop/3, send/2, recv/1]).
 
--callback start(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> {ok, term()} | {stop, term()}.
+-callback enter_loop(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> {ok, term()} | {stop, term()}.
 -callback init([any()]) -> {ok, any()} |
                            {ok, binary() | list(), any()} |
                            {stop, term()} |
@@ -27,9 +27,9 @@
 mk_state(Connection, Module, ModuleState) ->
     #state{connection=Connection, module=Module, state=ModuleState}.
 
--spec start(atom(), libp2p_connection:connection(), [any()]) -> {stop, {error, term()}} |
-                                                                no_return().
-start(Module, Connection, Args) ->
+-spec enter_loop(atom(), libp2p_connection:connection(), [any()]) -> {stop, {error, term()}} |
+                                                                     no_return().
+enter_loop(Module, Connection, Args) ->
     case Module:init(Args) of
         {ok, State} -> gen_server:enter_loop(?MODULE, [], fdset(Connection, mk_state(Connection, Module, State)));
         {ok, Response, State} ->
@@ -44,6 +44,9 @@ start(Module, Connection, Args) ->
                 ok -> {stop, Reason}
             end
     end.
+
+init(_) ->
+    ignore.
 
 handle_info({inert_read, _, _}, State=#state{connection=Connection, module=Module, state=ModuleState}) ->
     case recv(Connection) of
@@ -79,14 +82,14 @@ handle_cast(_Msg, State) ->
 send(Connection, Data) when is_list(Data) ->
     send(Connection, list_to_binary(Data));
 send(Connection, Data) ->
-    Bin = <<(byte_size(Data)):4/little-unsigned-integer-unit:8, Data/binary>>,
+    Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
     libp2p_connection:send(Connection, Bin).
 
 -spec recv(libp2p_connection:connection()) -> {ok, binary()} | {error, term()}.
 recv(Connection) ->
     case libp2p_connection:recv(Connection, 4) of
         {error, Error} -> {error, Error};
-        {ok, <<Size:4/little-unsigned-integer-unit:8>>} ->
+        {ok, <<Size:32/little-unsigned-integer>>} ->
             %% TODO: Limit max message size we're willing to
             libp2p_connection:recv(Connection, Size)
     end.

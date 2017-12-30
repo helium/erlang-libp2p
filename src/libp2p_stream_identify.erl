@@ -2,11 +2,11 @@
 
 -behavior(libp2p_framed_stream).
 
--export([start/4, init/1, handle_data/2]).
+-export([enter_loop/4, init/1, handle_data/2]).
 
-start(Connection, _Path, TID, _) ->
+enter_loop(Connection, _Path, TID, _) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-    libp2p_framed_stream:start(?MODULE, Connection, [TID, RemoteAddr]).
+    libp2p_framed_stream:enter_loop(?MODULE, Connection, [TID, RemoteAddr]).
 
 init([TID, RemoteAddr]) ->
     Sup = libp2p_swarm_sup:sup(TID),

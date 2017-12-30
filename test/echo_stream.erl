@@ -2,12 +2,12 @@
 
 -behavior(libp2p_framed_stream).
 
--export([start/4, init/1, handle_data/2]).
+-export([enter_loop/4, init/1, handle_data/2]).
 
 -record(state, {}).
 
-start(Connection, Path, _TID, _Args) ->
-    libp2p_framed_stream:start(?MODULE, Connection, [Path]).
+enter_loop(Connection, Path, _TID, _Args) ->
+    libp2p_framed_stream:enter_loop(?MODULE, Connection, [Path]).
 
 init([Path]) ->
     {ok, Path, #state{}}.

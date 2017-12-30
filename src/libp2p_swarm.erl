@@ -45,7 +45,7 @@ add_connection_handler(Sup, Key, HandlerDef) ->
     Server = libp2p_swarm_sup:server(Sup),
     libp2p_swarm_server:add_connection_handler(Server, Key, HandlerDef).
 
--spec connect(ref(), string()) -> {ok, libp2p_session:ref()} | {error, term()}.
+-spec connect(ref(), string()) -> {ok, libp2p_session:pid()} | {error, term()}.
 connect(Sup, Port) when is_integer(Port) ->
     ConnAddr = "/ip4/127.0.0.1/tcp/" ++ integer_to_list(Port),
     connect(Sup, ConnAddr);

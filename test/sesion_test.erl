@@ -33,7 +33,7 @@ stream_open_close_test() ->
 
 dial_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
-    ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, start, [self()]}),
+    ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
     [S2Addr] = libp2p_swarm:listen_addrs(S2),
 
     % Dial and see if the initial path got handled

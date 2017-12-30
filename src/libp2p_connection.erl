@@ -31,7 +31,7 @@ new(Module, State) ->
 send(#connection{module=Module, state=State}, Data) ->
     Module:send(State, Data).
 
--spec recv(connection(), non_neg_integer()) -> binary() | {error, term()}.
+-spec recv(connection(), non_neg_integer()) -> {ok, binary()} | {error, term()}.
 recv(Conn=#connection{}, Length) ->
     recv(Conn, Length, ?RECV_TIMEOUT).
 
