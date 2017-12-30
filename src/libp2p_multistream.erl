@@ -46,7 +46,11 @@ read_lines(Connection) ->
                 {error, Reason} -> {error, Reason};
                 {ok, <<Data:Size/binary>>} ->
                     {Count, Rest} = small_ints:decode_varint(Data),
-                    decode_lines(Rest, Count, [])
+                    try
+                        decode_lines(Rest, Count, [])
+                    catch
+                        throw:{error, R} -> {error, R}
+                    end
             end
     end.
 
@@ -57,12 +61,14 @@ encode_lines([Line | Tail], Acc) ->
     LineSize = small_ints:encode_varint(byte_size(LineData) + 1),
     <<LineSize/binary, LineData/binary, $\n, (encode_lines(Tail, Acc))>>.
 
--spec decode_lines(binary(), non_neg_integer() | {error, term()}, list()) -> [string()] | {error, term()}.
+-spec decode_lines(binary(), non_neg_integer() | {error, term()}, list()) -> [string()].
 decode_lines(_Bin, 0, Acc) ->
     lists:reverse(Acc);
 decode_lines(Bin, Count, Acc) ->
-    {Line, Rest} = decode_line(Bin),
-    [Line | decode_lines(Rest, Count-1, Acc)].
+    case decode_line(Bin) of
+        {error, Error} -> throw({error, Error});
+        {Line, Rest} -> [Line | decode_lines(Rest, Count-1, Acc)]
+    end.
 
 -spec decode_line(binary()) -> {list(), binary()} | {error, term()}.
 decode_line(Bin) ->
