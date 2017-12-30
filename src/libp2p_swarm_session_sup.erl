@@ -2,10 +2,6 @@
 
 -behavior(supervisor).
 
--type ref() :: supervisor:sup_ref().
-
--export_type([ref/0]).
-
 % supervisor
 -export([start_link/1, init/1]).
 % api
@@ -23,7 +19,7 @@ init([TID]) ->
                   period    => 1 },
     {ok, {SupFlags, []}}.
 
--spec sup(ets:tab()) -> ref().
+-spec sup(ets:tab()) -> supervisor:sup_ref().
 sup(TID) ->
     ets:lookup_element(TID, ?SUP, 2).
 

@@ -2,10 +2,6 @@
 
 -behaviour(supervisor).
 
--type ref() :: supervisor:sup_ref().
-
--export_type([ref/0]).
-
 % supervisor
 -export([init/1]).
 % api
@@ -43,11 +39,11 @@ init([]) ->
                   } ],
     {ok, {SupFlags, ChildSpecs}}.
 
--spec sup(ets:tab()) -> ref().
+-spec sup(ets:tab()) -> supervisor:sup_ref().
 sup(TID) ->
     ets:lookup_element(TID, ?SUP, 2).
 
--spec server(ref()) -> libp2p_swarm_server:ref().
+-spec server(supervisor:sup_ref()) -> libp2p_swarm_server:ref().
 server(Sup) ->
     Children = supervisor:which_children(Sup),
     {?SERVER, Pid, _, _} = lists:keyfind(?SERVER, 1, Children),
