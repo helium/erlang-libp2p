@@ -22,7 +22,7 @@
 
 -record(state, {
           connection :: libp2p_connection:connection(),
-          tid=undefined :: ets:tab() | undefined,
+          tid :: ets:tab(),
           stream_sup :: supervisor:sup_ref(),
           next_stream_id :: stream_id(),
           pings=#{} :: #{ping_id() => reference()},
@@ -87,11 +87,8 @@ init({TID, Connection, _Path, NextStreamId}) ->
     {ok, StreamSup} = supervisor:start_link(libp2p_yamux_stream_sup, []),
     State = #state{connection=Connection, tid=TID,
                    stream_sup=StreamSup, next_stream_id=NextStreamId},
-    self() ! init,
-    gen_server:enter_loop(?MODULE, [], State, ?TIMEOUT).
+    gen_server:enter_loop(?MODULE, [], fdset(Connection, State), ?TIMEOUT).
 
-handle_info(init, State=#state{connection=Connection}) ->
-    {noreply, fdset(Connection, State)};
 handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
     case read_header(Connection) of
         {error, _} ->
