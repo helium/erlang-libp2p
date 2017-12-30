@@ -188,7 +188,7 @@ start_client_stream(_TID, Path, SessionPid) ->
     end.
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, libp2p_session:pid()} | {error, term()}.
+                          -> {ok, atom(), libp2p_session:pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
