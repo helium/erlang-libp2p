@@ -53,16 +53,16 @@
 
 open_stream(Session, TID, StreamID) ->
     % We're opening a stream (client)
-    {ok, proc_lib:spawn_link(?MODULE, init, [{Session, TID, StreamID, ?SYN}])}.
+    gen_statem:start_link(?MODULE, {Session, TID, StreamID, ?SYN}, []).
+
 
 receive_stream(Session, TID, StreamID) ->
     % We're receiving/accepting a stream (server)
-    {ok, proc_lib:spawn_link(?MODULE, init, [{Session, TID, StreamID, ?ACK}])}.
+    gen_statem:start_link(?MODULE, {Session, TID, StreamID, ?ACK}, []).
 
 init({Session, TID, StreamID, Flags}) ->
     gen_statem:cast(self(), {init, Flags}),
-    gen_statem:enter_loop(?MODULE, [], connecting,
-                          #state{session=Session, stream_id=StreamID, tid=TID}).
+    {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID}}.
 
 callback_mode() -> handle_event_function.
 

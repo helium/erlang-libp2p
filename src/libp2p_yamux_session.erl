@@ -122,17 +122,14 @@ handle_call(open, _From, State=#state{next_stream_id=NextStreamID}) ->
 % Send
 %
 handle_call({send, Data}, _From, State) ->
-    case session_send(Data, State) of
-        ok -> {reply, ok, State};
-        {error, Error} -> {reply, {error, Error}, State}
-    end;
+    {reply, session_send(Data, State), State};
 
 % Ping
 %
 handle_call(ping, From, State=#state{}) ->
     case ping_send(From, State) of
         {error, Error} -> {reply, {error, Error}, State};
-        NewState -> {noreply, NewState}
+        {ok, NewState} -> {noreply, NewState}
     end;
 
 % Go Away
@@ -205,7 +202,7 @@ encode_header(#header{type=Type, flags=Flags, stream_id=StreamID, length=Length}
 %% Ping
 %%
 
--spec ping_send(pid(), #state{}) -> #state{} | {error, term()}.
+-spec ping_send(pid(), #state{}) -> {ok, #state{}} | {error, term()}.
 ping_send(From, State=#state{next_ping_id=NextPingID, pings=Pings}) ->
     case session_send(header_ping(NextPingID), State) of
         {error, Error} -> {error, Error};
@@ -213,7 +210,7 @@ ping_send(From, State=#state{next_ping_id=NextPingID, pings=Pings}) ->
             TimerRef = erlang:send_after(config_get(State, {yamux, write_timeout}, ?DEFAULT_WRITE_TIMEOUT),
                                          self(), {timeout_ping, NextPingID}),
             Pings2 = maps:put(NextPingID, {From, erlang:system_time(millisecond), TimerRef}, Pings),
-            State#state{next_ping_id=NextPingID + 1, pings=Pings2}
+            {ok, State#state{next_ping_id=NextPingID + 1, pings=Pings2}}
     end.
 
 -spec ping_timeout(ping_id(), #state{}) -> #state{}.
