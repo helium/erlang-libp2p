@@ -14,9 +14,7 @@ start_link(TID) ->
 
 init([TID]) ->
     _ = ets:insert(TID, {?SUP, self()}),
-    SupFlags = #{ strategy  => one_for_one,
-                  intensity => 0,
-                  period    => 1 },
+    SupFlags = #{ strategy  => one_for_one},
     {ok, {SupFlags, []}}.
 
 -spec sup(ets:tab()) -> supervisor:sup_ref().
