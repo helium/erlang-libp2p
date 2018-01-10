@@ -1,3 +1,4 @@
+{"1.1.0",
 [{<<"base32">>,
   {git,"https://github.com/aetrion/base32_erlang",
        {ref,"40431a7480176b24863e18b92d9872e54c714df5"}},
@@ -6,6 +7,11 @@
   {git,"https://github.com/mbrix/erl-base58",
        {ref,"dd22cf9fa475befb8258f4cf67d77484c0d7fd37"}},
   1},
+ {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
+ {<<"gpb">>,
+  {git,"https://github.com/tomas-abrahamsson/gpb",
+       {ref,"360cd1692f17479704a0504865d375e3f5252968"}},
+  0},
  {<<"hex">>,
   {git,"https://github.com/b/hex",
        {ref,"967f059ea49e45b7d0d82e2e1177ef860f5ec4bd"}},
@@ -14,15 +20,23 @@
   {git,"https://github.com/msantos/inert",
        {ref,"0d150fafaf3945b3a9761269c273eaa1f55649db"}},
   0},
+ {<<"lager">>,
+  {git,"https://github.com/erlang-lager/lager.git",
+       {ref,"cee58aada41121e8c78078fc9cb21b2965e307b9"}},
+  0},
  {<<"multiaddr">>,
   {git,"https://github.com/helium/erlang-multiaddr",
-       {ref,"0aac4a90ce27aa8c9f16d59fd2c3d31e5de4c9e9"}},
+       {ref,"f08c965c546fdc6496031bb497c8e35fd15c5214"}},
   0},
  {<<"ranch">>,
-  {git,"git://github.com/ninenines/ranch.git",
-       {ref,"70f9696b6c35d029ac7bce67485713aee3983917"}},
+  {git,"https://github.com/ninenines/ranch.git",
+       {ref,"f7934bfaecb8351553a3e12bbaba7180b927a0e8"}},
   0},
  {<<"small_ints">>,
   {git,"https://github.com/whatyouhide/small_ints",
        {ref,"c80501a65ed98ed7b9f03cd03c93641c2c5d6ef9"}},
-  1}].
+  1}]}.
+[
+{pkg_hash,[
+ {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>}]}
+].
