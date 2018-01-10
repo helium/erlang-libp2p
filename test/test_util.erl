@@ -5,6 +5,7 @@
 setup_swarms() ->
     application:ensure_all_started(ranch),
     %% application:ensure_all_started(lager),
+    %% lager:set_loglevel(lager_console_backend, debug),
     S1 = libp2p_swarm:start(0),
     S2 = libp2p_swarm:start(0),
     [S1, S2].

@@ -6,7 +6,7 @@
 
 -export([ping/1, open/1, close/1, goaway/1, streams/1, addr_info/1]).
 
--spec ping(pid()) -> pos_integer() | {error, term()}.
+-spec ping(pid()) -> {ok, pos_integer()} | {error, term()}.
 ping(Pid) ->
     gen_server:call(Pid, ping, infinity).
 

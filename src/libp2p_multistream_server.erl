@@ -47,7 +47,8 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
                     lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
-                    erlang:apply(M, F, [Conn, LineRest, HandlerOpt, A]),
+                    Result = erlang:apply(M, F, [Conn, LineRest, HandlerOpt, A]),
+                    lager:error("RETURN FROM ~p:~p with ~p", [M, F, Result]),
                     {stop, normal, State};
                 error ->
                     write(Conn, "na"),

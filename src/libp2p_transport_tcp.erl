@@ -5,13 +5,8 @@
 -export([start_listener/3, new_connection/1, dial/1]).
 
 % libp2p_onnection
--export([
-         send/2,
-         recv/3,
-         acknowledge/2,
-         addr_info/1,
-         close/1,
-         controlling_process/2,
+-export([send/2, recv/3, acknowledge/2, addr_info/1,
+         shutdown/2, close/1, controlling_process/2,
          fdset/1, fdclr/1
         ]).
 
@@ -103,6 +98,10 @@ recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
 -spec close(state()) -> ok.
 close(#tcp_state{socket=Socket, transport=Transport}) ->
     Transport:close(Socket).
+
+-spec shutdown(state(), libp2p_connection:shutdown()) -> ok | {error, term()}.
+shutdown(#tcp_state{socket=Socket, transport=Transport}, How) ->
+    Transport:shutdown(Socket, How).
 
 -spec acknowledge(state(), reference()) -> ok.
 acknowledge(#tcp_state{}, Ref) ->
