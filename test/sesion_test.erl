@@ -14,8 +14,7 @@ stream_open_close_test() ->
     ?assertEqual(libp2p_connection:addr_info(Stream1), libp2p_session:addr_info(Session1)),
     ?assertEqual(1, length(libp2p_session:streams(Session1))),
 
-    timer:sleep(1), % Allow session2 to notice the closure
-    ?assertEqual(1, length(libp2p_session:streams(Session2))),
+    ok = wait_until(fun() -> length(libp2p_session:streams(Session2)) == 1 end, 10, 1000),
     % Can write (up to a window size of) data without anyone on the
     % other side
     ?assertEqual(ok, libp2p_multistream_client:handshake(Stream1)),
@@ -24,8 +23,7 @@ stream_open_close_test() ->
     % Close stream
     ?assertEqual(ok, libp2p_connection:close(Stream1)),
     ?assertEqual(0, length(libp2p_session:streams(Session1))),
-    timer:sleep(1), % Allow session2 to notice the closure
-    ?assertEqual(0, length(libp2p_session:streams(Session2))),
+    ok = wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end, 10, 1000),
     ?assertEqual({error, closed}, libp2p_connection:send(Stream1, <<"hello">>)),
 
     test_util:teardown_swarms(Swarms),
@@ -150,6 +148,22 @@ stream_timeout_test() ->
     test_util:teardown_swarms(Swarms),
     ok.
     
+
+%%
+%% Helpers
+%%
+
+wait_until(Fun, Retry, Delay) when Retry > 0 ->
+    Res = Fun(),
+    case Res of
+        true ->
+            ok;
+        _ when Retry == 1 ->
+            {fail, Res};
+        _ ->
+            timer:sleep(Delay),
+            wait_until(Fun, Retry-1, Delay)
+    end.
 
 
 
