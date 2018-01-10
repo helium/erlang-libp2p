@@ -271,16 +271,14 @@ stream_open(StreamID, #state{stream_sup=StreamSup, tid=TID}) ->
     {ok, Pid} = supervisor:start_child(StreamSup, ChildSpec),
     {ok, libp2p_yamux_stream:new_connection(Pid)}.
 
--spec stream_receive(stream_id(), #state{}) -> {ok, libp2p_connection:connection()}.
+-spec stream_receive(stream_id(), #state{}) -> {ok, pid()}.
 stream_receive(StreamID, #state{stream_sup=StreamSup, tid=TID}) ->
     ChildSpec = #{ id => StreamID,
                    start => {libp2p_yamux_stream, receive_stream, [self(), TID, StreamID]},
                    restart => temporary,
                    shutdown => 1000,
                    type => worker },
-    {ok, Pid} = supervisor:start_child(StreamSup, ChildSpec),
-    {ok, libp2p_yamux_stream:new_connection(Pid)}.
-
+    supervisor:start_child(StreamSup, ChildSpec).
 
 
 %%
@@ -289,8 +287,8 @@ stream_receive(StreamID, #state{stream_sup=StreamSup, tid=TID}) ->
 
 -spec message_receive(header(), #state{}) -> #state{}.
 message_receive(Header=#header{flags=Flags}, State=#state{}) when ?FLAG_IS_SET(Flags, ?SYN) ->
-    message_receive_stream(Header, State),
-    message_receive(Header#header{flags=?FLAG_CLR(Flags, ?SYN)}, State);
+    NewState = message_receive_stream(Header, State),
+    message_receive(Header#header{flags=?FLAG_CLR(Flags, ?SYN)}, NewState);
 message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, length=Length},
                 State=#state{connection=Connection}) ->
     case stream_lookup(StreamID, State) of
