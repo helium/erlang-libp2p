@@ -7,8 +7,11 @@ stream_open_close_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     [S2Addr] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
-    {Session1Addr, _} = libp2p_session:addr_info(Session1),
-    {ok, Session2} = libp2p_swarm:connect(S2, Session1Addr),
+    {S1Addr, _} = libp2p_session:addr_info(Session1),
+    {ok, Session2} = libp2p_swarm:connect(S2, S1Addr),
+
+    ?assertEqual([{S2Addr, Session1}], libp2p_swarm:connections(S1)),
+    ?assertEqual([{S1Addr, Session2}], libp2p_swarm:connections(S2)),
 
     {ok, Stream1} = libp2p_session:open(Session1),
     ?assertEqual(libp2p_connection:addr_info(Stream1), libp2p_session:addr_info(Session1)),

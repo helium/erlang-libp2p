@@ -9,8 +9,9 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
--export([dial/3, listen/2, connect/2, 
-         listen_addrs/1, add_connection_handler/3, 
+-export([dial/3,
+         listen/2, listen_addrs/1, 
+         connect/2, connections/1, add_connection_handler/3, 
          add_stream_handler/3, stream_handlers/1]).
 
 %%
@@ -25,6 +26,10 @@ dial(Pid, Addr, Path) ->
 connect(Pid, Addr) ->
     gen_server:call(Pid, {connect_to, Addr}).
 
+-spec connections(pid()) -> [{string(), pid()}].
+connections(Pid) ->
+    gen_server:call(Pid, connections).
+
 -spec listen(pid(), string()) -> ok | {error, term()}.
 listen(Pid, Addr) ->
     {ok, _, {ListenAddr, _}} = libp2p_transport:for_addr(Addr),
@@ -37,6 +42,7 @@ listen_addrs(Pid) ->
 -spec add_connection_handler(pid(), string(), {libp2p_transport:connection_handler(), libp2p_transport:connection_handler()}) -> ok.
 add_connection_handler(Pid, Key, HandlerDef) ->
     gen_server:call(Pid, {add_connection_handler, {Key, HandlerDef}}).
+
 
 -spec add_stream_handler(pid(), string(), libp2p_session:stream_handler()) -> ok.
 add_stream_handler(Pid, Key, HandlerDef) ->
@@ -85,6 +91,8 @@ handle_call({connect_to, Addr}, _From, State=#state{tid=TID}) ->
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} -> {reply, {ok, SessionPid}, NewState}
     end;
+handle_call(connections, _From, State=#state{tid=TID}) ->
+    {reply, libp2p_config:lookup_sessions(TID), State};
 handle_call({add_connection_handler, HandlerDef}, _From, State=#state{tid=TID}) ->
     libp2p_config:insert_connection_handler(TID, HandlerDef),
     {reply, ok, State};
