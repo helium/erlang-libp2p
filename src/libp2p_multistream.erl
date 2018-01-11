@@ -59,7 +59,7 @@ encode_lines([], Acc) ->
 encode_lines([Line | Tail], Acc) ->
     LineData = list_to_binary(Line),
     LineSize = small_ints:encode_varint(byte_size(LineData) + 1),
-    <<LineSize/binary, LineData/binary, $\n, (encode_lines(Tail, Acc))>>.
+    <<LineSize/binary, LineData/binary, $\n, (encode_lines(Tail, Acc))/binary>>.
 
 -spec decode_lines(binary(), non_neg_integer() | {error, term()}, list()) -> [string()].
 decode_lines(_Bin, 0, Acc) ->
