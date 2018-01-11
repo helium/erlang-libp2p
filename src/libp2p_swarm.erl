@@ -1,7 +1,8 @@
 -module(libp2p_swarm).
 
 -export([start/1, stop/1, dial/3, connect/2, listen/2, listen_addrs/1,
-         add_connection_handler/3, add_stream_handler/3, stream_handlers/1]).
+         add_connection_handler/3, connections/1,
+         add_stream_handler/3, stream_handlers/1]).
 
 -spec start(string() | non_neg_integer()) -> supervisor:sup_ref().
 start(Addr) ->
@@ -50,6 +51,12 @@ connect(Sup, Port) when is_integer(Port) ->
 connect(Sup, Addr) ->
     Server = libp2p_swarm_sup:server(Sup),
     libp2p_swarm_server:connect(Server, Addr).
+
+-spec connections(supervisor:sup_ref()) -> [{string(), libp2p_session:pid()}].
+connections(Sup) ->
+    Server = libp2p_swarm_sup:server(Sup),
+    libp2p_swarm_server:connections(Server).
+
 
 % Stream
 %
