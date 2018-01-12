@@ -66,6 +66,9 @@ init(_) ->
 
 handle_info({inert_read, _, _}, State=#state{connection=Connection, module=Module, state=ModuleState}) ->
     case recv(Connection, ?RECV_TIMEOUT) of
+        {error, timeout} ->
+            %% timeouts are fine and not an error we want to propogate because there's no waiter
+            {noreply, State};
         {error, Error}  ->
             lager:debug("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State};
@@ -130,5 +133,6 @@ recv(Connection, Timeout) ->
         {error, Error} -> {error, Error};
         {ok, <<Size:32/little-unsigned-integer>>} ->
             %% TODO: Limit max message size we're willing to
+            %% TODO if we read the prefix length, but time out on the payload, we should handle this?
             libp2p_connection:recv(Connection, Size, Timeout)
     end.
