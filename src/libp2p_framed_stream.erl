@@ -29,17 +29,15 @@
           connection :: libp2p_connection:connection()
          }).
 
-mk_state(Connection, Module, ModuleState) ->
-    #state{connection=Connection, module=Module, state=ModuleState}.
-
 -spec enter_loop(atom(), libp2p_connection:connection(), [any()]) -> {stop, {error, term()}} |
                                                                      no_return().
 enter_loop(Module, Connection, Args) ->
     case Module:init(Args) of
         {ok, State} ->
-            case fdset(Connection) of
+            case libp2p_connection:fdset(Connection) of
                 ok ->
-                    gen_server:enter_loop(?MODULE, [], mk_state(Connection, Module, State));
+                    gen_server:enter_loop(?MODULE, [],
+                                          #state{connection=Connection, module=Module, state=State});
                 {error, Error} ->
                     {stop, {error, Error}}
             end;
@@ -47,9 +45,10 @@ enter_loop(Module, Connection, Args) ->
             case send(Connection, Response) of
                 {error, Error} -> {stop, {error, Error}};
                 ok ->
-                    case fdset(Connection) of
+                    case libp2p_connection:fdset(Connection) of
                         ok ->
-                            gen_server:enter_loop(?MODULE, [], mk_state(Connection, Module, State));
+                            gen_server:enter_loop(?MODULE, [],
+                                                  #state{connection=Connection, module=Module, state=State});
                         {error, Error} ->
                             {stop, {error, Error}}
                     end
@@ -84,7 +83,7 @@ handle_resp({resp, Data, ModuleState}, State=#state{connection=Connection}) ->
     case send(Connection, Data) of
         {error, Error} -> {stop, {error, Error}, State};
         ok ->
-            case fdset(Connection) of
+            case libp2p_connection:fdset(Connection) of
                 ok ->
                     {noreply, State#state{state=ModuleState}};
                 {error, Error} ->
@@ -94,7 +93,7 @@ handle_resp({resp, Data, ModuleState}, State=#state{connection=Connection}) ->
 handle_resp(noresp, State=#state{state=ModuleState}) ->
     handle_resp({noresp, ModuleState}, State);
 handle_resp({noresp, ModuleState}, State=#state{connection=Connection}) ->
-    case fdset(Connection) of
+    case libp2p_connection:fdset(Connection) of
         ok ->
             {noreply, State#state{state=ModuleState}};
         {error, Error} ->
@@ -121,10 +120,6 @@ handle_cast(_Msg, State) ->
 terminate(_Reason, State) ->
     libp2p_connection:fdclr(State#state.connection),
     libp2p_connection:close(State#state.connection).
-
--spec fdset(libp2p_connection:connection()) -> ok | {error, term()}.
-fdset(Connection) ->
-    libp2p_connection:fdset(Connection).
 
 -spec send(libp2p_connecton:connection(), binary() | list()) -> ok | {error, term()}.
 send(Connection, Data) when is_list(Data) ->
