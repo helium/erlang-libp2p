@@ -311,7 +311,7 @@ notify_inert(State=#state{inert_pid=NotifyPid}) when NotifyPid == undefined ->
     %% No waiter but nobody to notify either
     State;
 notify_inert(State=#state{inert_pid=NotifyPid}) ->
-    NotifyPid ! {inert_read, undefined, undefined},
+    NotifyPid ! {inert_read, State#state.stream_id, new_connection(self())},
     State#state{inert_pid=undefined}.
 
 -spec data_recv_timeout_cancel(#state{}) -> #state{}.
