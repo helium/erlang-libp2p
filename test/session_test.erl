@@ -1,7 +1,9 @@
--module(sesion_test).
+-module(session_test).
 
 -include_lib("eunit/include/eunit.hrl").
 -include("src/libp2p_yamux.hrl").
+
+-export([serve_stream/4]).
 
 stream_open_close_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
@@ -74,6 +76,45 @@ stream_window_test() ->
     test_util:teardown_swarms(Swarms),
     ok.
 
+stream_window_timeout_test() ->
+    Swarms = [S1, S2] = test_util:setup_swarms(),
+    ok = libp2p_swarm:add_stream_handler(S2, "serve", {?MODULE, serve_stream, [self()]}),
+
+    [S2Addr] = libp2p_swarm:listen_addrs(S2),
+    {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "serve"),
+
+    receive 
+        {hello, Server} -> Server
+    end,
+
+    Server ! {recv, 1},
+    receive
+        {recv, 1, Result} -> Result
+    end,
+    ?assertEqual({error, timeout}, Result),
+
+    BigData = <<0:(8 * (?DEFAULT_MAX_WINDOW_SIZE + 1))/integer>>,
+    ?assertEqual({error, timeout}, libp2p_connection:send(Stream, BigData, 100)),
+
+    test_util:teardown_swarms(Swarms),
+    ok.
+
+
+serve_stream(Connection, _Path, _TID, [Parent]) ->
+    Parent ! {hello, self()},
+    serve_loop(Connection, Parent).
+
+serve_loop(Connection, Parent) ->
+    receive
+        {recv, N} ->
+            Result = libp2p_connection:recv(Connection, N, 100),
+            Parent ! {recv, N, Result},
+            serve_loop(Connection, Parent);
+         stop ->
+            libp2p_connecton:close(Connection),
+            ok
+    end.
+
 stream_shutdown_write_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
@@ -99,6 +140,8 @@ stream_shutdown_write_test() ->
 
     test_util:teardown_swarms(Swarms),
     ok.
+
+
 
 
 stream_shutdown_read_test() ->

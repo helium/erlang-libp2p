@@ -16,7 +16,7 @@
 
 -export([serve_stream/4,
          send_update_inflight/3, send_update_packet/3,
-         recv_update_inflight/3]).
+         recv_update_inflight/2]).
 -export([initial_state/0, prop_correct/0]).
 
 -export([send/2,
@@ -67,7 +67,7 @@ send_post(S, [Size0, _], {Result, _}) ->
     case Size + S#state.inflight > ?DEFAULT_MAX_WINDOW_SIZE of
         true ->
             case Result of
-                {'EXIT', {timeout, _}} -> true;
+                {error, timeout} -> true;
                 _ -> expected_timeout
             end;
         false ->
@@ -85,7 +85,8 @@ send_update_inflight(Size0, Inflight, Packet) ->
         false -> Inflight + Size
     end.
 
-send_update_packet(Size, Inflight, Packet) ->
+send_update_packet(Size0, Inflight, Packet) ->
+    Size = min(Size0, byte_size(Packet)),
     case Size + Inflight > ?DEFAULT_MAX_WINDOW_SIZE of
         true ->
             Start = min(byte_size(Packet), ?DEFAULT_MAX_WINDOW_SIZE - Inflight),
@@ -105,9 +106,11 @@ recv_args(S) ->
      S].
 
 recv(Size, S) ->
-    S#state.server ! {recv, Size},
+    Server = S#state.server,
+    Server ! {recv, Size},
     receive
-        {recv, Size, Result} -> Result
+        {recv, Size, Result} -> Result;
+        {'DOWN', _, _, Server, Error} -> Error
     end.
 
 recv_post(S, [Size, _], Result) ->
@@ -117,10 +120,9 @@ recv_post(S, [Size, _], Result) ->
     end.
 
 recv_next(S, _Result, [Size, _]) ->
-    S#state{inflight={call, ?MODULE, recv_update_inflight, [Size, S#state.inflight, S#state.packet]}}.
+    S#state{inflight={call, ?MODULE, recv_update_inflight, [Size, S#state.inflight]}}.
 
-recv_update_inflight(Size0, Inflight, Packet) ->
-    Size = min(Size0, byte_size(Packet)),
+recv_update_inflight(Size, Inflight) ->
     case Size > Inflight of
         true -> Inflight;
         false -> Inflight - Size
@@ -129,11 +131,13 @@ recv_update_inflight(Size0, Inflight, Packet) ->
 
 
 prop_correct() ->
-    %% with_parameter(print_counterexample, false,
+%   with_parameter(print_counterexample, false,
                    ?FORALL({Packet, Cmds},
-                           {eqc_gen:largebinary(500000), commands(?MODULE)},
+                           {eqc_gen:largebinary(500000), noshrink(commands(?MODULE))},
                            begin
                                application:ensure_all_started(ranch),
+                               application:ensure_all_started(lager),
+                               lager:set_loglevel(lager_console_backend, debug),
                                Swarm1 = libp2p_swarm:start(0),
                                Swarm2 = libp2p_swarm:start(0),
                                ok = libp2p_swarm:add_stream_handler(Swarm2, "eqc", {?MODULE, serve_stream, [self()]}),
@@ -143,12 +147,14 @@ prop_correct() ->
                                StreamServer = receive
                                                   {hello, Server} -> Server
                                               end,
+                               erlang:monitor(process, StreamServer),
                                {H, S0, Res} = run_commands(?MODULE, Cmds, [{swarm1, Swarm1},
                                                                            {swarm2, Swarm2},
                                                                            {client, StreamClient},
                                                                            {server, StreamServer},
                                                                            {packet, Packet}]),
                                S = eqc_symbolic:eval(S0),
+                               ServerAlive = erlang:is_process_alive(StreamServer),
                                libp2p_connection:close(StreamClient),
                                libp2p_swarm:stop(Swarm1),
                                libp2p_swarm:stop(Swarm2),
@@ -156,9 +162,10 @@ prop_correct() ->
                                                aggregate(command_names(Cmds),
                                                          ?WHENFAIL(
                                                             begin
-                                                                eqc:format("state ~p~n", [S])
+                                                                eqc:format("packet size: ~p~n", [byte_size(S#state.packet)]),
+                                                                eqc:format("state ~p~n", [S#state{packet= <<>>}])
                                                             end,
-                                                            conjunction([{result, eqc:equals(Res, ok)}]))))
+                                                            conjunction([{server, eqc:equals(ServerAlive, true)}, {result, eqc:equals(Res, ok)}]))))
                            end).
 
 

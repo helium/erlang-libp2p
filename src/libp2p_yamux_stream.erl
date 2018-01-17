@@ -16,6 +16,7 @@
           % Collects window updates to only send updates above a certain threshold
           pending_window = 0 :: non_neg_integer(), 
           data = <<>> :: binary(),
+          waiter_data = <<>> :: binary(),
           waiter = undefined :: {gen_statem:from(), non_neg_integer()} | undefined,
           timer = undefined :: timer() | undefined
          }).
@@ -275,16 +276,16 @@ shutdown_send(#state{stream_id=StreamID, session=Session}) ->
 %%
 
 -spec window_send_update(pos_integer(), #state{}) -> #state{}.
-window_send_update(Delta, State=#state{session=Session, stream_id=StreamID, recv_state=#recv_state{window=Window, pending_window=PendingWindow}}) 
-  when PendingWindow + Delta > (Window / 2) ->
+window_send_update(Delta, State=#state{session=Session, stream_id=StreamID, recv_state=#recv_state{window=_Window, pending_window=PendingWindow}}) ->
+%  when PendingWindow + Delta > (Window / 2) ->
     % Send an update if the accumulated window updates are over a certain size
     HeaderDelta = PendingWindow + Delta,
     Header = libp2p_yamux_session:header_update(0, StreamID, HeaderDelta),
     lager:debug("Sending window update for ~p: ~p", [StreamID, HeaderDelta]),
     libp2p_yamux_session:send(Session, Header),
-    State#state{recv_state=State#state.recv_state#recv_state{pending_window=0}};
-window_send_update(Delta, State=#state{recv_state=#recv_state{pending_window=PendingWindow}}) ->
-    State#state{recv_state=State#state.recv_state#recv_state{pending_window=PendingWindow + Delta}}.
+    State#state{recv_state=State#state.recv_state#recv_state{pending_window=0}}.
+%% window_send_update(Delta, State=#state{recv_state=#recv_state{pending_window=PendingWindow}}) ->
+%%     State#state{recv_state=State#state.recv_state#recv_state{pending_window=PendingWindow + Delta}}.
 
 -spec window_receive_update(libp2p_yamux_session:header(), #state{}) -> #state{}.
 window_receive_update(Header, State=#state{stream_id=StreamID, 
@@ -315,9 +316,9 @@ notify_inert(State=#state{inert_pid=NotifyPid}) ->
 -spec data_recv_timeout_cancel(#state{}) -> #state{}.
 data_recv_timeout_cancel(State=#state{recv_state=#recv_state{timer=undefined}}) ->
     State;
-data_recv_timeout_cancel(State=#state{recv_state=#recv_state{data=Bin, waiter={_, Size}}}) 
-  when byte_size(Bin) < Size ->
-    lager:debug("Not enough data to cancel receiver timeout: ~p < ~p", [byte_size(Bin), Size]),
+data_recv_timeout_cancel(State=#state{recv_state=#recv_state{waiter_data=WaiterData, waiter={_, Size}}}) 
+  when byte_size(WaiterData) < Size ->
+    lager:debug("Not enough data to cancel receiver timeout: ~p < ~p", [byte_size(WaiterData), Size]),
     State;
 data_recv_timeout_cancel(State=#state{recv_state=RecvState=#recv_state{timer=Timer, waiter={From, Size}}}) ->
     RemainingTime = case erlang:cancel_timer(Timer, [{info, true}]) of
@@ -328,45 +329,71 @@ data_recv_timeout_cancel(State=#state{recv_state=RecvState=#recv_state{timer=Tim
     data_recv(From, Size, RemainingTime, State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}).
 
 -spec data_recv_timeout(#state{}) -> #state{}.
+data_recv_timeout(State=#state{recv_state=#recv_state{waiter=undefined}}) ->
+    State;
 data_recv_timeout(State=#state{stream_id=StreamID, recv_state=RecvState=#recv_state{waiter={From, _}}}) ->
     lager:debug("Timeout for waiter on stream ~p", [StreamID]),
     gen_statem:reply(From, {error, timeout}),
-    State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}};
-data_recv_timeout(State=#state{recv_state=#recv_state{waiter=undefined}}) ->
-    State.
+    State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}.
+
 
 -spec data_recv(gen_statem:from(), non_neg_integer(), non_neg_integer() | infinity, #state{}) -> #state{}.
-data_recv(From, Size, Timeout, State=#state{recv_state=RecvState=#recv_state{data=Data, timer=undefined, waiter=undefined}}) 
-  when byte_size(Data) < Size ->
+data_recv(From, Size, Timeout, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, timer=undefined, waiter=undefined}}) 
+  when byte_size(Data) + byte_size(WaiterData) < Size ->
     lager:debug("Blocking receiver for ~p bytes, timeout ~p, data ~p", [Size, Timeout, byte_size(Data)]),
     Timer =erlang:send_after(Timeout, self(), recv_timeout),
-    State#state{recv_state=RecvState#recv_state{timer=Timer, waiter={From, Size}}};
-data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{data=Data, timer=undefined, waiter=undefined}}) 
-  when byte_size(Data) >= Size ->
-    <<FoundData:Size/binary, Rest/binary>> = Data,
-    lager:debug("Returning ~p received bytes", [Size]),
+    State1 = window_send_update(byte_size(Data), State),
+    State1#state{recv_state=State1#state.recv_state#recv_state{timer=Timer, data= <<>>, waiter_data= <<WaiterData/binary, Data/binary>>, waiter={From, Size}}};
+
+data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{waiter_data=WaiterData, timer=undefined, waiter=undefined}}) 
+  when byte_size(WaiterData) >= Size ->
+    <<FoundData:Size/binary, WaiterRest/binary>> = WaiterData,
+    lager:debug("Returning ~p waiter bytes", [Size]),
     gen_statem:reply(From, {ok, FoundData}),
-    State#state{recv_state=RecvState#recv_state{data=Rest}}.
+    State#state{recv_state=RecvState#recv_state{waiter_data=WaiterRest}};
+
+data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{data=Data, waiter_data=WaiterData, timer=undefined, waiter=undefined}}) 
+  when byte_size(Data) + byte_size(WaiterData) >= Size ->
+    TailSize = Size - byte_size(WaiterData),
+    <<TailData:TailSize/binary, Rest/binary>> = Data, 
+    FoundData = <<WaiterData/binary, TailData/binary>>,
+    lager:debug("Returning ~p waiter bytes, ~p window bytes", [byte_size(WaiterData), TailSize]),
+    gen_statem:reply(From, {ok, FoundData}),
+    State#state{recv_state=RecvState#recv_state{data=Rest, waiter_data= <<>>}}.
+
 
 -spec data_incoming(binary(), #state{}) -> {ok, #state{}} | {error, term()}.
-data_incoming(IncomingData, State=#state{stream_id=StreamID, recv_state=#recv_state{data=Bin, window=Window, pending_window=PendingWindow, waiter=Waiter}}) ->
-    WaiterSize = case Waiter of 
-                     undefined -> -1;
-                     {_, Size} -> Size
-                 end,
+data_incoming(IncomingData, #state{recv_state=#recv_state{data=Data, window=Window}}) 
+  when byte_size(Data) + byte_size(IncomingData) > Window  ->
+    %% Regardless of waiter we check that the incoming data won't push
+    %% the window (data) buffer past the window size Validate that
+    %% incoming data won't push the data buffer past window size
+    {error, {window_exceeded, Window, byte_size(IncomingData), byte_size(Data)}};
+
+data_incoming(IncomingData, State=#state{recv_state=#recv_state{data=Data, window=Window, waiter=undefined}})
+  when byte_size(Data) + byte_size(IncomingData) =< Window  ->
+    %% No waiter, just add to window buffer
     IncomingSize = byte_size(IncomingData),
-    BufferSize = byte_size(Bin),
-    lager:debug("Incoming data: Stream ~p: Incoming: ~p, Waiting: ~p, Buffer: ~p, Window: ~p, PendingWindow: ~p", 
-                [StreamID, IncomingSize, WaiterSize, BufferSize, Window, PendingWindow]),
-    % If there is no waiter, WaiterSize will be 0 and we accept up to one window size of inbound data/
-    % If we have a waiter we accept a window size _and_ whatever size the waiter is waiting for. 
-    case BufferSize + IncomingSize > Window + WaiterSize of
-        true -> {error, {window_exceeded, Window, IncomingSize}};
-        false -> 
-            %% RemainingSize = Window + WaiterSize - (BufferSize + IncomingSize),
-            State1 = window_send_update(IncomingSize, State),
-            {ok, State1#state{recv_state=State1#state.recv_state#recv_state{data= <<Bin/binary, IncomingData/binary>>}}}
-    end.
+    DataSize = byte_size(Data),
+    RemainingSize = Window - DataSize - IncomingSize,
+    State1 = window_send_update(min(IncomingSize, RemainingSize), State),
+    {ok, State1#state{recv_state=State1#state.recv_state#recv_state{data= <<Data/binary, IncomingData/binary>>}}};
+
+data_incoming(IncomingData, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, waiter={_, WaiterSize}}}) 
+  when byte_size(Data) + byte_size(IncomingData) + byte_size(WaiterData) < WaiterSize ->
+    %% Not enough in data and waiter_data to satisfy demand
+    %% Push all of it into waiter_data and credit sender
+    lager:debug("Incoming data ~p, all for waiter ~p, ", [byte_size(IncomingData), WaiterSize]),
+    State1 = window_send_update(byte_size(IncomingData), State),
+    {ok, State1#state{recv_state=State1#state.recv_state#recv_state{waiter_data= <<WaiterData/binary, Data/binary, IncomingData/binary>>}}};
+
+data_incoming(IncomingData, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, waiter={_, WaiterSize}}}) 
+  when byte_size(Data) + byte_size(IncomingData) + byte_size(WaiterData) >= WaiterSize ->
+    %% Enough data to satisfy waiter
+    <<WaiterData1:WaiterSize/binary, Rest/binary>>  = <<WaiterData/binary, Data/binary, IncomingData/binary>>,
+    State1 = window_send_update(byte_size(IncomingData), State),
+    {ok, State1#state{recv_state=State1#state.recv_state#recv_state{data=Rest, waiter_data=WaiterData1}}}.
+
 
 %%
 %% Helpers: Sending
