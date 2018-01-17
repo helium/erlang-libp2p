@@ -15,8 +15,8 @@
          }).
 
 -export([serve_stream/4,
-         send_update_inflight/2, send_update_packet/3,
-         recv_update_inflight/2]).
+         send_update_inflight/3, send_update_packet/3,
+         recv_update_inflight/3]).
 -export([initial_state/0, prop_correct/0]).
 
 -export([send/2,
@@ -68,17 +68,18 @@ send_post(S, [Size0, _], {Result, _}) ->
         true ->
             case Result of
                 {'EXIT', {timeout, _}} -> true;
-                _ -> false
+                _ -> expected_timeout
             end;
         false ->
-            Result == ok
+            eqc_statem:eq(Result, ok)
     end.
 
 send_next(S, _Result, [Size, _]) ->
-    S#state{inflight={call, ?MODULE, send_update_inflight, [Size, S#state.inflight]},
+    S#state{inflight={call, ?MODULE, send_update_inflight, [Size, S#state.inflight, S#state.packet]},
             packet={call, ?MODULE, send_update_packet, [Size, S#state.inflight, S#state.packet]}}.
 
-send_update_inflight(Size, Inflight) ->
+send_update_inflight(Size0, Inflight, Packet) ->
+    Size = min(Size0, byte_size(Packet)),
     case Size + Inflight > ?DEFAULT_MAX_WINDOW_SIZE of
         true -> ?DEFAULT_MAX_WINDOW_SIZE;
         false -> Inflight + Size
@@ -111,14 +112,15 @@ recv(Size, S) ->
 
 recv_post(S, [Size, _], Result) ->
     case Size > S#state.inflight of
-        true -> Result == {error, timeout};
-        false -> element(1, Result) == ok
+        true -> eqc_statem:eq(Result, {error, timeout});
+        false -> eqc_statem:eq(element(1, Result), ok)
     end.
 
 recv_next(S, _Result, [Size, _]) ->
-    S#state{inflight={call, ?MODULE, recv_update_inflight, [Size, S#state.inflight]}}.
+    S#state{inflight={call, ?MODULE, recv_update_inflight, [Size, S#state.inflight, S#state.packet]}}.
 
-recv_update_inflight(Size, Inflight) ->
+recv_update_inflight(Size0, Inflight, Packet) ->
+    Size = min(Size0, byte_size(Packet)),
     case Size > Inflight of
         true -> Inflight;
         false -> Inflight - Size
