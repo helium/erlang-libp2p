@@ -373,17 +373,12 @@ data_incoming(IncomingData, #state{recv_state=#recv_state{data=Data, window=Wind
 data_incoming(IncomingData, State=#state{recv_state=#recv_state{data=Data, window=Window, waiter=undefined}})
   when byte_size(Data) + byte_size(IncomingData) =< Window  ->
     %% No waiter, just add to window buffer
-    IncomingSize = byte_size(IncomingData),
-    DataSize = byte_size(Data),
-    RemainingSize = Window - DataSize - IncomingSize,
-    State1 = window_send_update(min(IncomingSize, RemainingSize), State),
-    {ok, State1#state{recv_state=State1#state.recv_state#recv_state{data= <<Data/binary, IncomingData/binary>>}}};
+    {ok, State#state{recv_state=State#state.recv_state#recv_state{data= <<Data/binary, IncomingData/binary>>}}};
 
 data_incoming(IncomingData, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, waiter={_, WaiterSize}}}) 
   when byte_size(Data) + byte_size(IncomingData) + byte_size(WaiterData) < WaiterSize ->
     %% Not enough in data and waiter_data to satisfy demand
     %% Push all of it into waiter_data and credit sender
-    lager:debug("Incoming data ~p, all for waiter ~p, ", [byte_size(IncomingData), WaiterSize]),
     State1 = window_send_update(byte_size(IncomingData), State),
     {ok, State1#state{recv_state=State1#state.recv_state#recv_state{waiter_data= <<WaiterData/binary, Data/binary, IncomingData/binary>>}}};
 
@@ -391,7 +386,8 @@ data_incoming(IncomingData, State=#state{recv_state=#recv_state{data=Data, waite
   when byte_size(Data) + byte_size(IncomingData) + byte_size(WaiterData) >= WaiterSize ->
     %% Enough data to satisfy waiter
     <<WaiterData1:WaiterSize/binary, Rest/binary>>  = <<WaiterData/binary, Data/binary, IncomingData/binary>>,
-    State1 = window_send_update(byte_size(IncomingData), State),
+    DataDelta = max(0, byte_size(Data) - byte_size(Rest)),
+    State1 = window_send_update(DataDelta, State),
     {ok, State1#state{recv_state=State1#state.recv_state#recv_state{data=Rest, waiter_data=WaiterData1}}}.
 
 
