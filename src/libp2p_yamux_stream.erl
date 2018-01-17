@@ -38,7 +38,6 @@
 
 -export_type([stream/0]).
 
--define(SEND_TIMEOUT, 5000).
 -define(NO_READ(S), (S == read orelse S == read_write)).
 -define(NO_WRITE(S), (S == write orelse S == read_write)).
 
@@ -48,7 +47,7 @@
 % API
 -export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2]).
 % libp2p_connection
--export([close/1, shutdown/2, send/2, recv/3, acknowledge/2,
+-export([close/1, shutdown/2, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2]).
 % states
 -export([handle_event/4]).
@@ -83,10 +82,12 @@ receive_data(Ref, Data) ->
 new_connection(Pid) ->
         libp2p_connection:new(?MODULE, Pid).
 
-
 statem(Pid, Cmd) ->
+    statem(Pid, Cmd, 5000).
+
+statem(Pid, Cmd, Timeout) ->
     try
-        gen_statem:call(Pid, Cmd)
+        gen_statem:call(Pid, Cmd, Timeout)
     catch
         exit:{noproc, _} ->
             {error, closed}
@@ -98,11 +99,11 @@ close(Pid) ->
 shutdown(Pid, Mode) ->
     statem(Pid, {shutdown, Mode}).
 
-send(Pid, Data) ->
-    statem(Pid, {send, Data}).
+send(Pid, Data, Timeout) ->
+    statem(Pid, {send, Data, Timeout}, Timeout).
 
 recv(Pid, Size, Timeout) ->
-    statem(Pid, {recv, Size, Timeout}).
+    statem(Pid, {recv, Size, Timeout}, Timeout).
 
 acknowledge(_, _) ->
     ok.
@@ -170,10 +171,10 @@ handle_event(cast, {update_window, _Flags, Header}, established, Data=#state{}) 
 
 % Sending
 %
-handle_event({call, From}, {send, _}, _State, #state{shutdown_state=ShutdownState}) when ?NO_WRITE(ShutdownState) ->
+handle_event({call, From}, {send, _, _}, _State, #state{shutdown_state=ShutdownState}) when ?NO_WRITE(ShutdownState) ->
     {keep_state_and_data, {reply, From, {error, closed}}};
-handle_event({call, From}, {send, Bin}, _State, Data=#state{}) ->
-    {keep_state, data_send(From, Bin, Data)};
+handle_event({call, From}, {send, Bin, Timeout}, _State, Data=#state{}) ->
+    {keep_state, data_send(From, Bin, Timeout, Data)};
 handle_event(info, send_timeout, established, Data=#state{}) ->
     {keep_state, data_send_timeout(Data)};
 
@@ -322,21 +323,25 @@ data_recv_timeout_cancel(State=#state{recv_state=#recv_state{data=Bin, waiter={_
     lager:debug("Not enough data to cancel receiver timeout: ~p < ~p", [byte_size(Bin), Size]),
     State;
 data_recv_timeout_cancel(State=#state{recv_state=RecvState=#recv_state{timer=Timer, waiter={From, Size}}}) ->
-    erlang:cancel_timer(Timer),
+    RemainingTime = case erlang:cancel_timer(Timer, [{info, true}]) of
+                        false -> 0;
+                        N -> N
+                    end,
     lager:debug("Canceled receiver timeout for size: ~p", [Size]),
-    % Timeout can be infinity since a;; the data is here
-    data_recv(From, Size, infinity, State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}).
+    data_recv(From, Size, RemainingTime, State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}).
 
 -spec data_recv_timeout(#state{}) -> #state{}.
 data_recv_timeout(State=#state{stream_id=StreamID, recv_state=RecvState=#recv_state{waiter={From, _}}}) ->
     lager:debug("Timeout for waiter on stream ~p", [StreamID]),
     gen_statem:reply(From, {error, timeout}),
-    State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}.
+    State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}};
+data_recv_timeout(State=#state{recv_state=#recv_state{waiter=undefined}}) ->
+    State.
 
--spec data_recv(gen_statem:from(), non_neg_integer(), pos_integer() | infinity, #state{}) -> #state{}.
+-spec data_recv(gen_statem:from(), non_neg_integer(), non_neg_integer() | infinity, #state{}) -> #state{}.
 data_recv(From, Size, Timeout, State=#state{recv_state=RecvState=#recv_state{data=Data, timer=undefined, waiter=undefined}}) 
   when byte_size(Data) < Size ->
-    lager:debug("Blocking receiver for ~p bytes, timeout ~p", [Size, Timeout]),
+    lager:debug("Blocking receiver for ~p bytes, timeout ~p, data ~p", [Size, Timeout, byte_size(Data)]),
     Timer =erlang:send_after(Timeout, self(), recv_timeout),
     State#state{recv_state=RecvState#recv_state{timer=Timer, waiter={From, Size}}};
 data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{data=Data, timer=undefined, waiter=undefined}}) 
@@ -347,20 +352,21 @@ data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{da
     State#state{recv_state=RecvState#recv_state{data=Rest}}.
 
 -spec data_incoming(binary(), #state{}) -> {ok, #state{}} | {error, term()}.
-data_incoming(IncomingData, State=#state{stream_id=StreamID, recv_state=#recv_state{data=Bin, window=Window, waiter=Waiter}}) ->
+data_incoming(IncomingData, State=#state{stream_id=StreamID, recv_state=#recv_state{data=Bin, window=Window, pending_window=PendingWindow, waiter=Waiter}}) ->
     WaiterSize = case Waiter of 
                      undefined -> -1;
                      {_, Size} -> Size
                  end,
     IncomingSize = byte_size(IncomingData),
     BufferSize = byte_size(Bin),
-    lager:debug("Incoming data: Stream ~p: Incoming: ~p, Waiting: ~p, Buffer: ~p, Window: ~p", 
-                [StreamID, IncomingSize, WaiterSize, BufferSize, Window]),
+    lager:debug("Incoming data: Stream ~p: Incoming: ~p, Waiting: ~p, Buffer: ~p, Window: ~p, PendingWindow: ~p", 
+                [StreamID, IncomingSize, WaiterSize, BufferSize, Window, PendingWindow]),
     % If there is no waiter, WaiterSize will be 0 and we accept up to one window size of inbound data/
     % If we have a waiter we accept a window size _and_ whatever size the waiter is waiting for. 
     case BufferSize + IncomingSize > Window + WaiterSize of
         true -> {error, {window_exceeded, Window, IncomingSize}};
         false -> 
+            %% RemainingSize = Window + WaiterSize - (BufferSize + IncomingSize),
             State1 = window_send_update(IncomingSize, State),
             {ok, State1#state{recv_state=State1#state.recv_state#recv_state{data= <<Bin/binary, IncomingData/binary>>}}}
     end.
@@ -375,25 +381,28 @@ data_send_timeout_cancel(State=#state{send_state=#send_state{timer=undefined}}) 
 data_send_timeout_cancel(State=#state{send_state=#send_state{window=0}}) ->
     State;
 data_send_timeout_cancel(State=#state{send_state=SendState=#send_state{timer=Timer, waiter={From, Data}}}) ->
-    erlang:cancel_timer(Timer),
-    data_send(From, Data, State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}).
+    RemainingTime = case erlang:cancel_timer(Timer, [{info, true}]) of
+                        false -> 0;
+                        N -> N
+                    end,
+    data_send(From, Data, RemainingTime, State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}).
 
 -spec data_send_timeout(#state{}) -> #state{}.
 data_send_timeout(State=#state{send_state=SendState=#send_state{waiter={From, _}}}) ->
     gen_statem:reply(From, {error, timeout}),
     State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}.
 
--spec data_send(gen_statem:from(), binary(), #state{}) -> #state{}.
-data_send(From, <<>>, State=#state{}) ->
+-spec data_send(gen_statem:from(), binary(), non_neg_integer(), #state{}) -> #state{}.
+data_send(From, <<>>, _Timeout, State=#state{}) ->
     % Empty data for sender, we're done
     gen_statem:reply(From, ok),
     State;
-data_send(From, Data, State=#state{send_state=SendState=#send_state{window=0, timer=undefined, waiter=undefined}}) ->
+data_send(From, Data, Timeout, State=#state{send_state=SendState=#send_state{window=0, timer=undefined, waiter=undefined}}) ->
     % window empty, create a timeout and the add sender to the waiter list
-    Timer = erlang:send_after(?SEND_TIMEOUT, self(), send_timeout),
+    Timer = erlang:send_after(Timeout, self(), send_timeout),
     lager:debug("Blocking sender for empty send window"),
     State#state{send_state=SendState#send_state{timer=Timer, waiter={From, Data}}};
-data_send(From, Data, State=#state{session=Session, stream_id=StreamID, send_state=SendState=#send_state{window=SendWindow}}) ->
+data_send(From, Data, Timeout, State=#state{session=Session, stream_id=StreamID, send_state=SendState=#send_state{window=SendWindow}}) ->
     % Send data up to window size
     Window = min(byte_size(Data), SendWindow),
     <<SendData:Window/binary, Rest/binary>> = Data,
@@ -404,7 +413,7 @@ data_send(From, Data, State=#state{session=Session, stream_id=StreamID, send_sta
             gen_statem:reply(From, {error, Error}),
             State;
         ok -> 
-            data_send(From, Rest, State#state{send_state=SendState#send_state{window=SendWindow - Window}})
+            data_send(From, Rest, Timeout, State#state{send_state=SendState#send_state{window=SendWindow - Window}})
     end.
 
 
