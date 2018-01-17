@@ -275,7 +275,9 @@ shutdown_send(#state{stream_id=StreamID, session=Session}) ->
 %% Windows
 %%
 
--spec window_send_update(pos_integer(), #state{}) -> #state{}.
+-spec window_send_update(non_neg_integer(), #state{}) -> #state{}.
+window_send_update(Delta, State=#state{}) when Delta == 0 ->
+    State;
 window_send_update(Delta, State=#state{session=Session, stream_id=StreamID, recv_state=#recv_state{window=_Window, pending_window=PendingWindow}}) ->
 %  when PendingWindow + Delta > (Window / 2) ->
     % Send an update if the accumulated window updates are over a certain size
@@ -352,14 +354,17 @@ data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{wa
     gen_statem:reply(From, {ok, FoundData}),
     State#state{recv_state=RecvState#recv_state{waiter_data=WaiterRest}};
 
-data_recv(From, Size, _Timeout, State=#state{recv_state=RecvState=#recv_state{data=Data, waiter_data=WaiterData, timer=undefined, waiter=undefined}}) 
+data_recv(From, Size, _Timeout, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, timer=undefined, waiter=undefined}}) 
   when byte_size(Data) + byte_size(WaiterData) >= Size ->
     TailSize = Size - byte_size(WaiterData),
     <<TailData:TailSize/binary, Rest/binary>> = Data, 
     FoundData = <<WaiterData/binary, TailData/binary>>,
     lager:debug("Returning ~p waiter bytes, ~p window bytes", [byte_size(WaiterData), TailSize]),
     gen_statem:reply(From, {ok, FoundData}),
-    State#state{recv_state=RecvState#recv_state{data=Rest, waiter_data= <<>>}}.
+    % Credit sender for any data pulled from the data window
+    DataDelta = max(0, byte_size(Data) - byte_size(Rest)),
+    State1 = window_send_update(DataDelta, State),
+    State1#state{recv_state=State1#state.recv_state#recv_state{data=Rest, waiter_data= <<>>}}.
 
 
 -spec data_incoming(binary(), #state{}) -> {ok, #state{}} | {error, term()}.

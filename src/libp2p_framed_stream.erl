@@ -134,5 +134,9 @@ recv(Connection, Timeout) ->
         {ok, <<Size:32/little-unsigned-integer>>} ->
             %% TODO: Limit max message size we're willing to
             %% TODO if we read the prefix length, but time out on the payload, we should handle this?
-            libp2p_connection:recv(Connection, Size, Timeout)
+            case libp2p_connection:recv(Connection, Size, Timeout) of
+                {ok, Data} when byte_size(Data) == Size -> {ok, Data};
+                {ok, _Data} -> error(frame_size_mismatch);
+                {error, Error} -> {error, Error}
+            end
     end.
