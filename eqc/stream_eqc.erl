@@ -54,7 +54,7 @@ send_pre(_S) ->
     true.
 
 send_args(S) ->
-    [?SUCHTHAT(Size, eqc_gen:largeint(), Size > 0),
+    [?SUCHTHAT(Size, eqc_gen:oneof([eqc_gen:int(), eqc_gen:largeint()]), Size > 0),
     S].
 
 send(Size0, S) ->
@@ -101,7 +101,7 @@ recv_pre(_S) ->
     true.
 
 recv_args(S) ->
-    [?SUCHTHAT(Size, eqc_gen:largeint(), Size > 0),
+    [?SUCHTHAT(Size, eqc_gen:oneof([eqc_gen:int(), eqc_gen:largeint()]), Size > 0),
      S].
 
 recv(Size, S) ->
