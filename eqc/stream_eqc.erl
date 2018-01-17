@@ -54,14 +54,16 @@ send_pre(_S) ->
     true.
 
 send_args(S) ->
-    [?SUCHTHAT(Size, eqc_gen:int(), Size > 0),
+    [?SUCHTHAT(Size, eqc_gen:largeint(), Size > 0),
     S].
 
-send(Size, S) ->
+send(Size0, S) ->
+    Size = min(byte_size(S#state.packet), Size0),
     <<Data:Size/binary, Rest/binary>> = S#state.packet,
-    {catch libp2p_connection:send(S#state.client, Data), Rest}.
+    {catch libp2p_connection:send(S#state.client, Data, 100), Rest}.
 
-send_post(S, [Size, _], {Result, _}) ->
+send_post(S, [Size0, _], {Result, _}) ->
+    Size = min(byte_size(S#state.packet), Size0),
     case Size + S#state.inflight > ?DEFAULT_MAX_WINDOW_SIZE of
         true ->
             case Result of
@@ -85,10 +87,10 @@ send_update_inflight(Size, Inflight) ->
 send_update_packet(Size, Inflight, Packet) ->
     case Size + Inflight > ?DEFAULT_MAX_WINDOW_SIZE of
         true ->
-            Start = ?DEFAULT_MAX_WINDOW_SIZE - Inflight,
+            Start = min(byte_size(Packet), ?DEFAULT_MAX_WINDOW_SIZE - Inflight),
             Length = byte_size(Packet) - Start;
         false ->
-            Start = Size,
+            Start = min(byte_size(Packet), Size),
             Length = byte_size(Packet) - Start
     end,
     binary:part(Packet, Start, Length).
@@ -98,7 +100,7 @@ recv_pre(_S) ->
     true.
 
 recv_args(S) ->
-    [?SUCHTHAT(Size, eqc_gen:int(), Size > 0),
+    [?SUCHTHAT(Size, eqc_gen:largeint(), Size > 0),
      S].
 
 recv(Size, S) ->
@@ -145,6 +147,9 @@ prop_correct() ->
                                                                            {server, StreamServer},
                                                                            {packet, Packet}]),
                                S = eqc_symbolic:eval(S0),
+                               libp2p_connection:close(StreamClient),
+                               libp2p_swarm:stop(Swarm1),
+                               libp2p_swarm:stop(Swarm2),
                                pretty_commands(?MODULE, Cmds, {H, S, Res},
                                                aggregate(command_names(Cmds),
                                                          ?WHENFAIL(
