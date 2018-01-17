@@ -131,7 +131,7 @@ recv_update_inflight(Size0, Inflight, Packet) ->
 prop_correct() ->
     %% with_parameter(print_counterexample, false,
                    ?FORALL({Packet, Cmds},
-                           {eqc_gen:largebinary(), commands(?MODULE)},
+                           {eqc_gen:largebinary(500000), commands(?MODULE)},
                            begin
                                application:ensure_all_started(ranch),
                                Swarm1 = libp2p_swarm:start(0),
