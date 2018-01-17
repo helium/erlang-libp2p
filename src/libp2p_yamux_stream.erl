@@ -83,11 +83,8 @@ new_connection(Pid) ->
         libp2p_connection:new(?MODULE, Pid).
 
 statem(Pid, Cmd) ->
-    statem(Pid, Cmd, 5000).
-
-statem(Pid, Cmd, Timeout) ->
     try
-        gen_statem:call(Pid, Cmd, Timeout)
+        gen_statem:call(Pid, Cmd)
     catch
         exit:{noproc, _} ->
             {error, closed}
@@ -100,10 +97,10 @@ shutdown(Pid, Mode) ->
     statem(Pid, {shutdown, Mode}).
 
 send(Pid, Data, Timeout) ->
-    statem(Pid, {send, Data, Timeout}, Timeout).
+    statem(Pid, {send, Data, Timeout}).
 
 recv(Pid, Size, Timeout) ->
-    statem(Pid, {recv, Size, Timeout}, Timeout).
+    statem(Pid, {recv, Size, Timeout}).
 
 acknowledge(_, _) ->
     ok.
