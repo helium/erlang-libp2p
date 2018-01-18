@@ -105,6 +105,8 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
 handle_info({timeout_ping, PingID}, State=#state{}) ->
     {noreply, ping_timeout(PingID, State)};
 
+handle_info(timeout, State) ->
+    {stop, normal, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p~n", [Msg]),
     {stop, unknown, State}.
