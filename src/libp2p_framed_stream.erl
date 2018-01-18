@@ -4,7 +4,7 @@
 
 
 % gen_server
--export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
 -export([enter_loop/3]).
 % libp2p_connection
@@ -108,6 +108,10 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
+
+terminate(_Reason, State) ->
+    libp2p_connection:fdclr(State#state.connection),
+    libp2p_connection:close(State#state.connection).
 
 -spec fdset(libp2p_connection:connection()) -> ok | {error, term()}.
 fdset(Connection) ->
