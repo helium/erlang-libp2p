@@ -9,8 +9,9 @@ setup_swarms(N, Acc) ->
 
 setup_swarms(N) when N >= 1 ->
     application:ensure_all_started(ranch),
-    application:ensure_all_started(lager),
-    lager:set_loglevel(lager_console_backend, debug),
+    %% application:ensure_all_started(lager),
+    %% lager:set_loglevel(lager_console_backend, debug),
+    %% lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
     setup_swarms(N, []).
 
 setup_swarms() ->

@@ -24,7 +24,7 @@ stream_open_close_test() ->
 
     % Close stream
     ?assertEqual(ok, libp2p_connection:close(Stream1)),
-    ?assertEqual(0, length(libp2p_session:streams(Session1))),
+    ok = wait_until(fun() -> length(libp2p_session:streams(Session1)) == 0 end, 10, 1000),
     ok = wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end, 10, 1000),
     ?assertEqual({error, closed}, libp2p_connection:send(Stream1, <<"hello">>)),
 
