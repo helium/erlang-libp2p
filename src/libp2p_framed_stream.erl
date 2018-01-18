@@ -20,7 +20,8 @@
 -callback handle_data(binary(), any()) -> {resp, binary() | list(), any()} |
                                           noresp |
                                           {noresp, any()} |
-                                          {stop, term(), any()}.
+                                          {stop, term(), any()} |
+                                          {stop, term(), any(), any()}.
 
 -record(state, {
           module :: atom(),
@@ -53,12 +54,16 @@ enter_loop(Module, Connection, Args) ->
                             {stop, {error, Error}}
                     end
             end;
-        {stop, Reason} -> {stop, Reason};
+        {stop, Reason} ->
+            libp2p_connection:close(Connection),
+            {stop, Reason};
         {stop, Reason, Response} ->
-            case send(Connection, Response) of
+            Res = case send(Connection, Response) of
                 {error, Error} -> {stop, {error, Error}};
                 ok -> {stop, Reason}
-            end
+            end,
+            libp2p_connection:close(Connection),
+            Res
     end.
 
 init(_) ->
@@ -97,6 +102,10 @@ handle_resp({noresp, ModuleState}, State=#state{connection=Connection}) ->
     end;
 handle_resp({stop, Reason, ModuleState}, State=#state{}) ->
     {stop, Reason, State#state{state=ModuleState}};
+handle_resp({stop, Reason, Reply, ModuleState}, State=#state{connection=Connection}) ->
+    send(Connection, Reply),
+    {stop, Reason, State#state{state=ModuleState}};
+
 
 handle_resp(Msg, State=#state{}) ->
     lager:error("Unhandled framed stream response ~p", [Msg]),
