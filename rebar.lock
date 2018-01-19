@@ -18,7 +18,7 @@
   1},
  {<<"inert">>,
   {git,"https://github.com/msantos/inert",
-       {ref,"47fd8f48327acdd142b464115eace0b8a32004fc"}},
+       {ref,"0d150fafaf3945b3a9761269c273eaa1f55649db"}},
   0},
  {<<"lager">>,
   {git,"https://github.com/erlang-lager/lager.git",
