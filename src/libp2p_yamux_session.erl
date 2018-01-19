@@ -301,7 +301,8 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
                     lager:error("Discarding data for stream ~p", [StreamID]),
                     libp2p_connection:recv(Connection, Length);
                 _ ->
-                    lager:warning("Frame for missing stream ~p" ,[Header])
+                    lager:warning("Sending RST for missing stream ~p" ,[StreamID]),
+                    session_send(header_update(?RST, StreamID, 0), State)
             end;
         {ok, Pid} ->
             case Type of

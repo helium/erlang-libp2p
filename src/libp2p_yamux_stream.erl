@@ -168,10 +168,8 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
         true ->
             % There is still data pending for a caller, don't stop
             % this stream yet but mark as pending
-            lager:debug("CLOSE PENDING"),
             {keep_state, Data#state{close_state=pending}};
         false ->
-            lager:debug("CLOSE, STOPPING"),
             % No more data to deliver, shut down
             {stop, normal}
     end;
@@ -213,7 +211,6 @@ handle_event(info, recv_timeout, established, Data=#state{}) ->
 handle_event({call, From}, {recv, Size, _}, _State, Data=#state{}) when ?NO_READ(Data) andalso Size > ?RECEIVABLE_SIZE(Data) ->
     {keep_state_and_data, {reply, From, {error, closed}}};
 handle_event({call, From}, {recv, Size, Timeout}, _State, Data0=#state{close_state=pending}) ->
-    lager:debug("RECV ~p in pending", [Size]),
     Data = data_recv(From, Size, Timeout, Data0),
     case ?RECEIVABLE_SIZE(Data) > 0 of
         true -> {keep_state, Data};
@@ -453,14 +450,12 @@ data_send(From, <<>>, _Timeout, State=#state{}) ->
 data_send(From, Data, Timeout, State=#state{send_state=SendState=#send_state{window=0, timer=undefined, waiter=undefined}}) ->
     % window empty, create a timeout and the add sender to the waiter list
     Timer = erlang:send_after(Timeout, self(), send_timeout),
-    lager:debug("Blocking sender for empty send window"),
     State#state{send_state=SendState#send_state{timer=Timer, waiter={From, Data}}};
 data_send(From, Data, Timeout, State=#state{session=Session, stream_id=StreamID, send_state=SendState=#send_state{window=SendWindow}}) ->
     % Send data up to window size
     Window = min(byte_size(Data), SendWindow),
     <<SendData:Window/binary, Rest/binary>> = Data,
     Header = libp2p_yamux_session:header_data(StreamID, 0, Window),
-    lager:debug("Sending ~p bytes for: ~p", [Window, StreamID]),
     case libp2p_yamux_session:send(Session, Header, SendData) of
         {error, Error} ->
             gen_statem:reply(From, {error, Error}),
