@@ -94,6 +94,8 @@ statem(Pid, Cmd) ->
         gen_statem:call(Pid, Cmd)
     catch
         exit:{noproc, _} ->
+            {error, closed};
+        exit:{normal, _} ->
             {error, closed}
     end.
 

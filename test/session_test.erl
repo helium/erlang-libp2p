@@ -70,7 +70,7 @@ stream_close_test() ->
     % but the client can read remaining data
     ?assertEqual({ok, <<"hello">>}, libp2p_connection:recv(Stream, 5)),
     % but only until the sent data is exhausted
-    % ?assertEqual({error, closed}, libp2p_connection:recv(Stream, 1)),
+    ?assertEqual({error, closed}, libp2p_connection:recv(Stream, 1)),
 
     test_util:teardown_swarms(Swarms).
 
