@@ -12,8 +12,8 @@ open_close_test() ->
 
     {ok, Stream1} = libp2p_session:open(Session1),
     ?assertEqual(libp2p_connection:addr_info(Stream1), libp2p_session:addr_info(Session1)),
-    ok = wait_until(fun() -> length(libp2p_session:streams(Session1)) == 1 end, 10, 1000),
-    ok = wait_until(fun() -> length(libp2p_session:streams(Session2)) == 1 end, 10, 1000),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session1)) == 1 end, 10, 1000),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 1 end, 10, 1000),
 
     % Can write (up to a window size of) data without anyone on the
     % other side
@@ -21,8 +21,8 @@ open_close_test() ->
 
     % Close stream after sending some data on it
     ?assertEqual(ok, libp2p_connection:close(Stream1)),
-    ok = wait_until(fun() -> length(libp2p_session:streams(Session1)) == 0 end, 10, 1000),
-    ok = wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end, 10, 1000),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session1)) == 0 end, 10, 1000),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end, 10, 1000),
     ?assertEqual({error, closed}, libp2p_connection:send(Stream1, <<"hello">>)),
 
     test_util:teardown_swarms(Swarms),
@@ -110,68 +110,6 @@ stream_window_timeout_test() ->
     test_util:teardown_swarms(Swarms),
     ok.
 
-stream_shutdown_write_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
-    ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
-
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
-    {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo"),
-
-    libp2p_framed_stream:send(Stream, <<"hello world">>),
-
-    libp2p_connection:shutdown(Stream, write),
-    ?assertEqual({error, closed}, libp2p_framed_stream:send(Stream, <<"no write 1">>)),
-
-    % Doing it again makes no difference
-    libp2p_connection:shutdown(Stream, write),
-    ?assertEqual({error, closed}, libp2p_framed_stream:send(Stream, <<"no write 1">>)),
-
-    % We can still read
-    ?assertEqual({ok, <<"hello world">>}, libp2p_framed_stream:recv(Stream)),
-
-    libp2p_connection:shutdown(Stream, read_write),
-    ?assertEqual({error, closed}, libp2p_framed_stream:recv(Stream)),
-    ?assertEqual({error, closed}, libp2p_framed_stream:send(Stream, <<"no write 2">>)),
-
-    test_util:teardown_swarms(Swarms),
-    ok.
-
-
-
-
-stream_shutdown_read_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
-    ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
-
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
-    {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo"),
-
-    libp2p_connection:shutdown(Stream, read),
-    ?assertEqual({error, closed}, libp2p_framed_stream:recv(Stream)),
-
-    % We can still write
-    ?assertEqual(ok, libp2p_framed_stream:send(Stream, <<"hello world">>)),
-
-    libp2p_connection:shutdown(Stream, read_write),
-    ?assertEqual({error, closed}, libp2p_framed_stream:recv(Stream)),
-    ?assertEqual({error, closed}, libp2p_framed_stream:send(Stream, <<"no write 2">>)),
-
-    test_util:teardown_swarms(Swarms),
-    ok.
-
-stream_shutdown_read_write_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
-    ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
-
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
-    {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo"),
-
-    libp2p_connection:shutdown(Stream, read_write),
-    ?assertEqual({error, closed}, libp2p_framed_stream:recv(Stream)),
-    ?assertEqual({error, closed}, libp2p_framed_stream:send(Stream, <<"no write 1">>)),
-
-    test_util:teardown_swarms(Swarms),
-    ok.
 
 
 stream_timeout_test() ->
@@ -185,18 +123,3 @@ stream_timeout_test() ->
 
     test_util:teardown_swarms(Swarms),
     ok.
-
-
-
-
-wait_until(Fun, Retry, Delay) when Retry > 0 ->
-    Res = Fun(),
-    case Res of
-        true ->
-            ok;
-        _ when Retry == 1 ->
-            {fail, Res};
-        _ ->
-            timer:sleep(Delay),
-            wait_until(Fun, Retry-1, Delay)
-    end.
