@@ -24,7 +24,7 @@ serve_loop(Connection, Parent) ->
             Parent ! {recv, N, Result},
             serve_loop(Connection, Parent);
         close ->
-            libp2p_connecton:close(Connection),
+            libp2p_connection:close(Connection),
             serve_loop(Connection, Parent);
         stop ->
             libp2p_connecton:close(Connection),
