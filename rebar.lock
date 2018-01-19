@@ -22,7 +22,7 @@
   0},
  {<<"lager">>,
   {git,"https://github.com/erlang-lager/lager.git",
-       {ref,"cb1acd919c2c9b66632dc43830e590312d06cc2b"}},
+       {ref,"985612f1679aad1ad9f6122e8553a595fc04b82c"}},
   0},
  {<<"multiaddr">>,
   {git,"https://github.com/helium/erlang-multiaddr",
