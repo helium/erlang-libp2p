@@ -304,6 +304,8 @@ shutdown_send(#state{stream_id=StreamID, session=Session}) ->
 -spec window_send_update(non_neg_integer(), #state{}) -> #state{}.
 window_send_update(Delta, State=#state{}) when Delta == 0 ->
     State;
+window_send_update(_Delta, State=#state{close_state=pending}) ->
+    State;
 window_send_update(Delta, State=#state{session=Session, stream_id=StreamID, recv_state=#recv_state{window=_Window, pending_window=PendingWindow}}) ->
 %  when PendingWindow + Delta > (Window / 2) ->
     % Send an update if the accumulated window updates are over a certain size
