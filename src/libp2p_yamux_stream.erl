@@ -46,7 +46,7 @@
 -define(WAITER_DATA(S), S#state.recv_state#recv_state.waiter_data).
 -define(RECEIVABLE_SIZE(S), (byte_size(?WINDOW_DATA(S)) + byte_size(?WAITER_DATA(S)))).
 -define(NO_READ(S), (?CLOSE_STATE(S) == pending orelse ?SHUTDOWN_STATE(S) == read orelse ?SHUTDOWN_STATE(S) == read_write)).
--define(NO_WRITE(S), (?CLOSE_STATE(S) orelse ?SHUTDOWN_STATE(S) == write orelse ?SHUTDOWN_STATE(S) == read_write)).
+-define(NO_WRITE(S), (?CLOSE_STATE(S) == pending orelse ?SHUTDOWN_STATE(S) == write orelse ?SHUTDOWN_STATE(S) == read_write)).
 
 % gen_statem functions
 -export([init/1, callback_mode/0]).
