@@ -28,6 +28,7 @@
           tid :: ets:tab(),
           stream_id :: libp2p_yamux:stream_id(),
           shutdown_state=none :: libp2p_connection:shutdown() | none,
+          close_state=open :: open | pending,
           recv_state=#recv_state{} :: #recv_state{},
           send_state=#send_state{} :: #send_state{}
          }).
@@ -39,8 +40,13 @@
 
 -export_type([stream/0]).
 
--define(NO_READ(S), (S == read orelse S == read_write)).
--define(NO_WRITE(S), (S == write orelse S == read_write)).
+-define(SHUTDOWN_STATE(S), S#state.shutdown_state).
+-define(CLOSE_STATE(S), S#state.close_state).
+-define(WINDOW_DATA(S), S#state.recv_state#recv_state.data).
+-define(WAITER_DATA(S), S#state.recv_state#recv_state.waiter_data).
+-define(RECEIVABLE_SIZE(S), (byte_size(?WINDOW_DATA(S)) + byte_size(?WAITER_DATA(S)))).
+-define(NO_READ(S), (?CLOSE_STATE(S) == pending orelse ?SHUTDOWN_STATE(S) == read orelse ?SHUTDOWN_STATE(S) == read_write)).
+-define(NO_WRITE(S), (?CLOSE_STATE(S) orelse ?SHUTDOWN_STATE(S) == write orelse ?SHUTDOWN_STATE(S) == read_write)).
 
 % gen_statem functions
 -export([init/1, callback_mode/0]).
@@ -154,9 +160,17 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
 
 % Window Updates
 %
-handle_event(cast, {update_window, Flags, _}, _, #state{}) when ?FLAG_IS_SET(Flags, ?RST) ->
-    % The remote  closed the stream
-    {stop, normal};
+handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SET(Flags, ?RST) ->
+    % The remote closed the stream
+    case ?RECEIVABLE_SIZE(Data) > 0 of
+        true ->
+            % There is still data pending for a caller, don't stop
+            % this stream yet but mark as pending
+            {noreply, Data#state{close_state=pending}};
+        false ->
+            % No more data to deliver, shut down
+            {stop, normal}
+    end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     % Client side received an ACK. We have an established connection. 
     {next_state, established, Data};
@@ -169,7 +183,7 @@ handle_event(cast, {update_window, _Flags, Header}, established, Data=#state{}) 
 
 % Sending
 %
-handle_event({call, From}, {send, _, _}, _State, #state{shutdown_state=ShutdownState}) when ?NO_WRITE(ShutdownState) ->
+handle_event({call, From}, {send, _, _}, _State, Data=#state{}) when ?NO_WRITE(Data) ->
     {keep_state_and_data, {reply, From, {error, closed}}};
 handle_event({call, From}, {send, Bin, Timeout}, _State, Data=#state{}) ->
     {keep_state, data_send(From, Bin, Timeout, Data)};
@@ -179,7 +193,7 @@ handle_event(info, send_timeout, established, Data=#state{}) ->
 
 % Receiving
 %
-handle_event(cast, {incoming_data, _}, _State, #state{shutdown_state=ShutdownState}) when ?NO_READ(ShutdownState) ->
+handle_event(cast, {incoming_data, _}, _State, Data=#state{}) when ?NO_READ(Data) ->
     % No need to handle incoming data if we're never going to read it
     keep_state_and_data;
 handle_event(cast, {incoming_data, Bin}, _State, Data=#state{stream_id=StreamID}) ->
@@ -192,14 +206,21 @@ handle_event(cast, {incoming_data, Bin}, _State, Data=#state{stream_id=StreamID}
     end;
 handle_event(info, recv_timeout, established, Data=#state{}) ->
     {keep_state, data_recv_timeout(Data)};
-handle_event({call, From}, {recv, Size, _}, _State, #state{shutdown_state=ShutdownState, recv_state=#recv_state{data=Bin}}) 
-  when ?NO_READ(ShutdownState) andalso Size > byte_size(Bin) ->
+handle_event({call, From}, {recv, Size, _}, _State, Data=#state{}) when ?NO_READ(Data) andalso Size > ?RECEIVABLE_SIZE(Data) ->
     {keep_state_and_data, {reply, From, {error, closed}}};
+handle_event({call, From}, {recv, Size, Timeout}, _State, Data0=#state{close_state=pending}) ->
+    Data = data_recv(From, Size, Timeout, Data0),
+    case ?RECEIVABLE_SIZE(Data) > 0 of
+        true -> {keep_state, Data};
+        false -> {stop, normal, Data}
+    end;
 handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
     {keep_state, data_recv(From, Size, Timeout, Data)};
 
 % Closing
 %
+handle_event({call, From}, close, _State, #state{close_state=pending}) ->
+    {stop_and_reply, normal, {reply, From, ok}};
 handle_event({call, From}, close, _State, Data=#state{}) ->
     close_send(Data),
     {stop_and_reply, normal, {reply, From, ok}};
