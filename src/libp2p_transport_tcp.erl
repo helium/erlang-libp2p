@@ -5,8 +5,8 @@
 -export([start_listener/3, new_connection/1, dial/1]).
 
 % libp2p_onnection
--export([send/2, recv/3, acknowledge/2, addr_info/1,
-         shutdown/2, close/1, controlling_process/2,
+-export([send/3, recv/3, acknowledge/2, addr_info/1,
+         close/1, controlling_process/2,
          fdset/1, fdclr/1
         ]).
 
@@ -17,13 +17,13 @@
 
 -type state() :: #tcp_state{}.
 
--spec start_listener(supervisor:pid(), string(), ets:tab()) 
+-spec start_listener(supervisor:pid(), string(), ets:tab())
                     -> {ok, multiaddr:multiaddr(), pid()} | {error, term()}.
 start_listener(Sup, Addr, TID) ->
     case tcp_addr(Addr) of
         {Address, Port, Options} ->
             SocketOpts = [{ip, Address}, {active, false}, binary | Options],
-            case gen_tcp:listen(Port, SocketOpts) of 
+            case gen_tcp:listen(Port, SocketOpts) of
                 {ok, Socket} ->
                     {ok, SockAddr} = inet:sockname(Socket),
                     ListenAddr = multiaddr(SockAddr),
@@ -47,7 +47,7 @@ dial(MAddr) when is_list(MAddr) ->
     dial(multiaddr:new(MAddr));
 dial(MAddr) ->
     case tcp_addr(MAddr) of
-        {Address, Port, Options} -> 
+        {Address, Port, Options} ->
             case gen_tcp:connect(Address, Port, [binary, {active, false} | Options]) of
                 {ok, Socket} -> {ok, new_connection(Socket)};
                 {error, Error} -> {error, Error}
@@ -64,11 +64,11 @@ tcp_addr(MAddr) when is_list(MAddr) ->
 tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
     Port = list_to_integer(PortStr),
     case AddrType of
-        "ip4" -> 
+        "ip4" ->
             {ok, IP} = inet:parse_ipv4_address(Address),
             {IP, Port, [inet]};
-        "ip6" -> 
-            {ok, IP} = inet:parse_ipv6_address(Address), 
+        "ip6" ->
+            {ok, IP} = inet:parse_ipv6_address(Address),
             {IP, Port, [inet6]};
         _ -> {error, {unsupported_address, Addr}}
     end;
@@ -87,8 +87,10 @@ multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
 %% libp2p_connection
 %%
 
--spec send(state(), iodata()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data) ->
+-spec send(state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
+send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
+    %% TODO: Re-enable this
+    %% Transport:setopts(Socket, [{send_timeout, Timeout}]),
     Transport:send(Socket, Data).
 
 -spec recv(state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
@@ -98,10 +100,6 @@ recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
 -spec close(state()) -> ok.
 close(#tcp_state{socket=Socket, transport=Transport}) ->
     Transport:close(Socket).
-
--spec shutdown(state(), libp2p_connection:shutdown()) -> ok | {error, term()}.
-shutdown(#tcp_state{socket=Socket, transport=Transport}, How) ->
-    Transport:shutdown(Socket, How).
 
 -spec acknowledge(state(), reference()) -> ok.
 acknowledge(#tcp_state{}, Ref) ->

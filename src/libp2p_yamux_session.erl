@@ -105,6 +105,8 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
 handle_info({timeout_ping, PingID}, State=#state{}) ->
     {noreply, ping_timeout(PingID, State)};
 
+handle_info(timeout, State) ->
+    {stop, normal, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p~n", [Msg]),
     {stop, unknown, State}.
@@ -298,8 +300,11 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
                 ?DATA when Length > 0 ->
                     lager:error("Discarding data for stream ~p", [StreamID]),
                     libp2p_connection:recv(Connection, Length);
+                ?UPDATE when ?FLAG_IS_SET(Flags, ?RST) ->
+                    ok; %ignore an inbound RST when the stream is gone
                 _ ->
-                    lager:warning("Frame for missing stream ~p" ,[Header])
+                    lager:warning("Sending RST for missing stream ~p" ,[StreamID]),
+                    session_send(header_update(?RST, StreamID, 0), State)
             end;
         {ok, Pid} ->
             case Type of

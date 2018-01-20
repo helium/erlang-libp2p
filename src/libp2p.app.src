@@ -13,10 +13,10 @@
 %% limitations under the License.
 
 {application, libp2p,
- [{description, "An Erlangng implementation of libp2p"},
+ [{description, "An Erlang implementation of libp2p"},
   {vsn, "0.1.0"},
   {registered, []},
-  {applications, [kernel, stdlib, ranch, inert]},
+  {applications, [kernel, stdlib, ranch, inert, multiaddr]},
   {env,[]},
 
   %% hex.pm packaging:
