@@ -1,8 +1,6 @@
 -module(libp2p_multistream_server).
 
--behavior(gen_server).
-
--export([start_link/4, init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
+-export([start_link/4, init/1]).
 
 -record(state, {
           connection :: libp2p_connection:connection(),
@@ -14,7 +12,7 @@
 -type handler() :: {atom(), atom()} | {atom(), atom(), any()}.
 
 %%
-%% gen_server
+%% Note that this is NOT a gen_server, it is just a small shim to exec into some other main loop
 %%
 
 -spec start_link(any(), libp2p_connection:connection(), [{string(), term()}], any()) -> {ok, pid()}.
@@ -24,35 +22,47 @@ start_link(Ref, Connection, Handlers, HandlerOpt) ->
 init({Ref, Connection, Handlers, HandlerOpt}) ->
     libp2p_connection:acknowledge(Connection, Ref),
     self() ! handshake,
-    gen_server:enter_loop(?MODULE, [],
-                          #state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt},
-                          5000).
+    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt}).
+
+loop(State) ->
+    receive
+        Msg ->
+            case handle_info(Msg, State) of
+                {noreply, NewState} ->
+                    loop(NewState);
+                {exec, M, F, A} ->
+                    erlang:apply(M, F, A);
+                {stop, Reason, NewState} ->
+                    terminate(Reason, NewState)
+            end
+    after
+        5000 ->
+             ok
+    end.
 
 handle_info({inert_read, _, _}, State=#state{connection=Conn,
                                              handlers=Handlers,
                                              handler_opt=HandlerOpt}) ->
-    case read(Conn) of
+    case libp2p_multistream:read(Conn) of
+        {error, Reason} ->
+            {stop, {error, Reason}, State};
         "ls" ->
-            handle_ls(Conn, Handlers),
-            {noreply, fdset(Conn, State)};
+            handle_ls_reply(Conn, Handlers, State);
         Line ->
             case find_handler(Line, Handlers) of
                 {Key, {M, F}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
                     lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
-                    erlang:apply(M, F, [Conn, LineRest, HandlerOpt, []]),
-                    {stop, normal, State};
+                    {exec, M, F, [Conn, LineRest, HandlerOpt, []]};
                 {Key, {M, F, A}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
                     lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
-                    Result = erlang:apply(M, F, [Conn, LineRest, HandlerOpt, A]),
-                    lager:error("RETURN FROM ~p:~p with ~p", [M, F, Result]),
-                    {stop, normal, State};
+                    {exec, M, F, [Conn, LineRest, HandlerOpt, A]};
                 error ->
                     write(Conn, "na"),
-                    {noreply, fdset(Conn, State)}
+                    fdset_return(Conn, State)
             end
     end;
 handle_info(handshake, State=#state{connection=Conn}) ->
@@ -60,7 +70,7 @@ handle_info(handshake, State=#state{connection=Conn}) ->
     lager:info("Starting handshake with client ~p", [RemoteAddr]),
     case handshake(Conn) of
         ok ->
-            {noreply, fdset(Conn, State)};
+            fdset_return(Conn, State);
         {error, Error} ->
             lager:error("Failed to handshake client ~p: ~p", [RemoteAddr, Error]),
             {stop, {error, Error}, State}
@@ -71,13 +81,6 @@ handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p", [Msg]),
     {noreply, State}.
 
-handle_call(_Request, _From, State) ->
-        {reply, ok, State}.
-
-handle_cast(_Msg, State) ->
-        {noreply, State}.
-
-
 terminate(_Reason, State=#state{connection=Connection}) ->
     fdclr(Connection, State).
 
@@ -85,29 +88,31 @@ terminate(_Reason, State=#state{connection=Connection}) ->
 %% Internal
 %%
 
-fdset(Connection, State) ->
+fdset_return(Connection, State) ->
     case libp2p_connection:fdset(Connection) of
-        ok -> ok;
-        {error, Error} -> error(Error)
-    end,
-    State.
+        ok -> {noreply, State};
+        {error, Error} -> {stop, {error, Error}, State}
+    end.
 
 fdclr(Connection, State) ->
     libp2p_connection:fdclr(Connection),
     State.
 
-handle_ls(Conn, Handlers) ->
+handle_ls_reply(Conn, Handlers, State) ->
     Keys = [Key || {Key, _} <- Handlers],
-    case libp2p_multistream:write_lines(Conn, Keys) of
-        ok -> ok;
-        {error, Reason} -> error(Reason)
+    try libp2p_multistream:write_lines(Conn, Keys) of
+        ok -> fdset_return(Conn, State);
+        {error, Reason} -> {stop, {error, Reason}, State}
+    catch
+        What:Why -> {stop, {What, Why}, State}
     end.
 
 -spec handshake(libp2p_connection:connection()) -> ok | {error, term()}.
 handshake(Connection) ->
     Id = libp2p_multistream:protocol_id(),
     write(Connection, Id),
-    case read(Connection) of
+    case libp2p_multistream:read(Connection) of
+        {error, Reason} -> {error, Reason};
         Id -> ok;
         ClientId -> {error, {protocol_mismatch, ClientId}}
     end.
@@ -124,9 +129,3 @@ find_handler(Line, [{Prefix, Handler} | Handlers]) ->
 
 write(Conn, Data) ->
     ok = libp2p_multistream:write(Conn, Data).
-
-read(Conn) ->
-    case libp2p_multistream:read(Conn) of
-        {error, Reason} -> error(Reason);
-        Data -> Data
-    end.
