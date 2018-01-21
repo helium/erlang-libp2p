@@ -60,7 +60,7 @@ init([TID]) ->
                       {libp2p_yamux_session, start_server},
                       {libp2p_yamux_session, start_client}},
     libp2p_config:insert_connection_handler(TID, DefConnHandler),
-    IdentifyHandler = {"identify/1.0.0", {libp2p_stream_identify, enter_loop}},
+    IdentifyHandler = {"identify/1.0.0", {libp2p_stream_identify, server}},
     libp2p_config:insert_stream_handler(TID, IdentifyHandler),
     {ok, #state{tid=TID}}.
 
