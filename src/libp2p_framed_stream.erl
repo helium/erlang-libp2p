@@ -6,13 +6,13 @@
 % gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
--export([enter_loop/3]).
+-export([client/3, server/3, server/4]).
 % libp2p_connection
 -export([send/2, recv/1, recv/2]).
 
 -define(RECV_TIMEOUT, 5000).
 
--callback enter_loop(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> {ok, term()} | {stop, term()}.
+-callback server(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> no_return() | {error, term()}.
 -callback init([any()]) -> {ok, any()} |
                            {ok, binary() | list(), any()} |
                            {stop, term()} |
@@ -22,6 +22,7 @@
                                           {noresp, any()} |
                                           {stop, term(), any()} |
                                           {stop, term(), any(), any()}.
+-optional_callbacks([server/4]).
 
 -record(state, {
           module :: atom(),
@@ -29,44 +30,68 @@
           connection :: libp2p_connection:connection()
          }).
 
--spec enter_loop(atom(), libp2p_connection:connection(), [any()]) -> {stop, {error, term()}} |
-                                                                     no_return().
-enter_loop(Module, Connection, Args) ->
+%%
+%% Client
+%%
+
+-spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
+client(Module, Connection, Args) ->
+    gen_server:start_link(?MODULE, {Module, Connection, Args}, []).
+
+init({Module, Connection, Args}) ->
+    case init_module(Module, Connection, Args) of
+        {ok, State} -> {ok, State};
+        {error, Error} -> {stop, Error}
+    end.
+
+
+%%
+%% Server
+%%
+-spec server(atom(), libp2p_connection:connection(), [any()]) -> no_return() | {error, term()}.
+server(Module, Connection, Args) ->
+    case init_module(Module, Connection, Args) of
+        {ok, State} -> gen_server:enter_loop(?MODULE, [], State);
+        {error, Error} -> {error, Error}
+    end.
+
+server(Connection, Path, _TID, F=[Module | Args]) ->
+    lager:debug("F ~p", [F]),
+    server(Module, Connection, [Path | Args]).
+
+%%
+%% Common
+%%
+
+-spec init_module(atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
+init_module(Module, Connection, Args) ->
     case Module:init(Args) of
         {ok, State} ->
             case libp2p_connection:fdset(Connection) of
-                ok ->
-                    gen_server:enter_loop(?MODULE, [],
-                                          #state{connection=Connection, module=Module, state=State});
-                {error, Error} ->
-                    {stop, {error, Error}}
+                ok -> {ok, #state{connection=Connection, module=Module, state=State}};
+                {error, Error} -> {error, Error}
             end;
         {ok, Response, State} ->
             case send(Connection, Response) of
-                {error, Error} -> {stop, {error, Error}};
+                {error, Error} -> {error, Error};
                 ok ->
                     case libp2p_connection:fdset(Connection) of
-                        ok ->
-                            gen_server:enter_loop(?MODULE, [],
-                                                  #state{connection=Connection, module=Module, state=State});
-                        {error, Error} ->
-                            {stop, {error, Error}}
+                        ok -> {ok, #state{connection=Connection, module=Module, state=State}};
+                        {error, Error} -> {error, Error}
                     end
             end;
         {stop, Reason} ->
             libp2p_connection:close(Connection),
-            {stop, Reason};
+            {error, Reason};
         {stop, Reason, Response} ->
             Res = case send(Connection, Response) of
-                {error, Error} -> {stop, {error, Error}};
-                ok -> {stop, Reason}
+                {error, Error} -> {error, Error};
+                ok -> {error, Reason}
             end,
             libp2p_connection:close(Connection),
             Res
     end.
 
-init(_) ->
-    ignore.
 
 handle_info({inert_read, _, _}, State=#state{connection=Connection, module=Module, state=ModuleState}) ->
     case recv(Connection, ?RECV_TIMEOUT) of
