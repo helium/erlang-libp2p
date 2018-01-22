@@ -13,20 +13,21 @@
 -define(RECV_TIMEOUT, 5000).
 
 -callback server(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> no_return() | {error, term()}.
--callback init([any()]) -> {ok, any()} |
-                           {ok, binary() | list(), any()} |
-                           {stop, term()} |
-                           {stop, term(), binary() | list()}.
--callback handle_data(binary(), any()) -> {resp, binary() | list(), any()} |
-                                          noresp |
-                                          {noresp, any()} |
-                                          {stop, term(), any()} |
-                                          {stop, term(), any(), any()}.
+-callback init(atom(), [any()]) -> {ok, any()} |
+                                   {ok, binary() | list(), any()} |
+                                   {stop, term()} |
+                                   {stop, term(), binary() | list()}.
+-callback handle_data(atom(), binary(), any()) -> {resp, binary() | list(), any()} |
+                                                  noresp |
+                                                  {noresp, any()} |
+                                                  {stop, term(), any()} |
+                                                  {stop, term(), any(), any()}.
 -optional_callbacks([server/4]).
 
 -record(state, {
           module :: atom(),
           state :: any(),
+          kind :: server | client,
           connection :: libp2p_connection:connection()
          }).
 
@@ -36,10 +37,10 @@
 
 -spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
 client(Module, Connection, Args) ->
-    gen_server:start_link(?MODULE, {Module, Connection, Args}, []).
+    gen_server:start_link(?MODULE, {client, Module, Connection, Args}, []).
 
-init({Module, Connection, Args}) ->
-    case init_module(Module, Connection, Args) of
+init({client, Module, Connection, Args}) ->
+    case init_module(client, Module, Connection, Args) of
         {ok, State} -> {ok, State};
         {error, Error} -> {stop, Error}
     end.
@@ -50,25 +51,25 @@ init({Module, Connection, Args}) ->
 %%
 -spec server(atom(), libp2p_connection:connection(), [any()]) -> no_return() | {error, term()}.
 server(Module, Connection, Args) ->
-    case init_module(Module, Connection, Args) of
+    case init_module(server, Module, Connection, Args) of
         {ok, State} -> gen_server:enter_loop(?MODULE, [], State);
         {error, Error} -> {error, Error}
     end.
 
-server(Connection, Path, _TID, F=[Module | Args]) ->
-    lager:debug("F ~p", [F]),
+server(Connection, Path, _TID, [Module | Args]) ->
     server(Module, Connection, [Path | Args]).
 
 %%
 %% Common
 %%
 
--spec init_module(atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
-init_module(Module, Connection, Args) ->
-    case Module:init(Args) of
+-spec init_module(atom(), atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
+init_module(Kind, Module, Connection, Args) ->
+    case Module:init(Kind, Args) of
         {ok, State} ->
             case libp2p_connection:fdset(Connection) of
-                ok -> {ok, #state{connection=Connection, module=Module, state=State}};
+                ok -> {ok, #state{kind=Kind, connection=Connection,
+                                  module=Module, state=State}};
                 {error, Error} -> {error, Error}
             end;
         {ok, Response, State} ->
@@ -76,7 +77,8 @@ init_module(Module, Connection, Args) ->
                 {error, Error} -> {error, Error};
                 ok ->
                     case libp2p_connection:fdset(Connection) of
-                        ok -> {ok, #state{connection=Connection, module=Module, state=State}};
+                        ok -> {ok, #state{kind=Kind, connection=Connection,
+                                          module=Module, state=State}};
                         {error, Error} -> {error, Error}
                     end
             end;
@@ -93,7 +95,8 @@ init_module(Module, Connection, Args) ->
     end.
 
 
-handle_info({inert_read, _, _}, State=#state{connection=Connection, module=Module, state=ModuleState}) ->
+handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
+                                             module=Module, state=ModuleState}) ->
     case recv(Connection, ?RECV_TIMEOUT) of
         {error, timeout} ->
             %% timeouts are fine and not an error we want to propogate because there's no waiter
@@ -101,7 +104,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection, module=Modul
         {error, Error}  ->
             lager:debug("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State};
-        {ok, Bin} -> handle_resp(Module:handle_data(Bin, ModuleState), State)
+        {ok, Bin} -> handle_resp(Module:handle_data(Kind, Bin, ModuleState), State)
     end.
 
 handle_resp({resp, Data, ModuleState}, State=#state{connection=Connection}) ->
