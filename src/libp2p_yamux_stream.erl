@@ -51,7 +51,7 @@
 % API
 -export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2]).
 % libp2p_connection
--export([close/1, send/3, recv/3, acknowledge/2,
+-export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2]).
 % states
 -export([handle_event/4]).
@@ -98,6 +98,12 @@ statem(Pid, Cmd) ->
 
 close(Pid) ->
     statem(Pid, close).
+
+close_state(Pid) ->
+    case statem(Pid, close_state) of
+        {error, closed} -> closed;
+        R -> R
+    end.
 
 send(Pid, Data, Timeout) ->
     statem(Pid, {send, Data, Timeout}).
@@ -214,12 +220,14 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
 % Closing
 %
 handle_event({call, From}, close, _State, Data=#state{}) when ?REMOTE_CLOSED(Data) ->
-    % Already closed previously
+    % Remote already closed previously
     {stop_and_reply, normal, {reply, From, ok}};
 handle_event({call, From}, close, _State, Data=#state{}) ->
     % Send RST
     close_send(Data),
     {stop_and_reply, normal, {reply, From, ok}};
+handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
+    {keep_state_and_data, {reply, From, CloseState}};
 
 % Info
 %
