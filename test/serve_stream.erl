@@ -1,7 +1,9 @@
 -module(serve_stream).
 
 % public API
--export([register/2, dial/3, recv/2, send/2, close/1]).
+-export([register/2, dial/3,
+         recv/2, recv/3, send/2,
+         close/1, close_state/1]).
 
 % internal API
 -export([serve_stream/4]).
@@ -19,12 +21,16 @@ serve_loop(Connection, Parent) ->
             Result = libp2p_connection:send(Connection, Bin),
             Parent ! {send, Result},
             serve_loop(Connection, Parent);
-        {recv, N} ->
-            Result = libp2p_connection:recv(Connection, N, 100),
+        {recv, N, Timeout} ->
+            Result = libp2p_connection:recv(Connection, N, Timeout),
             Parent ! {recv, N, Result},
             serve_loop(Connection, Parent);
         close ->
             libp2p_connection:close(Connection),
+            serve_loop(Connection, Parent);
+        close_state ->
+            Result = libp2p_connection:close_state(Connection),
+            Parent ! {close_state, Result},
             serve_loop(Connection, Parent);
         stop ->
             libp2p_connecton:close(Connection),
@@ -47,9 +53,19 @@ send(Pid, Bin) ->
     Result.
 
 recv(Pid, Size) ->
-    Pid ! {recv, Size},
+    recv(Pid, Size, 1000).
+
+recv(Pid, Size, Timeout) ->
+    Pid ! {recv, Size, Timeout},
     Result = receive
                  {recv, Size, R} -> R
+             end,
+    Result.
+
+close_state(Pid) ->
+    Pid ! close_state,
+    Result = receive
+                 {close_state, R} -> R
              end,
     Result.
 

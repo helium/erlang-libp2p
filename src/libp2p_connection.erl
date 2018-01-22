@@ -6,19 +6,22 @@
          }).
 
 -type connection() :: #connection{}.
+-type close_state() :: open | closed | pending.
 
--export_type([connection/0]).
+-export_type([connection/0, close_state/0]).
 
 -export([new/2, send/2, send/3,
          recv/1, recv/2, recv/3,
          acknowledge/2, fdset/1, fdclr/1,
-         addr_info/1, close/1, controlling_process/2]).
+         addr_info/1, close/1, close_state/1,
+         controlling_process/2]).
 
 
 -callback acknowledge(any(), any()) -> ok.
 -callback send(any(), iodata(), non_neg_integer()) -> ok | {error, term()}.
 -callback recv(any(), non_neg_integer(), non_neg_integer()) -> {ok, binary()} | {error, term()}.
 -callback close(any()) -> ok.
+-callback close_state(any()) -> close_state().
 -callback fdset(any()) -> ok | {error, term()}.
 -callback fdclr(any()) -> ok.
 -callback addr_info(any()) -> {string(), string()}.
@@ -58,6 +61,10 @@ acknowledge(#connection{module=Module, state=State}, Ref) ->
 -spec close(connection()) -> ok.
 close(#connection{module=Module, state=State}) ->
     Module:close(State).
+
+-spec close_state(connection()) -> close_state().
+close_state(#connection{module=Module, state=State}) ->
+    Module:close_state(State).
 
 -spec fdset(connection()) -> ok | {error, term()}.
 fdset(#connection{module=Module, state=State}) ->
