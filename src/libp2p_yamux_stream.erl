@@ -393,6 +393,8 @@ data_send_timeout_cancel(State=#state{send_state=SendState=#send_state{timer=Tim
     data_send(From, Data, RemainingTime, State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}).
 
 -spec data_send_timeout(#state{}) -> #state{}.
+data_send_timeout(State=#state{send_state=#send_state{waiter=undefined}}) ->
+    State;
 data_send_timeout(State=#state{send_state=SendState=#send_state{waiter={From, _}}}) ->
     gen_statem:reply(From, {error, timeout}),
     State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}.
