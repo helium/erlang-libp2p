@@ -87,7 +87,7 @@ handle_resp({resp, Data, ModuleState}, State=#state{connection=Connection}) ->
                 ok ->
                     {noreply, State#state{state=ModuleState}};
                 {error, Error} ->
-                    {stop, {error, Error}}
+                    {stop, {error, Error}, State}
             end
     end;
 handle_resp(noresp, State=#state{state=ModuleState}) ->
@@ -97,7 +97,7 @@ handle_resp({noresp, ModuleState}, State=#state{connection=Connection}) ->
         ok ->
             {noreply, State#state{state=ModuleState}};
         {error, Error} ->
-            {stop, {error, Error}}
+            {stop, {error, Error}, State}
     end;
 handle_resp({stop, Reason, ModuleState}, State=#state{}) ->
     {stop, Reason, State#state{state=ModuleState}};
