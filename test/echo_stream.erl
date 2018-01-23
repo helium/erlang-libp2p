@@ -2,11 +2,11 @@
 
 -behavior(libp2p_framed_stream).
 
--export([init/2, handle_data/3]).
+-export([init/3, handle_data/3]).
 
 -record(state, {}).
 
-init(server, [Path]) ->
+init(server, _Connection, [Path]) ->
     {ok, Path, #state{}}.
 
 handle_data(server, Data, State=#state{}) ->

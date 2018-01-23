@@ -6,7 +6,6 @@
 auto_close_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     ok = serve_stream:register(S2, "serve"),
-
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 
     % Write some data from the server
@@ -44,8 +43,8 @@ auto_close_test() ->
 close_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     ok = serve_stream:register(S2, "serve"),
-
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
+
     % Write some data from the server
     ?assertEqual(ok, serve_stream:send(Server, <<"hello">>)),
     % close the server
@@ -63,7 +62,6 @@ close_test() ->
 
 timeout_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
-
     serve_stream:register(S2, "serve"),
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 
@@ -79,7 +77,6 @@ timeout_test() ->
 
 window_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
-
     serve_stream:register(S2, "serve"),
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 

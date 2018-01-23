@@ -11,8 +11,8 @@ open_close_test() ->
 
     {ok, Stream1} = libp2p_session:open(Session1),
     ?assertEqual(libp2p_connection:addr_info(Stream1), libp2p_session:addr_info(Session1)),
-    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session1)) == 1 end, 10, 1000),
-    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 1 end, 10, 1000),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session1)) == 1 end),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 1 end),
 
     % Can write (up to a window size of) data without anyone on the
     % other side
@@ -20,8 +20,8 @@ open_close_test() ->
 
     % Close stream after sending some data on it
     ?assertEqual(ok, libp2p_connection:close(Stream1)),
-    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session1)) == 0 end, 10, 1000),
-    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end, 10, 1000),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session1)) == 0 end),
+    ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end),
     ?assertEqual({error, closed}, libp2p_connection:send(Stream1, <<"hello">>)),
 
     test_util:teardown_swarms(Swarms),
