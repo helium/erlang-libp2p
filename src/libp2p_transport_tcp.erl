@@ -101,9 +101,8 @@ multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
 %%
 
 -spec send(state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
-    %% TODO: Re-enable this
-    %% Transport:setopts(Socket, [{send_timeout, Timeout}]),
+send(#tcp_state{socket=Socket, transport=Transport}, Data, Timeout) ->
+    Transport:setopts(Socket, [{send_timeout, Timeout}]),
     Transport:send(Socket, Data).
 
 -spec recv(state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.

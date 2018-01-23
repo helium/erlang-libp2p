@@ -2,13 +2,13 @@
 
 -behavior(libp2p_framed_stream).
 
--export([server/4, init/2, handle_data/3]).
+-export([server/4, init/3, handle_data/3]).
 
 server(Connection, _Path, TID, _) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
     libp2p_framed_stream:server(?MODULE, Connection, [TID, RemoteAddr]).
 
-init(server, [TID, RemoteAddr]) ->
+init(server, _Connection, [TID, RemoteAddr]) ->
     Sup = libp2p_swarm_sup:sup(TID),
     ListenAddrs = libp2p_swarm:listen_addrs(Sup),
     Protocols = [Key || {Key, _} <- libp2p_swarm:stream_handlers(Sup)],
