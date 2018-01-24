@@ -9,15 +9,15 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
--export([dial/3, listen/2, connect/2, 
-         listen_addrs/1, add_connection_handler/3, 
+-export([dial/3, listen/2, connect/2,
+         listen_addrs/1, add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1]).
 
 %%
 %% API
 %%
 
--spec dial(pid(), string(), string()) -> libp2p_connection:connection() | {error, term()}.
+-spec dial(pid(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(Pid, Addr, Path) ->
     gen_server:call(Pid, {dial, Addr, Path}).
 
@@ -128,7 +128,7 @@ add_monitor(Kind, Ref, Pid, State=#state{monitors=Monitors}) ->
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
     case lists:keytake({MonitorRef, Pid}, 1, Monitors) of
         false -> State;
-        {value, {_, {Kind, Ref}}, NewMonitors} -> 
+        {value, {_, {Kind, Ref}}, NewMonitors} ->
             libp2p_config:remove_pid(TID, Kind, Ref),
             State#state{monitors=NewMonitors}
     end.
@@ -152,7 +152,7 @@ listen_on(TID, Addr, State=#state{}) ->
     end.
 
 
--spec connect_to(ets:tab(), string(), #state{}) 
+-spec connect_to(ets:tab(), string(), #state{})
                 -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
 connect_to(TID, Addr, State) ->
     {ok, Transport, {ConnAddr, _}} = libp2p_transport:for_addr(Addr),
@@ -204,7 +204,7 @@ start_client_session(TID, Addr, Connection) ->
             Kind = libp2p_config:insert_session(TID, Addr, SessionPid),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
                 ok -> {ok, Kind, SessionPid};
-                {error, Error} -> 
+                {error, Error} ->
                     libp2p_connection:close(Connection),
                     {error, Error}
             end
