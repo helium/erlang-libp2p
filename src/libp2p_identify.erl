@@ -10,6 +10,7 @@
 
 -define(VERSION, "identify/1.0.0").
 
+-spec new([string()], string(), [string()]) -> libp2p_identify_pb:libp2p_identify_pb().
 new(ListenAddrs, ObservedAddr, Protocols) ->
     Version = case lists:keyfind(libp2p, 1, application:loaded_applications()) of
                   {_, _, V} -> V;
@@ -17,8 +18,11 @@ new(ListenAddrs, ObservedAddr, Protocols) ->
               end,
     AgentVersion = application:get_env(libp2p, agent_version,
                                        list_to_binary(["erlang-libp2p/", Version])),
-    new(ListenAddrs, ObservedAddr, Protocols, AgentVersion).
+    new(lists:map(fun multiaddr:new/1, ListenAddrs),
+        multiaddr:new(ObservedAddr),
+        Protocols, AgentVersion).
 
+-spec new([multiaddr:multiaddr()], multiaddr:multiaddr(), [string()], string()) -> libp2p_identify_pb:libp2p_identify_pb().
 new(ListenAddrs, ObservedAddr, Protocols, AgentVersion) ->
     #libp2p_identify_pb{protocol_version=?VERSION,
                         listen_addrs=ListenAddrs,
