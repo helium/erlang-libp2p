@@ -5,9 +5,7 @@
 -export_type([connection_handler/0]).
 -export([for_addr/1]).
 
--spec for_addr(multiaddr:multiaddr() | string()) -> {ok, atom(), {string(), string()}} | {error, term()}.
-for_addr(Addr) when is_binary(Addr) ->
-    for_addr(multiaddr:to_string(Addr), multiaddr:protocols(Addr));
+-spec for_addr(string()) -> {ok, atom(), {string(), string()}} | {error, term()}.
 for_addr(Addr) when is_list(Addr) ->
     for_addr(Addr, multiaddr:protocols(multiaddr:new(Addr))).
 

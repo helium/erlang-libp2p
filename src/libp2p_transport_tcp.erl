@@ -42,9 +42,7 @@ start_listener(Sup, Addr, TID) ->
 new_connection(Socket) ->
     libp2p_connection:new(?MODULE, #tcp_state{socket=Socket, transport=ranch_tcp}).
 
--spec dial(multiaddr:multiaddr() | string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(MAddr) when is_list(MAddr) ->
-    dial(multiaddr:new(MAddr));
+-spec dial(string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(MAddr) ->
     case tcp_addr(MAddr) of
         {Address, Port, Options} ->
@@ -56,8 +54,7 @@ dial(MAddr) ->
     end.
 
 
-tcp_addr(MAddr) when is_binary(MAddr) ->
-    tcp_addr(multiaddr:to_string(MAddr), multiaddr:protocols(MAddr));
+-spec tcp_addr(string()) -> {inet:ip_address(), non_neg_integer(), [gen_tcp:listen_option()]} | {error, term()}.
 tcp_addr(MAddr) when is_list(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(multiaddr:new(MAddr))).
 
@@ -119,7 +116,7 @@ fdclr(#tcp_state{socket=Socket}) ->
         {ok, FD} -> inert:fdclr(FD)
     end.
 
--spec addr_info(state()) -> {multiaddr:multiaddr(), multiaddr:multiaddr()}.
+-spec addr_info(state()) -> {string(), string()}.
 addr_info(#tcp_state{socket=Socket}) ->
     {ok, LocalAddr} = inet:sockname(Socket),
     {ok, RemoteAddr} = inet:peername(Socket),
