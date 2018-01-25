@@ -1,16 +1,29 @@
 -module(libp2p_swarm).
 
--export([start/1, stop/1, dial/3, connect/2, listen/2, listen_addrs/1,
+-export([start/0, start/1, stop/1, dial/3, connect/2, listen/2, listen_addrs/1,
          add_connection_handler/3, add_stream_handler/3, stream_handlers/1]).
 
--spec start(string() | non_neg_integer()) -> supervisor:sup_ref().
+-spec start() -> {ok, pid()} | ignore | {error, term()}.
+start() ->
+    case supervisor:start_link(libp2p_swarm_sup, []) of
+        {ok, Pid} ->
+            unlink(Pid),
+            {ok, Pid};
+        Other -> Other
+    end.
+
+-spec start(string() | non_neg_integer()) -> {ok, pid()} | ignore | {error, term()}.
 start(Addr) ->
-    {ok, Sup} = supervisor:start_link(libp2p_swarm_sup, []),
-    ok = listen(Sup, Addr),
-    Sup.
+    case start() of
+        {ok, Sup} ->
+            case listen(Sup, Addr) of
+                ok -> {ok, Sup};
+                {error, Reason} -> {error, Reason}
+            end;
+        {error, Error} -> {error, Error}
+    end.
 
-
--spec stop(supervisor:sup_ref()) -> ok.
+-spec stop(pid()) -> ok.
 stop(Sup) ->
     Ref = erlang:monitor(process, Sup),
     exit(Sup, normal),
@@ -20,12 +33,15 @@ stop(Sup) ->
             error(timeout)
     end.
 
+
+
+
 % Listen
 %
 
 -spec listen(supervisor:sup_ref(), string() | non_neg_integer()) -> ok | {error, term()}.
 listen(Sup, Port) when is_integer(Port)->
-    ListenAddr = "/ip4/127.0.0.1/tcp/" ++ integer_to_list(Port),
+    ListenAddr = "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port),
     listen(Sup, ListenAddr);
 listen(Sup, Addr) ->
     Server = libp2p_swarm_sup:server(Sup),
@@ -44,9 +60,6 @@ add_connection_handler(Sup, Key, HandlerDef) ->
     libp2p_swarm_server:add_connection_handler(Server, Key, HandlerDef).
 
 -spec connect(supervisor:sup_ref(), string()) -> {ok, libp2p_session:pid()} | {error, term()}.
-connect(Sup, Port) when is_integer(Port) ->
-    ConnAddr = "/ip4/127.0.0.1/tcp/" ++ integer_to_list(Port),
-    connect(Sup, ConnAddr);
 connect(Sup, Addr) ->
     Server = libp2p_swarm_sup:server(Sup),
     libp2p_swarm_server:connect(Server, Addr).

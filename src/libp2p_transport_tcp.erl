@@ -18,21 +18,20 @@
 -type state() :: #tcp_state{}.
 
 -spec start_listener(supervisor:pid(), string(), ets:tab())
-                    -> {ok, multiaddr:multiaddr(), pid()} | {error, term()}.
+                    -> {ok, [string()], pid()} | {error, term()}.
 start_listener(Sup, Addr, TID) ->
     case tcp_addr(Addr) of
         {Address, Port, Options} ->
             SocketOpts = [{ip, Address}, {active, false}, binary | Options],
             case gen_tcp:listen(Port, SocketOpts) of
                 {ok, Socket} ->
-                    {ok, SockAddr} = inet:sockname(Socket),
-                    ListenAddr = multiaddr(SockAddr),
+                    ListenAddrs = tcp_listen_addrs(Socket),
                     ProtocolOpts = {?MODULE, TID},
-                    ChildSpec = ranch:child_spec(ListenAddr, ranch_tcp, [{socket, Socket}],
+                    ChildSpec = ranch:child_spec(ListenAddrs, ranch_tcp, [{socket, Socket}],
                                                  libp2p_transport_ranch_protocol, ProtocolOpts),
                     {ok, Pid} = supervisor:start_child(Sup, ChildSpec),
                     ok = gen_tcp:controlling_process(Socket, Pid),
-                    {ok, ListenAddr, Pid};
+                    {ok, ListenAddrs, Pid};
                 {error, Reason} -> {error, Reason}
             end;
         {error, Error} -> {error, Error}
@@ -53,6 +52,20 @@ dial(MAddr) ->
                 {error, Error} -> {error, Error}
             end;
         {error, Reason} -> {error, Reason}
+    end.
+
+tcp_listen_addrs(Socket) ->
+    {ok, SockAddr={IP, Port}} = inet:sockname(Socket),
+    case lists:all(fun(D) -> D == 0 end, tuple_to_list(IP)) of
+        false ->
+            [multiaddr(SockAddr)];
+        true ->
+            % all 0 address, collect all non loopback interface addresses
+            {ok, IFAddrs} = inet:getifaddrs(),
+            [multiaddr({Addr, Port}) ||
+                {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
+                size(Addr) == size(IP),
+                not lists:member(loopback, Flags)]
     end.
 
 
