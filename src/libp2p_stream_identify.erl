@@ -8,7 +8,7 @@ server(Connection, _Path, TID, _) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
     libp2p_framed_stream:server(?MODULE, Connection, [TID, RemoteAddr]).
 
-init(server, _Connection, [TID, RemoteAddr]) ->
+init(server, _Connection, [TID, ObservedAddr]) ->
     Sup = libp2p_swarm_sup:sup(TID),
     ListenAddrs = libp2p_swarm:listen_addrs(Sup),
     Protocols = [Key || {Key, _} <- libp2p_swarm:stream_handlers(Sup)],
