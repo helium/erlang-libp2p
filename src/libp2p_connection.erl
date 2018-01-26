@@ -21,7 +21,7 @@
 -callback close(any()) -> ok.
 -callback fdset(any()) -> ok | {error, term()}.
 -callback fdclr(any()) -> ok.
--callback addr_info(any()) -> {multiaddr:multiaddr(), multiaddr:multiaddr()}.
+-callback addr_info(any()) -> {string(), string()}.
 -callback controlling_process(any(), pid()) ->  ok | {error, closed | not_owner | atom()}.
 
 -define(RECV_TIMEOUT, 5000).
@@ -67,7 +67,7 @@ fdset(#connection{module=Module, state=State}) ->
 fdclr(#connection{module=Module, state=State}) ->
     Module:fdclr(State).
 
--spec addr_info(connection()) -> {multiaddr:multiaddr(), multiaddr:multiaddr()}.
+-spec addr_info(connection()) -> {string(), string()}.
 addr_info(#connection{module=Module, state=State}) ->
     Module:addr_info(State).
 
