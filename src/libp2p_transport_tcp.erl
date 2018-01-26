@@ -65,7 +65,10 @@ tcp_listen_addrs(Socket) ->
             [multiaddr({Addr, Port}) ||
                 {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
                 size(Addr) == size(IP),
-                not lists:member(loopback, Flags)]
+                not lists:member(loopback, Flags),
+                %% filter out ipv6 link-local addresses
+                not (size(Addr) == 8 andalso element(1, Addr) == 16#fe80)
+            ]
     end.
 
 
