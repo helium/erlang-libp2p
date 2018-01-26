@@ -4,7 +4,7 @@
 
 client_ls_test() ->
     Swarms = [S1] = test_util:setup_swarms(1),
-    [Addr] = libp2p_swarm:listen_addrs(S1),
+    [Addr|_] = libp2p_swarm:listen_addrs(S1),
 
     {ok, Connection} = libp2p_transport_tcp:dial(Addr),
 
@@ -16,7 +16,7 @@ client_ls_test() ->
 
 client_negotiate_handler_test() ->
     Swarms = [S1] = test_util:setup_swarms(1),
-    [Addr] = libp2p_swarm:listen_addrs(S1),
+    [Addr|_] = libp2p_swarm:listen_addrs(S1),
 
     {ok, Connection} = libp2p_transport_tcp:dial(Addr),
 
