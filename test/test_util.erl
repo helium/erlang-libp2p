@@ -1,7 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/1, teardown_swarms/1,
-         wait_until/3]).
+         wait_until/1, wait_until/3]).
 
 setup() ->
     application:ensure_all_started(ranch),
