@@ -4,7 +4,7 @@
 
 -record(state, {
           tid :: ets:tab(),
-          monitors=[] :: [{{reference(), pid()}, {atom(), string()}}]
+          monitors=[] :: [{{reference(), pid()}, {atom(), term()}}]
          }).
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -135,21 +135,23 @@ remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
 
 -spec listen_on(ets:tab(), string(), #state{}) -> {ok, #state{}} | {error, term()}.
 listen_on(TID, Addr, State=#state{}) ->
-    {ok, Transport, {ListenAddr, []}} = libp2p_transport:for_addr(Addr),
-    case libp2p_config:lookup_listener(TID, Addr) of
-        {ok, _Pid} -> {error, already_listening};
-        false ->
-            ListenerSup = listener_sup(TID),
-            case Transport:start_listener(ListenerSup, ListenAddr, TID) of
-                {ok, TransportAddrs, ListenPid} ->
-                    lager:info("Started Listener on ~p", [TransportAddrs]),
-                    lager:debug(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
-                    Kind = hd(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
-                    {ok, add_monitor(Kind, TransportAddrs, ListenPid, State)};
-                {error, Error} ->
-                    lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),
-                    {error, Error}
-            end
+    case libp2p_transport:for_addr(Addr) of
+        {ok, Transport, {ListenAddr, []}} ->
+            case libp2p_config:lookup_listener(TID, Addr) of
+                {ok, _Pid} -> {error, already_listening};
+                false ->
+                    ListenerSup = listener_sup(TID),
+                    case Transport:start_listener(ListenerSup, ListenAddr, TID) of
+                        {ok, TransportAddrs, ListenPid} ->
+                            lager:info("Started Listener on ~p", [TransportAddrs]),
+                            Kind = hd(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
+                            {ok, add_monitor(Kind, TransportAddrs, ListenPid, State)};
+                        {error, Error} ->
+                            lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),
+                            {error, Error}
+                    end
+            end;
+        {error, Error} -> {error, Error}
     end.
 
 
@@ -169,7 +171,7 @@ connect_to(TID, Addr, State) ->
                         {ok, Connection} ->
                             lager:info("Starting client session with ~p", [ConnAddr]),
                             case start_client_session(TID, ConnAddr, Connection) of
-                                {error, Error} -> {error, Error};
+                                {error, SessionError} -> {error, SessionError};
                                 {ok, Kind, SessionPid} ->
                                     {ok, SessionPid, add_monitor(Kind, [ConnAddr], SessionPid, State)}
                             end
