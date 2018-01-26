@@ -1,12 +1,11 @@
-case os:getenv("TRAVIS") of
-  "true" ->
-    JobId   = os:getenv("TRAVIS_JOB_ID"),
-    lists:keystore(coveralls_service_job_id, 1, CONFIG, {coveralls_service_job_id, JobId});
-  _ ->
-    CONFIG
-end,
-
-lists:keystore(cover_excl_mods, 1, CONFIG,
+NewConfig = case os:getenv("TRAVIS") of
+                "true" ->
+                    JobId   = os:getenv("TRAVIS_JOB_ID"),
+                    lists:keystore(coveralls_service_job_id, 1, CONFIG, {coveralls_service_job_id, JobId});
+                _ ->
+                    CONFIG
+            end,
+lists:keystore(cover_excl_mods, 1, NewConfig,
                {cover_excl_mods,
                 [list_to_atom(filename:basename(F, ".erl")) || F <- filelib:wildcard("src/*_pb.erl")]
                }).
