@@ -5,7 +5,7 @@
 
 open_close_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
     {Session1Addr, _} = libp2p_session:addr_info(Session1),
     {ok, Session2} = libp2p_swarm:connect(S2, Session1Addr),
@@ -30,7 +30,7 @@ open_close_test() ->
 
 ping_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
     {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
     ?assertMatch({ok, _}, libp2p_session:ping(Session)),
@@ -41,7 +41,7 @@ ping_test() ->
 dial_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
     % Dial and see if the initial path got handled
     {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo/hello"),
@@ -82,7 +82,7 @@ stream_window_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
 
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo"),
 
     SmallData = <<41, 42, 43>>,
@@ -116,7 +116,7 @@ stream_timeout_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     ok = libp2p_swarm:add_stream_handler(S2, "echo", {echo_stream, enter_loop, [self()]}),
 
-    [S2Addr] = libp2p_swarm:listen_addrs(S2),
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo"),
 
     ?assertEqual({error, timeout}, libp2p_framed_stream:recv(Stream, 100)),

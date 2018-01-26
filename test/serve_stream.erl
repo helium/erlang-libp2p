@@ -32,7 +32,7 @@ serve_loop(Connection, Parent) ->
     end.
 
 dial(FromSwarm, ToSwarm, Name) ->
-    [ToAddr] = libp2p_swarm:listen_addrs(ToSwarm),
+    [ToAddr|_] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Stream} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
     receive
         {hello, Server} -> Server

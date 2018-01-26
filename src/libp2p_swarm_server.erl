@@ -119,17 +119,17 @@ terminate(_Reason, #state{tid=TID}) ->
 %% Internal
 %%
 
--spec add_monitor(atom(), string(), pid(), #state{}) -> #state{}.
-add_monitor(Kind, Ref, Pid, State=#state{monitors=Monitors}) ->
+-spec add_monitor(atom(), [string()], pid(), #state{}) -> #state{}.
+add_monitor(Kind, Addrs, Pid, State=#state{monitors=Monitors}) ->
     MonitorRef = erlang:monitor(process, Pid),
-    State#state{monitors=[{{MonitorRef, Pid}, {Kind, Ref}} | Monitors]}.
+    State#state{monitors=[{{MonitorRef, Pid}, {Kind, Addrs}} | Monitors]}.
 
 -spec remove_monitor(reference(), pid(), #state{}) -> #state{}.
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
     case lists:keytake({MonitorRef, Pid}, 1, Monitors) of
         false -> State;
-        {value, {_, {Kind, Ref}}, NewMonitors} ->
-            libp2p_config:remove_pid(TID, Kind, Ref),
+        {value, {_, {Kind, Addrs}}, NewMonitors} ->
+            lists:foreach(fun(Addr) -> libp2p_config:remove_pid(TID, Kind, Addr) end, Addrs),
             State#state{monitors=NewMonitors}
     end.
 
@@ -137,14 +137,15 @@ remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
 listen_on(TID, Addr, State=#state{}) ->
     {ok, Transport, {ListenAddr, []}} = libp2p_transport:for_addr(Addr),
     case libp2p_config:lookup_listener(TID, Addr) of
-        {ok, _Pid} -> {ok, State};
+        {ok, _Pid} -> {error, already_listening};
         false ->
             ListenerSup = listener_sup(TID),
             case Transport:start_listener(ListenerSup, ListenAddr, TID) of
-                {ok, TransportAddr, ListenPid} ->
-                    lager:info("Started Listener on ~p", [TransportAddr]),
-                    Kind = libp2p_config:insert_listener(TID, TransportAddr, ListenPid),
-                    {ok, add_monitor(Kind, Addr, ListenPid, State)};
+                {ok, TransportAddrs, ListenPid} ->
+                    lager:info("Started Listener on ~p", [TransportAddrs]),
+                    lager:debug(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
+                    Kind = hd(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
+                    {ok, add_monitor(Kind, TransportAddrs, ListenPid, State)};
                 {error, Error} ->
                     lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),
                     {error, Error}
@@ -169,7 +170,7 @@ connect_to(TID, Addr, State) ->
                     case start_client_session(TID, ConnAddr, Connection) of
                         {error, Error} -> {error, Error};
                         {ok, Kind, SessionPid} ->
-                            {ok, SessionPid, add_monitor(Kind, ConnAddr, SessionPid, State)}
+                            {ok, SessionPid, add_monitor(Kind, [ConnAddr], SessionPid, State)}
                     end
             end
     end.
