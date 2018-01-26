@@ -4,7 +4,7 @@ case os:getenv("TRAVIS") of
     lists:keystore(coveralls_service_job_id, 1, CONFIG, {coveralls_service_job_id, JobId});
   _ ->
     CONFIG
-end.
+end,
 
 lists:keystore(cover_excl_mods, 1, CONFIG,
                {cover_excl_mods,
