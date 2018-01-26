@@ -14,7 +14,7 @@ register(Swarm, Name) ->
     libp2p_swarm:add_stream_handler(Swarm, Name, {libp2p_framed_stream, server, [?MODULE, self()]}).
 
 dial(FromSwarm, ToSwarm, Name) ->
-    [ToAddr] = libp2p_swarm:listen_addrs(ToSwarm),
+    [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Stream} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
     receive
         {hello, Server} -> Server
