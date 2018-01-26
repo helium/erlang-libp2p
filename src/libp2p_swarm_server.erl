@@ -156,23 +156,26 @@ listen_on(TID, Addr, State=#state{}) ->
 -spec connect_to(ets:tab(), string(), #state{})
                 -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
 connect_to(TID, Addr, State) ->
-    {ok, Transport, {ConnAddr, _}} = libp2p_transport:for_addr(Addr),
-    case libp2p_config:lookup_session(TID, ConnAddr) of
-        {ok, Pid} -> {ok, Pid, State};
-        false ->
-            lager:info("Connecting to ~p", [ConnAddr]),
-            case Transport:dial(ConnAddr) of
-                {error, Error} ->
-                    lager:error("Failed to connect to ~p: ~p", [ConnAddr, Error]),
-                    {error, Error};
-                {ok, Connection} ->
-                    lager:info("Starting client session with ~p", [ConnAddr]),
-                    case start_client_session(TID, ConnAddr, Connection) of
-                        {error, Error} -> {error, Error};
-                        {ok, Kind, SessionPid} ->
-                            {ok, SessionPid, add_monitor(Kind, [ConnAddr], SessionPid, State)}
+    case libp2p_transport:for_addr(Addr) of
+        {ok, Transport, {ConnAddr, _}} ->
+            case libp2p_config:lookup_session(TID, ConnAddr) of
+                {ok, Pid} -> {ok, Pid, State};
+                false ->
+                    lager:info("Connecting to ~p", [ConnAddr]),
+                    case Transport:dial(ConnAddr) of
+                        {error, Error} ->
+                            lager:error("Failed to connect to ~p: ~p", [ConnAddr, Error]),
+                            {error, Error};
+                        {ok, Connection} ->
+                            lager:info("Starting client session with ~p", [ConnAddr]),
+                            case start_client_session(TID, ConnAddr, Connection) of
+                                {error, Error} -> {error, Error};
+                                {ok, Kind, SessionPid} ->
+                                    {ok, SessionPid, add_monitor(Kind, [ConnAddr], SessionPid, State)}
+                            end
                     end
-            end
+            end;
+        {error, Error} -> {error, Error}
     end.
 
 -spec start_client_stream(ets:tab(), string(), libp2p_session:pid())
