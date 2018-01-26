@@ -5,3 +5,8 @@ case os:getenv("TRAVIS") of
   _ ->
     CONFIG
 end.
+
+lists:keystore(cover_excl_mods, 1, CONFIG,
+               {cover_excl_mods,
+                [list_to_atom(filename:basename(F, ".erl")) || F <- filelib:wildcard("src/*_pb.erl")]
+               }).
