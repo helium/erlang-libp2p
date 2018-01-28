@@ -1,4 +1,5 @@
 -module(serve_framed_stream).
+-behaviour(libp2p_framed_stream).
 
 -export([register/2, init/3, handle_info/3, handle_data/3, handle_call/4, handle_cast/3,
          dial/3, path/1, send/2, data/1, info_fun/2, call_fun/2, cast_fun/2]).
