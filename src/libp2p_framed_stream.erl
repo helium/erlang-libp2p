@@ -13,22 +13,22 @@
 -define(RECV_TIMEOUT, 5000).
 
 -callback server(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> no_return() | {error, term()}.
--callback init(atom(), libp2p_connection:connetion(), [any()]) -> {ok, any()} |
-                                                                  {ok, binary() | list(), any()} |
-                                                                  {stop, term()} |
-                                                                  {stop, term(), binary() | list()}.
--callback handle_data(atom(), binary(), any()) -> {resp, binary() | list(), any()} |
-                                                  {noresp, any()} |
-                                                  {stop, term(), any()} |
-                                                  {stop, term(), any(), any()}.
--callback handle_info(atom(), term(), any()) -> {noreply, any()} |
-                                                {stop, normal | term(), any()}.
--callback handle_call(atom(), term(), term(), any()) -> {reply, term(), any()} |
-                                                        {noreply, any()} |
-                                                        {stop, normal | term(), term(), any()} |
-                                                        {stop, normal | term(), any()}.
--callback handle_cast(atom(), term(), any()) -> {noreply, any()} |
-                                                {stop, normal | term(), any()}.
+-callback init(server | client, libp2p_connection:connection(), [any()]) -> {ok, ModState :: any()} |
+                                                                  {ok, Reply :: binary() | list(), ModState :: any()} |
+                                                                  {stop, Reason :: term()} |
+                                                                  {stop, Reason :: term(), Reply :: binary() | list()}.
+-callback handle_data(server | client, binary(), any()) -> {resp, Reply :: binary() | list(), ModState :: any()} |
+                                                  {noresp, ModState :: any()} |
+                                                  {stop, Reason :: term(), ModState :: any()} |
+                                                  {stop, Reason :: term(), Reply :: binary() | list(), ModState :: any()}.
+-callback handle_info(server | client, term(), any()) -> {noreply, ModState :: any()} |
+                                                {stop, Reason :: term(), ModState :: any()}.
+-callback handle_call(server | client, term(), term(), any()) -> {reply, Reply :: term(), ModState :: any()} |
+                                                        {noreply, ModState :: any()} |
+                                                        {stop, Reason :: term(), Reply :: term(), ModState :: any()} |
+                                                        {stop, Reason :: term(), ModState :: any()}.
+-callback handle_cast(server | client, term(), any()) -> {noreply, ModState :: any()} |
+                                                {stop, Reason :: term(), ModState :: any()}.
 
 
 
