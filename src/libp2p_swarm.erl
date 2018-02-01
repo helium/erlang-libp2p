@@ -1,7 +1,10 @@
 -module(libp2p_swarm).
 
--export([start/0, start/1, stop/1, dial/3, connect/2, listen/2, listen_addrs/1,
+-export([start/0, start/1, stop/1, dial/3, dial/4, connect/2, listen/2, listen_addrs/1,
          add_connection_handler/3, add_stream_handler/3, stream_handlers/1]).
+
+-define(DIAL_TIMEOUT, 5000).
+
 
 -spec start() -> {ok, pid()} | {error, term()}.
 start() ->
@@ -34,8 +37,6 @@ stop(Sup) ->
     end.
 
 
-
-
 % Listen
 %
 
@@ -51,6 +52,7 @@ listen(Sup, Addr) ->
 listen_addrs(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     libp2p_swarm_server:listen_addrs(Server).
+
 
 % Connect
 %
@@ -68,9 +70,14 @@ connect(Sup, Addr) ->
 %
 -spec dial(supervisor:sup_ref(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(Sup, Addr, Path) ->
+    dial(Sup, Addr, Path, ?DIAL_TIMEOUT).
+
+-spec dial(supervisor:sup_ref(), string(), string(), pos_integer())
+          -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(Sup, Addr, Path, Timeout) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     Server = libp2p_swarm_sup:server(Sup),
-    libp2p_swarm_server:dial(Server, Addr, Path).
+    libp2p_swarm_server:dial(Server, Addr, Path, Timeout).
 
 -spec add_stream_handler(supervisor:sup_ref(), string(), libp2p_session:stream_handler()) -> ok.
 add_stream_handler(Sup, Key, HandlerDef) ->
