@@ -171,7 +171,7 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
             {keep_state, Data#state{close_state=pending}};
         false ->
             % No more data to deliver, shut down
-            {stop, normal}
+            {stop, normal, notify_inert(Data)}
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     % Client side received an ACK. We have an established connection.
@@ -196,7 +196,7 @@ handle_event(cast, {incoming_data, Bin}, _State, Data=#state{stream_id=StreamID}
     case data_incoming(Bin, Data) of
         {error, Error} ->
             lager:error("Failure to handle data for ~p: ~p", [StreamID, Error]),
-            {stop, {error, Error}};
+            {stop, {error, Error}, notify_inert(Data)};
          {ok, D} ->
             {keep_state, (data_recv_timeout_cancel(notify_inert(D)))}
     end;
@@ -211,7 +211,7 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data0=#state{}) when ?
     case ?RECEIVABLE_SIZE(Data) > 0 of
         % Check if we still have any cached data for future recvs
         true -> {keep_state, Data};
-        false -> {stop, normal, Data}
+        false -> {stop, normal, notify_inert(Data)}
     end;
 handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
     % Normal open state
@@ -221,11 +221,11 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
 %
 handle_event({call, From}, close, _State, Data=#state{}) when ?REMOTE_CLOSED(Data) ->
     % Remote already closed previously
-    {stop_and_reply, normal, {reply, From, ok}};
+    {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close, _State, Data=#state{}) ->
     % Send RST
     close_send(Data),
-    {stop_and_reply, normal, {reply, From, ok}};
+    {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
     {keep_state_and_data, {reply, From, CloseState}};
 

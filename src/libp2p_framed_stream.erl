@@ -12,23 +12,35 @@
 
 -define(RECV_TIMEOUT, 5000).
 
--callback server(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> no_return() | {error, term()}.
--callback init(server | client, libp2p_connection:connection(), [any()]) -> {ok, ModState :: any()} |
-                                                                  {ok, Reply :: binary() | list(), ModState :: any()} |
-                                                                  {stop, Reason :: term()} |
-                                                                  {stop, Reason :: term(), Reply :: binary() | list()}.
--callback handle_data(server | client, binary(), any()) -> {resp, Reply :: binary() | list(), ModState :: any()} |
-                                                  {noresp, ModState :: any()} |
-                                                  {stop, Reason :: term(), ModState :: any()} |
-                                                  {stop, Reason :: term(), Reply :: binary() | list(), ModState :: any()}.
--callback handle_info(server | client, term(), any()) -> {noreply, ModState :: any()} |
-                                                {stop, Reason :: term(), ModState :: any()}.
--callback handle_call(server | client, term(), term(), any()) -> {reply, Reply :: term(), ModState :: any()} |
-                                                        {noreply, ModState :: any()} |
-                                                        {stop, Reason :: term(), Reply :: term(), ModState :: any()} |
-                                                        {stop, Reason :: term(), ModState :: any()}.
--callback handle_cast(server | client, term(), any()) -> {noreply, ModState :: any()} |
-                                                {stop, Reason :: term(), ModState :: any()}.
+-callback server(libp2p_connection:connection(), string(), ets:tab(), [any()]) ->
+    no_return() |
+    {error, term()}.
+
+-callback init(server | client, libp2p_connection:connection(), [any()]) ->
+    {ok, ModState :: any()} |
+    {ok, Reply :: binary() | list(), ModState :: any()} |
+    {stop, Reason :: term()} |
+    {stop, Reason :: term(), Reply :: binary() | list()}.
+
+-callback handle_data(server | client, binary(), any()) ->
+    {resp, Reply :: binary() | list(), ModState :: any()} |
+    {noresp, ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()} |
+    {stop, Reason :: term(), Reply :: binary() | list(), ModState :: any()}.
+
+-callback handle_info(server | client, term(), any()) ->
+    {noreply, ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()}.
+
+-callback handle_call(server | client, term(), term(), any()) ->
+    {reply, Reply :: term(), ModState :: any()} |
+    {noreply, ModState :: any()} |
+    {stop, Reason :: term(), Reply :: term(), ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()}.
+
+-callback handle_cast(server | client, term(), any()) ->
+    {noreply, ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()}.
 
 
 
@@ -112,7 +124,7 @@ handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
             %% timeouts are fine and not an error we want to propogate because there's no waiter
             {noreply, State};
         {error, Error}  ->
-            lager:debug("framed inert RECV ~p, ~p", [Error, Connection]),
+            lager:info("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State};
         {ok, Bin} -> handle_resp(Module:handle_data(Kind, Bin, ModuleState), State)
     end;
