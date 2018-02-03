@@ -123,6 +123,11 @@ handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
         {error, timeout} ->
             %% timeouts are fine and not an error we want to propogate because there's no waiter
             {noreply, State};
+        {error, closed} ->
+            %% This attempts to avoid a large number of errored stops
+            %% when a connection is closed, which happens "normally"
+            %% in most cases.
+            {stop, normal, State};
         {error, Error}  ->
             lager:info("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State};
