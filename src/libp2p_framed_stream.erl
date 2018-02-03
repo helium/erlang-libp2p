@@ -183,6 +183,8 @@ handle_resp({noresp, ModuleState}, State=#state{connection=Connection}) ->
     case libp2p_connection:fdset(Connection) of
         ok ->
             {noreply, NewState};
+        {error, closed} ->
+            {stop, normal, State};
         {error, Error} ->
             {stop, {error, Error}, NewState}
     end;
