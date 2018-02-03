@@ -4,13 +4,16 @@
 
 -record(state, {
           tid :: ets:tab(),
-          monitors=[] :: [{{reference(), pid()}, {atom(), term()}}]
+          monitors=[] :: [{{reference(), pid()}, {atom(), term()}}],
+          observed_addresses=[] :: [{string(), string()}],
+          stun_txn_ids = #{}
          }).
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 -export([dial/5, listen/2, connect/4,
          listen_addrs/1, add_connection_handler/3,
+         add_external_listen_addr/3, record_observed_address/3, stungun_response/3,
          add_stream_handler/3, stream_handlers/1]).
 
 -define(DIAL_TIMEOUT, 5000).
@@ -31,7 +34,7 @@ connect(Pid, Addr, Options, Timeout) ->
 
 -spec listen(pid(), string()) -> ok | {error, term()}.
 listen(Pid, Addr) ->
-    gen_server:call(Pid, {listen, Addr}).
+    gen_server:call(Pid, {listen, Addr}, infinity).
 
 -spec listen_addrs(pid()) -> [string()].
 listen_addrs(Pid) ->
@@ -49,6 +52,15 @@ add_stream_handler(Pid, Key, HandlerDef) ->
 stream_handlers(Pid) ->
     gen_server:call(Pid, stream_handlers).
 
+-spec add_external_listen_addr(pid(), string(), string()) -> ok.
+add_external_listen_addr(Pid, MA, Address) ->
+    gen_server:cast(Pid, {add_listen_addr, MA, Address}).
+
+record_observed_address(Pid, PeerAddr, Address) ->
+    gen_server:cast(Pid, {record_observed_address, PeerAddr, Address}).
+
+stungun_response(Pid, LocalAddr, STUNTxnID) ->
+    gen_server:cast(Pid, {stungun_response, LocalAddr, STUNTxnID}).
 %%
 %% gen_server
 %%
@@ -65,6 +77,8 @@ init([TID]) ->
     libp2p_config:insert_connection_handler(TID, DefConnHandler),
     IdentifyHandler = {"identify/1.0.0", {libp2p_stream_identify, server}},
     libp2p_config:insert_stream_handler(TID, IdentifyHandler),
+    StungunHandler = {"stungun/1.0.0", {libp2p_stream_stungun, server}},
+    libp2p_config:insert_stream_handler(TID, StungunHandler),
     {ok, #state{tid=TID}}.
 
 handle_call({listen, Addr}, _From, State=#state{}) ->
@@ -100,6 +114,10 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p~n", [Msg]),
     {reply, ok, State}.
 
+handle_info({stungun_timeout, TxnID}, State=#state{stun_txn_ids=STUNTxnMap}) ->
+    {noreply, State#state{stun_txn_ids= maps:filter(fun(_, {T, _}) when T == TxnID -> false;
+                                                       (_, _) -> true
+                                                    end, STUNTxnMap)}};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{}) ->
     {noreply, remove_monitor(MonitorRef, Pid, State)};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
@@ -107,6 +125,64 @@ handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
 handle_info(Msg, _State) ->
     lager:warning("Unhandled message ~p", [Msg]).
 
+handle_cast({add_listen_addr, IntAddress, ExtAddress}, State=#state{tid=TID}) ->
+    case libp2p_config:lookup_listener(TID, IntAddress) of
+        {ok, ListenPid} ->
+            libp2p_config:insert_listener(TID, ExtAddress, ListenPid),
+            {noreply, State};
+        _ ->
+            {noreply, State}
+    end;
+handle_cast({record_observed_address, PeerAddress, ObservedAddress}, State=#state{tid=TID}) ->
+    case libp2p_config:lookup_listener(TID, ObservedAddress) of
+        false ->
+            %% ok, check if we've observed this address before
+            case lists:member({PeerAddress, ObservedAddress} ,State#state.observed_addresses) of
+                true ->
+                    %% this peer has already told us we have this address
+                    {noreply, State};
+                false ->
+                    case lists:keymember(ObservedAddress, 2, State#state.observed_addresses) of
+                        true ->
+                            %% ok, we have independant confirmation of an observed address
+                            lager:info("received confirmation of observed address ~s", [ObservedAddress]),
+                            %% TODO attempt STUN dial-in and see if it works
+                            <<STUNTxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
+                            %% we need to record this TxnID somewhere, probably in the TID and then we need to convince a peer to dial us back with that TxnID
+                            %% then that handler needs to forward the response back here, so we can add the external address
+                            Parent = self(),
+                            spawn(fun() ->
+                                          {ok, C} = libp2p_swarm_server:dial(Parent, PeerAddress, lists:flatten(io_lib:format("stungun/1.0.0/dial/~b", [STUNTxnID])), [], ?DIAL_TIMEOUT),
+                                          libp2p_connection:close(C)
+                                  end),
+                            Ref = erlang:send_after(500, self(), {stungun_timeout, STUNTxnID}),
+                            STUNTxnMap = maps:put(Ref, {STUNTxnID, ObservedAddress}, State#state.stun_txn_ids),
+                            {noreply, State#state{observed_addresses=[{PeerAddress, ObservedAddress}|State#state.observed_addresses], stun_txn_ids=STUNTxnMap}};
+                        false ->
+                            {noreply, State#state{observed_addresses=[{PeerAddress, ObservedAddress}|State#state.observed_addresses]}}
+                    end
+            end;
+        {ok, _} ->
+            %% we already know about this observed address, not much to do, I guess
+            {noreply, State#state{observed_addresses=[{PeerAddress, ObservedAddress}|State#state.observed_addresses]}}
+    end;
+handle_cast({stungun_response, LocalAddr, STUNTxnID}, State=#state{stun_txn_ids=STUNTxnMap, tid=TID}) ->
+    case lists:keyfind(STUNTxnID, 1, maps:values(STUNTxnMap)) of
+        {STUNTxnID, ObservedAddress} ->
+            lager:info("Got dial back confirmation of observed address ~p", [ObservedAddress]),
+            case libp2p_config:lookup_listener(TID, LocalAddr) of
+                {ok, ListenerPid} ->
+                    libp2p_config:insert_listener(TID, ObservedAddress, ListenerPid);
+                false ->
+                    lager:warning("unable to determine listener pid for ~p", [LocalAddr])
+            end,
+            ok;
+        false ->
+            ok
+    end,
+    {noreply, State#state{stun_txn_ids= maps:filter(fun(_, {TxnID, _}) when TxnID == STUNTxnID -> false;
+                                                       (_, _) -> true
+                                                    end, STUNTxnMap)}};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p~n", [Msg]),
     {noreply, State}.
@@ -170,14 +246,24 @@ connect_to(Addr, Options, Timeout, State=#state{tid=TID}) ->
                 {ok, Pid} ->
                     {ok, Pid, State};
                 false ->
+                    ListenAddrs = libp2p_config:listen_addrs(TID),
+                    PortOptions = case proplists:get_value(unique, Options) of
+                                      true ->
+                                          [];
+                                      _ ->
+                                          {ok, PO} = find_matching_listen_port(multiaddr:new(Addr), ListenAddrs),
+                                          PO
+                                  end,
                     lager:info("Connecting to ~p", [ConnAddr]),
-                    case Transport:dial(ConnAddr, Options, Timeout) of
+                    case Transport:dial(ConnAddr, Options++PortOptions, Timeout) of
                         {error, Error} ->
                             {error, Error};
                         {ok, Connection} ->
                             case start_client_session(TID, ConnAddr, Connection) of
                                 {error, SessionError} -> {error, SessionError};
                                 {ok, SessionPid} ->
+                                    Parent = self(),
+                                    spawn(fun() -> Transport:discover(libp2p_swarm_sup:sup(TID), Parent, Addr) end),
                                     {ok, SessionPid,
                                      add_monitor(libp2p_config:session(),
                                                  [ConnAddr], SessionPid, State)}
@@ -228,3 +314,17 @@ listener_sup(TID) ->
 
 session_sup(TID) ->
     libp2p_swarm_session_sup:sup(TID).
+
+find_matching_listen_port(_Addr, []) ->
+    {ok, []};
+find_matching_listen_port(Addr, [H|ListenAddrs]) ->
+    TheirAddr = multiaddr:new(H),
+    MyProtocols = [ element(1, T) || T <- multiaddr:protocols(Addr)],
+    TheirProtocols = [ element(1, T) || T <- multiaddr:protocols(TheirAddr)],
+    case MyProtocols == TheirProtocols of
+        true ->
+            %% TODO we assume the port is the second element of the second tuple, this is not safe
+            {ok, [{port, list_to_integer(element(2, lists:nth(2, multiaddr:protocols(TheirAddr))))}]};
+        false ->
+            find_matching_listen_port(Addr, ListenAddrs)
+    end.
