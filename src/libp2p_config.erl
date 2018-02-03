@@ -1,6 +1,7 @@
 -module(libp2p_config).
 
--export([insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
+-export([get_config/2,
+         insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
          insert_session/3, lookup_session/2, remove_session/2, lookup_sessions/1,
          insert_handler/3, lookup_handler/2,
          listen_addrs/1, lookup_listener/2, insert_listener/3, remove_listener/2,
@@ -15,6 +16,21 @@
 
 -type handler() :: {atom(), atom()}.
 
+%%
+%% Global config
+%%
+
+get_config(Module, Defaults) ->
+    case application:get_env(Module) of
+        undefined -> Defaults;
+        {ok, Values} ->
+            sets:to_list(sets:union(sets:from_list(Values),
+                                    sets:from_list(Defaults)))
+    end.
+
+%%
+%% Common pid CRUD
+%%
 
 -spec insert_pid(ets:tab(), atom(), term(), pid()) -> atom().
 insert_pid(TID, Kind, Ref, Pid) ->
@@ -36,6 +52,10 @@ lookup_pids(TID, Kind) ->
 remove_pid(TID, Kind, Ref) ->
     ets:delete(TID, {Kind, Ref}).
 
+%%
+%% Listeners
+%%
+
 -spec insert_listener(ets:tab(), string(), pid()) -> atom().
 insert_listener(TID, Addr, Pid) ->
     insert_pid(TID, ?LISTENER, Addr, Pid).
@@ -52,6 +72,10 @@ remove_listener(TID, Addr) ->
 listen_addrs(TID) ->
     [ Addr || [Addr] <- ets:match(TID, {{?LISTENER, '$1'}, '_'})].
 
+%%
+%% Sessions
+%%
+
 -spec insert_session(ets:tab(), string(), pid()) -> atom().
 insert_session(TID, Addr, Pid) ->
     insert_pid(TID, ?SESSION, Addr, Pid).
@@ -67,6 +91,10 @@ remove_session(TID, Addr) ->
 -spec lookup_sessions(ets:tab()) -> [{term(), pid()}].
 lookup_sessions(TID) ->
     lookup_pids(TID, ?SESSION).
+
+%%
+%% Accept handlers
+%%
 
 -spec insert_handler(ets:tab(), string(), pid()) -> atom().
 insert_handler(TID, Ref, Pid) ->
