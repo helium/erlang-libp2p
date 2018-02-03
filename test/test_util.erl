@@ -1,7 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/1, teardown_swarms/1,
-         wait_until/3]).
+         wait_until/1, wait_until/3]).
 
 setup() ->
     application:ensure_all_started(ranch),
@@ -28,6 +28,9 @@ setup_swarms() ->
 teardown_swarms(Swarms) ->
     lists:map(fun libp2p_swarm:stop/1, Swarms).
 
+
+wait_until(Fun) ->
+    wait_until(Fun, 10, 1000).
 
 wait_until(Fun, Retry, Delay) when Retry > 0 ->
     Res = Fun(),

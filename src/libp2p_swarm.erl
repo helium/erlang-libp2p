@@ -3,7 +3,7 @@
 -export([start/0, start/1, stop/1, dial/3, connect/2, listen/2, listen_addrs/1,
          add_connection_handler/3, add_stream_handler/3, stream_handlers/1]).
 
--spec start() -> {ok, pid()} | ignore | {error, term()}.
+-spec start() -> {ok, pid()} | {error, term()}.
 start() ->
     case supervisor:start_link(libp2p_swarm_sup, []) of
         {ok, Pid} ->

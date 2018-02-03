@@ -298,12 +298,13 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
             %% Drain any data on the connection sin ce the stream is not found
             case Type of
                 ?DATA when Length > 0 ->
-                    lager:error("Discarding data for stream ~p", [StreamID]),
-                    libp2p_connection:recv(Connection, Length);
+                    lager:error("Discarding data for missing stream ~p (RST)", [StreamID]),
+                    libp2p_connection:recv(Connection, Length),
+                    session_send(header_update(?RST, StreamID, 0), State);
                 ?UPDATE when ?FLAG_IS_SET(Flags, ?RST) ->
                     ok; %ignore an inbound RST when the stream is gone
                 _ ->
-                    lager:warning("Sending RST for missing stream ~p" ,[StreamID]),
+                    lager:warning("Missing stream ~p (RST)" ,[StreamID]),
                     session_send(header_update(?RST, StreamID, 0), State)
             end;
         {ok, Pid} ->

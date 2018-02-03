@@ -6,98 +6,187 @@
 % gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
--export([enter_loop/3]).
+-export([client/3, server/3, server/4]).
 % libp2p_connection
 -export([send/2, recv/1, recv/2]).
 
 -define(RECV_TIMEOUT, 5000).
 
--callback enter_loop(libp2p_connection:connection(), string(), ets:tab(), [any()]) -> {ok, term()} | {stop, term()}.
--callback init([any()]) -> {ok, any()} |
-                           {ok, binary() | list(), any()} |
-                           {stop, term()} |
-                           {stop, term(), binary() | list()}.
--callback handle_data(binary(), any()) -> {resp, binary() | list(), any()} |
-                                          noresp |
-                                          {noresp, any()} |
-                                          {stop, term(), any()} |
-                                          {stop, term(), any(), any()}.
+-callback server(libp2p_connection:connection(), string(), ets:tab(), [any()]) ->
+    no_return() |
+    {error, term()}.
+
+-callback init(server | client, libp2p_connection:connection(), [any()]) ->
+    {ok, ModState :: any()} |
+    {ok, Reply :: binary() | list(), ModState :: any()} |
+    {stop, Reason :: term()} |
+    {stop, Reason :: term(), Reply :: binary() | list()}.
+
+-callback handle_data(server | client, binary(), any()) ->
+    {resp, Reply :: binary() | list(), ModState :: any()} |
+    {noresp, ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()} |
+    {stop, Reason :: term(), Reply :: binary() | list(), ModState :: any()}.
+
+-callback handle_info(server | client, term(), any()) ->
+    {noreply, ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()}.
+
+-callback handle_call(server | client, term(), term(), any()) ->
+    {reply, Reply :: term(), ModState :: any()} |
+    {noreply, ModState :: any()} |
+    {stop, Reason :: term(), Reply :: term(), ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()}.
+
+-callback handle_cast(server | client, term(), any()) ->
+    {noreply, ModState :: any()} |
+    {stop, Reason :: term(), ModState :: any()}.
+
+
+
+-optional_callbacks([server/4, handle_info/3, handle_call/4, handle_cast/3]).
 
 -record(state, {
           module :: atom(),
           state :: any(),
+          kind :: server | client,
           connection :: libp2p_connection:connection()
          }).
 
--spec enter_loop(atom(), libp2p_connection:connection(), [any()]) -> {stop, {error, term()}} |
-                                                                     no_return().
-enter_loop(Module, Connection, Args) ->
-    case Module:init(Args) of
+%%
+%% Client
+%%
+
+-spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
+client(Module, Connection, Args) ->
+    gen_server:start_link(?MODULE, {client, Module, Connection, Args}, []).
+
+init({client, Module, Connection, Args}) ->
+    case init_module(client, Module, Connection, Args) of
+        {ok, State} -> {ok, State};
+        {error, Error} -> {stop, Error}
+    end.
+
+
+%%
+%% Server
+%%
+-spec server(atom(), libp2p_connection:connection(), [any()]) -> no_return() | {error, term()}.
+server(Module, Connection, Args) ->
+    case init_module(server, Module, Connection, Args) of
+        {ok, State} -> gen_server:enter_loop(?MODULE, [], State);
+        {error, Error} -> {error, Error}
+    end.
+
+server(Connection, Path, _TID, [Module | Args]) ->
+    server(Module, Connection, [Path | Args]).
+
+%%
+%% Common
+%%
+
+-spec init_module(atom(), atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
+init_module(Kind, Module, Connection, Args) ->
+    case Module:init(Kind, Connection, Args) of
         {ok, State} ->
             case libp2p_connection:fdset(Connection) of
-                ok ->
-                    gen_server:enter_loop(?MODULE, [],
-                                          #state{connection=Connection, module=Module, state=State});
-                {error, Error} ->
-                    {stop, {error, Error}}
+                ok -> {ok, #state{kind=Kind, connection=Connection,
+                                  module=Module, state=State}};
+                {error, Error} -> {error, Error}
             end;
         {ok, Response, State} ->
             case send(Connection, Response) of
-                {error, Error} -> {stop, {error, Error}};
+                {error, Error} -> {error, Error};
                 ok ->
                     case libp2p_connection:fdset(Connection) of
-                        ok ->
-                            gen_server:enter_loop(?MODULE, [],
-                                                  #state{connection=Connection, module=Module, state=State});
-                        {error, Error} ->
-                            {stop, {error, Error}}
+                        ok -> {ok, #state{kind=Kind, connection=Connection,
+                                          module=Module, state=State}};
+                        {error, Error} -> {error, Error}
                     end
             end;
         {stop, Reason} ->
             libp2p_connection:close(Connection),
-            {stop, Reason};
+            {error, Reason};
         {stop, Reason, Response} ->
             Res = case send(Connection, Response) of
-                {error, Error} -> {stop, {error, Error}};
-                ok -> {stop, Reason}
+                {error, Error} -> {error, Error};
+                ok -> {error, Reason}
             end,
             libp2p_connection:close(Connection),
             Res
     end.
 
-init(_) ->
-    ignore.
 
-handle_info({inert_read, _, _}, State=#state{connection=Connection, module=Module, state=ModuleState}) ->
+handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
+                                             module=Module, state=ModuleState}) ->
     case recv(Connection, ?RECV_TIMEOUT) of
         {error, timeout} ->
             %% timeouts are fine and not an error we want to propogate because there's no waiter
             {noreply, State};
+        {error, closed} ->
+            %% This attempts to avoid a large number of errored stops
+            %% when a connection is closed, which happens "normally"
+            %% in most cases.
+            {stop, normal, State};
         {error, Error}  ->
-            lager:debug("framed inert RECV ~p, ~p", [Error, Connection]),
+            lager:info("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State};
-        {ok, Bin} -> handle_resp(Module:handle_data(Bin, ModuleState), State)
+        {ok, Bin} -> handle_resp(Module:handle_data(Kind, Bin, ModuleState), State)
+    end;
+handle_info(Msg, State=#state{kind=Kind, module=Module, state=ModuleState}) ->
+    case erlang:function_exported(Module, handle_info, 3) of
+        true ->
+            case Module:handle_info(Kind, Msg, ModuleState) of
+                {noreply, NewModuleState} -> {noreply, State#state{state=NewModuleState}};
+                {stop, Reason, NewModuleState} -> {stop, Reason, State#state{state=NewModuleState}}
+                end;
+        false -> {noreply, State}
     end.
 
+handle_call(Request, From, State=#state{kind=Kind, module=Module, state=ModuleState}) ->
+    case erlang:function_exported(Module, handle_call, 4) of
+        true ->
+            case Module:handle_call(Kind, Request, From, ModuleState) of
+                {reply, Reply, NewModuleState} -> {reply, Reply, State#state{state=NewModuleState}};
+                {noreply, NewModuleState} -> {noreply, State#state{state=NewModuleState}};
+                {stop, Reason, Reply, NewModuleState} -> {stop, Reason, Reply, State#state{state=NewModuleState}};
+                {stop, Reason, NewModuleState} -> {stop, Reason, State#state{state=NewModuleState}}
+            end;
+        false -> {reply, ok, State}
+    end.
+
+handle_cast(Request, State=#state{kind=Kind, module=Module, state=ModuleState}) ->
+    case erlang:function_exported(Module, handle_cast, 3) of
+        true ->
+            case Module:handle_cast(Kind, Request, ModuleState) of
+                {noreply, NewModuleState} -> {noreply, State#state{state=NewModuleState}};
+                {stop, Reason, NewModuleState} -> {stop, Reason, State#state{state=NewModuleState}}
+            end;
+        false -> {noreply, State}
+    end.
+
+
 handle_resp({resp, Data, ModuleState}, State=#state{connection=Connection}) ->
+    NewState = State#state{state=ModuleState},
     case send(Connection, Data) of
-        {error, Error} -> {stop, {error, Error}, State};
+        {error, Error} -> {stop, {error, Error}, NewState};
         ok ->
             case libp2p_connection:fdset(Connection) of
                 ok ->
-                    {noreply, State#state{state=ModuleState}};
+                    {noreply, NewState};
                 {error, Error} ->
-                    {stop, {error, Error}, State}
+                    {stop, {error, Error}, NewState}
             end
     end;
-handle_resp(noresp, State=#state{state=ModuleState}) ->
-    handle_resp({noresp, ModuleState}, State);
 handle_resp({noresp, ModuleState}, State=#state{connection=Connection}) ->
+    NewState = State#state{state=ModuleState},
     case libp2p_connection:fdset(Connection) of
         ok ->
-            {noreply, State#state{state=ModuleState}};
+            {noreply, NewState};
+        {error, closed} ->
+            {stop, normal, State};
         {error, Error} ->
-            {stop, {error, Error}, State}
+            {stop, {error, Error}, NewState}
     end;
 handle_resp({stop, Reason, ModuleState}, State=#state{}) ->
     {stop, Reason, State#state{state=ModuleState}};
@@ -110,16 +199,13 @@ handle_resp(Msg, State=#state{}) ->
     lager:error("Unhandled framed stream response ~p", [Msg]),
     {stop, {error, bad_resp}, State}.
 
-
-handle_call(_Request, _From, State) ->
-    {reply, ok, State}.
-
-handle_cast(_Msg, State) ->
-    {noreply, State}.
-
-terminate(_Reason, State) ->
-    libp2p_connection:fdclr(State#state.connection),
-    libp2p_connection:close(State#state.connection).
+terminate(Reason, #state{kind=Kind, connection=Connection, module=Module, state=ModuleState}) ->
+    case erlang:function_exported(Module, terminate, 2) of
+        true -> Module:terminate(Kind, Reason, ModuleState);
+        false -> ok
+    end,
+    libp2p_connection:fdclr(Connection),
+    libp2p_connection:close(Connection).
 
 -spec send(libp2p_connecton:connection(), binary() | list()) -> ok | {error, term()}.
 send(Connection, Data) when is_list(Data) ->

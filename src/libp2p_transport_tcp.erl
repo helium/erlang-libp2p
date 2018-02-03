@@ -6,7 +6,7 @@
 
 % libp2p_onnection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
-         close/1, controlling_process/2,
+         close/1, close_state/1, controlling_process/2,
          fdset/1, fdclr/1
         ]).
 
@@ -101,9 +101,8 @@ multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
 %%
 
 -spec send(state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
-    %% TODO: Re-enable this
-    %% Transport:setopts(Socket, [{send_timeout, Timeout}]),
+send(#tcp_state{socket=Socket, transport=Transport}, Data, Timeout) ->
+    Transport:setopts(Socket, [{send_timeout, Timeout}]),
     Transport:send(Socket, Data).
 
 -spec recv(state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
@@ -113,6 +112,13 @@ recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
 -spec close(state()) -> ok.
 close(#tcp_state{socket=Socket, transport=Transport}) ->
     Transport:close(Socket).
+
+-spec close_state(state()) -> open | closed.
+close_state(#tcp_state{socket=Socket}) ->
+    case inet:peername(Socket) of
+        {ok, _} -> open;
+        {error, _} -> closed
+    end.
 
 -spec acknowledge(state(), reference()) -> ok.
 acknowledge(#tcp_state{}, Ref) ->
