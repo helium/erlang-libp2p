@@ -32,10 +32,9 @@ get_config(Module, Defaults) ->
 %% Common pid CRUD
 %%
 
--spec insert_pid(ets:tab(), atom(), term(), pid()) -> ok.
+-spec insert_pid(ets:tab(), atom(), term(), pid()) -> true.
 insert_pid(TID, Kind, Ref, Pid) ->
-    ets:insert(TID, {{Kind, Ref}, Pid}),
-    ok.
+    ets:insert(TID, {{Kind, Ref}, Pid}).
 
 -spec lookup_pid(ets:tab(), atom(), term()) -> {ok, pid()} | false.
 lookup_pid(TID, Kind, Ref) ->
@@ -59,7 +58,7 @@ remove_pid(TID, Kind, Ref) ->
 listener() ->
     ?LISTENER.
 
--spec insert_listener(ets:tab(), string(), pid()) -> ok.
+-spec insert_listener(ets:tab(), string(), pid()) -> true.
 insert_listener(TID, Addr, Pid) ->
     insert_pid(TID, ?LISTENER, Addr, Pid).
 
@@ -83,7 +82,7 @@ listen_addrs(TID) ->
 session() ->
     ?SESSION.
 
--spec insert_session(ets:tab(), string(), pid()) -> ok.
+-spec insert_session(ets:tab(), string(), pid()) -> true.
 insert_session(TID, Addr, Pid) ->
     insert_pid(TID, ?SESSION, Addr, Pid).
 
@@ -103,7 +102,7 @@ lookup_sessions(TID) ->
 %% Accept handlers
 %%
 
--spec insert_handler(ets:tab(), string(), pid()) -> ok.
+-spec insert_handler(ets:tab(), string(), pid()) -> true.
 insert_handler(TID, Ref, Pid) ->
     insert_pid(TID, ?HANDLER, Ref, Pid).
 
@@ -124,10 +123,9 @@ lookup_handlers(TID, TableKey) ->
 lookup_connection_handlers(TID) ->
     lookup_handlers(TID, ?CONNECTION_HANDLER).
 
--spec insert_connection_handler(ets:tab(), {string(), handler(), handler()}) -> ok.
+-spec insert_connection_handler(ets:tab(), {string(), handler(), handler()}) -> true.
 insert_connection_handler(TID, {Key, ServerMF, ClientMF}) ->
-    ets:insert(TID, {{?CONNECTION_HANDLER, Key}, {ServerMF, ClientMF}}),
-    ok.
+    ets:insert(TID, {{?CONNECTION_HANDLER, Key}, {ServerMF, ClientMF}}).
 
 %%
 %% Streams
@@ -137,7 +135,6 @@ insert_connection_handler(TID, {Key, ServerMF, ClientMF}) ->
 lookup_stream_handlers(TID) ->
     lookup_handlers(TID, ?STREAM_HANDLER).
 
--spec insert_stream_handler(ets:tab(), {string(), handler()}) -> ok.
+-spec insert_stream_handler(ets:tab(), {string(), handler()}) -> true.
 insert_stream_handler(TID, {Key, ServerMF}) ->
-    ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}),
-    ok.
+    ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}).

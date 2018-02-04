@@ -155,7 +155,9 @@ listen_on(Addr, State=#state{tid=TID}) ->
                     case Transport:start_listener(ListenerSup, ListenAddr, TID) of
                         {ok, TransportAddrs, ListenPid} ->
                             lager:info("Started Listener on ~p", [TransportAddrs]),
-                            [libp2p_config:insert_listener(TID, A, ListenPid) || A <- TransportAddrs],
+                            lists:foreach(fun(A) ->
+                                                  libp2p_config:insert_listener(TID, A, ListenPid)
+                                          end, TransportAddrs),
                             {ok, add_monitor(libp2p_config:listener(),
                                              TransportAddrs, ListenPid, State)};
                         {error, Error} ->

@@ -23,7 +23,6 @@ start_listener(Sup, Addr, TID) ->
         {IP, Port, Type} ->
             OptionDefaults = [
                               % Listen options
-                              {port, Port},
                               {ip, IP},
                               {backlog, 1024},
                               {nodelay, true},
@@ -36,18 +35,25 @@ start_listener(Sup, Addr, TID) ->
                              ],
             TransportKeys = sets:from_list([max_connections]),
             Options = libp2p_config:get_config(?MODULE, OptionDefaults),
-            {ListenOpts, TransportOpts} =
-                lists:splitwith(fun({Key, _}) ->
+            {TransportOpts, ListenOpts0} =
+                lists:partition(fun({Key, _}) ->
                                         sets:is_element(Key, TransportKeys)
                                 end, Options),
-            case ranch_tcp:listen([Type | ListenOpts]) of
+            % Non-overidable options, taken from ranch_tcp:listen
+            DefaultListenOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}],
+            % filter out disallowed options and supply default ones
+            ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
+                                              DefaultListenOpts),
+            % Dialyzer severely dislikes ranch_tcp:listen so we
+            % emulate it's behavior here
+            case gen_tcp:listen(Port, [Type | ListenOpts]) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
                     ChildSpec = ranch:child_spec(ListenAddrs,
                                                  ranch_tcp, [{socket, Socket} | TransportOpts],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     {ok, Pid} = supervisor:start_child(Sup, ChildSpec),
-                    ok = ranch_tcp:controlling_process(Socket, Pid),
+                    ok = gen_tcp:controlling_process(Socket, Pid),
                     {ok, ListenAddrs, Pid};
                 {error, Reason} -> {error, Reason}
             end;
