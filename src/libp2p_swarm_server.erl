@@ -149,14 +149,17 @@ listen_on(TID, Addr, State=#state{}) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ListenAddr, []}} ->
             case libp2p_config:lookup_listener(TID, Addr) of
-                {ok, _Pid} -> {error, already_listening};
+                {ok, _} -> {error, already_listening};
                 false ->
                     ListenerSup = listener_sup(TID),
                     case Transport:start_listener(ListenerSup, ListenAddr, TID) of
                         {ok, TransportAddrs, ListenPid} ->
                             lager:info("Started Listener on ~p", [TransportAddrs]),
-                            Kind = hd(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
-                            {ok, add_monitor(Kind, TransportAddrs, ListenPid, State)};
+                            lists:foreach(fun(A) ->
+                                                  libp2p_config:insert_listener(TID, A, ListenPid)
+                                         end, TransportAddrs),
+                            {ok, add_monitor(libp2p_config:listener(),
+                                             TransportAddrs, ListenPid, State)};
                         {error, Error} ->
                             lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),
                             {error, Error}
@@ -182,8 +185,10 @@ connect_to(TID, Addr, Timeout, State) ->
                         {ok, Connection} ->
                             case start_client_session(TID, ConnAddr, Connection) of
                                 {error, SessionError} -> {error, SessionError};
-                                {ok, Kind, SessionPid} ->
-                                    {ok, SessionPid, add_monitor(Kind, [ConnAddr], SessionPid, State)}
+                                {ok, SessionPid} ->
+                                    {ok, SessionPid,
+                                     add_monitor(libp2p_config:session(),
+                                                 [ConnAddr], SessionPid, State)}
                             end
                     end
             end;
@@ -204,7 +209,7 @@ start_client_stream(_TID, Path, SessionPid) ->
     end.
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, atom(), libp2p_session:pid()} | {error, term()}.
+                          -> {ok, libp2p_session:pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
@@ -217,9 +222,9 @@ start_client_session(TID, Addr, Connection) ->
                            type => worker },
             SessionSup = session_sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
-            Kind = libp2p_config:insert_session(TID, Addr, SessionPid),
+            libp2p_config:insert_session(TID, Addr, SessionPid),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
-                ok -> {ok, Kind, SessionPid};
+                ok -> {ok, SessionPid};
                 {error, Error} ->
                     libp2p_connection:close(Connection),
                     {error, Error}

@@ -22,24 +22,33 @@
 start_listener(Sup, Addr, TID) ->
     case tcp_addr(Addr) of
         {IP, Port, Type} ->
-            ListenDefaults = [
+            OptionDefaults = [
+                              % Listen options
                               {port, Port},
                               {ip, IP},
                               {backlog, 1024},
                               {nodelay, true},
                               {send_timeout, 30000},
-                              {send_timeout_close, true}
+                              {send_timeout_close, true},
+
+                              % Transport options. Add new transport
+                              % default options to TransportKeys below
+                              {max_connections, 1024}
                              ],
-            ListenOpts = [Type | libp2p_config:get_config(?MODULE, ListenDefaults)],
-            io:format("O ~p", [ListenOpts]),
-            case ranch_tcp:listen(ListenOpts) of
+            TransportKeys = sets:from_list([max_connections]),
+            Options = libp2p_config:get_config(?MODULE, OptionDefaults),
+            {ListenOpts, TransportOpts} =
+                lists:splitwith(fun({Key, _}) ->
+                                        sets:is_element(Key, TransportKeys)
+                                end, Options),
+            case ranch_tcp:listen([Type | ListenOpts]) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
-                    ChildSpec = ranch:child_spec(ListenAddrs, ranch_tcp, [{socket, Socket}],
-                                                 libp2p_transport_ranch_protocol,
-                                                 {?MODULE, TID}),
+                    ChildSpec = ranch:child_spec(ListenAddrs,
+                                                 ranch_tcp, [{socket, Socket} | TransportOpts],
+                                                 libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     {ok, Pid} = supervisor:start_child(Sup, ChildSpec),
-                    ok = gen_tcp:controlling_process(Socket, Pid),
+                    ok = ranch_tcp:controlling_process(Socket, Pid),
                     {ok, ListenAddrs, Pid};
                 {error, Reason} -> {error, Reason}
             end;

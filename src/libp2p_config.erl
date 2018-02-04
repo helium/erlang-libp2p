@@ -2,9 +2,9 @@
 
 -export([get_config/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
-         insert_session/3, lookup_session/2, remove_session/2, lookup_sessions/1,
+         session/0, insert_session/3, lookup_session/2, remove_session/2, lookup_sessions/1,
          insert_handler/3, lookup_handler/2,
-         listen_addrs/1, lookup_listener/2, insert_listener/3, remove_listener/2,
+         listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2]).
 
@@ -32,10 +32,10 @@ get_config(Module, Defaults) ->
 %% Common pid CRUD
 %%
 
--spec insert_pid(ets:tab(), atom(), term(), pid()) -> atom().
+-spec insert_pid(ets:tab(), atom(), term(), pid()) -> ok.
 insert_pid(TID, Kind, Ref, Pid) ->
     ets:insert(TID, {{Kind, Ref}, Pid}),
-    Kind.
+    ok.
 
 -spec lookup_pid(ets:tab(), atom(), term()) -> {ok, pid()} | false.
 lookup_pid(TID, Kind, Ref) ->
@@ -55,8 +55,11 @@ remove_pid(TID, Kind, Ref) ->
 %%
 %% Listeners
 %%
+-spec listener() -> atom.
+listener() ->
+    ?LISTENER.
 
--spec insert_listener(ets:tab(), string(), pid()) -> atom().
+-spec insert_listener(ets:tab(), string(), pid()) -> ok.
 insert_listener(TID, Addr, Pid) ->
     insert_pid(TID, ?LISTENER, Addr, Pid).
 
@@ -76,7 +79,11 @@ listen_addrs(TID) ->
 %% Sessions
 %%
 
--spec insert_session(ets:tab(), string(), pid()) -> atom().
+-spec session() -> atom().
+session() ->
+    ?SESSION.
+
+-spec insert_session(ets:tab(), string(), pid()) -> ok.
 insert_session(TID, Addr, Pid) ->
     insert_pid(TID, ?SESSION, Addr, Pid).
 
@@ -96,7 +103,7 @@ lookup_sessions(TID) ->
 %% Accept handlers
 %%
 
--spec insert_handler(ets:tab(), string(), pid()) -> atom().
+-spec insert_handler(ets:tab(), string(), pid()) -> ok.
 insert_handler(TID, Ref, Pid) ->
     insert_pid(TID, ?HANDLER, Ref, Pid).
 
