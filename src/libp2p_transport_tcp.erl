@@ -17,8 +17,7 @@
 
 -type state() :: #tcp_state{}.
 
--spec start_listener(supervisor:pid(), string(), ets:tab())
-                    -> {ok, [string()], pid()} | {error, term()}.
+-spec start_listener(pid(), string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 start_listener(Sup, Addr, TID) ->
     case tcp_addr(Addr) of
         {IP, Port, Type} ->

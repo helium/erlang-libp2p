@@ -75,15 +75,15 @@ init([TID]) ->
     libp2p_config:insert_stream_handler(TID, IdentifyHandler),
     {ok, #state{tid=TID}}.
 
-handle_call({listen, Addr}, _From, State=#state{tid=TID}) ->
-    case listen_on(TID, Addr, State) of
+handle_call({listen, Addr}, _From, State=#state{}) ->
+    case listen_on(Addr, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, NewState} -> {reply, ok, NewState}
     end;
 handle_call(listen_addrs, _From, State=#state{tid=TID}) ->
     {reply, libp2p_config:listen_addrs(TID), State};
 handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
-    case connect_to(TID, Addr, Timeout, State) of
+    case connect_to(Addr, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} ->
             case start_client_stream(TID, Path, SessionPid) of
@@ -91,8 +91,8 @@ handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
                 {ok, Connection} -> {reply, {ok, Connection}, NewState}
             end
     end;
-handle_call({connect_to, Addr, Timeout}, _From, State=#state{tid=TID}) ->
-    case connect_to(TID, Addr, Timeout, State) of
+handle_call({connect_to, Addr, Timeout}, _From, State=#state{}) ->
+    case connect_to(Addr, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} -> {reply, {ok, SessionPid}, NewState}
     end;
@@ -144,8 +144,8 @@ remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
             State#state{monitors=NewMonitors}
     end.
 
--spec listen_on(ets:tab(), string(), #state{}) -> {ok, #state{}} | {error, term()}.
-listen_on(TID, Addr, State=#state{}) ->
+-spec listen_on(string(), #state{}) -> {ok, #state{}} | {error, term()}.
+listen_on(Addr, State=#state{tid=TID}) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ListenAddr, []}} ->
             case libp2p_config:lookup_listener(TID, Addr) of
@@ -169,9 +169,8 @@ listen_on(TID, Addr, State=#state{}) ->
     end.
 
 
--spec connect_to(ets:tab(), string(), pos_integer(), #state{})
-                -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
-connect_to(TID, Addr, Timeout, State) ->
+-spec connect_to(string(), pos_integer(), #state{}) -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
+connect_to(Addr, Timeout, State=#state{tid=TID}) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ConnAddr, _}} ->
             case libp2p_config:lookup_session(TID, ConnAddr) of

@@ -55,7 +55,7 @@ remove_pid(TID, Kind, Ref) ->
 %%
 %% Listeners
 %%
--spec listener() -> atom.
+-spec listener() -> ?LISTENER.
 listener() ->
     ?LISTENER.
 
@@ -79,7 +79,7 @@ listen_addrs(TID) ->
 %% Sessions
 %%
 
--spec session() -> atom().
+-spec session() -> ?SESSION.
 session() ->
     ?SESSION.
 
