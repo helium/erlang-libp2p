@@ -17,6 +17,8 @@
 
 -type state() :: #tcp_state{}.
 
+-define(CONFIG_SECTION, tcp).
+
 -spec start_listener(pid(), string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 start_listener(Sup, Addr, TID) ->
     case tcp_addr(Addr) of
@@ -34,7 +36,7 @@ start_listener(Sup, Addr, TID) ->
                               {max_connections, 1024}
                              ],
             TransportKeys = sets:from_list([max_connections]),
-            Options = libp2p_config:get_config(?MODULE, OptionDefaults),
+            Options = libp2p_config:get_config(?CONFIG_SECTION, OptionDefaults),
             {TransportOpts, ListenOpts0} =
                 lists:partition(fun({Key, _}) ->
                                         sets:is_element(Key, TransportKeys)

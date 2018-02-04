@@ -38,8 +38,7 @@ connect(Pid, Addr, Timeout) ->
 
 -spec listen(pid(), string()) -> ok | {error, term()}.
 listen(Pid, Addr) ->
-    {ok, _, {ListenAddr, _}} = libp2p_transport:for_addr(Addr),
-    gen_server:call(Pid, {listen, ListenAddr}).
+    gen_server:call(Pid, {listen, Addr}).
 
 -spec listen_addrs(pid()) -> [string()].
 listen_addrs(Pid) ->
