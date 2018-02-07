@@ -48,21 +48,3 @@ ping_test() ->
 
     test_util:teardown_swarms(Swarms),
     ok.
-
-
-
-%% dial_test() ->
-%%     Swarms = [S1, S2] = test_util:setup_swarms(),
-%%     ok = libp2p_swarm:add_stream_handler(S2, "echo", {libp2p_framed_stream, server, [echo_stream]}),
-%%     [S2Addr] = libp2p_swarm:listen_addrs(S2),
-
-%%     % Dial and see if the initial path got handled
-%%     {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo/hello"),
-%%     ?assertEqual({ok, <<"/hello">>}, libp2p_framed_stream:recv(Stream)),
-
-%%     % Echo send/response
-%%     libp2p_framed_stream:send(Stream, <<"test">>),
-%%     ?assertEqual({ok, <<"test">>}, libp2p_framed_stream:recv(Stream)),
-
-%%     test_util:teardown_swarms(Swarms),
-%%     ok.
