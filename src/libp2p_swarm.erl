@@ -1,9 +1,14 @@
 -module(libp2p_swarm).
 
--export([start/0, start/1, stop/1, dial/3, dial/4, connect/2, listen/2, listen_addrs/1,
-         add_connection_handler/3, add_stream_handler/3, stream_handlers/1]).
+-export([start/0, start/1, stop/1,
+         dial/3, dial/5, connect/2, connect/4,
+         listen/2, listen_addrs/1,
+         add_connection_handler/3,
+         add_stream_handler/3, stream_handlers/1]).
 
--define(DIAL_TIMEOUT, 5000).
+-type connect_opt() :: {unique, true | false}.
+
+-define(CONNECT_TIMEOUT, 5000).
 
 
 -spec start() -> {ok, pid()} | {error, term()}.
@@ -63,21 +68,27 @@ add_connection_handler(Sup, Key, HandlerDef) ->
 
 -spec connect(supervisor:sup_ref(), string()) -> {ok, libp2p_session:pid()} | {error, term()}.
 connect(Sup, Addr) ->
+    connect(Sup, Addr, [], ?CONNECT_TIMEOUT).
+
+-spec connect(supervisor:sup_ref(), string(), [connect_opt()], pos_integer())
+             -> {ok, libp2p_session:pid()} | {error, term()}.
+connect(Sup, Addr, Options, Timeout) ->
     Server = libp2p_swarm_sup:server(Sup),
-    libp2p_swarm_server:connect(Server, Addr).
+    libp2p_swarm_server:connect(Server, Addr, Options, Timeout).
+
 
 % Stream
 %
 -spec dial(supervisor:sup_ref(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(Sup, Addr, Path) ->
-    dial(Sup, Addr, Path, ?DIAL_TIMEOUT).
+    dial(Sup, Addr, Path, [], ?CONNECT_TIMEOUT).
 
--spec dial(supervisor:sup_ref(), string(), string(), pos_integer())
+-spec dial(supervisor:sup_ref(), string(), string(),[connect_opt()], pos_integer())
           -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Sup, Addr, Path, Timeout) ->
+dial(Sup, Addr, Path, Options, Timeout) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     Server = libp2p_swarm_sup:server(Sup),
-    libp2p_swarm_server:dial(Server, Addr, Path, Timeout).
+    libp2p_swarm_server:dial(Server, Addr, Path, Options, Timeout).
 
 -spec add_stream_handler(supervisor:sup_ref(), string(), libp2p_session:stream_handler()) -> ok.
 add_stream_handler(Sup, Key, HandlerDef) ->
