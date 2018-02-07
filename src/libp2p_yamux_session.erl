@@ -144,6 +144,8 @@ handle_call(streams, _From, State=#state{stream_sup=StreamSup}) ->
     {reply, [Pid || {_, Pid, _, _} <- supervisor:which_children(StreamSup)], State};
 handle_call(addr_info, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:addr_info(Connection), State};
+handle_call(close_state, _From, State=#state{connection=Connection}) ->
+    {reply, libp2p_connection:close_state(Connection), State};
 
 handle_call(_Msg, _From, State) ->
     {reply, ok, State}.

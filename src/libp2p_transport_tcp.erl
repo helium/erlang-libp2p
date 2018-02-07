@@ -17,18 +17,43 @@
 
 -type state() :: #tcp_state{}.
 
--spec start_listener(supervisor:pid(), string(), ets:tab())
-                    -> {ok, [string()], pid()} | {error, term()}.
+-define(CONFIG_SECTION, tcp).
+
+-spec start_listener(pid(), string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 start_listener(Sup, Addr, TID) ->
     case tcp_addr(Addr) of
-        {Address, Port, Options} ->
-            SocketOpts = [{ip, Address}, {active, false}, binary | Options],
-            case gen_tcp:listen(Port, SocketOpts) of
+        {IP, Port, Type} ->
+            OptionDefaults = [
+                              % Listen options
+                              {ip, IP},
+                              {backlog, 1024},
+                              {nodelay, true},
+                              {send_timeout, 30000},
+                              {send_timeout_close, true},
+
+                              % Transport options. Add new transport
+                              % default options to TransportKeys below
+                              {max_connections, 1024}
+                             ],
+            TransportKeys = sets:from_list([max_connections]),
+            Options = libp2p_config:get_config(?CONFIG_SECTION, OptionDefaults),
+            {TransportOpts, ListenOpts0} =
+                lists:partition(fun({Key, _}) ->
+                                        sets:is_element(Key, TransportKeys)
+                                end, Options),
+            % Non-overidable options, taken from ranch_tcp:listen
+            DefaultListenOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}],
+            % filter out disallowed options and supply default ones
+            ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
+                                              DefaultListenOpts),
+            % Dialyzer severely dislikes ranch_tcp:listen so we
+            % emulate it's behavior here
+            case gen_tcp:listen(Port, [Type | ListenOpts]) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
-                    ProtocolOpts = {?MODULE, TID},
-                    ChildSpec = ranch:child_spec(ListenAddrs, ranch_tcp, [{socket, Socket}],
-                                                 libp2p_transport_ranch_protocol, ProtocolOpts),
+                    ChildSpec = ranch:child_spec(ListenAddrs,
+                                                 ranch_tcp, [{socket, Socket} | TransportOpts],
+                                                 libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     {ok, Pid} = supervisor:start_child(Sup, ChildSpec),
                     ok = gen_tcp:controlling_process(Socket, Pid),
                     {ok, ListenAddrs, Pid};
@@ -44,13 +69,10 @@ new_connection(Socket) ->
 -spec dial(string(), pos_integer()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(MAddr, Timeout) ->
     case tcp_addr(MAddr) of
-        {Address, Port, Options} ->
-            ConnectOptions = [binary, {active, false} | Options],
-            case gen_tcp:connect(Address, Port, ConnectOptions, Timeout) of
-                {ok, Socket} ->
-                    {ok, new_connection(Socket)};
-                {error, Error} ->
-                    {error, Error}
+        {IP, Port, Type} ->
+            case ranch_tcp:connect(IP, Port, [Type], Timeout) of
+                {ok, Socket} -> {ok, new_connection(Socket)};
+                {error, Error} -> {error, Error}
             end;
         {error, Reason} -> {error, Reason}
     end.
@@ -73,7 +95,7 @@ tcp_listen_addrs(Socket) ->
     end.
 
 
--spec tcp_addr(string()) -> {inet:ip_address(), non_neg_integer(), [gen_tcp:listen_option()]} | {error, term()}.
+-spec tcp_addr(string()) -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
 tcp_addr(MAddr) when is_list(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(multiaddr:new(MAddr))).
 
@@ -82,10 +104,10 @@ tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
     case AddrType of
         "ip4" ->
             {ok, IP} = inet:parse_ipv4_address(Address),
-            {IP, Port, [inet]};
+            {IP, Port, inet};
         "ip6" ->
             {ok, IP} = inet:parse_ipv6_address(Address),
-            {IP, Port, [inet6]};
+            {IP, Port, inet6};
         _ -> {error, {unsupported_address, Addr}}
     end;
 tcp_addr(Addr, _Protocols) ->
