@@ -6,6 +6,8 @@ open_close_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
+    ?assertEqual(open, libp2p_session:close_state(Session1)),
+
     {Session1Addr, _} = libp2p_session:addr_info(Session1),
     {ok, Session2} = libp2p_swarm:connect(S2, Session1Addr),
 

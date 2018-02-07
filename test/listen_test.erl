@@ -44,3 +44,9 @@ already_test() ->
     ?assertMatch({error, _}, libp2p_swarm:start(ListenAddr)),
 
     test_util:teardown_swarms([Swarm]).
+
+bad_addr_test() ->
+    ?assertMatch({error, {unsupported_address, _}},
+                 libp2p_swarm:start("/onion/timaq4ygg2iegci7:1234")),
+    ?assertMatch({error, {unsupported_address, _}},
+                 libp2p_swarm:start("/udp/1234/udt")).

@@ -38,8 +38,7 @@ connect(Pid, Addr, Timeout) ->
 
 -spec listen(pid(), string()) -> ok | {error, term()}.
 listen(Pid, Addr) ->
-    {ok, _, {ListenAddr, _}} = libp2p_transport:for_addr(Addr),
-    gen_server:call(Pid, {listen, ListenAddr}).
+    gen_server:call(Pid, {listen, Addr}).
 
 -spec listen_addrs(pid()) -> [string()].
 listen_addrs(Pid) ->
@@ -75,15 +74,15 @@ init([TID]) ->
     libp2p_config:insert_stream_handler(TID, IdentifyHandler),
     {ok, #state{tid=TID}}.
 
-handle_call({listen, Addr}, _From, State=#state{tid=TID}) ->
-    case listen_on(TID, Addr, State) of
+handle_call({listen, Addr}, _From, State=#state{}) ->
+    case listen_on(Addr, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, NewState} -> {reply, ok, NewState}
     end;
 handle_call(listen_addrs, _From, State=#state{tid=TID}) ->
     {reply, libp2p_config:listen_addrs(TID), State};
 handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
-    case connect_to(TID, Addr, Timeout, State) of
+    case connect_to(Addr, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} ->
             case start_client_stream(TID, Path, SessionPid) of
@@ -91,8 +90,8 @@ handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
                 {ok, Connection} -> {reply, {ok, Connection}, NewState}
             end
     end;
-handle_call({connect_to, Addr, Timeout}, _From, State=#state{tid=TID}) ->
-    case connect_to(TID, Addr, Timeout, State) of
+handle_call({connect_to, Addr, Timeout}, _From, State=#state{}) ->
+    case connect_to(Addr, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} -> {reply, {ok, SessionPid}, NewState}
     end;
@@ -144,31 +143,33 @@ remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
             State#state{monitors=NewMonitors}
     end.
 
--spec listen_on(ets:tab(), string(), #state{}) -> {ok, #state{}} | {error, term()}.
-listen_on(TID, Addr, State=#state{}) ->
+-spec listen_on(string(), #state{}) -> {ok, #state{}} | {error, term()}.
+listen_on(Addr, State=#state{tid=TID}) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ListenAddr, []}} ->
             case libp2p_config:lookup_listener(TID, Addr) of
-                {ok, _Pid} -> {error, already_listening};
+                {ok, _} -> {error, already_listening};
                 false ->
                     ListenerSup = listener_sup(TID),
                     case Transport:start_listener(ListenerSup, ListenAddr, TID) of
                         {ok, TransportAddrs, ListenPid} ->
                             lager:info("Started Listener on ~p", [TransportAddrs]),
-                            Kind = hd(lists:map(fun(TAddr) -> libp2p_config:insert_listener(TID, TAddr, ListenPid) end, TransportAddrs)),
-                            {ok, add_monitor(Kind, TransportAddrs, ListenPid, State)};
+                            lists:foreach(fun(A) ->
+                                                  libp2p_config:insert_listener(TID, A, ListenPid)
+                                          end, TransportAddrs),
+                            {ok, add_monitor(libp2p_config:listener(),
+                                             TransportAddrs, ListenPid, State)};
                         {error, Error} ->
                             lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),
                             {error, Error}
                     end
             end;
-        {error, Error} -> {error, Error}
+        {error, Reason} -> {error, Reason}
     end.
 
 
--spec connect_to(ets:tab(), string(), pos_integer(), #state{})
-                -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
-connect_to(TID, Addr, Timeout, State) ->
+-spec connect_to(string(), pos_integer(), #state{}) -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
+connect_to(Addr, Timeout, State=#state{tid=TID}) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ConnAddr, _}} ->
             case libp2p_config:lookup_session(TID, ConnAddr) of
@@ -182,8 +183,10 @@ connect_to(TID, Addr, Timeout, State) ->
                         {ok, Connection} ->
                             case start_client_session(TID, ConnAddr, Connection) of
                                 {error, SessionError} -> {error, SessionError};
-                                {ok, Kind, SessionPid} ->
-                                    {ok, SessionPid, add_monitor(Kind, [ConnAddr], SessionPid, State)}
+                                {ok, SessionPid} ->
+                                    {ok, SessionPid,
+                                     add_monitor(libp2p_config:session(),
+                                                 [ConnAddr], SessionPid, State)}
                             end
                     end
             end;
@@ -204,7 +207,7 @@ start_client_stream(_TID, Path, SessionPid) ->
     end.
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, atom(), libp2p_session:pid()} | {error, term()}.
+                          -> {ok, libp2p_session:pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
@@ -217,9 +220,9 @@ start_client_session(TID, Addr, Connection) ->
                            type => worker },
             SessionSup = session_sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
-            Kind = libp2p_config:insert_session(TID, Addr, SessionPid),
+            libp2p_config:insert_session(TID, Addr, SessionPid),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
-                ok -> {ok, Kind, SessionPid};
+                ok -> {ok, SessionPid};
                 {error, Error} ->
                     libp2p_connection:close(Connection),
                     {error, Error}

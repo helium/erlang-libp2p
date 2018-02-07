@@ -4,7 +4,7 @@
 
 -export_type([stream_handler/0]).
 
--export([ping/1, open/1, close/1, goaway/1, streams/1, addr_info/1]).
+-export([ping/1, open/1, close/1, close_state/1, goaway/1, streams/1, addr_info/1]).
 
 -spec ping(pid()) -> {ok, pos_integer()} | {error, term()}.
 ping(Pid) ->
@@ -17,6 +17,10 @@ open(Pid) ->
 -spec close(pid()) -> ok.
 close(Pid) ->
     gen_server:stop(Pid).
+
+-spec close_state(pid()) -> libp2p_connection:close_state().
+close_state(Pid) ->
+    gen_server:call(Pid, close_state).
 
 -spec goaway(pid()) -> ok.
 goaway(Pid) ->
