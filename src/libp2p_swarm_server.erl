@@ -9,7 +9,7 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
--export([dial/3, dial/4, listen/2, connect/2, connect/3,
+-export([dial/5, listen/2, connect/4,
          listen_addrs/1, add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1]).
 
@@ -19,22 +19,15 @@
 %% API
 %%
 
--spec dial(pid(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Pid, Addr, Path) ->
-    dial(Pid, Addr, Path, ?DIAL_TIMEOUT).
-
--spec dial(pid(), string(), string(), pos_integer())
+-spec dial(pid(), string(), string(), [libp2p_swarm:connect_opt()], pos_integer())
           -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Pid, Addr, Path, Timeout) ->
-    gen_server:call(Pid, {dial, Addr, Path, Timeout}, infinity).
+dial(Pid, Addr, Path, Options, Timeout) ->
+    gen_server:call(Pid, {dial, Addr, Path, Options, Timeout}, infinity).
 
--spec connect(pid(), string()) ->{ok, pid()} | {error, term()}.
-connect(Pid, Addr) ->
-    connect(Pid, Addr, ?DIAL_TIMEOUT).
-
--spec connect(pid(), string(), pos_integer()) ->{ok, pid()} | {error, term()}.
-connect(Pid, Addr, Timeout) ->
-    gen_server:call(Pid, {connect_to, Addr, Timeout}, infinity).
+-spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer())
+             ->{ok, pid()} | {error, term()}.
+connect(Pid, Addr, Options, Timeout) ->
+    gen_server:call(Pid, {connect_to, Addr, Options, Timeout}, infinity).
 
 -spec listen(pid(), string()) -> ok | {error, term()}.
 listen(Pid, Addr) ->
@@ -81,8 +74,8 @@ handle_call({listen, Addr}, _From, State=#state{}) ->
     end;
 handle_call(listen_addrs, _From, State=#state{tid=TID}) ->
     {reply, libp2p_config:listen_addrs(TID), State};
-handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
-    case connect_to(Addr, Timeout, State) of
+handle_call({dial, Addr, Path, Options, Timeout}, _From, State=#state{tid=TID}) ->
+    case connect_to(Addr, Options, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} ->
             case start_client_stream(TID, Path, SessionPid) of
@@ -90,8 +83,8 @@ handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
                 {ok, Connection} -> {reply, {ok, Connection}, NewState}
             end
     end;
-handle_call({connect_to, Addr, Timeout}, _From, State=#state{}) ->
-    case connect_to(Addr, Timeout, State) of
+handle_call({connect_to, Addr, Options, Timeout}, _From, State=#state{}) ->
+    case connect_to(Addr, Options, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} -> {reply, {ok, SessionPid}, NewState}
     end;
@@ -168,16 +161,17 @@ listen_on(Addr, State=#state{tid=TID}) ->
     end.
 
 
--spec connect_to(string(), pos_integer(), #state{}) -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
-connect_to(Addr, Timeout, State=#state{tid=TID}) ->
+-spec connect_to(string(), [libp2p_swarm:connect_opt()], pos_integer(), #state{})
+                -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
+connect_to(Addr, Options, Timeout, State=#state{tid=TID}) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ConnAddr, _}} ->
-            case libp2p_config:lookup_session(TID, ConnAddr) of
+            case libp2p_config:lookup_session(TID, ConnAddr, Options) of
                 {ok, Pid} ->
                     {ok, Pid, State};
                 false ->
                     lager:info("Connecting to ~p", [ConnAddr]),
-                    case Transport:dial(ConnAddr, Timeout) of
+                    case Transport:dial(ConnAddr, Options, Timeout) of
                         {error, Error} ->
                             {error, Error};
                         {ok, Connection} ->
@@ -213,7 +207,7 @@ start_client_session(TID, Addr, Connection) ->
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
         {error, Error} -> {error, Error};
         {ok, {_, {M, F}}} ->
-            ChildSpec = #{ id => Addr,
+            ChildSpec = #{ id => make_ref(),
                            start => {M, F, [Connection, [], TID]},
                            restart => temporary,
                            shutdown => 5000,
