@@ -9,9 +9,11 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
--export([dial/3, listen/2, connect/2,
+-export([dial/3, dial/4, listen/2, connect/2, connect/3,
          listen_addrs/1, add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1]).
+
+-define(DIAL_TIMEOUT, 5000).
 
 %%
 %% API
@@ -19,11 +21,20 @@
 
 -spec dial(pid(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(Pid, Addr, Path) ->
-    gen_server:call(Pid, {dial, Addr, Path}).
+    dial(Pid, Addr, Path, ?DIAL_TIMEOUT).
+
+-spec dial(pid(), string(), string(), pos_integer())
+          -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(Pid, Addr, Path, Timeout) ->
+    gen_server:call(Pid, {dial, Addr, Path, Timeout}, infinity).
 
 -spec connect(pid(), string()) ->{ok, pid()} | {error, term()}.
 connect(Pid, Addr) ->
-    gen_server:call(Pid, {connect_to, Addr}).
+    connect(Pid, Addr, ?DIAL_TIMEOUT).
+
+-spec connect(pid(), string(), pos_integer()) ->{ok, pid()} | {error, term()}.
+connect(Pid, Addr, Timeout) ->
+    gen_server:call(Pid, {connect_to, Addr, Timeout}, infinity).
 
 -spec listen(pid(), string()) -> ok | {error, term()}.
 listen(Pid, Addr) ->
@@ -71,8 +82,8 @@ handle_call({listen, Addr}, _From, State=#state{tid=TID}) ->
     end;
 handle_call(listen_addrs, _From, State=#state{tid=TID}) ->
     {reply, libp2p_config:listen_addrs(TID), State};
-handle_call({dial, Addr, Path}, _From, State=#state{tid=TID}) ->
-    case connect_to(TID, Addr, State) of
+handle_call({dial, Addr, Path, Timeout}, _From, State=#state{tid=TID}) ->
+    case connect_to(TID, Addr, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} ->
             case start_client_stream(TID, Path, SessionPid) of
@@ -80,8 +91,8 @@ handle_call({dial, Addr, Path}, _From, State=#state{tid=TID}) ->
                 {ok, Connection} -> {reply, {ok, Connection}, NewState}
             end
     end;
-handle_call({connect_to, Addr}, _From, State=#state{tid=TID}) ->
-    case connect_to(TID, Addr, State) of
+handle_call({connect_to, Addr, Timeout}, _From, State=#state{tid=TID}) ->
+    case connect_to(TID, Addr, Timeout, State) of
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} -> {reply, {ok, SessionPid}, NewState}
     end;
@@ -155,21 +166,20 @@ listen_on(TID, Addr, State=#state{}) ->
     end.
 
 
--spec connect_to(ets:tab(), string(), #state{})
+-spec connect_to(ets:tab(), string(), pos_integer(), #state{})
                 -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
-connect_to(TID, Addr, State) ->
+connect_to(TID, Addr, Timeout, State) ->
     case libp2p_transport:for_addr(Addr) of
         {ok, Transport, {ConnAddr, _}} ->
             case libp2p_config:lookup_session(TID, ConnAddr) of
-                {ok, Pid} -> {ok, Pid, State};
+                {ok, Pid} ->
+                    {ok, Pid, State};
                 false ->
                     lager:info("Connecting to ~p", [ConnAddr]),
-                    case Transport:dial(ConnAddr) of
+                    case Transport:dial(ConnAddr, Timeout) of
                         {error, Error} ->
-                            lager:error("Failed to connect to ~p: ~p", [ConnAddr, Error]),
                             {error, Error};
                         {ok, Connection} ->
-                            lager:info("Starting client session with ~p", [ConnAddr]),
                             case start_client_session(TID, ConnAddr, Connection) of
                                 {error, SessionError} -> {error, SessionError};
                                 {ok, Kind, SessionPid} ->

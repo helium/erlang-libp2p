@@ -2,7 +2,7 @@
 
 -behaviour(libp2p_connection).
 
--export([start_listener/3, new_connection/1, dial/1]).
+-export([start_listener/3, new_connection/1, dial/2]).
 
 % libp2p_onnection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
@@ -41,13 +41,16 @@ start_listener(Sup, Addr, TID) ->
 new_connection(Socket) ->
     libp2p_connection:new(?MODULE, #tcp_state{socket=Socket, transport=ranch_tcp}).
 
--spec dial(string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(MAddr) ->
+-spec dial(string(), pos_integer()) -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(MAddr, Timeout) ->
     case tcp_addr(MAddr) of
         {Address, Port, Options} ->
-            case gen_tcp:connect(Address, Port, [binary, {active, false} | Options]) of
-                {ok, Socket} -> {ok, new_connection(Socket)};
-                {error, Error} -> {error, Error}
+            ConnectOptions = [binary, {active, false} | Options],
+            case gen_tcp:connect(Address, Port, ConnectOptions, Timeout) of
+                {ok, Socket} ->
+                    {ok, new_connection(Socket)};
+                {error, Error} ->
+                    {error, Error}
             end;
         {error, Reason} -> {error, Reason}
     end.
