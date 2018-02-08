@@ -5,10 +5,23 @@
 -opaque identify() :: #libp2p_identify_pb{}.
 
 -export_type([identify/0]).
--export([new/3, new/4, encode/1, decode/1,
-        protocol_version/1, listen_addrs/1, observed_addr/1, protocols/1, agent_version/1]).
+-export([identify/2, new/3, new/4, encode/1, decode/1,
+         protocol_version/1, listen_addrs/1, observed_addr/1, protocols/1, agent_version/1]).
 
 -define(VERSION, "identify/1.0.0").
+
+-spec identify(pid(), string()) -> {ok, identify()} | {error, term()}.
+identify(Swarm, Addr) ->
+    case libp2p_swarm:dial(Swarm, Addr, ?VERSION) of
+        {error, Error} -> {error, Error};
+        {ok, Stream} ->
+            Result = case libp2p_framed_stream:recv(Stream) of
+                         {error, Error} -> {error, Error};
+                         {ok, Bin} -> {ok, decode(Bin)}
+                     end,
+            libp2p_connection:close(Stream),
+            Result
+    end.
 
 -spec new([string()], string(), [string()]) -> libp2p_identify_pb:libp2p_identify_pb().
 new(ListenAddrs, ObservedAddr, Protocols) ->
