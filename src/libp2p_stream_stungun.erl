@@ -20,14 +20,14 @@ init(client, _Connection, [Parent]) ->
 init(server, _Connection, [TID, ObservedAddr, dial, STUNTxnID]) ->
     Sup = libp2p_swarm_sup:sup(TID),
     %% first, try with the unique dial option, so we can check if the peer has Full Cone or Restricted Cone NAT
-    case libp2p_swarm:dial(Sup, ObservedAddr, lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [STUNTxnID])), [{unique, true}], 5000) of
+    case libp2p_swarm:dial(Sup, ObservedAddr, lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [STUNTxnID])), [{unique, true}, {unique_port, true}], 5000) of
         {ok, C} ->
             libp2p_connection:close(C),
             %% ok they have full-cone or restricted cone NAT
             %% without trying from an unrelated IP we can't distinguish
             {stop, normal, ?OK};
         {error, _} ->
-            case libp2p_swarm:dial(Sup, ObservedAddr, lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [STUNTxnID])), [], 5000) of
+            case libp2p_swarm:dial(Sup, ObservedAddr, lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [STUNTxnID])), [{unique, true}], 5000) of
                 {ok, C2} ->
                     %% ok they have port restricted cone NAT
                     libp2p_connection:close(C2),

@@ -71,7 +71,7 @@ new_connection(Socket) ->
 dial(MAddr, DialOptions, Timeout) ->
     case tcp_addr(MAddr) of
         {IP, Port, Type} ->
-            Options = case Type == inet andalso proplists:get_value(unique, DialOptions) /= true of
+            Options = case Type == inet andalso proplists:get_value(unique_port, DialOptions) /= true of
                 true ->
                     [inet, {reuseaddr, true}, reuseport(), {port, proplists:get_value(port, DialOptions, 0)}];
                 false ->

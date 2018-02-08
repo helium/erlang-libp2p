@@ -159,6 +159,7 @@ handle_cast({record_observed_address, PeerAddress, ObservedAddress}, State=#stat
                             STUNTxnMap = maps:put(Ref, {STUNTxnID, ObservedAddress}, State#state.stun_txn_ids),
                             {noreply, State#state{observed_addresses=[{PeerAddress, ObservedAddress}|State#state.observed_addresses], stun_txn_ids=STUNTxnMap}};
                         false ->
+                            lager:info("peer ~p informed us of our observed address ~p", [PeerAddress, ObservedAddress]),
                             {noreply, State#state{observed_addresses=[{PeerAddress, ObservedAddress}|State#state.observed_addresses]}}
                     end
             end;
