@@ -71,12 +71,15 @@ new_connection(Socket) ->
 dial(MAddr, DialOptions, Timeout) ->
     case tcp_addr(MAddr) of
         {IP, Port, Type} ->
-            Options = case Type == inet andalso proplists:get_value(unique_port, DialOptions) /= true of
-                true ->
-                    [inet, {reuseaddr, true}, reuseport(), {port, proplists:get_value(port, DialOptions, 0)}];
-                false ->
-                    [Type]
-            end,
+            UniquePort = proplists:get_value(unique_port, DialOptions, false),
+            Options = case Type == inet of
+                          true when UniquePort ->
+                              [inet, {reuseaddr, true}];
+                          true ->
+                              [inet, {reuseaddr, true}, reuseport(), {port, proplists:get_value(port, DialOptions, 0)}];
+                          false ->
+                              [Type]
+                      end,
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} -> {ok, new_connection(Socket)};
                 {error, Error} -> {error, Error}
