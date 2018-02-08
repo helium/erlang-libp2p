@@ -8,8 +8,18 @@ open_close_test() ->
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
     ?assertEqual(open, libp2p_session:close_state(Session1)),
 
+    % open a reverse session
     {Session1Addr, _} = libp2p_session:addr_info(Session1),
     {ok, Session2} = libp2p_swarm:connect(S2, Session1Addr),
+
+    % open another forward session, ensure session reuse
+    {ok, Session3} = libp2p_swarm:connect(S1, S2Addr, [], 100),
+    ?assertEqual(Session1, Session3),
+
+    % and another one, but make it unique
+    {ok, Session4} = libp2p_swarm:connect(S1, S2Addr, [{unique, true}], 100),
+    ?assertNotEqual(Session1, Session4),
+    libp2p_session:close(Session4),
 
     {ok, Stream1} = libp2p_session:open(Session1),
     ?assertEqual(libp2p_connection:addr_info(Stream1), libp2p_session:addr_info(Session1)),
@@ -38,19 +48,3 @@ ping_test() ->
 
     test_util:teardown_swarms(Swarms),
     ok.
-
-%% dial_test() ->
-%%     Swarms = [S1, S2] = test_util:setup_swarms(),
-%%     ok = libp2p_swarm:add_stream_handler(S2, "echo", {libp2p_framed_stream, server, [echo_stream]}),
-%%     [S2Addr] = libp2p_swarm:listen_addrs(S2),
-
-%%     % Dial and see if the initial path got handled
-%%     {ok, Stream} = libp2p_swarm:dial(S1, S2Addr, "echo/hello"),
-%%     ?assertEqual({ok, <<"/hello">>}, libp2p_framed_stream:recv(Stream)),
-
-%%     % Echo send/response
-%%     libp2p_framed_stream:send(Stream, <<"test">>),
-%%     ?assertEqual({ok, <<"test">>}, libp2p_framed_stream:recv(Stream)),
-
-%%     test_util:teardown_swarms(Swarms),
-%%     ok.

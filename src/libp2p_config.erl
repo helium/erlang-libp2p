@@ -2,7 +2,7 @@
 
 -export([get_config/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
-         session/0, insert_session/3, lookup_session/2, remove_session/2, lookup_sessions/1,
+         session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
          insert_handler/3, lookup_handler/2,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
@@ -86,9 +86,17 @@ session() ->
 insert_session(TID, Addr, Pid) ->
     insert_pid(TID, ?SESSION, Addr, Pid).
 
+-spec lookup_session(ets:tab(), string(), libp2p_swarm:connect_opt())
+                    -> {ok, pid()} | false.
+lookup_session(TID, Addr, Options) ->
+    case lists:keyfind(unique, 1, Options) of
+        {unique, true} -> false;
+        _ -> lookup_pid(TID, ?SESSION, Addr)
+    end.
+
 -spec lookup_session(ets:tab(), string()) -> {ok, pid()} | false.
 lookup_session(TID, Addr) ->
-    lookup_pid(TID, ?SESSION, Addr).
+    lookup_session(TID, Addr, []).
 
 -spec remove_session(ets:tab(), string()) -> true.
 remove_session(TID, Addr) ->
