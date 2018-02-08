@@ -153,7 +153,7 @@ handle_cast({record_observed_address, PeerAddress, ObservedAddress}, State=#stat
                             Parent = self(),
                             spawn(fun() ->
                                           {ok, C} = libp2p_swarm_server:dial(Parent, PeerAddress, lists:flatten(io_lib:format("stungun/1.0.0/dial/~b", [STUNTxnID])), [], ?DIAL_TIMEOUT),
-                                          libp2p_connection:close(C)
+                                          libp2p_framed_stream:client(libp2p_stream_stungun, C, [Parent])
                                   end),
                             Ref = erlang:send_after(500, self(), {stungun_timeout, STUNTxnID}),
                             STUNTxnMap = maps:put(Ref, {STUNTxnID, ObservedAddress}, State#state.stun_txn_ids),
