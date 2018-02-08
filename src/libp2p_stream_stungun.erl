@@ -25,17 +25,17 @@ init(server, _Connection, [TID, ObservedAddr, dial, STUNTxnID]) ->
             libp2p_connection:close(C),
             %% ok they have full-cone or restricted cone NAT
             %% without trying from an unrelated IP we can't distinguish
-            {stop, ?OK, normal};
+            {stop, normal, ?OK};
         {error, _} ->
             case libp2p_swarm:dial(Sup, ObservedAddr, lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [STUNTxnID])), [], 5000) of
                 {ok, C2} ->
                     %% ok they have port restricted cone NAT
                     libp2p_connection:close(C2),
-                    {stop, ?PORT_RESTRICTED_NAT, normal};
+                    {stop, normal, ?PORT_RESTRICTED_NAT};
                 {error, _} ->
                     %% reply here to tell the peer we can't dial back at all
                     %% and they're behind symmetric NAT
-                    {stop, ?SYMMETRIC_NAT, normal}
+                    {stop, normal, ?SYMMETRIC_NAT}
             end
     end;
 init(server, Connection, [TID, reply, STUNTxnID]) ->
