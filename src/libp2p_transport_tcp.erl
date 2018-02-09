@@ -57,6 +57,10 @@ start_listener(Sup, Addr, TID) ->
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     {ok, Pid} = supervisor:start_child(Sup, ChildSpec),
                     ok = gen_tcp:controlling_process(Socket, Pid),
+                    Parent = self(),
+                    %% kickoff some background NAT mapping discovery...
+                    spawn(fun() -> try_nat_upnp(Parent, ListenAddrs) end),
+                    spawn(fun() -> try_nat_pmp(Parent, ListenAddrs) end),
                     {ok, ListenAddrs, Pid};
                 {error, Reason} -> {error, Reason}
             end;
@@ -104,18 +108,13 @@ tcp_listen_addrs(Socket) ->
         true ->
             % all 0 address, collect all non loopback interface addresses
             {ok, IFAddrs} = inet:getifaddrs(),
-            ListenAddrs = [multiaddr({Addr, Port}) ||
-                {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
-                size(Addr) == size(IP),
-                not lists:member(loopback, Flags),
-                %% filter out ipv6 link-local addresses
-                not (size(Addr) == 8 andalso element(1, Addr) == 16#fe80)
-            ],
-            Parent = self(),
-            %% kickoff some background NAT mapping discovery...
-            spawn(fun() -> try_nat_upnp(Parent, ListenAddrs) end),
-            spawn(fun() -> try_nat_pmp(Parent, ListenAddrs) end),
-            ListenAddrs
+            [multiaddr({Addr, Port}) ||
+             {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
+             size(Addr) == size(IP),
+             not lists:member(loopback, Flags),
+             %% filter out ipv6 link-local addresses
+             not (size(Addr) == 8 andalso element(1, Addr) == 16#fe80)
+            ]
     end.
 
 
