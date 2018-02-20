@@ -39,8 +39,7 @@ start_listener(Sup, Addr, TID) ->
             Options = libp2p_config:get_config(?CONFIG_SECTION, OptionDefaults),
             {TransportOpts, ListenOpts0} =
                 lists:partition(fun({Key, _}) ->
-                                        sets:is_element(Key, TransportKeys);
-                                   (_) -> true
+                                        sets:is_element(Key, TransportKeys)
                                 end, Options),
             % Non-overidable options, taken from ranch_tcp:listen
             DefaultListenOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, reuseport()],
