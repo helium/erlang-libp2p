@@ -23,6 +23,7 @@
 
 -record(state, {
           session :: libp2p_yamux:session(),
+          addr_info :: undefined | {multiaddr:multiaddr(), multiaddr:multiaddr()},
           inert_pid=undefined :: undefined | pid(),
           handler=undefined :: undefined | pid(),
           tid :: ets:tab(),
@@ -146,9 +147,10 @@ handle_event({call, From}, fdclr, _State, Data=#state{}) ->
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID}) when ?FLAG_IS_SET(Flags, ?SYN) ->
     % Client side "open", send out a SYN. The corresponding ACK is
     % received as a window update
+    AddrInfo = libp2p_session:addr_info(Session),
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
     ok = libp2p_yamux_session:send(Session, Header),
-    {next_state, connecting, Data};
+    {next_state, connecting, Data#state{addr_info=AddrInfo}};
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     %% Starting as a server, fire of an ACK right away
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
@@ -157,8 +159,9 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     Handlers = libp2p_config:lookup_stream_handlers(TID),
     lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
     Connection = new_connection(self()),
+    AddrInfo = libp2p_session:addr_info(Session),
     {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
-    {next_state, established, Data#state{handler=Pid}};
+    {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}};
 
 % Window Updates
 %
@@ -231,8 +234,7 @@ handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
 
 % Info
 %
-handle_event({call, From}, addr_info, _State, #state{session=Session}) ->
-    AddrInfo = libp2p_session:addr_info(Session),
+handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
     {keep_state_and_data, {reply, From, AddrInfo}};
 
 % Catch all
