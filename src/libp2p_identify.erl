@@ -44,18 +44,23 @@ new(ListenAddrs, ObservedAddr, Protocols, AgentVersion) ->
                         agent_version=AgentVersion
                        }.
 
+-spec protocol_version(identify()) -> string().
 protocol_version(#libp2p_identify_pb{protocol_version=Version}) ->
      Version.
 
+-spec listen_addrs(identify()) -> [multiaddr:multiaddr()].
 listen_addrs(#libp2p_identify_pb{listen_addrs=ListenAddrs}) ->
     ListenAddrs.
 
+-spec observed_addr(identify()) -> multiaddr:multiaddr().
 observed_addr(#libp2p_identify_pb{observed_addr=ObservedAddr}) ->
     ObservedAddr.
 
+-spec protocols(identify()) -> [string()].
 protocols(#libp2p_identify_pb{protocols=Protocols}) ->
     Protocols.
 
+-spec agent_version(identify()) -> string().
 agent_version(#libp2p_identify_pb{agent_version=Version}) ->
     Version.
 
