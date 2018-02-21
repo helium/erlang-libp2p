@@ -23,6 +23,7 @@
 
 -record(state, {
           session :: libp2p_yamux:session(),
+          addr_info :: undefined | {multiaddr:multiaddr(), multiaddr:multiaddr()},
           inert_pid=undefined :: undefined | pid(),
           handler=undefined :: undefined | pid(),
           tid :: ets:tab(),
@@ -157,8 +158,9 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     Handlers = libp2p_config:lookup_stream_handlers(TID),
     lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
     Connection = new_connection(self()),
+    AddrInfo = libp2p_session:addr_info(Session),
     {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
-    {next_state, established, Data#state{handler=Pid}};
+    {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}};
 
 % Window Updates
 %
@@ -175,7 +177,8 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     % Client side received an ACK. We have an established connection.
-    {next_state, established, Data};
+    AddrInfo = libp2p_session:addr_info(Data#state.session),
+    {next_state, established, Data#state{addr_info=AddrInfo}};
 handle_event(cast, {update_window, _Flags, Header}, established, Data=#state{}) ->
     Data1 = data_send_timeout_cancel(window_receive_update(Header, Data)),
     {keep_state, Data1};
@@ -224,15 +227,17 @@ handle_event({call, From}, close, _State, Data=#state{}) when ?REMOTE_CLOSED(Dat
     {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close, _State, Data=#state{}) ->
     % Send RST
-    close_send(Data),
+    catch close_send(Data),
     {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
     {keep_state_and_data, {reply, From, CloseState}};
 
 % Info
 %
-handle_event({call, From}, addr_info, _State, #state{session=Session}) ->
+handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, session=Session}) ->
     AddrInfo = libp2p_session:addr_info(Session),
+    {keep_state, Data#state{addr_info=AddrInfo}, {reply, From, AddrInfo}};
+handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
     {keep_state_and_data, {reply, From, AddrInfo}};
 
 % Catch all
@@ -258,7 +263,7 @@ config_get(#state{tid=TID}, Key, Default) ->
 %%
 
 close_send(#state{stream_id=StreamID, session=Session}) ->
-   Header = libp2p_yamux_session:header_update(?RST, StreamID, 0),
+    Header = libp2p_yamux_session:header_update(?RST, StreamID, 0),
     libp2p_yamux_session:send(Session, Header).
 
 %%
