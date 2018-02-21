@@ -93,7 +93,7 @@ handle_call({dial, Addr, Path, Options, Timeout}, _From, State=#state{tid=TID}) 
         {error, Error} -> {reply, {error, Error}, State};
         {ok, SessionPid, NewState} ->
             case start_client_stream(TID, Path, SessionPid) of
-                {error, Error} -> {error, Error};
+                {error, Error} -> {reply, {error, Error}, NewState};
                 {ok, Connection} -> {reply, {ok, Connection}, NewState}
             end
     end;
@@ -277,14 +277,18 @@ connect_to(Addr, Options, Timeout, State=#state{tid=TID}) ->
 -spec start_client_stream(ets:tab(), string(), libp2p_session:pid())
                          -> {ok, libp2p_connection:connection()} | {error, term()}.
 start_client_stream(_TID, Path, SessionPid) ->
-    case libp2p_session:open(SessionPid) of
+    try libp2p_session:open(SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} ->
             Handlers = [{Path, undefined}],
-            case libp2p_multistream_client:negotiate_handler(Handlers, "stream", Connection) of
+            try libp2p_multistream_client:negotiate_handler(Handlers, "stream", Connection) of
                 {error, Error} -> {error, Error};
                 {ok, _} -> {ok, Connection}
+            catch
+                What:Why -> {error, {What, Why}}
             end
+    catch
+        What:Why -> {error, {What, Why}}
     end.
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())

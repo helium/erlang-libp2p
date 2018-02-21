@@ -54,13 +54,16 @@ start_listener(Sup, Addr, TID) ->
                     ChildSpec = ranch:child_spec(ListenAddrs,
                                                  ranch_tcp, [{socket, Socket} | TransportOpts],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
-                    {ok, Pid} = supervisor:start_child(Sup, ChildSpec),
-                    ok = gen_tcp:controlling_process(Socket, Pid),
-                    Parent = self(),
-                    %% kickoff some background NAT mapping discovery...
-                    spawn(fun() -> try_nat_upnp(Parent, ListenAddrs) end),
-                    spawn(fun() -> try_nat_pmp(Parent, ListenAddrs) end),
-                    {ok, ListenAddrs, Pid};
+                    case supervisor:start_child(Sup, ChildSpec) of
+                        {ok, Pid} ->
+                            ok = gen_tcp:controlling_process(Socket, Pid),
+                            Parent = self(),
+                            %% kickoff some background NAT mapping discovery...
+                            spawn(fun() -> try_nat_upnp(Parent, ListenAddrs) end),
+                            spawn(fun() -> try_nat_pmp(Parent, ListenAddrs) end),
+                            {ok, ListenAddrs, Pid};
+                        {error, Reason} -> {error, Reason}
+                    end;
                 {error, Reason} -> {error, Reason}
             end;
         {error, Error} -> {error, Error}
@@ -295,14 +298,15 @@ try_nat_pmp(Parent, MultiAddrs) ->
 
 %% @doc Get the subnet mask as an integer, stolen from an old post on
 %%      erlang-questions.
+-spec mask_address(inet:ip_address(), pos_integer()) -> integer().
 mask_address(Addr={_, _, _, _}, Maskbits) ->
     B = list_to_binary(tuple_to_list(Addr)),
     lager:debug("address as binary: ~w ~w", [B,Maskbits]),
     <<Subnet:Maskbits, _Host/bitstring>> = B,
-    Subnet;
-mask_address(_, _) ->
+    Subnet.
+%mask_address(_, _) ->
     %% presumably ipv6, don't have a function for that one yet
-    undefined.
+    %undefined.
 
 %% return RFC1918 mask for IP or false if not in RFC1918 range
 rfc1918({10, _, _, _}) ->
