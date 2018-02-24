@@ -1,12 +1,14 @@
 -module(libp2p_swarm).
 
--export([start/0, start/1, stop/1,
+-export([start/0, start/1, stop/1, swarm/1,
          dial/3, dial/5, connect/2, connect/4,
          listen/2, listen_addrs/1,
+         add_transport_handler/2,
          add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1]).
 
--type connect_opt() :: {unique, true | false}.
+-type connect_opt() :: {unique_session, true | false}
+                     | {unique_port, true | false}.
 
 -define(CONNECT_TIMEOUT, 5000).
 
@@ -37,10 +39,24 @@ stop(Sup) ->
     exit(Sup, normal),
     receive
         {'DOWN', Ref, process, Sup, _Reason} -> ok
-    after 1000 ->
+    after 5000 ->
             error(timeout)
     end.
 
+% Access
+%
+
+-spec swarm(ets:tab()) -> supervisor:sup_ref().
+swarm(TID) ->
+    libp2p_swarm_sup:sup(TID).
+
+% Transport
+%
+
+-spec add_transport_handler(supervisor:sup_ref(), atom())-> ok.
+add_transport_handler(Sup, Transport) ->
+    Server = libp2p_swarm_sup:server(Sup),
+    libp2p_swarm_server:add_transport_handler(Server, Transport).
 
 % Listen
 %

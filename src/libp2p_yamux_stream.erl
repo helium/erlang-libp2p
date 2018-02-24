@@ -23,7 +23,7 @@
 
 -record(state, {
           session :: libp2p_yamux:session(),
-          addr_info :: undefined | {multiaddr:multiaddr(), multiaddr:multiaddr()},
+          addr_info :: undefined | {string(), string()},
           inert_pid=undefined :: undefined | pid(),
           handler=undefined :: undefined | pid(),
           tid :: ets:tab(),
@@ -47,15 +47,13 @@
 -define(REMOTE_CLOSED(S), ?CLOSE_STATE(S) == pending).
 
 % gen_statem functions
--export([init/1, callback_mode/0]).
+-export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % API
 -export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2]).
 % libp2p_connection
 -export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2]).
-% states
--export([handle_event/4]).
 
 open_stream(Session, TID, StreamID) ->
     % We're opening a stream (client)
@@ -67,6 +65,7 @@ receive_stream(Session, TID, StreamID) ->
     gen_statem:start_link(?MODULE, {Session, TID, StreamID, ?ACK}, []).
 
 init({Session, TID, StreamID, Flags}) ->
+    erlang:process_flag(trap_exit, true),
     gen_statem:cast(self(), {init, Flags}),
     {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID}}.
 
@@ -148,8 +147,10 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     % Client side "open", send out a SYN. The corresponding ACK is
     % received as a window update
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
-    ok = libp2p_yamux_session:send(Session, Header),
-    {next_state, connecting, Data};
+    case libp2p_yamux_session:send(Session, Header) of
+        ok -> {next_state, connecting, Data};
+        {error, Reason} -> {stop, normal, Reason}
+    end;
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     %% Starting as a server, fire of an ACK right away
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
@@ -240,11 +241,21 @@ handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, s
 handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
     {keep_state_and_data, {reply, From, AddrInfo}};
 
+% Exits
+%
+handle_event({'EXIT', _From,  Reason}, info, State, Data=#state{}) ->
+    terminate(Reason, State, Data),
+    {stop, normal, notify_inert(Data)};
+
 % Catch all
 %
 handle_event(EventType, Event, State, #state{stream_id=StreamID}) ->
     lager:error("Unhandled event for ~p (~p) ~p: ~p", [StreamID, State, Event, EventType]),
     keep_state_and_data.
+
+
+terminate(_Reason, _State, Data=#state{}) ->
+    notify_inert(Data).
 
 
 %%
