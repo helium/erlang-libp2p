@@ -207,7 +207,7 @@ terminate(Reason, #state{kind=Kind, connection=Connection, module=Module, state=
     libp2p_connection:fdclr(Connection),
     libp2p_connection:close(Connection).
 
--spec send(libp2p_connecton:connection(), binary() | list()) -> ok | {error, term()}.
+-spec send(libp2p_connection:connection(), binary() | list()) -> ok | {error, term()}.
 send(Connection, Data) when is_list(Data) ->
     send(Connection, list_to_binary(Data));
 send(_, <<>>) ->

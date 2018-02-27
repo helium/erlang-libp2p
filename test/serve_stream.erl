@@ -33,7 +33,7 @@ serve_loop(Connection, Parent) ->
             Parent ! {close_state, Result},
             serve_loop(Connection, Parent);
         stop ->
-            libp2p_connecton:close(Connection),
+            libp2p_connection:close(Connection),
             ok
     end.
 
