@@ -238,10 +238,6 @@ listen_on(Addr, TID) ->
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
                             ok = gen_tcp:controlling_process(Socket, Pid),
-                            %% Parent = self(),
-                            %% kickoff some background NAT mapping discovery...
-                            %% spawn(fun() -> try_nat_upnp(Parent, ListenAddrs) end),
-                            %% spawn(fun() -> try_nat_pmp(Parent, ListenAddrs) end),
                             {ok, ListenAddrs, Pid};
                         {error, Reason} ->
                             gen_tcp:close(Socket),
@@ -285,13 +281,13 @@ connect_options(Type, Addr, ListenAddrs, false, false) ->
 find_matching_listen_port(_Addr, []) ->
     0;
 find_matching_listen_port(Addr, [H|ListenAddrs]) ->
-    TheirAddr = multiaddr:new(H),
-    MyProtocols = [ element(1, T) || T <- multiaddr:protocols(Addr)],
-    TheirProtocols = [ element(1, T) || T <- multiaddr:protocols(TheirAddr)],
-    case MyProtocols == TheirProtocols of
+    ListenAddr = multiaddr:new(H),
+    ConnectProtocols = [ element(1, T) || T <- multiaddr:protocols(Addr)],
+    ListenProtocols = [ element(1, T) || T <- multiaddr:protocols(ListenAddr)],
+    case ConnectProtocols == ListenProtocols of
         true ->
-            %% TODO we assume the port is the second element of the second tuple, this is not safe
-            list_to_integer(element(2, lists:nth(2, multiaddr:protocols(TheirAddr))));
+            {_, Port, _} = tcp_addr(ListenAddr),
+            Port;
         false ->
             find_matching_listen_port(Addr, ListenAddrs)
     end.
@@ -327,6 +323,8 @@ tcp_listen_addrs(Socket) ->
 
 
 -spec tcp_addr(string()) -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
+tcp_addr(MAddr) when is_binary(MAddr) ->
+    tcp_addr(MAddr, multiaddr:protocols(MAddr));
 tcp_addr(MAddr) when is_list(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(multiaddr:new(MAddr))).
 

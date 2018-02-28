@@ -68,7 +68,6 @@ client(Module, Connection, Args) ->
     end.
 
 init({client, Module, Connection, Args}) ->
-    erlang:process_flag(trap_exit, true),
     case init_module(client, Module, Connection, Args) of
         {ok, State} -> {ok, State};
         {error, Error} -> {stop, Error}

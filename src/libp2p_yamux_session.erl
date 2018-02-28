@@ -119,9 +119,6 @@ handle_info({timeout_ping, PingID}, State=#state{}) ->
 
 handle_info(timeout, State) ->
     {stop, normal, State};
-handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
-    terminate(Reason, State),
-    {stop, normal, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p~n", [Msg]),
     {stop, unknown, State}.
@@ -333,7 +330,7 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
                     % Read data and hand of to the stream
                     case libp2p_connection:recv(Connection, Length) of
                         {error, Reason} ->
-                            lager:info("Failed to read data for ~p: ~p", [StreamID, Reason]),
+                            lager:warning("Failed to read data for ~p: ~p", [StreamID, Reason]),
                             goaway_send(?GOAWAY_INTERNAL, State);
                         {ok, Data} ->
                             libp2p_yamux_stream:receive_data(Pid, Data)

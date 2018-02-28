@@ -189,7 +189,7 @@ listen_on(Addr, State=#state{tid=TID}) ->
                                              TransportAddrs, ListenPid, State)};
                         {error, Error={{shutdown, _}, _}} ->
                             % We don't log shutdown errors to avoid cluttering the logs
-                            % whth confusing messages.
+                            % with confusing messages.
                             {error, Error};
                         {error, Error} ->
                             lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),

@@ -241,12 +241,6 @@ handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, s
 handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
     {keep_state_and_data, {reply, From, AddrInfo}};
 
-% Exits
-%
-handle_event({'EXIT', _From,  Reason}, info, State, Data=#state{}) ->
-    terminate(Reason, State, Data),
-    {stop, normal, notify_inert(Data)};
-
 % Catch all
 %
 handle_event(EventType, Event, State, #state{stream_id=StreamID}) ->
