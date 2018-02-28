@@ -322,7 +322,8 @@ tcp_listen_addrs(Socket) ->
     end.
 
 
--spec tcp_addr(string()) -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
+-spec tcp_addr(string() | binary())
+              -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
 tcp_addr(MAddr) when is_binary(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(MAddr));
 tcp_addr(MAddr) when is_list(MAddr) ->
