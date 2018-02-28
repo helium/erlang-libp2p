@@ -1,8 +1,13 @@
 -module(libp2p_transport_tcp).
 
 -behaviour(libp2p_connection).
+-behavior(gen_server).
 
--export([start_listener/3, new_connection/1, dial/3, discover/3]).
+
+-export([start_listener/2, new_connection/1, connect/4, match_addr/1]).
+
+% gen_server
+-export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 % libp2p_onnection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
@@ -11,28 +16,204 @@
         ]).
 
 -record(tcp_state, {
+          addr_info :: {string(), string()},
           socket :: gen_tcp:socket(),
           transport :: atom()
          }).
 
--type state() :: #tcp_state{}.
+-type tcp_state() :: #tcp_state{}.
+
+-record(state, {
+          tid :: ets:tab(),
+          stun_sup ::supervisor:sup_ref(),
+          stun_txns=#{} :: maps:map(),
+          observed_addrs=sets:new() :: sets:set()
+         }).
+
 
 -define(CONFIG_SECTION, tcp).
 
--spec start_listener(pid(), string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
-start_listener(Sup, Addr, TID) ->
+%% API
+%%
+
+-spec new_connection(inet:socket()) -> libp2p_connection:connection().
+new_connection(Socket) ->
+    {ok, LocalAddr} = inet:sockname(Socket),
+    {ok, RemoteAddr} = inet:peername(Socket),
+    libp2p_connection:new(?MODULE, #tcp_state{addr_info={to_multiaddr(LocalAddr), to_multiaddr(RemoteAddr)},
+                                              socket=Socket,
+                                              transport=ranch_tcp}).
+
+-spec start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()}.
+start_listener(Pid, Addr) ->
+    gen_server:call(Pid, {start_listener, Addr}).
+
+-spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer()) -> {ok, libp2p_session:pid()} | {error, term()}.
+connect(Pid, MAddr, Options, Timeout) ->
+    gen_server:call(Pid, {connect, MAddr, Options, Timeout}, infinity).
+
+
+-spec match_addr(string()) -> {ok, string()} | false.
+match_addr(Addr) when is_list(Addr) ->
+    match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+match_protocols([A={_, _}, B={"tcp", _} | _]) ->
+    {ok, multiaddr:to_string([A, B])};
+match_protocols(_) ->
+    false.
+
+
+%% libp2p_connection
+%%
+-spec send(tcp_state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
+send(#tcp_state{socket=Socket, transport=Transport}, Data, Timeout) ->
+    Transport:setopts(Socket, [{send_timeout, Timeout}]),
+    Transport:send(Socket, Data).
+
+-spec recv(tcp_state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
+recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
+    Transport:recv(Socket, Length, Timeout).
+
+-spec close(tcp_state()) -> ok.
+close(#tcp_state{socket=Socket, transport=Transport}) ->
+    Transport:close(Socket).
+
+-spec close_state(tcp_state()) -> open | closed.
+close_state(#tcp_state{socket=Socket}) ->
+    case inet:peername(Socket) of
+        {ok, _} -> open;
+        {error, _} -> closed
+    end.
+
+-spec acknowledge(tcp_state(), reference()) -> ok.
+acknowledge(#tcp_state{}, Ref) ->
+    ranch:accept_ack(Ref).
+
+-spec fdset(tcp_state()) -> ok | {error, term()}.
+fdset(#tcp_state{socket=Socket}) ->
+    case inet:getfd(Socket) of
+        {error, Error} -> {error, Error};
+        {ok, FD} -> inert:fdset(FD)
+    end.
+
+-spec fdclr(tcp_state()) -> ok.
+fdclr(#tcp_state{socket=Socket}) ->
+    case inet:getfd(Socket) of
+        {error, Error} -> {error, Error};
+        {ok, FD} -> inert:fdclr(FD)
+    end.
+
+-spec addr_info(tcp_state()) -> {string(), string()}.
+addr_info(#tcp_state{addr_info=AddrInfo}) ->
+    AddrInfo.
+
+-spec controlling_process(tcp_state(), pid()) ->  ok | {error, closed | not_owner | atom()}.
+controlling_process(#tcp_state{socket=Socket}, Pid) ->
+    gen_tcp:controlling_process(Socket, Pid).
+
+
+%% gen_server
+%%
+
+start_link(TID) ->
+    gen_server:start_link(?MODULE, [TID], []).
+
+init([TID]) ->
+    erlang:process_flag(trap_exit, true),
+
+    {ok, StunSup} = supervisor:start_link(libp2p_simple_sup, []),
+    Swarm = libp2p_swarm:swarm(TID),
+    libp2p_swarm:add_stream_handler(Swarm, "stungun/1.0.0",
+                                    {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), Swarm]}),
+    {ok, #state{tid=TID, stun_sup=StunSup}}.
+
+%% API
+%%
+handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
+    Response = case listen_on(Addr, TID) of
+                   {ok, ListenAddrs, Pid} ->
+                       spawn_nat_discovery(self(), ListenAddrs),
+                       {ok, ListenAddrs, Pid};
+                   {error, Error} -> {error, Error}
+                   end,
+    {reply, Response, State};
+handle_call({connect, MAddr, DialOptions, Timeout}, _From, State=#state{tid=TID}) ->
+    Response = case connect_to(MAddr, DialOptions, Timeout, TID) of
+                   {error, Error} -> {error, Error};
+                   {ok, Session} ->
+                       Swarm = libp2p_swarm:swarm(TID),
+                       {_, PeerAddr} = libp2p_session:addr_info(Session),
+                       libp2p_identify:spawn_identify(self(), Swarm, PeerAddr),
+                       {ok, Session}
+               end,
+    {reply, Response, State};
+handle_call(Msg, _From, State) ->
+    lager:warning("Unhandled call: ~p~n", [Msg]),
+    {reply, ok, State}.
+
+handle_cast(Msg, State) ->
+    lager:warning("Unhandled cast: ~p~n", [Msg]),
+    {noreply, State}.
+
+%%  Discover/Stun
+%%
+handle_info({identify, Result}, State=#state{}) ->
+    case Result of
+        {ok, PeerAddr, Identify} ->
+            ObservedAddr = libp2p_identify:observed_addr(Identify),
+            {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
+        {error, _} ->
+            {noreply, State}
+    end;
+handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
+    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
+handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=StunTxns}) ->
+    case take_stun_txn(TxnID, StunTxns) of
+        error -> {noreply, State};
+        {ObservedAddr, NewStunTxns} ->
+            lager:info("Got dial back confirmation of observed address ~p", [ObservedAddr]),
+            case libp2p_config:lookup_listener(TID, LocalAddr) of
+                {ok, ListenerPid} ->
+                    libp2p_config:insert_listener(TID, ObservedAddr, ListenerPid);
+                false ->
+                    lager:warning("unable to determine listener pid for ~p", [LocalAddr])
+            end,
+            {noreply, State#state{stun_txns=NewStunTxns}}
+    end;
+handle_info({record_listen_addr, NatType, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
+    case libp2p_config:lookup_listener(TID, InternalAddr) of
+        {ok, ListenPid} ->
+            lager:info("added ~p port mapping from ~s to ~s", [NatType, InternalAddr, ExternalAddr]),
+            libp2p_config:insert_listener(TID, ExternalAddr, ListenPid),
+            {noreply, State};
+        _ ->
+            {noreply, State}
+    end;
+
+
+handle_info(Msg, _State) ->
+    lager:warning("Unhandled message ~p", [Msg]).
+
+terminate(_Reason, #state{}) ->
+    ok.
+
+%% Internal: Listen/Connect
+%%                                                %
+-spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
+listen_on(Addr, TID) ->
+    Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
         {IP, Port, Type} ->
             OptionDefaults = [
-                              % Listen options
+                                                % Listen options
                               {ip, IP},
                               {backlog, 1024},
                               {nodelay, true},
                               {send_timeout, 30000},
                               {send_timeout_close, true},
 
-                              % Transport options. Add new transport
-                              % default options to TransportKeys below
+                                                % Transport options. Add new transport
+                                                % default options to TransportKeys below
                               {max_connections, 1024}
                              ],
             TransportKeys = sets:from_list([max_connections]),
@@ -57,60 +238,81 @@ start_listener(Sup, Addr, TID) ->
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
                             ok = gen_tcp:controlling_process(Socket, Pid),
-                            Parent = self(),
-                            %% kickoff some background NAT mapping discovery...
-                            spawn(fun() -> try_nat_upnp(Parent, ListenAddrs) end),
-                            spawn(fun() -> try_nat_pmp(Parent, ListenAddrs) end),
                             {ok, ListenAddrs, Pid};
-                        {error, Reason} -> {error, Reason}
+                        {error, Reason} ->
+                            gen_tcp:close(Socket),
+                            {error, Reason}
                     end;
                 {error, Reason} -> {error, Reason}
             end;
         {error, Error} -> {error, Error}
     end.
 
--spec new_connection(inet:socket()) -> libp2p_connection:connection().
-new_connection(Socket) ->
-    libp2p_connection:new(?MODULE, #tcp_state{socket=Socket, transport=ranch_tcp}).
 
--spec dial(string(), [libp2p_swarm:connect_opt()], pos_integer()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(MAddr, DialOptions, Timeout) ->
-    case tcp_addr(MAddr) of
+-spec connect_to(string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab())
+                -> {ok, libp2p_session:pid()} | {error, term()}.
+connect_to(Addr, UserOptions, Timeout, TID) ->
+    case tcp_addr(Addr) of
         {IP, Port, Type} ->
-            UniquePort = proplists:get_value(unique_port, DialOptions, false),
-            Options = case Type == inet of
-                          true when UniquePort ->
-                              [inet, {reuseaddr, true}];
-                          true ->
-                              [inet, {reuseaddr, true}, reuseport(), {port, proplists:get_value(port, DialOptions, 0)}];
-                          false ->
-                              [Type]
-                      end,
+            UniqueSession = proplists:get_value(unique_session, UserOptions, false),
+            UniquePort = proplists:get_value(unique_port, UserOptions, false),
+            ListenAddrs = libp2p_config:listen_addrs(TID),
+            Options = connect_options(Type, Addr, ListenAddrs, UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
-                {ok, Socket} -> {ok, new_connection(Socket)};
-                {error, Error} -> {error, Error}
+                {ok, Socket} ->
+                    libp2p_transport:start_client_session(TID, Addr, new_connection(Socket));
+                {error, Error} ->
+                    {error, Error}
             end;
         {error, Reason} -> {error, Reason}
     end.
 
-discover(Swarm, Parent, PeerAddr) ->
-    %% try to discover our external IP in the background using the identify service...
-    case libp2p_identify:identify(Swarm, PeerAddr) of
-        {ok, Identify} ->
-            libp2p_swarm_server:record_observed_address(Parent, PeerAddr, multiaddr:to_string(libp2p_identify:observed_addr(Identify)));
-        {error, Reason} ->
-            {error, Reason}
+
+connect_options(Type, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->
+    [Type];
+connect_options(Type, _, _, false, _UniquePort) when Type /= inet ->
+    [Type];
+connect_options(Type, _, _, false, UniquePort) when UniquePort == true ->
+    [Type, {reuseaddr, true}];
+connect_options(Type, Addr, ListenAddrs, false, false) ->
+    MAddr = multiaddr:new(Addr),
+    [Type, {reuseaddr, true}, reuseport(), {port, find_matching_listen_port(MAddr, ListenAddrs)}].
+
+find_matching_listen_port(_Addr, []) ->
+    0;
+find_matching_listen_port(Addr, [H|ListenAddrs]) ->
+    ListenAddr = multiaddr:new(H),
+    ConnectProtocols = [ element(1, T) || T <- multiaddr:protocols(Addr)],
+    ListenProtocols = [ element(1, T) || T <- multiaddr:protocols(ListenAddr)],
+    case ConnectProtocols == ListenProtocols of
+        true ->
+            {_, Port, _} = tcp_addr(ListenAddr),
+            Port;
+        false ->
+            find_matching_listen_port(Addr, ListenAddrs)
     end.
+
+reuseport() ->
+    %% TODO provide a more complete mapping of SOL_SOCKET and SO_REUSEPORT
+    {Protocol, Option} = case os:type() of
+                             {unix, linux} ->
+                                 {1, 15};
+                             {unix, freebsd} ->
+                                 {16#ffff, 16#200};
+                             {unix, darwin} ->
+                                 {16#ffff, 16#200}
+                         end,
+    {raw, Protocol, Option, <<1:32/native>>}.
 
 tcp_listen_addrs(Socket) ->
     {ok, SockAddr={IP, Port}} = inet:sockname(Socket),
     case lists:all(fun(D) -> D == 0 end, tuple_to_list(IP)) of
         false ->
-            [multiaddr(SockAddr)];
+            [to_multiaddr(SockAddr)];
         true ->
             % all 0 address, collect all non loopback interface addresses
             {ok, IFAddrs} = inet:getifaddrs(),
-            [multiaddr({Addr, Port}) ||
+            [to_multiaddr({Addr, Port}) ||
              {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
              size(Addr) == size(IP),
              not lists:member(loopback, Flags),
@@ -120,7 +322,10 @@ tcp_listen_addrs(Socket) ->
     end.
 
 
--spec tcp_addr(string()) -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
+-spec tcp_addr(string() | binary())
+              -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
+tcp_addr(MAddr) when is_binary(MAddr) ->
+    tcp_addr(MAddr, multiaddr:protocols(MAddr));
 tcp_addr(MAddr) when is_list(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(multiaddr:new(MAddr))).
 
@@ -139,161 +344,141 @@ tcp_addr(Addr, _Protocols) ->
     {error, {unsupported_address, Addr}}.
 
 
-multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
+to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
     Prefix  = case size(IP) of
                   4 -> "/ip4";
                   8 -> "/ip6"
               end,
     lists:flatten(io_lib:format("~s/~s/tcp/~b", [Prefix, inet:ntoa(IP), Port ])).
 
+
+%% Internal: Discover/Stun
 %%
-%% libp2p_connection
-%%
 
--spec send(state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data, Timeout) ->
-    Transport:setopts(Socket, [{send_timeout, Timeout}]),
-    Transport:send(Socket, Data).
+add_stun_txn(TxnID, ObservedAddr, Txns) ->
+    maps:put(TxnID, ObservedAddr, Txns).
 
--spec recv(state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
-recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
-    Transport:recv(Socket, Length, Timeout).
+take_stun_txn(TxnID, Txns) ->
+    maps:take(TxnID, Txns).
 
--spec close(state()) -> ok.
-close(#tcp_state{socket=Socket, transport=Transport}) ->
-    Transport:close(Socket).
+remove_stun_txn(TxnID, Txns) ->
+    maps:remove(TxnID, Txns).
 
--spec close_state(state()) -> open | closed.
-close_state(#tcp_state{socket=Socket}) ->
-    case inet:peername(Socket) of
-        {ok, _} -> open;
-        {error, _} -> closed
-    end.
+add_observed_addr(PeerAddr, ObservedAddr, Addrs) ->
+    sets:add_element({PeerAddr, ObservedAddr}, Addrs).
 
--spec acknowledge(state(), reference()) -> ok.
-acknowledge(#tcp_state{}, Ref) ->
-    ranch:accept_ack(Ref).
+is_observed_addr(PeerAddr, ObservedAddr, Addrs) ->
+    sets:is_element({PeerAddr, ObservedAddr}, Addrs).
 
--spec fdset(state()) -> ok | {error, term()}.
-fdset(#tcp_state{socket=Socket}) ->
-    case inet:getfd(Socket) of
-        {error, Error} -> {error, Error};
-        {ok, FD} -> inert:fdset(FD)
-    end.
+is_observed_addr(ObservedAddr, Addrs) ->
+    sets:fold(fun({_, O}, false) -> O == ObservedAddr;
+                 (_, true) -> true
+              end,
+              false, Addrs).
 
--spec fdclr(state()) -> ok.
-fdclr(#tcp_state{socket=Socket}) ->
-    case inet:getfd(Socket) of
-        {error, Error} -> {error, Error};
-        {ok, FD} -> inert:fdclr(FD)
-    end.
-
--spec addr_info(state()) -> {string(), string()}.
-addr_info(#tcp_state{socket=Socket}) ->
-    {ok, LocalAddr} = inet:sockname(Socket),
-    {ok, RemoteAddr} = inet:peername(Socket),
-    {multiaddr(LocalAddr), multiaddr(RemoteAddr)}.
-
-
--spec controlling_process(state(), pid()) ->  ok | {error, closed | not_owner | atom()}.
-controlling_process(#tcp_state{socket=Socket}, Pid) ->
-    gen_tcp:controlling_process(Socket, Pid).
-
-reuseport() ->
-    %% TODO provide a more complete mapping of SOL_SOCKET and SO_REUSEPORT
-    {Protocol, Option} = case os:type() of
-                             {unix, linux} ->
-                                 {1, 15};
-                             {unix, freebsd} ->
-                                 {16#ffff, 16#200};
-                             {unix, darwin} ->
-                                 {16#ffff, 16#200}
-                         end,
-    {raw, Protocol, Option, <<1:32/native>>}.
-
-
-try_nat_upnp(Parent, MultiAddrs) ->
-    lager:info("MultiAddrs ~p", [MultiAddrs]),
-    case lists:filtermap(fun(M) -> case multiaddr:protocols(multiaddr:new(M)) of
-                                       [{"ip4", Address}, {"tcp", Port}] ->
-                                           {ok, Parsed} = inet_parse:address(Address),
-                                           lager:info("parsed ~p", [Parsed]),
-                                           case is_rfc1918(Parsed) of
-                                               true ->
-                                                   {true, {M, Parsed, list_to_integer(Port)}};
-                                               false ->
-                                                   false
-                                           end;
-                                       _ ->
-                                           false
-                                   end
-                         end, MultiAddrs) of
-        [] ->
-            lager:info("no RFC1918 addresses"),
-            ok;
-        [{MA, _Address, Port}|_] ->
-            %% ok we have some RFC1918 addresses, let's try to NAT uPNP one of them
-            %% TODO we should make a port mapping for EACH address here, for weird multihomed machines, but nat_upnp doesn't support issuing a particular request from a particular interface yet
-            case nat_upnp:discover() of
-                {ok, Context} ->
-                    case nat_upnp:add_port_mapping(Context, tcp, Port, Port, "erlang-libp2p", 0) of
-                        ok ->
-                            %% figure out the external IP
-                            %% TODO we need to clean this up later.. somehow
-                            {ok, ExtAddress} = nat_upnp:get_external_ip_address(Context),
-                            {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
-                            lager:info("added upnp port mapping from ~s to ~s", [MA, multiaddr({ParsedExtAddress, Port})]),
-                            libp2p_swarm_server:add_external_listen_addr(Parent, MA, multiaddr({ParsedExtAddress, Port}));
-                        _ ->
-                            lager:warning("unable to add upnp mapping"),
-                            ok
-                    end;
-                _ ->
-                    lager:info("no upnp discovered"),
-                    ok
+-spec record_observed_addr(string(), string(), #state{}) -> #state{}.
+record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_sup=StunSup, stun_txns=StunTxns}) ->
+    case libp2p_config:lookup_listener(TID, ObservedAddr) of
+        {ok, _} ->
+            %% we already know about this observed address
+            State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)};
+        false ->
+            case is_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs) of
+                true ->
+                    % this peer already told us about this observed address
+                    State;
+                false ->
+                    % check if another peer has seen this address
+                    case is_observed_addr(ObservedAddr, ObservedAddrs) of
+                        true ->
+                            Swarm = libp2p_swarm:swarm(TID),
+                            %% ok, we have independant confirmation of an observed address
+                            lager:info("received confirmation of observed address ~s", [ObservedAddr]),
+                            <<TxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
+                            %% Record the TxnID , then convince a peer to dial us back with that TxnID
+                            %% then that handler needs to forward the response back here, so we can add the external address
+                            ChildSpec = #{ id => make_ref(),
+                                           start => {libp2p_stream_stungun, start_client, [TxnID, Swarm, PeerAddr]},
+                                           restart => temporary,
+                                           shutdown => 5000,
+                                           type => worker },
+                            {ok, _} = supervisor:start_child(StunSup, ChildSpec),
+                            State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
+                                        stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
+                        false ->
+                            lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
+                            State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
+                    end
             end
     end.
 
-try_nat_pmp(Parent, MultiAddrs) ->
-    lager:info("MultiAddrs ~p", [MultiAddrs]),
-    case lists:filtermap(fun(M) -> case multiaddr:protocols(multiaddr:new(M)) of
-                                       [{"ip4", Address}, {"tcp", Port}] ->
-                                           {ok, Parsed} = inet_parse:address(Address),
-                                           lager:info("parsed ~p", [Parsed]),
-                                           case is_rfc1918(Parsed) of
-                                               true ->
-                                                   {true, {M, Parsed, list_to_integer(Port)}};
-                                               false ->
-                                                   false
+
+%% Internal: NAT discovery
+%%
+
+spawn_nat_discovery(Handler, MultiAddrs) ->
+    case lists:filtermap(fun(M) -> case tcp_addr(M) of
+                                       {IP, Port, inet} ->
+                                           case rfc1918(IP) of
+                                               false -> false;
+                                               _ -> {true, {M, IP, Port}}
                                            end;
-                                       _ ->
-                                           false
+                                       _ -> false
                                    end
                          end, MultiAddrs) of
-        [] ->
-            lager:info("no RFC1918 addresses"),
-            ok;
-        [{MA, _Address, Port}|_] ->
-            %% ok we have some RFC1918 addresses, let's try to NAT PMP one of them
-            %% TODO we should make a port mapping for EACH address here, for weird multihomed machines, but nat_upnp doesn't support issuing a particular request from a particular interface yet
-            case natpmp:discover() of
-                {ok, Gateway} ->
-                    case natpmp:add_port_mapping(Gateway, tcp, Port, Port, 3600) of
-                        {ok, _, _, _, _} ->
-                            %% figure out the external IP
-                            %% TODO we need to clean this up later.. somehow
-                            {ok, ExtAddress} = natpmp:get_external_address(Gateway),
-                            {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
-                            lager:info("added PMP port mapping from ~s to ~s", [MA, multiaddr({ParsedExtAddress, Port})]),
-                            libp2p_swarm_server:add_external_listen_addr(Parent, MA, multiaddr({ParsedExtAddress, Port}));
-                        _ ->
-                            lager:warning("unable to add PMP mapping"),
-                            ok
-                    end;
+        [] -> ok;
+        [Tuple|_] ->
+            %% TODO we should make a port mapping for EACH address
+            %% here, for weird multihomed machines, but nat_upnp and
+            %% natpmp don't support issuing a particular request from
+            %% a particular interface yet
+            spawn(fun() -> try_nat_pmp(Handler, Tuple) end),
+            spawn(fun() -> try_nat_upnp(Handler, Tuple) end)
+    end.
+
+
+nat_external_address(nat_upnp, Context) ->
+    {ok, ExtAddress} = nat_upnp:get_external_ip_address(Context),
+    {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
+    ParsedExtAddress;
+nat_external_address(natpmp, Context) ->
+    {ok, ExtAddress} = natpmp:get_external_address(Context),
+    {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
+    ParsedExtAddress.
+
+
+try_nat_upnp(Handler, {MultiAddr, _IP, Port}) ->
+    case nat_upnp:discover() of
+        {ok, Context} ->
+            case nat_upnp:add_port_mapping(Context, tcp, Port, Port, "erlang-libp2p", 0) of
+                ok ->
+                    %% figure out the external IP
+                    ExternalAddress = nat_external_address(nat_upnp, Context),
+                    Handler ! {record_listen_addr, nat_upnp, MultiAddr, to_multiaddr({ExternalAddress, Port})};
                 _ ->
-                    lager:info("no PMP discovered"),
+                    lager:warning("unable to add upnp mapping"),
                     ok
-            end
+            end;
+        _ ->
+            lager:info("no upnp discovered"),
+            ok
+    end.
+
+try_nat_pmp(Handler, {MultiAddr, _IP, Port}) ->
+    case natpmp:discover() of
+        {ok, Context} ->
+            case natpmp:add_port_mapping(Context, tcp, Port, Port, 3600) of
+                {ok, _, _, _, _} ->
+                    %% figure out the external IP
+                    ExternalAddr = nat_external_address(natpmp, Context),
+                    Handler ! {record_listen_addr, natpmp, MultiAddr, to_multiaddr({ExternalAddr, Port})};
+                _ ->
+                    lager:warning("unable to add PMP mapping"),
+                    ok
+            end;
+        _ ->
+            lager:info("no PMP discovered"),
+            ok
     end.
 
 %% @doc Get the subnet mask as an integer, stolen from an old post on
@@ -323,12 +508,3 @@ rfc1918(IP={172, _, _, _}) ->
     end;
 rfc1918(_) ->
     false.
-
-%% true/false if IP is RFC1918
-is_rfc1918(IP) ->
-    case rfc1918(IP) of
-        false ->
-            false;
-        _ ->
-            true
-end.

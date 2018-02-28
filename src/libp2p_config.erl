@@ -3,16 +3,16 @@
 -export([get_config/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
-         insert_handler/3, lookup_handler/2,
+         transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2]).
 
 -define(CONNECTION_HANDLER, connection_handler).
 -define(STREAM_HANDLER, stream_handler).
+-define(TRANSPORT, transport).
 -define(SESSION, session).
 -define(LISTENER, listener).
--define(HANDLER, handler).
 
 -type handler() :: {atom(), atom()}.
 
@@ -50,6 +50,33 @@ lookup_pids(TID, Kind) ->
 -spec remove_pid(ets:tab(), atom(), term()) -> true.
 remove_pid(TID, Kind, Ref) ->
     ets:delete(TID, {Kind, Ref}).
+
+
+-spec lookup_handlers(ets:tab(), atom()) -> [{term(), any()}].
+lookup_handlers(TID, TableKey) ->
+    [ {Key, Handler} ||
+        [Key, Handler] <- ets:match(TID, {{TableKey, '$1'}, '$2'})].
+
+
+%%
+%% Transports
+%%
+-spec transport() -> ?TRANSPORT.
+transport() ->
+    ?TRANSPORT.
+
+-spec insert_transport(ets:tab(), atom(), pid()) -> true.
+insert_transport(TID, Module, Pid) ->
+    insert_pid(TID, ?TRANSPORT, Module, Pid).
+
+-spec lookup_transport(ets:tab(), atom()) -> {ok, pid()} | false.
+lookup_transport(TID, Module) ->
+    lookup_pid(TID, ?TRANSPORT, Module).
+
+-spec lookup_transports(ets:tab()) -> [{term(), pid()}].
+lookup_transports(TID) ->
+    lookup_pids(TID, ?TRANSPORT).
+
 
 %%
 %% Listeners
@@ -89,8 +116,8 @@ insert_session(TID, Addr, Pid) ->
 -spec lookup_session(ets:tab(), string(), libp2p_swarm:connect_opt())
                     -> {ok, pid()} | false.
 lookup_session(TID, Addr, Options) ->
-    case lists:keyfind(unique, 1, Options) of
-        {unique, true} -> false;
+    case lists:keyfind(unique_session, 1, Options) of
+        {unique_session, true} -> false;
         _ -> lookup_pid(TID, ?SESSION, Addr)
     end.
 
@@ -106,26 +133,10 @@ remove_session(TID, Addr) ->
 lookup_sessions(TID) ->
     lookup_pids(TID, ?SESSION).
 
-%%
-%% Accept handlers
-%%
-
--spec insert_handler(ets:tab(), string(), pid()) -> true.
-insert_handler(TID, Ref, Pid) ->
-    insert_pid(TID, ?HANDLER, Ref, Pid).
-
--spec lookup_handler(ets:tab(), string()) -> {ok, pid()} | false.
-lookup_handler(TID, Ref) ->
-    lookup_pid(TID, ?HANDLER, Ref).
 
 %%
 %% Connections
 %%
-
--spec lookup_handlers(ets:tab(), atom()) -> [{string(), term()}].
-lookup_handlers(TID, TableKey) ->
-    [ {Key, Handler} ||
-        [Key, Handler] <- ets:match(TID, {{TableKey, '$1'}, '$2'})].
 
 -spec lookup_connection_handlers(ets:tab()) -> [{string(), {handler(), handler()}}].
 lookup_connection_handlers(TID) ->

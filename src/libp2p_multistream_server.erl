@@ -128,4 +128,4 @@ find_handler(Line, [{Prefix, Handler} | Handlers]) ->
 
 
 write(Conn, Data) ->
-    ok = libp2p_multistream:write(Conn, Data).
+    libp2p_multistream:write(Conn, Data).

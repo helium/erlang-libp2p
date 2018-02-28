@@ -16,7 +16,6 @@
          addr_info/1, close/1, close_state/1,
          controlling_process/2]).
 
-
 -callback acknowledge(any(), any()) -> ok.
 -callback send(any(), iodata(), non_neg_integer()) -> ok | {error, term()}.
 -callback recv(any(), non_neg_integer(), non_neg_integer()) -> {ok, binary()} | {error, term()}.

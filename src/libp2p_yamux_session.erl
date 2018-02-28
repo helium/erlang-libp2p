@@ -66,33 +66,45 @@ start_client(Connection, Path, TID) ->
     %% In libp2p_swarm the client needs to spawn a new process
     {ok, proc_lib:spawn_link(?MODULE, init, [{TID, Connection, Path, 1}])}.
 
+call(Pid, Cmd) ->
+    try
+        gen_server:call(Pid, Cmd)
+    catch
+        exit:{noproc, _} ->
+            {error, closed};
+        exit:{normal, _} ->
+            {error, closed}
+    end.
 
 -spec send(pid(), header() | binary()) -> ok | {error, term()}.
 send(Pid, Header=#header{}) ->
     send(Pid, encode_header(Header));
 send(Pid, Data) when is_binary(Data) ->
-    gen_server:call(Pid, {send, Data}).
+    call(Pid, {send, Data}).
 
 -spec send(pid(), header() | binary(), binary()) -> ok | {error, term()}.
 send(Pid, Header=#header{}, Data) ->
     send(Pid, encode_header(Header), Data);
 send(Pid, Header, Data) ->
-    gen_server:call(Pid, {send, <<Header/binary, Data/binary>>}).
+    call(Pid, {send, <<Header/binary, Data/binary>>}).
 
 %%
 %% gen_server
 %%
 
 init({TID, Connection, _Path, NextStreamId}) ->
-    {ok, StreamSup} = supervisor:start_link(libp2p_yamux_stream_sup, []),
+    erlang:process_flag(trap_exit, true),
+    {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
     State = #state{connection=Connection, tid=TID,
                    stream_sup=StreamSup, next_stream_id=NextStreamId},
     gen_server:enter_loop(?MODULE, [], fdset(Connection, State), ?TIMEOUT).
 
 handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
     case read_header(Connection) of
-        {error, _} ->
-            lager:error("Unexpected connection closure ~p", [self()]),
+        {error, closed} ->
+            {stop, normal, State};
+        {error, Reason} ->
+            lager:error("Session header read failed: ~p ", [Reason]),
             {stop, normal, State};
         {ok, Header=#header{type=HeaderType}} ->
             case HeaderType of
@@ -318,7 +330,7 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
                     % Read data and hand of to the stream
                     case libp2p_connection:recv(Connection, Length) of
                         {error, Reason} ->
-                            lager:error("Failed to read data for ~p: ~p", [StreamID, Reason]),
+                            lager:warning("Failed to read data for ~p: ~p", [StreamID, Reason]),
                             goaway_send(?GOAWAY_INTERNAL, State);
                         {ok, Data} ->
                             libp2p_yamux_stream:receive_data(Pid, Data)
@@ -386,7 +398,7 @@ session_send(Header=#header{}, State=#state{}) ->
 session_send(Data, #state{connection=Connection}) when is_binary(Data)->
     case libp2p_connection:send(Connection, Data) of
         {error, Reason} ->
-            lager:error("Failed to send data: ~p", [Reason]),
+            lager:info("Failed to send data: ~p", [Reason]),
             {error, Reason};
         ok -> ok
     end.
