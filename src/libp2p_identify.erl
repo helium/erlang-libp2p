@@ -5,23 +5,31 @@
 -opaque identify() :: #libp2p_identify_pb{}.
 
 -export_type([identify/0]).
--export([identify/2, new/3, new/4, encode/1, decode/1,
-         protocol_version/1, listen_addrs/1, observed_addr/1, protocols/1, agent_version/1]).
+-export([identify/2, spawn_identify/3, new/3, new/4, encode/1, decode/1,
+         protocol_version/1, listen_addrs/1, observed_maddr/1, observed_addr/1,
+         protocols/1, agent_version/1]).
 
 -define(VERSION, "identify/1.0.0").
 
--spec identify(pid(), string()) -> {ok, identify()} | {error, term()}.
+-spec identify(pid(), string()) -> {ok, string(), identify()} | {error, term()}.
 identify(Swarm, Addr) ->
     case libp2p_swarm:dial(Swarm, Addr, ?VERSION) of
         {error, Error} -> {error, Error};
         {ok, Stream} ->
             Result = case libp2p_framed_stream:recv(Stream) of
                          {error, Error} -> {error, Error};
-                         {ok, Bin} -> {ok, decode(Bin)}
+                         {ok, Bin} -> {ok, Addr, decode(Bin)}
                      end,
             libp2p_connection:close(Stream),
             Result
     end.
+
+
+-spec spawn_identify(pid(), pid(), string()) -> pid().
+spawn_identify(Handler, Swarm, Addr) ->
+    spawn(fun() ->
+                  Handler ! {identify, identify(Swarm, Addr)}
+          end).
 
 -spec new([string()], string(), [string()]) -> libp2p_identify_pb:libp2p_identify_pb().
 new(ListenAddrs, ObservedAddr, Protocols) ->
@@ -52,8 +60,11 @@ protocol_version(#libp2p_identify_pb{protocol_version=Version}) ->
 listen_addrs(#libp2p_identify_pb{listen_addrs=ListenAddrs}) ->
     ListenAddrs.
 
--spec observed_addr(identify()) -> multiaddr:multiaddr().
-observed_addr(#libp2p_identify_pb{observed_addr=ObservedAddr}) ->
+-spec observed_addr(identify()) -> string().
+observed_addr(Identify=#libp2p_identify_pb{}) ->
+    multiaddr:to_string(observed_maddr(Identify)).
+
+observed_maddr(#libp2p_identify_pb{observed_addr=ObservedAddr}) ->
     ObservedAddr.
 
 -spec protocols(identify()) -> [string()].

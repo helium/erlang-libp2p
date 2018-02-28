@@ -59,7 +59,13 @@
 
 -spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
 client(Module, Connection, Args) ->
-    gen_server:start_link(?MODULE, {client, Module, Connection, Args}, []).
+    case gen_server:start_link(?MODULE, {client, Module, Connection, Args}, []) of
+        {ok, Pid} ->
+            libp2p_connection:controlling_process(Connection, Pid),
+            {ok, Pid};
+        {error, Error} -> {error, Error};
+        Other -> Other
+    end.
 
 init({client, Module, Connection, Args}) ->
     case init_module(client, Module, Connection, Args) of

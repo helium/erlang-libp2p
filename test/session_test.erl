@@ -17,7 +17,7 @@ open_close_test() ->
     ?assertEqual(Session1, Session3),
 
     % and another one, but make it unique
-    {ok, Session4} = libp2p_swarm:connect(S1, S2Addr, [{unique, true}], 100),
+    {ok, Session4} = libp2p_swarm:connect(S1, S2Addr, [{unique_session, true}], 100),
     ?assertNotEqual(Session1, Session4),
     libp2p_session:close(Session4),
 
@@ -36,6 +36,7 @@ open_close_test() ->
     ok = test_util:wait_until(fun() -> length(libp2p_session:streams(Session2)) == 0 end),
     ?assertEqual({error, closed}, libp2p_connection:send(Stream1, <<"hello">>)),
 
+    libp2p_session:close(Session1),
     test_util:teardown_swarms(Swarms),
     ok.
 

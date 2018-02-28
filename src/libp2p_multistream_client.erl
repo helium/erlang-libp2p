@@ -46,7 +46,8 @@ handshake(Connection) ->
     Id = libp2p_multistream:protocol_id(),
     case libp2p_multistream:read(Connection) of
         Id -> libp2p_multistream:write(Connection, Id);
-        {error, Reason} -> {error, Reason};
+        {error, Reason} ->
+            {error, Reason};
         ServerId -> {error, {protocol_mismatch, ServerId}}
     end.
 

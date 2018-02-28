@@ -1,4 +1,4 @@
--module(libp2p_yamux_stream_sup).
+-module(libp2p_simple_sup).
 
 -behavior(supervisor).
 
