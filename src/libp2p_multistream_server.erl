@@ -25,19 +25,28 @@ init({Ref, Connection, Handlers, HandlerOpt}) ->
     loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt}).
 
 loop(State) ->
+    %% XXX to avoid accidentally consuming messages destined for the actual session, once negotiated
+    %% only do a selective receive here.
     receive
-        Msg ->
-            case handle_info(Msg, State) of
-                {noreply, NewState} ->
-                    loop(NewState);
-                {exec, M, F, A} ->
-                    erlang:apply(M, F, A);
-                {stop, Reason, NewState} ->
-                    terminate(Reason, NewState)
-            end
+        {inert_read, _, _} = Msg ->
+            handle_msg(Msg, State);
+        handshake = Msg ->
+            handle_msg(Msg, State);
+        timeout = Msg ->
+            handle_msg(Msg, State)
     after
         5000 ->
              ok
+    end.
+
+handle_msg(Msg, State) ->
+    case handle_info(Msg, State) of
+        {noreply, NewState} ->
+            loop(NewState);
+        {exec, M, F, A} ->
+            erlang:apply(M, F, A);
+        {stop, Reason, NewState} ->
+            terminate(Reason, NewState)
     end.
 
 handle_info({inert_read, _, _}, State=#state{connection=Conn,
@@ -76,10 +85,8 @@ handle_info(handshake, State=#state{connection=Conn}) ->
             {stop, {error, Error}, State}
     end;
 handle_info(timeout, State) ->
-    {stop, normal, State};
-handle_info(Msg, State) ->
-    lager:warning("Unhandled message: ~p", [Msg]),
-    {noreply, State}.
+    {stop, normal, State}.
+
 
 terminate(_Reason, State=#state{connection=Connection}) ->
     fdclr(Connection, State).

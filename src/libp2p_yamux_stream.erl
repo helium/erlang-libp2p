@@ -93,6 +93,8 @@ statem(Pid, Cmd) ->
         exit:{noproc, _} ->
             {error, closed};
         exit:{normal, _} ->
+            {error, closed};
+        exit:{shutdown, _} ->
             {error, closed}
     end.
 
@@ -149,19 +151,22 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
     case libp2p_yamux_session:send(Session, Header) of
         ok -> {next_state, connecting, Data};
-        {error, Reason} -> {stop, normal, Reason}
+        {error, _Reason} -> {stop, normal, Data}
     end;
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     %% Starting as a server, fire of an ACK right away
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
-    ok = libp2p_yamux_session:send(Session, Header),
-    % Start a multistream server to negotiate the handler
-    Handlers = libp2p_config:lookup_stream_handlers(TID),
-    lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
-    Connection = new_connection(self()),
-    AddrInfo = libp2p_session:addr_info(Session),
-    {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
-    {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}};
+    case libp2p_yamux_session:send(Session, Header) of
+        {error, _Reason} -> {stop, normal, Data};
+        ok ->
+            %% Start a multistream server to negotiate the handler
+            Handlers = libp2p_config:lookup_stream_handlers(TID),
+            lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
+            Connection = new_connection(self()),
+            AddrInfo = libp2p_session:addr_info(Session),
+            {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
+            {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}}
+    end;
 
 % Window Updates
 %
@@ -169,11 +174,11 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
     % The remote closed the stream
     case ?RECEIVABLE_SIZE(Data) > 0 of
         true ->
-            % There is still data pending for a caller, don't stop
-            % this stream yet but mark as pending
+            %% There is still data pending for a caller, don't stop
+            %% this stream yet but mark as pending
             {keep_state, Data#state{close_state=pending}};
         false ->
-            % No more data to deliver, shut down
+            %% No more data to deliver, shut down
             {stop, normal, notify_inert(Data)}
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
