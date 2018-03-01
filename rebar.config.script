@@ -1,11 +1,11 @@
-NewConfig = case os:getenv("TRAVIS") of
-                "true" ->
-                    JobId   = os:getenv("TRAVIS_JOB_ID"),
-                    lists:keystore(coveralls_service_job_id, 1, CONFIG, {coveralls_service_job_id, JobId});
-                _ ->
-                    CONFIG
-            end,
-lists:keystore(cover_excl_mods, 1, NewConfig,
-               {cover_excl_mods,
-                [list_to_atom(filename:basename(F, ".erl")) || F <- filelib:wildcard("src/*_pb.erl")]
-               }).
+case os:getenv("TRAVIS") of
+  "true" ->
+    JobId   = os:getenv("TRAVIS_JOB_ID"),
+    Plugins = proplists:get_value(plugins, CONFIG, []),
+    [{coveralls_coverdata, "_build/test/cover/eunit.coverdata"},
+     {coveralls_service_name, "travis-ci"},
+     {coveralls_service_job_id, JobId} |
+     lists:keystore(plugins, 1, CONFIG, {plugins, [coveralls|Plugins]})];
+  _ ->
+    CONFIG
+end.

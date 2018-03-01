@@ -1,6 +1,6 @@
 -module(libp2p_identify).
 
--include("libp2p_identify_pb.hrl").
+-include("pb/libp2p_identify_pb.hrl").
 
 -opaque identify() :: #libp2p_identify_pb{}.
 

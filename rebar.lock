@@ -10,7 +10,7 @@
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
  {<<"gpb">>,
   {git,"https://github.com/tomas-abrahamsson/gpb",
-       {ref,"360cd1692f17479704a0504865d375e3f5252968"}},
+       {ref,"e984d9a0cb4ff295ac9ff14cfcd774f8534847bd"}},
   0},
  {<<"hex">>,
   {git,"https://github.com/b/hex",

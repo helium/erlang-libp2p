@@ -5,6 +5,10 @@ language: erlang
 otp_release:
   - 20.1
 
+cache:
+  directories:
+  - $HOME/.cache/rebar3
+
 before_script:
   # Add an IPv6 config - see the corresponding Travis issue
   # https://github.com/travis-ci/travis-ci/issues/8361
@@ -12,4 +16,4 @@ before_script:
       sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
     fi
 
-script: ./rebar3 as test do eunit, coveralls send, dialyzer
+script: ./rebar3 as test do eunit && ./rebar3 dialyzer && ./rebar3 coveralls send
