@@ -3,7 +3,7 @@
 -include_lib("public_key/include/public_key.hrl").
 
 -type private_key() :: #'ECPrivateKey'{}.
--type public_key() :: {#'ECPoint'{}, binary()}.
+-type public_key() :: {#'ECPoint'{}, {namedCurve, ?secp256r1}}.
 -type address() :: ecc_compact:compact_key().
 
 -export_type([private_key/0, public_key/0, address/0]).

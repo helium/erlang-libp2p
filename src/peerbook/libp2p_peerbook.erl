@@ -67,6 +67,10 @@ update_nat_type(Pid, NatType) ->
 start_link(TID, SigFun) ->
     gen_server:start_link(?MODULE, [TID, SigFun], []).
 
+%% bitcask:open does not pass dialyzer correctly so we turn of the
+%% using init/1 function and this_peer since it's only used in
+%% init_peer/1
+-dialyzer({nowarn_function, [init/1, this_peer/1]}).
 
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),

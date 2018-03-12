@@ -26,8 +26,12 @@ init(server, _Connection, [_Path, TID]) ->
 
 handle_data(_, Data, State=#state{peerbook=PeerBook}) ->
     DecodedList = libp2p_peer:decode_list(Data),
-    ok = libp2p_peerbook:put(PeerBook, DecodedList),
-    {noresp, State}.
+    try
+        libp2p_peerbook:put(PeerBook, DecodedList),
+        {noresp, State}
+    catch
+        _:_ -> {stop, normal, State}
+    end.
 
 handle_info(_, {new_peers, NewPeers}, State=#state{}) ->
     EncodedList = libp2p_peer:encode_list(NewPeers),
