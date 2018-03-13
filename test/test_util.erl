@@ -15,7 +15,7 @@ setup_swarms(0, Acc) ->
     Acc;
 setup_swarms(N, Acc) ->
     setup_swarms(N - 1, [begin
-                             Name = list_to_atom("swarm_" ++ integer_to_list(N)),
+                             Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
                              {ok, Pid} = libp2p_swarm:start(Name, 0),
                              Pid
                          end | Acc]).
