@@ -6,7 +6,7 @@
 
 -export([ping/1, open/1, close/1, close_state/1, goaway/1, streams/1, addr_info/1]).
 
--export([start_client_stream/3]).
+-export([start_client_stream/2, start_client_framed_stream/4]).
 
 -spec ping(pid()) -> {ok, pos_integer()} | {error, term()}.
 ping(Pid) ->
@@ -41,9 +41,9 @@ addr_info(Pid) ->
 %% Stream negotiation
 %%
 
--spec start_client_stream(ets:tab(), string(), libp2p_session:pid())
+-spec start_client_stream(string(), libp2p_session:pid())
                          -> {ok, libp2p_connection:connection()} | {error, term()}.
-start_client_stream(_TID, Path, SessionPid) ->
+start_client_stream(Path, SessionPid) ->
     try libp2p_session:open(SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} ->
@@ -56,4 +56,13 @@ start_client_stream(_TID, Path, SessionPid) ->
             end
     catch
         What:Why -> {error, {What, Why}}
+    end.
+
+
+-spec start_client_framed_stream(string(), libp2p_session:pid(), atom(), [any()])
+                                -> {ok, pid()} | {error, term()} | ignore.
+start_client_framed_stream(Path, SessionPid, Module, Args) ->
+    case start_client_stream(Path, SessionPid) of
+        {error, Error} -> {error, Error};
+        {ok, Stream} -> libp2p_framed_stream:client(Module, Stream, Args)
     end.

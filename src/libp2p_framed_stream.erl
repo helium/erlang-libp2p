@@ -29,7 +29,8 @@
     {stop, Reason :: term(), Reply :: binary() | list(), ModState :: any()}.
 
 -callback handle_info(server | client, term(), any()) ->
-    {noreply, ModState :: any()} |
+    {resp, Reply :: binary() | list(), ModState :: any()} |
+    {noresp, ModState :: any()} |
     {stop, Reason :: term(), ModState :: any()}.
 
 -callback handle_call(server | client, term(), term(), any()) ->
@@ -59,7 +60,7 @@
 
 -spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
 client(Module, Connection, Args) ->
-    case gen_server:start_link(?MODULE, {client, Module, Connection, Args}, []) of
+    case gen_server:start(?MODULE, {client, Module, Connection, Args}, []) of
         {ok, Pid} ->
             libp2p_connection:controlling_process(Connection, Pid),
             {ok, Pid};
@@ -141,11 +142,7 @@ handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
     end;
 handle_info(Msg, State=#state{kind=Kind, module=Module, state=ModuleState}) ->
     case erlang:function_exported(Module, handle_info, 3) of
-        true ->
-            case Module:handle_info(Kind, Msg, ModuleState) of
-                {noreply, NewModuleState} -> {noreply, State#state{state=NewModuleState}};
-                {stop, Reason, NewModuleState} -> {stop, Reason, State#state{state=NewModuleState}}
-                end;
+        true -> handle_resp(Module:handle_info(Kind, Msg, ModuleState), State);
         false -> {noreply, State}
     end.
 
@@ -185,6 +182,16 @@ handle_resp({resp, Data, ModuleState}, State=#state{connection=Connection}) ->
             end
     end;
 handle_resp({noresp, ModuleState}, State=#state{connection=Connection}) ->
+    NewState = State#state{state=ModuleState},
+    case libp2p_connection:fdset(Connection) of
+        ok ->
+            {noreply, NewState};
+        {error, closed} ->
+            {stop, normal, State};
+        {error, Error} ->
+            {stop, {error, Error}, NewState}
+    end;
+handle_resp({noreply, ModuleState}, State=#state{connection=Connection}) ->
     NewState = State#state{state=ModuleState},
     case libp2p_connection:fdset(Connection) of
         ok ->

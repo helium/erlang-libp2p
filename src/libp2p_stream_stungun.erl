@@ -9,6 +9,7 @@
 -define(SYMMETRIC_NAT, <<2:8/integer-unsigned>>).
 
 -record(client_state, {
+          tid :: ets:tab(),
           txn_id :: binary(),
           handler :: pid(),
           timeout :: reference()
@@ -16,11 +17,12 @@
 
 -define(STUN_TIMEOUT, 500).
 
-start_client(TxnID, Swarm, PeerAddr) ->
-    start_client(TxnID, Swarm, PeerAddr, self(), ?STUN_TIMEOUT).
+start_client(TxnID, TID, PeerAddr) ->
+    start_client(TxnID, TID, PeerAddr, self(), ?STUN_TIMEOUT).
 
-start_client(TxnID, Swarm, PeerAddr, Handler, Timeout) ->
+start_client(TxnID, TID, PeerAddr, Handler, Timeout) ->
     PeerPath = lists:flatten(io_lib:format("stungun/1.0.0/dial/~b", [TxnID])),
+    Swarm = libp2p_swarm:swarm(TID),
     case libp2p_swarm:dial(Swarm, PeerAddr, PeerPath) of
         {ok, Connection} ->
             libp2p_framed_stream:client(?MODULE, Connection, [TxnID, Handler, Timeout]);
@@ -30,10 +32,11 @@ start_client(TxnID, Swarm, PeerAddr, Handler, Timeout) ->
 init(client, _Connection, [TxnID, Handler, Timeout]) ->
     Ref = erlang:send_after(Timeout, self(), timeout),
     {ok, #client_state{txn_id=TxnID, handler=Handler, timeout=Ref}};
-init(server, Connection, ["/dial/"++TxnID, _, Swarm]) ->
+init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
     {_, ObservedAddr} = libp2p_connection:addr_info(Connection),
     %% first, try with the unique dial option, so we can check if the peer has Full Cone or Restricted Cone NAT
     ReplyPath = lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [list_to_integer(TxnID)])),
+    Swarm = libp2p_swarm:swarm(TID),
     case libp2p_swarm:dial(Swarm, ObservedAddr, ReplyPath, [{unique_session, true}, {unique_port, true}], 5000) of
         {ok, C} ->
             libp2p_connection:close(C),
@@ -52,26 +55,33 @@ init(server, Connection, ["/dial/"++TxnID, _, Swarm]) ->
                     {stop, normal, ?SYMMETRIC_NAT}
             end
     end;
-init(server, Connection, ["/reply/"++TxnID, Handler, _Swarm]) ->
+init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
     {LocalAddr, _} = libp2p_connection:addr_info(Connection),
     Handler ! {stungun_reply, list_to_integer(TxnID), LocalAddr},
     {stop, normal}.
 
-handle_data(client, ?OK, State=#client_state{timeout=Ref}) ->
+handle_data(client, Code, State=#client_state{txn_id=TxnID, handler=Handler, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    lager:info("Full cone or restricted cone nat detected"),
+    {NatType, Info} = to_nat_type(Code),
+    lager:info(Info),
+    Handler ! {stungun_nat, TxnID, NatType},
     {stop, normal, State};
-handle_data(client, ?PORT_RESTRICTED_NAT, State=#client_state{timeout=Ref}) ->
-    erlang:cancel_timer(Ref),
-    lager:info("Port restricted cone nat detected"),
-    {stop, normal, State};
-handle_data(client, ?SYMMETRIC_NAT, State=#client_state{timeout=Ref}) ->
-    erlang:cancel_timer(Ref),
-    lager:info("Symmetric nat detected, RIP"),
-    {stop, normal, State};
+
 handle_data(server, _,  _) ->
     {stop, normal, undefined}.
 
 handle_info(client, timeout, State=#client_state{handler=Handler, txn_id=TxnID}) ->
     Handler ! {stungun_timeout, TxnID},
     {stop, normal, State}.
+
+
+%%
+%% Internal
+%%
+
+to_nat_type(?OK) ->
+    {unknown, "Full cone or restricted cone nat detected"};
+to_nat_type(?PORT_RESTRICTED_NAT) ->
+    {restricted, "Port restricted cone nat detected"};
+to_nat_type(?SYMMETRIC_NAT) ->
+    {symmetric, "Symmetric nat detected, RIP"}.

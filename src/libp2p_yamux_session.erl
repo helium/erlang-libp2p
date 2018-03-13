@@ -73,6 +73,8 @@ call(Pid, Cmd) ->
         exit:{noproc, _} ->
             {error, closed};
         exit:{normal, _} ->
+            {error, closed};
+        exit:{shutdown, _} ->
             {error, closed}
     end.
 
@@ -312,13 +314,13 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
             %% Drain any data on the connection sin ce the stream is not found
             case Type of
                 ?DATA when Length > 0 ->
-                    lager:error("Discarding data for missing stream ~p (RST)", [StreamID]),
+                    lager:notice("Discarding data for missing stream ~p (RST)", [StreamID]),
                     libp2p_connection:recv(Connection, Length),
                     session_send(header_update(?RST, StreamID, 0), State);
                 ?UPDATE when ?FLAG_IS_SET(Flags, ?RST) ->
                     ok; %ignore an inbound RST when the stream is gone
                 _ ->
-                    lager:warning("Missing stream ~p (RST)" ,[StreamID]),
+                    lager:notice("Missing stream ~p (RST)" ,[StreamID]),
                     session_send(header_update(?RST, StreamID, 0), State)
             end;
         {ok, Pid} ->
@@ -347,7 +349,7 @@ message_receive_stream(#header{stream_id=StreamID}, State=#state{}) ->
     %% TODO: Send ?RST on accept backlog exceeded
     case stream_lookup(StreamID, State) of
         {ok, _Pid} ->
-            lager:error("Duplicate incoming stream: ~p", [StreamID]),
+            lager:notice("Duplicate incoming stream: ~p", [StreamID]),
             goaway_send(?GOAWAY_PROTOCOL, State);
         {error, not_found} ->
             stream_receive(StreamID, State),

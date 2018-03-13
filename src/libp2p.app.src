@@ -16,7 +16,19 @@
  [{description, "An Erlang implementation of libp2p"},
   {vsn, "0.1.0"},
   {registered, []},
-  {applications, [kernel, stdlib, ranch, inert, multiaddr, nat_upnp, natpmp]},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  crypto,
+                  lager,
+                  ranch,
+                  inert,
+                  multiaddr,
+                  nat_upnp,
+                  natpmp,
+                  ecc_compact,
+                  bitcask
+                 ]},
   {env,[]},
 
   %% hex.pm packaging:
@@ -24,4 +36,3 @@
   {maintainers, ["Helium"]},
   {links, [{"Github", "https://github.com/helium/erlang-libp2p"}]}
  ]}.
-
