@@ -199,13 +199,17 @@ fdclr(Connection) ->
 read_header(Connection) ->
     case libp2p_connection:recv(Connection, ?HEADER_SIZE) of
         {error, Error} -> {error, Error};
-        {ok, <<?VERSION:8/integer-unsigned,
+        {ok, Bin}      -> {ok, decode_header(Bin)}
+    end.
+
+-spec decode_header(binary()) -> header().
+decode_header(<<?VERSION:8/integer-unsigned,
                Type:8/integer-unsigned,
                Flags:16/integer-unsigned-big,
                StreamID:32/integer-unsigned-big,
-               Length:32/integer-unsigned-big>>} ->
-            {ok, #header{type=Type, flags=Flags, stream_id=StreamID, length=Length}}
-    end.
+               Length:32/integer-unsigned-big>>) ->
+    #header{type=Type, flags=Flags, stream_id=StreamID, length=Length}.
+  
 
 -spec encode_header(header()) -> binary().
 encode_header(#header{type=Type, flags=Flags, stream_id=StreamID, length=Length}) ->
