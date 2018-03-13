@@ -1,6 +1,7 @@
 -module(libp2p_config).
 
--export([get_config/2,
+-export([get_env/2, get_env/3,
+         data_dir/0, data_dir/1, data_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
@@ -20,13 +21,51 @@
 %% Global config
 %%
 
-get_config(Module, Defaults) ->
-    case application:get_env(Module) of
-        undefined -> Defaults;
-        {ok, Values} ->
-            sets:to_list(sets:union(sets:from_list(Values),
-                                    sets:from_list(Defaults)))
+-spec get_env(atom(), atom() | list()) -> undefined | {ok, any()}.
+get_env(App, [H|T]) ->
+    case application:get_env(App, H) of
+        {ok, V} ->
+            get_env_l(T, V);
+        undefined ->
+            undefined
+    end;
+get_env(App, K) when is_atom(K) ->
+    application:get_env(App, K).
+
+get_env(App, K, Default) ->
+    case get_env(App, K) of
+        {ok, V}   -> V;
+        undefined -> Default
     end.
+
+get_env_l([], V) ->
+    {ok, V};
+get_env_l([H|T], [_|_] = L) ->
+    case lists:keyfind(H, 1, L) of
+        {_, V} ->
+            get_env_l(T, V);
+        false ->
+            undefined
+    end;
+get_env_l(_, _) ->
+    undefined.
+
+
+-spec data_dir() -> string().
+data_dir() ->
+    "data".
+
+-spec data_dir(ets:tab()) -> string().
+data_dir(Name) when is_atom(Name) ->
+    filename:join(data_dir(), Name);
+data_dir(TID) ->
+    data_dir(libp2p_swarm:name(TID)).
+
+-spec data_dir(ets:tab(), file:name_all()) -> string().
+data_dir(TID, Name) ->
+    FileName = filename:join(data_dir(TID), Name),
+    ok = filelib:ensure_dir(FileName),
+    FileName.
 
 %%
 %% Common pid CRUD
@@ -77,7 +116,6 @@ lookup_transport(TID, Module) ->
 lookup_transports(TID) ->
     lookup_pids(TID, ?TRANSPORT).
 
-
 %%
 %% Listeners
 %%
@@ -85,9 +123,14 @@ lookup_transports(TID) ->
 listener() ->
     ?LISTENER.
 
--spec insert_listener(ets:tab(), string(), pid()) -> true.
-insert_listener(TID, Addr, Pid) ->
-    insert_pid(TID, ?LISTENER, Addr, Pid).
+-spec insert_listener(ets:tab(), [string()], pid()) -> true.
+insert_listener(TID, Addrs, Pid) ->
+    lists:foreach(fun(A) ->
+                          insert_pid(TID, ?LISTENER, A, Pid)
+                  end, Addrs),
+    PeerBook = libp2p_swarm:peerbook(TID),
+    libp2p_peerbook:changed_listener(PeerBook),
+    true.
 
 -spec lookup_listener(ets:tab(), string()) -> {ok, pid()} | false.
 lookup_listener(TID, Addr) ->
@@ -95,7 +138,10 @@ lookup_listener(TID, Addr) ->
 
 -spec remove_listener(ets:tab(), string()) -> true.
 remove_listener(TID, Addr) ->
-    remove_pid(TID, ?LISTENER, Addr).
+    remove_pid(TID, ?LISTENER, Addr),
+    PeerBook = libp2p_swarm:peerbook(TID),
+    libp2p_peerbook:changed_listener(PeerBook),
+    true.
 
 -spec listen_addrs(ets:tab()) -> [string()].
 listen_addrs(TID) ->

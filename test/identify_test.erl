@@ -9,7 +9,8 @@ identify_test() ->
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
     % identify S2
-    {ok, S2Addr, Identify} = libp2p_identify:identify(S1, S2Addr),
+    {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
+    {ok, S2Addr, Identify} = libp2p_identify:identify(Session),
     % check some basic properties
     ?assertEqual("identify/1.0.0", libp2p_identify:protocol_version(Identify)),
     ?assert(lists:member(multiaddr:new(S2Addr), libp2p_identify:listen_addrs(Identify))),

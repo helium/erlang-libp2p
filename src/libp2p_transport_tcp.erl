@@ -122,9 +122,9 @@ init([TID]) ->
     erlang:process_flag(trap_exit, true),
 
     {ok, StunSup} = supervisor:start_link(libp2p_simple_sup, []),
-    Swarm = libp2p_swarm:swarm(TID),
-    libp2p_swarm:add_stream_handler(Swarm, "stungun/1.0.0",
-                                    {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), Swarm]}),
+
+    libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), "stungun/1.0.0",
+                                    {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
     {ok, #state{tid=TID, stun_sup=StunSup}}.
 
 %% API
@@ -138,15 +138,7 @@ handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
                    end,
     {reply, Response, State};
 handle_call({connect, MAddr, DialOptions, Timeout}, _From, State=#state{tid=TID}) ->
-    Response = case connect_to(MAddr, DialOptions, Timeout, TID) of
-                   {error, Error} -> {error, Error};
-                   {ok, Session} ->
-                       Swarm = libp2p_swarm:swarm(TID),
-                       {_, PeerAddr} = libp2p_session:addr_info(Session),
-                       libp2p_identify:spawn_identify(self(), Swarm, PeerAddr),
-                       {ok, Session}
-               end,
-    {reply, Response, State};
+    {reply, connect_to(MAddr, DialOptions, Timeout, TID), State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p~n", [Msg]),
     {reply, ok, State}.
@@ -157,7 +149,7 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info({identify, Result}, State=#state{}) ->
+handle_info({identify, Result, _}, State=#state{}) ->
     case Result of
         {ok, PeerAddr, Identify} ->
             ObservedAddr = libp2p_identify:observed_addr(Identify),
@@ -165,6 +157,9 @@ handle_info({identify, Result}, State=#state{}) ->
         {error, _} ->
             {noreply, State}
     end;
+handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
+    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
+    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
 handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
 handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=StunTxns}) ->
@@ -174,7 +169,7 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             lager:info("Got dial back confirmation of observed address ~p", [ObservedAddr]),
             case libp2p_config:lookup_listener(TID, LocalAddr) of
                 {ok, ListenerPid} ->
-                    libp2p_config:insert_listener(TID, ObservedAddr, ListenerPid);
+                    libp2p_config:insert_listener(TID, [ObservedAddr], ListenerPid);
                 false ->
                     lager:warning("unable to determine listener pid for ~p", [LocalAddr])
             end,
@@ -184,7 +179,7 @@ handle_info({record_listen_addr, NatType, InternalAddr, ExternalAddr}, State=#st
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
             lager:info("added ~p port mapping from ~s to ~s", [NatType, InternalAddr, ExternalAddr]),
-            libp2p_config:insert_listener(TID, ExternalAddr, ListenPid),
+            libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
             {noreply, State};
         _ ->
             {noreply, State}
@@ -198,32 +193,43 @@ terminate(_Reason, #state{}) ->
     ok.
 
 %% Internal: Listen/Connect
-%%                                                %
+%%
+
+-spec transport_options(inet:ip_address()) -> {[term()], [term()]}.
+transport_options(IP) ->
+    OptionDefaults = [
+                      {ip, IP},
+                      {backlog, 1024},
+                      {nodelay, true},
+                      {send_timeout, 30000},
+                      {send_timeout_close, true},
+
+                      % Transport options. Add new transport
+                      % default options to TransportKeys below
+                      {max_connections, 1024}
+                     ],
+    TransportKeys = sets:from_list([max_connections]),
+    % Go get the tcp listen options
+    Options = case libp2p_config:get_env(transport, tcp) of
+                  undefined -> OptionDefaults;
+                  {ok, Values} ->
+                      sets:to_list(sets:union(sets:from_list(Values),
+                                              sets:from_list(OptionDefaults)))
+              end,
+    % Split out the transport from the listen options
+    lists:partition(fun({Key, _}) ->
+                            sets:is_element(Key, TransportKeys)
+                    end, Options).
+                                                %
 -spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
         {IP, Port, Type} ->
-            OptionDefaults = [
-                                                % Listen options
-                              {ip, IP},
-                              {backlog, 1024},
-                              {nodelay, true},
-                              {send_timeout, 30000},
-                              {send_timeout_close, true},
-
-                                                % Transport options. Add new transport
-                                                % default options to TransportKeys below
-                              {max_connections, 1024}
-                             ],
-            TransportKeys = sets:from_list([max_connections]),
-            Options = libp2p_config:get_config(?CONFIG_SECTION, OptionDefaults),
-            {TransportOpts, ListenOpts0} =
-                lists:partition(fun({Key, _}) ->
-                                        sets:is_element(Key, TransportKeys)
-                                end, Options),
+            {TransportOpts, ListenOpts0} = transport_options(IP),
             % Non-overidable options, taken from ranch_tcp:listen
-            DefaultListenOpts = [binary, {active, false}, {packet, raw}, {reuseaddr, true}, reuseport()],
+            DefaultListenOpts = [binary, {active, false}, {packet, raw},
+                                 {reuseaddr, true}, reuseport()],
             % filter out disallowed options and supply default ones
             ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
                                               DefaultListenOpts),
@@ -391,14 +397,13 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     % check if another peer has seen this address
                     case is_observed_addr(ObservedAddr, ObservedAddrs) of
                         true ->
-                            Swarm = libp2p_swarm:swarm(TID),
                             %% ok, we have independant confirmation of an observed address
                             lager:info("received confirmation of observed address ~s", [ObservedAddr]),
                             <<TxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
                             %% Record the TxnID , then convince a peer to dial us back with that TxnID
                             %% then that handler needs to forward the response back here, so we can add the external address
                             ChildSpec = #{ id => make_ref(),
-                                           start => {libp2p_stream_stungun, start_client, [TxnID, Swarm, PeerAddr]},
+                                           start => {libp2p_stream_stungun, start_client, [TxnID, TID, PeerAddr]},
                                            restart => temporary,
                                            shutdown => 5000,
                                            type => worker },

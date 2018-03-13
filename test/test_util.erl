@@ -1,9 +1,10 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/1, teardown_swarms/1,
-         wait_until/1, wait_until/3]).
+         wait_until/1, wait_until/3, rm_rf/1]).
 
 setup() ->
+    rm_rf(libp2p_config:data_dir()),
     application:ensure_all_started(ranch),
     %% application:ensure_all_started(lager),
     %% lager:set_loglevel(lager_console_backend, debug),
@@ -14,7 +15,8 @@ setup_swarms(0, Acc) ->
     Acc;
 setup_swarms(N, Acc) ->
     setup_swarms(N - 1, [begin
-                             {ok, Pid} = libp2p_swarm:start(0),
+                             Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
+                             {ok, Pid} = libp2p_swarm:start(Name, 0),
                              Pid
                          end | Acc]).
 
@@ -43,3 +45,13 @@ wait_until(Fun, Retry, Delay) when Retry > 0 ->
             timer:sleep(Delay),
             wait_until(Fun, Retry-1, Delay)
     end.
+
+
+-spec rm_rf(file:filename()) -> ok.
+rm_rf(Dir) ->
+    Paths = filelib:wildcard(Dir ++ "/**"),
+    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
+    ok = lists:foreach(fun file:delete/1, Files),
+    Sorted = lists:reverse(lists:sort(Dirs)),
+    ok = lists:foreach(fun file:del_dir/1, Sorted),
+    file:del_dir(Dir).
