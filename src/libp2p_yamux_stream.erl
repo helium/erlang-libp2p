@@ -209,7 +209,7 @@ handle_event(cast, {incoming_data, Bin}, _State, Data=#state{stream_id=StreamID}
          {ok, D} ->
             {keep_state, (data_recv_timeout_cancel(notify_inert(D)))}
     end;
-handle_event(info, recv_timeout, established, Data=#state{}) ->
+handle_event(info, recv_timeout, _State, Data=#state{}) ->
     {keep_state, data_recv_timeout(Data)};
 handle_event({call, From}, {recv, Size, _}, _State, Data=#state{}) when ?REMOTE_CLOSED(Data) andalso Size > ?RECEIVABLE_SIZE(Data) ->
     % The remote closed and we're being asked for more than we have
