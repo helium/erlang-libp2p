@@ -140,8 +140,9 @@ handle_cast({register_session, SessionPid, Identify, Kind},
     SessionAddr = libp2p_identify:address(Identify),
     SessionPids = maps:get(SessionAddr, Sessions, []),
     NewSessions = maps:put(SessionAddr, [SessionPid | SessionPids], Sessions),
+    NewState = State#state{sessions=NewSessions},
 
-    Peer = mk_this_peer(State),
+    Peer = mk_this_peer(NewState),
     group_notify_peers(Group, undefined, [Peer]),
 
     case Kind of
@@ -155,7 +156,7 @@ handle_cast({register_session, SessionPid, Identify, Kind},
                                                       libp2p_stream_peer, [TID, PeerList]);
         _ -> ok
     end,
-    {noreply, State#state{sessions=NewSessions}};
+    {noreply, NewState};
 handle_cast({join_notify, JoinPid}, State=#state{notify=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
