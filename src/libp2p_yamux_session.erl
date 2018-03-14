@@ -112,7 +112,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
             case HeaderType of
                 ?DATA -> {noreply, fdset(Connection, message_receive(Header, State))};
                 ?UPDATE -> {noreply, fdset(Connection, message_receive(Header, State))};
-                ?GOAWAY -> {noreply, fdset(Connection, goaway_receive(Header, State))};
+                ?GOAWAY -> goaway_receive(Header, fdset(Connection, State));
                 ?PING -> {noreply, fdset(Connection, ping_receive(Header, State))}
             end
     end;
@@ -270,14 +270,14 @@ goaway_send(Reason, State=#state{}) ->
     session_send(header_goaway(Reason), State),
     State#state{goaway_state=local}.
 
--spec goaway_receive(header(), #state{}) -> #state{}.
+-spec goaway_receive(header(), #state{}) -> {noreply, #state{}} | {stop, term(), #state{}}.
 goaway_receive(#header{length=?GOAWAY_NORMAL}, State=#state{connection=Connection}) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
     lager:info("Received remote goaway from: ~p", [RemoteAddr]),
-    State#state{goaway_state=remote};
+    {noreply, State#state{goaway_state=remote}};
 goaway_receive(#header{length=Code}, State=#state{}) ->
     lager:error("Received unexpected remote goaway: ~p", [Code]),
-    State.
+    {stop, {remote_goaway, Code}, State}.
 
 %%
 %% Stream
