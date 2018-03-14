@@ -32,7 +32,7 @@ teardown_swarms(Swarms) ->
 
 
 wait_until(Fun) ->
-    wait_until(Fun, 10, 1000).
+    wait_until(Fun, 40, 100).
 
 wait_until(Fun, Retry, Delay) when Retry > 0 ->
     Res = Fun(),
