@@ -17,8 +17,8 @@ init(client, _Connection, [TID, PeerList]) ->
     end;
 init(server, _Connection, [_Path, TID]) ->
     PeerBook = libp2p_swarm:peerbook(TID),
-    PeerList = libp2p_peerbook:values(PeerBook),
     libp2p_peerbook:join_notify(PeerBook, self()),
+    PeerList = libp2p_peerbook:values(PeerBook),
     case PeerList of
         [] -> {ok, #state{peerbook=PeerBook}};
         L -> {ok, libp2p_peer:encode_list(L), #state{peerbook=PeerBook}}

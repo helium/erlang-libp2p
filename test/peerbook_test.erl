@@ -106,8 +106,13 @@ gossip_test() ->
     libp2p_swarm:connect(S1, S2ListenAddr),
 
     S1PeerBook = libp2p_swarm:peerbook(S1),
+    S1Addr = libp2p_swarm:address(S1),
     S2Addr = libp2p_swarm:address(S2),
 
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S1PeerBook, S2Addr) end),
+
+    {ok, S2PeerInfo} = libp2p_peerbook:get(S1PeerBook, S2Addr),
+
+    ok = test_util:wait_until(fun() -> [S1Addr] == libp2p_peer:connected_peers(S2PeerInfo) end),
 
     test_util:teardown_swarms(Swarms).

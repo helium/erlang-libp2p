@@ -240,6 +240,11 @@ handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
 
 % Info
 %
+handle_event(info, _State, {'EXIT', From, Reason}, #state{}) when Reason /= normal ->
+    lager:warning("Multistream server ~p exited with reason ~p", [From, Reason]),
+    keep_state_and_data;
+handle_event(info, _State, {'EXIT', _, _}, #state{})  ->
+    keep_state_and_data;
 handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, session=Session}) ->
     AddrInfo = libp2p_session:addr_info(Session),
     {keep_state, Data#state{addr_info=AddrInfo}, {reply, From, AddrInfo}};
