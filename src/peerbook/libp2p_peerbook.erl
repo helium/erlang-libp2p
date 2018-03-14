@@ -147,8 +147,12 @@ handle_cast({register_session, SessionPid, Identify, Kind},
 
     case Kind of
         client ->
-            {_, RemoteAddr} = libp2p_session:addr_info(SessionPid),
-            lager:info("Starting discovery with ~p", [RemoteAddr]),
+            try
+                {_, RemoteAddr} = libp2p_session:addr_info(SessionPid),
+                lager:info("Starting discovery with ~p", [RemoteAddr])
+            catch
+                _What:_Why -> ok
+            end,
             %% Pass the peerlist directly into the stream_peer client
             %% since it is a synchronous call
             PeerList = fetch_peers(Store),
