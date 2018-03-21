@@ -16,21 +16,18 @@
 -define(LISTENER, listener).
 
 -type handler() :: {atom(), atom()}.
--type opts() :: [tuple()].
-
--export_type([opts/0]).
 
 %%
 %% Global config
 %%
 
--spec get_opt(opts(), atom() | list()) -> undefined | {ok, any()}.
+-spec get_opt(libp2p_swarm:swarm_opts(), atom() | list()) -> undefined | {ok, any()}.
 get_opt(Opts, L) when is_list(Opts), is_list(L)  ->
     get_opt_l(L, Opts);
 get_opt(Opts, K) when is_list(Opts), is_atom(K) ->
     get_opt_l([K], Opts).
 
--spec get_opt(opts(), atom() | list(), any()) -> any().
+-spec get_opt(libp2p_swarm:swarm_opts(), atom() | list(), any()) -> any().
 get_opt(Opts, K, Default) ->
     case get_opt(Opts, K) of
         {ok, V}   -> V;

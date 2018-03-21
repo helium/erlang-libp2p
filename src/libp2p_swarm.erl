@@ -11,14 +11,56 @@
 -type connect_opt() :: {unique_session, true | false}
                      | {unique_port, true | false}.
 
+-type swarm_opts() :: [swarm_opt()].
+-export_type([swarm_opts/0]).
+
+-type swarm_opt() :: {key, libp2p_crypto:private_key()}
+                   | {listen_opts, [listen_opt()]}
+                   | {peerbook, [peerbook_opt()]}
+                   | {yamux, [yamux_opt()]}.
+
+-type listen_opt() :: {tcp, tcp_listen_opt()}
+                    | {max_connections, pos_integer()}.
+
+-type tcp_listen_opt() :: {backlog, non_neg_integer()}
+                        | {buffer, non_neg_integer()}
+                        | {delay_send, boolean()}
+                        | {dontroute, boolean()}
+                        | {exit_on_close, boolean()}
+                        | {fd, non_neg_integer()}
+                        | {high_msgq_watermark, non_neg_integer()}
+                        | {high_watermark, non_neg_integer()}
+                        | {keepalive, boolean()}
+                        | {linger, {boolean(), non_neg_integer()}}
+                        | {low_msgq_watermark, non_neg_integer()}
+                        | {low_watermark, non_neg_integer()}
+                        | {nodelay, boolean()}
+                        | {port, inet:port_number()}
+                        | {priority, integer()}
+                        | {raw, non_neg_integer(), non_neg_integer(), binary()}
+                        | {recbuf, non_neg_integer()}
+                        | {send_timeout, timeout()}
+                        | {send_timeout_close, boolean()}
+                        | {sndbuf, non_neg_integer()}
+                        | {tos, integer()}.
+
+-type peerbook_opt() :: {stale_time, pos_integer()}.
+
+-type yamux_opt() :: {max_window, pos_integer()}.
+
 -define(CONNECT_TIMEOUT, 5000).
 
-
+%% @doc Starts a swarm with a given name. This starts a swarm with no
+%% listeners. The swarm name is used to distinguish the data folder
+%% for the swarm from other started swarms on the same node.
 -spec start(atom()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name) when is_atom(Name) ->
     start(Name, []).
 
--spec start(atom(), libp2p_config:opts()) -> {ok, pid()} | ignore | {error, term()}.
+%% @doc Starts a swarm with a given name and sarm options. This starts
+%% a swarm with no listeners. The options can be used to configure and
+%% control behavior of various subsystems of the swarm.
+-spec start(atom(), swarm_opts()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name, Opts)  ->
     case supervisor:start_link(libp2p_swarm_sup, [Name, Opts]) of
         {ok, Pid} ->
@@ -27,6 +69,7 @@ start(Name, Opts)  ->
         Other -> Other
     end.
 
+%% @doc Stops the given swarm.
 -spec stop(pid()) -> ok.
 stop(Sup) ->
     Ref = erlang:monitor(process, Sup),
@@ -44,6 +87,7 @@ stop(Sup) ->
 swarm(TID) ->
     libp2p_swarm_sup:sup(TID).
 
+%% @doc Get the name for a swarm.
 -spec name(ets:tab() | pid()) -> atom().
 name(Sup) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
@@ -51,6 +95,7 @@ name(Sup) when is_pid(Sup) ->
 name(TID) ->
     libp2p_swarm_sup:name(TID).
 
+%% @doc Get cryptographic address for a swarm.
 -spec address(ets:tab() | pid()) -> libp2p_crypto:address().
 address(Sup) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
@@ -58,6 +103,7 @@ address(Sup) when is_pid(Sup) ->
 address(TID) ->
     libp2p_swarm_sup:address(TID).
 
+%% @doc Get the public and private key for a swarm.
 -spec keys(ets:tab() | pid())
           -> {ok, libp2p_crypto:private_key(), libp2p_crypto:public_key()} | {error, term()}.
 keys(Sup) when is_pid(Sup) ->
@@ -69,6 +115,7 @@ keys(TID) ->
     KeyFile = libp2p_config:get_opt(opts(TID, []), key_filename, DefaultKeyFile),
     libp2p_crypto:load_keys(KeyFile).
 
+%% @doc Get the peerbook for a swarm.
 -spec peerbook(ets:tab() | pid()) -> pid().
 peerbook(Sup) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
@@ -76,7 +123,8 @@ peerbook(Sup) when is_pid(Sup) ->
 peerbook(TID) ->
     libp2p_swarm_sup:peerbook(TID).
 
--spec opts(ets:tab() | pid(), any()) -> libp2p_config:opts() | any().
+%% @doc Get the options a swarm was started with.
+-spec opts(ets:tab() | pid(), any()) -> swarm_opts() | any().
 opts(Sup, Default) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, {opts, Default});
