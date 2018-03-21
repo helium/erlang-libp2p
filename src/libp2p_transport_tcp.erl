@@ -31,8 +31,6 @@
          }).
 
 
--define(CONFIG_SECTION, tcp).
-
 %% API
 %%
 
@@ -195,8 +193,8 @@ terminate(_Reason, #state{}) ->
 %% Internal: Listen/Connect
 %%
 
--spec transport_options(inet:ip_address()) -> {[term()], [term()]}.
-transport_options(IP) ->
+-spec transport_options(inet:ip_address(), ets:tab()) -> {[term()], [term()]}.
+transport_options(IP, TID) ->
     OptionDefaults = [
                       {ip, IP},
                       {backlog, 1024},
@@ -210,7 +208,7 @@ transport_options(IP) ->
                      ],
     TransportKeys = sets:from_list([max_connections]),
     % Go get the tcp listen options
-    Options = case libp2p_config:get_env(transport, tcp) of
+    Options = case libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [listen_opts, tcp]) of
                   undefined -> OptionDefaults;
                   {ok, Values} ->
                       sets:to_list(sets:union(sets:from_list(Values),
@@ -226,7 +224,7 @@ listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
         {IP, Port, Type} ->
-            {TransportOpts, ListenOpts0} = transport_options(IP),
+            {TransportOpts, ListenOpts0} = transport_options(IP, TID),
             % Non-overidable options, taken from ranch_tcp:listen
             DefaultListenOpts = [binary, {active, false}, {packet, raw},
                                  {reuseaddr, true}, reuseport()],

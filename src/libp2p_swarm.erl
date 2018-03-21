@@ -1,7 +1,7 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, swarm/1,
-         name/1, address/1, keys/1, peerbook/1,
+         opts/2, name/1, address/1, keys/1, peerbook/1,
          dial/3, dial/5, connect/2, connect/4,
          listen/2, listen_addrs/1,
          add_transport_handler/2,
@@ -14,24 +14,26 @@
 -define(CONNECT_TIMEOUT, 5000).
 
 
--spec start(atom()) -> {ok, pid()} | {error, term()}.
+-spec start(atom()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name) when is_atom(Name) ->
-    case supervisor:start_link(libp2p_swarm_sup, [Name]) of
+    start(Name, [{listen_addr, mk_listen_addr(0)}]).
+
+-spec start(atom(), libp2p_config:opts()) -> {ok, pid()} | ignore | {error, term()}.
+start(Name, Opts)  ->
+    case supervisor:start_link(libp2p_swarm_sup, [Name, Opts]) of
         {ok, Pid} ->
             unlink(Pid),
-            {ok, Pid};
-        Other -> Other
-    end.
-
--spec start(atom(), string() | non_neg_integer()) -> {ok, pid()} | ignore | {error, term()}.
-start(Name, Addr) ->
-    case start(Name) of
-        {ok, Sup} ->
-            case listen(Sup, Addr) of
-                ok -> {ok, Sup};
-                {error, Reason} -> {error, Reason}
+            case lists:keyfind(listen_addr, 1, Opts) of
+                {_, ListenAddr} ->
+                    case listen(Pid, ListenAddr) of
+                        ok -> {ok, Pid};
+                        {error, Reason} ->
+                            exit(Pid, normal),
+                            {error, Reason}
+                    end;
+                _ -> {ok, Pid}
             end;
-        {error, Error} -> {error, Error}
+        Other -> Other
     end.
 
 -spec stop(pid()) -> ok.
@@ -65,19 +67,32 @@ address(Sup) when is_pid(Sup) ->
 address(TID) ->
     libp2p_swarm_sup:address(TID).
 
--spec keys(ets:tab() | pid()) -> {libp2p_crypto:private_key(), libp2p_crypto:public_key()}.
+-spec keys(ets:tab() | pid())
+          -> {ok, libp2p_crypto:private_key(), libp2p_crypto:public_key()} | {error, term()}.
 keys(Sup) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, keys);
 keys(TID) ->
-    libp2p_crypto:swarm_keys(TID).
+    Name = libp2p_swarm:name(TID),
+    DefaultKeyFile = libp2p_crypto:key_filename(TID, Name),
+    KeyFile = libp2p_config:get_opt(opts(TID, []), key_filename, DefaultKeyFile),
+    libp2p_crypto:load_keys(KeyFile).
 
--spec peerbook(ets:tab()) -> pid().
+-spec peerbook(ets:tab() | pid()) -> pid().
 peerbook(Sup) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, peerbook);
 peerbook(TID) ->
     libp2p_swarm_sup:peerbook(TID).
+
+-spec opts(ets:tab() | pid(), any()) -> libp2p_config:opts() | any().
+opts(Sup, Default) when is_pid(Sup) ->
+    Server = libp2p_swarm_sup:server(Sup),
+    gen_server:call(Server, {opts, Default});
+opts(TID, Default) ->
+    libp2p_swarm_sup:opts(TID, Default).
+
+
 
 % Transport
 %
@@ -93,8 +108,7 @@ add_transport_handler(Sup, Transport) ->
 
 -spec listen(supervisor:sup_ref(), string() | non_neg_integer()) -> ok | {error, term()}.
 listen(Sup, Port) when is_integer(Port)->
-    ListenAddr = "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port),
-    listen(Sup, ListenAddr);
+    listen(Sup, mk_listen_addr(Port));
 listen(Sup, Addr) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, {listen, Addr}, infinity).
@@ -103,6 +117,9 @@ listen(Sup, Addr) ->
 listen_addrs(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, listen_addrs).
+
+mk_listen_addr(Port) when is_integer(Port) ->
+    "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port).
 
 
 % Connect

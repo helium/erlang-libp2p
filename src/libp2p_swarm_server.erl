@@ -9,8 +9,6 @@
 
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
--define(DIAL_TIMEOUT, 5000).
-
 %% gen_server
 %%
 
@@ -34,6 +32,8 @@ init([TID]) ->
 
     {ok, #state{tid=TID}}.
 
+handle_call({opts, Default}, _From, State=#state{tid=TID}) ->
+    {reply, libp2p_swarm:opts(TID, Default), State};
 handle_call(name, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:name(TID), State};
 handle_call(address, _From, State=#state{tid=TID}) ->

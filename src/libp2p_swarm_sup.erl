@@ -5,7 +5,7 @@
 % supervisor
 -export([init/1]).
 % api
--export([sup/1, name/1, address/1,
+-export([sup/1, opts/2, name/1, address/1,
          register_server/1, server/1,
          register_peerbook/1, peerbook/1]).
 
@@ -14,14 +14,16 @@
 -define(PEERBOOK, swarm_peerbook).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
+-define(OPTS, swarm_opts).
 
-init([Name]) ->
+init([Name, Opts]) ->
     inert:start(),
     TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {?SUP, self()}),
     ets:insert(TID, {?NAME, Name}),
+    ets:insert(TID, {?OPTS, Opts}),
     % Get or generate our keys
-    {PrivKey, PubKey} = libp2p_crypto:swarm_keys(TID),
+    {PrivKey, PubKey} = init_keys(TID),
     ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_address(PubKey)}),
     SigFun = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey) end,
 
@@ -65,6 +67,18 @@ init([Name]) ->
                  ],
     {ok, {SupFlags, ChildSpecs}}.
 
+
+-spec init_keys(ets:tab()) -> {libp2p_crypto:private_key(), libp2p_crypto:public_key()}.
+init_keys(TID) ->
+    case libp2p_swarm:keys(TID) of
+        {ok, PrivKey, PubKey} -> {PrivKey, PubKey};
+        {error, _} ->
+            Keys = libp2p_crypto:generate_keys(),
+            KeyFile = libp2p_crypto:key_filename(TID, libp2p_swarm:name(TID)),
+            libp2p_crypto:save_keys(Keys, KeyFile),
+            Keys
+    end.
+
 -spec sup(ets:tab()) -> supervisor:sup_ref().
 sup(TID) ->
     ets:lookup_element(TID, ?SUP, 2).
@@ -94,3 +108,10 @@ address(TID) ->
 -spec name(ets:tab()) -> atom().
 name(TID) ->
     ets:lookup_element(TID, ?NAME, 2).
+
+-spec opts(ets:tab(), any()) -> libp2p_config:opts() | any().
+opts(TID, Default) ->
+    case ets:lookup(TID, ?OPTS) of
+        [{_, Opts}] -> Opts;
+        [] -> Default
+    end.

@@ -8,7 +8,7 @@
 
 -export_type([private_key/0, public_key/0, address/0]).
 
--export([swarm_keys/1,
+-export([generate_keys/0, key_filename/2, load_keys/1, save_keys/2,
          pubkey_to_address/1, address_to_pubkey/1,
          address_to_b58/1, b58_to_address/1,
          pubkey_to_b58/1, b58_to_pubkey/1
@@ -18,29 +18,44 @@
 make_public_key(#'ECPrivateKey'{parameters=Params, publicKey=PubKey}) ->
     {#'ECPoint'{point=PubKey}, Params}.
 
--spec swarm_keys(ets:tab() | string()) -> {private_key(), public_key()}.
-swarm_keys(FileName) when is_list(FileName) ->
+%% @doc Generate keys suitable for a swarm.  The returned private and
+%% public key has the attribute that the public key is a compressable
+%% public key.
+-spec generate_keys() -> {private_key(), public_key()}.
+generate_keys() ->
+    {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
+    PubKey = ecc_compact:recover_key(CompactKey),
+    {PrivKey, PubKey}.
+
+%% @doc Load the private key from a pem encoded given filename.
+%% Returns the private and extracted public key stored in the file or
+%% an error if any occorred.
+-spec load_keys(string()) -> {ok, private_key(), public_key()} | {error, term()}.
+load_keys(FileName) ->
     case file:read_file(FileName) of
         {ok, PemBin} ->
             [PemEntry] = public_key:pem_decode(PemBin),
             PrivKey = public_key:pem_entry_decode(PemEntry),
             PubKey = make_public_key(PrivKey),
-            {PrivKey, PubKey};
-        {error, enoent} ->
-            {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
-            PubKey = ecc_compact:recover_key(CompactKey),
-            PemEntry = public_key:pem_entry_encode('ECPrivateKey', PrivKey),
-            PemBin = public_key:pem_encode([PemEntry]),
-            case file:write_file(FileName, PemBin) of
-                ok -> {PrivKey, PubKey};
-                {error, Error} -> error(Error)
-            end
-    end;
-swarm_keys(TID) ->
-    Name = libp2p_swarm:name(TID),
-    FileName = libp2p_config:data_dir(TID, atom_to_list(Name) ++ ".pem"),
-    swarm_keys(FileName).
+            {ok, PrivKey, PubKey};
+        {error, Error} -> {error, Error}
+    end.
 
+%% @doc Returns a filename relative to the given swarm's data folder.
+-spec key_filename(ets:tab() | string(), atom() | string()) -> string().
+key_filename(DirOrTID, SwarmName) when is_atom(SwarmName) ->
+    key_filename(DirOrTID, atom_to_list(SwarmName));
+key_filename(DirOrTID, BaseName) when is_list(BaseName) ->
+    libp2p_config:data_dir(DirOrTID, BaseName ++ ".pem").
+
+%% @doc Store the given keys in a file.  See @see key_folder/1 for a
+%% utility function that returns a name and location for the keys that
+%% are relative to the swarm data folder.
+-spec save_keys({private_key(), public_key()}, string()) -> ok | {error, term()}.
+save_keys({PrivKey, _PubKey}, FileName) when is_list(FileName) ->
+    PemEntry = public_key:pem_entry_encode('ECPrivateKey', PrivKey),
+    PemBin = public_key:pem_encode([PemEntry]),
+    file:write_file(FileName, PemBin).
 
 -spec pubkey_to_address(public_key() | ecc_compact:compact_key()) -> address().
 pubkey_to_address(PubKey) ->

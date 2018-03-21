@@ -1,6 +1,6 @@
 -module(libp2p_config).
 
--export([get_env/2, get_env/3,
+-export([get_opt/2, get_opt/3,
          data_dir/0, data_dir/1, data_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
@@ -16,38 +16,37 @@
 -define(LISTENER, listener).
 
 -type handler() :: {atom(), atom()}.
+-type opts() :: [tuple()].
+
+-export_type([opts/0]).
 
 %%
 %% Global config
 %%
 
--spec get_env(atom(), atom() | list()) -> undefined | {ok, any()}.
-get_env(App, [H|T]) ->
-    case application:get_env(App, H) of
-        {ok, V} ->
-            get_env_l(T, V);
-        undefined ->
-            undefined
-    end;
-get_env(App, K) when is_atom(K) ->
-    application:get_env(App, K).
+-spec get_opt(opts(), atom() | list()) -> undefined | {ok, any()}.
+get_opt(Opts, L) when is_list(Opts), is_list(L)  ->
+    get_opt_l(L, Opts);
+get_opt(Opts, K) when is_list(Opts), is_atom(K) ->
+    get_opt_l([K], Opts).
 
-get_env(App, K, Default) ->
-    case get_env(App, K) of
+-spec get_opt(opts(), atom() | list(), any()) -> any().
+get_opt(Opts, K, Default) ->
+    case get_opt(Opts, K) of
         {ok, V}   -> V;
         undefined -> Default
     end.
 
-get_env_l([], V) ->
+get_opt_l([], V) ->
     {ok, V};
-get_env_l([H|T], [_|_] = L) ->
+get_opt_l([H|T], [_|_] = L) ->
     case lists:keyfind(H, 1, L) of
         {_, V} ->
-            get_env_l(T, V);
+            get_opt_l(T, V);
         false ->
             undefined
     end;
-get_env_l(_, _) ->
+get_opt_l(_, _) ->
     undefined.
 
 
@@ -61,11 +60,13 @@ data_dir(Name) when is_atom(Name) ->
 data_dir(TID) ->
     data_dir(libp2p_swarm:name(TID)).
 
--spec data_dir(ets:tab(), file:name_all()) -> string().
-data_dir(TID, Name) ->
-    FileName = filename:join(data_dir(TID), Name),
+-spec data_dir(ets:tab() | string(), file:name_all()) -> string().
+data_dir(Dir, Name) when is_list(Dir) ->
+    FileName = filename:join(Dir, Name),
     ok = filelib:ensure_dir(FileName),
-    FileName.
+    FileName;
+data_dir(TID, Name) ->
+    data_dir(data_dir(TID), Name).
 
 %%
 %% Common pid CRUD
