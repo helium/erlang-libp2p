@@ -38,6 +38,9 @@ basic_test() ->
     ?assert(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1))),
     ?assert(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer2))),
 
+    ?assertEqual(sets:from_list([Address, libp2p_peer:address(Peer1), libp2p_peer:address(Peer2)]),
+                sets:from_list(libp2p_peerbook:keys(PeerBook))),
+
     ?assertNot(libp2p_peerbook:is_key(PeerBook, <<"foo">>)),
 
     clear_peerbook(Name).
@@ -106,13 +109,31 @@ gossip_test() ->
     libp2p_swarm:connect(S1, S2ListenAddr),
 
     S1PeerBook = libp2p_swarm:peerbook(S1),
+    S2PeerBook = libp2p_swarm:peerbook(S1),
     S1Addr = libp2p_swarm:address(S1),
     S2Addr = libp2p_swarm:address(S2),
 
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S1PeerBook, S2Addr) end),
+    ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, S1Addr) end),
 
     {ok, S2PeerInfo} = libp2p_peerbook:get(S1PeerBook, S2Addr),
 
     ok = test_util:wait_until(fun() -> [S1Addr] == libp2p_peer:connected_peers(S2PeerInfo) end),
+
+    test_util:teardown_swarms(Swarms).
+
+
+stale_test() ->
+    Swarms = [S1] = test_util:setup_swarms(1, [{peerbook, [{stale_time, 100}]}]),
+
+    PeerBook = libp2p_swarm:peerbook(S1),
+    S1Addr = libp2p_swarm:address(S1),
+    {ok, S1First} = libp2p_peerbook:get(PeerBook, S1Addr),
+
+    ?assertEqual(ok, test_util:wait_until(
+                       fun() ->
+                               {ok, S1Entry} = libp2p_peerbook:get(PeerBook, S1Addr),
+                               libp2p_peer:supersedes(S1Entry, S1First)
+                       end)),
 
     test_util:teardown_swarms(Swarms).

@@ -11,7 +11,7 @@ tcp_connect(Addr) ->
 
 
 client_ls_test() ->
-    Swarms = [S1] = test_util:setup_swarms(1),
+    Swarms = [S1] = test_util:setup_swarms(1, []),
     [Addr|_] = libp2p_swarm:listen_addrs(S1),
 
     Connection = tcp_connect(Addr),
@@ -23,7 +23,7 @@ client_ls_test() ->
     test_util:teardown_swarms(Swarms).
 
 client_negotiate_handler_test() ->
-    Swarms = [S1] = test_util:setup_swarms(1),
+    Swarms = [S1] = test_util:setup_swarms(1, []),
     [Addr|_] = libp2p_swarm:listen_addrs(S1),
 
     Connection = tcp_connect(Addr),

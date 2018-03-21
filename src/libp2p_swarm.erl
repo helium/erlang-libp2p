@@ -16,23 +16,14 @@
 
 -spec start(atom()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name) when is_atom(Name) ->
-    start(Name, [{listen_addr, mk_listen_addr(0)}]).
+    start(Name, []).
 
 -spec start(atom(), libp2p_config:opts()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name, Opts)  ->
     case supervisor:start_link(libp2p_swarm_sup, [Name, Opts]) of
         {ok, Pid} ->
             unlink(Pid),
-            case lists:keyfind(listen_addr, 1, Opts) of
-                {_, ListenAddr} ->
-                    case listen(Pid, ListenAddr) of
-                        ok -> {ok, Pid};
-                        {error, Reason} ->
-                            exit(Pid, normal),
-                            {error, Reason}
-                    end;
-                _ -> {ok, Pid}
-            end;
+            {ok, Pid};
         Other -> Other
     end.
 
@@ -108,7 +99,7 @@ add_transport_handler(Sup, Transport) ->
 
 -spec listen(supervisor:sup_ref(), string() | non_neg_integer()) -> ok | {error, term()}.
 listen(Sup, Port) when is_integer(Port)->
-    listen(Sup, mk_listen_addr(Port));
+    listen(Sup, "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port));
 listen(Sup, Addr) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, {listen, Addr}, infinity).
@@ -117,9 +108,6 @@ listen(Sup, Addr) ->
 listen_addrs(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, listen_addrs).
-
-mk_listen_addr(Port) when is_integer(Port) ->
-    "/ip4/0.0.0.0/tcp/" ++ integer_to_list(Port).
 
 
 % Connect

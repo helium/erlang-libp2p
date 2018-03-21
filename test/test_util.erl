@@ -1,6 +1,6 @@
 -module(test_util).
 
--export([setup/0, setup_swarms/0, setup_swarms/1, teardown_swarms/1,
+-export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
          wait_until/1, wait_until/3, rm_rf/1]).
 
 setup() ->
@@ -11,21 +11,24 @@ setup() ->
     %% lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
     ok.
 
-setup_swarms(0, Acc) ->
+setup_swarms(0, _Opts, Acc) ->
     Acc;
-setup_swarms(N, Acc) ->
-    setup_swarms(N - 1, [begin
-                             Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
-                             {ok, Pid} = libp2p_swarm:start(Name),
-                             Pid
-                         end | Acc]).
+setup_swarms(N, Opts, Acc) ->
+    setup_swarms(N - 1, Opts,
+                 [begin
+                      Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
 
-setup_swarms(N) when N >= 1 ->
+                      {ok, Pid} = libp2p_swarm:start(Name, Opts),
+                      ok = libp2p_swarm:listen(Pid, "/ip4/0.0.0.0/tcp/0"),
+                      Pid
+                  end | Acc]).
+
+setup_swarms(N, Opts) when N >= 1 ->
     setup(),
-    setup_swarms(N, []).
+    setup_swarms(N, Opts, []).
 
 setup_swarms() ->
-    setup_swarms(2).
+    setup_swarms(2, []).
 
 teardown_swarms(Swarms) ->
     lists:map(fun libp2p_swarm:stop/1, Swarms).
