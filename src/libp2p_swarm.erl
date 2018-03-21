@@ -14,7 +14,7 @@
 -type swarm_opts() :: [swarm_opt()].
 -export_type([swarm_opts/0]).
 
--type swarm_opt() :: {key, libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}
+-type swarm_opt() :: {key, {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}}
                    | {listen_opts, [listen_opt()]}
                    | {peerbook, [peerbook_opt()]}
                    | {yamux, [yamux_opt()]}.
