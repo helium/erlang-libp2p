@@ -38,8 +38,11 @@ basic_test() ->
     ?assert(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1))),
     ?assert(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer2))),
 
-    ?assertEqual(sets:from_list([Address, libp2p_peer:address(Peer1), libp2p_peer:address(Peer2)]),
-                sets:from_list(libp2p_peerbook:keys(PeerBook))),
+    ExpectedPeers = sets:from_list([Address,
+                                    libp2p_peer:address(Peer1),
+                                    libp2p_peer:address(Peer2)]),
+    ?assert(0 == sets:size(sets:subtract(ExpectedPeers,
+                                         sets:from_list(libp2p_peerbook:keys(PeerBook))))),
 
     ?assertNot(libp2p_peerbook:is_key(PeerBook, <<"foo">>)),
 

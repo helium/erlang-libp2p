@@ -14,7 +14,7 @@
 -type swarm_opts() :: [swarm_opt()].
 -export_type([swarm_opts/0]).
 
--type swarm_opt() :: {key, libp2p_crypto:private_key()}
+-type swarm_opt() :: {key, libp2p_crypto:private_key(), libp2p_crypto:sig_fun()}
                    | {listen_opts, [listen_opt()]}
                    | {peerbook, [peerbook_opt()]}
                    | {yamux, [yamux_opt()]}.
@@ -103,17 +103,15 @@ address(Sup) when is_pid(Sup) ->
 address(TID) ->
     libp2p_swarm_sup:address(TID).
 
-%% @doc Get the public and private key for a swarm.
+%% @doc Get the public key and signing function for a swarm
 -spec keys(ets:tab() | pid())
-          -> {ok, libp2p_crypto:private_key(), libp2p_crypto:public_key()} | {error, term()}.
+          -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun()} | {error, term()}.
 keys(Sup) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, keys);
 keys(TID) ->
-    Name = libp2p_swarm:name(TID),
-    DefaultKeyFile = libp2p_crypto:key_filename(TID, Name),
-    KeyFile = libp2p_config:get_opt(opts(TID, []), key_filename, DefaultKeyFile),
-    libp2p_crypto:load_keys(KeyFile).
+    Server = libp2p_Swarm_sup:server(TID),
+    gen_server:call(Server, keys).
 
 %% @doc Get the peerbook for a swarm.
 -spec peerbook(ets:tab() | pid()) -> pid().

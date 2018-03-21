@@ -5,10 +5,11 @@
 -type private_key() :: #'ECPrivateKey'{}.
 -type public_key() :: {#'ECPoint'{}, {namedCurve, ?secp256r1}}.
 -type address() :: ecc_compact:compact_key().
+-type sig_fun() :: fun((binary()) -> binary()).
 
--export_type([private_key/0, public_key/0, address/0]).
+-export_type([private_key/0, public_key/0, address/0, sig_fun/0]).
 
--export([generate_keys/0, key_filename/2, load_keys/1, save_keys/2,
+-export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
          pubkey_to_address/1, address_to_pubkey/1,
          address_to_b58/1, b58_to_address/1,
          pubkey_to_b58/1, b58_to_pubkey/1
@@ -41,12 +42,9 @@ load_keys(FileName) ->
         {error, Error} -> {error, Error}
     end.
 
-%% @doc Returns a filename relative to the given swarm's data folder.
--spec key_filename(ets:tab() | string(), atom() | string()) -> string().
-key_filename(DirOrTID, SwarmName) when is_atom(SwarmName) ->
-    key_filename(DirOrTID, atom_to_list(SwarmName));
-key_filename(DirOrTID, BaseName) when is_list(BaseName) ->
-    libp2p_config:data_dir(DirOrTID, BaseName ++ ".pem").
+-spec mk_sig_fun(private_key()) -> sig_fun().
+mk_sig_fun(PrivKey) ->
+    fun(Bin) -> public_key:sign(Bin, sha256, PrivKey) end.
 
 %% @doc Store the given keys in a file.  See @see key_folder/1 for a
 %% utility function that returns a name and location for the keys that

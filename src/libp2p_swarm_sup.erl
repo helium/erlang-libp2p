@@ -23,9 +23,8 @@ init([Name, Opts]) ->
     ets:insert(TID, {?NAME, Name}),
     ets:insert(TID, {?OPTS, Opts}),
     % Get or generate our keys
-    {PrivKey, PubKey} = init_keys(TID),
+    {PubKey, SigFun} = init_keys(Opts),
     ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_address(PubKey)}),
-    SigFun = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey) end,
 
     SupFlags = {one_for_all, 3, 10},
     ChildSpecs = [
@@ -51,7 +50,7 @@ init([Name, Opts]) ->
                    [libp2p_swarm_transport_sup]
                   },
                   {?SERVER,
-                   {libp2p_swarm_server, start_link, [TID]},
+                   {libp2p_swarm_server, start_link, [TID, SigFun]},
                    permanent,
                    10000,
                    worker,
@@ -68,15 +67,13 @@ init([Name, Opts]) ->
     {ok, {SupFlags, ChildSpecs}}.
 
 
--spec init_keys(ets:tab()) -> {libp2p_crypto:private_key(), libp2p_crypto:public_key()}.
-init_keys(TID) ->
-    case libp2p_swarm:keys(TID) of
-        {ok, PrivKey, PubKey} -> {PrivKey, PubKey};
-        {error, _} ->
-            Keys = libp2p_crypto:generate_keys(),
-            KeyFile = libp2p_crypto:key_filename(TID, libp2p_swarm:name(TID)),
-            libp2p_crypto:save_keys(Keys, KeyFile),
-            Keys
+-spec init_keys(libp2p_swarm:opts()) -> {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}.
+init_keys(Opts) ->
+    case libp2p_config:get_opt(Opts, key, false) of
+        false ->
+            {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+            {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
+        {PubKey, SigFun} -> {PubKey, SigFun}
     end.
 
 -spec sup(ets:tab()) -> supervisor:sup_ref().

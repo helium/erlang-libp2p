@@ -14,16 +14,10 @@ generate_full_key() ->
         false -> {PrivKey, PubKey}
     end.
 
-key_filename_test() ->
-    ?assertEqual("test/foo.pem", libp2p_crypto:key_filename("test", foo)),
-    ?assertEqual("test/foo.pem", libp2p_crypto:key_filename("test", "foo")),
-    ok.
-
 save_load_test_() ->
      {setup,
       fun() ->
-              Name = "crypto_" ++ integer_to_list(erlang:phash2(make_ref())),
-              libp2p_crypto:key_filename(".", Name)
+              "crypto_" ++ integer_to_list(erlang:phash2(make_ref()))
       end,
       fun(N) -> file:delete(N) end,
       {with,

@@ -2,20 +2,21 @@
 
 -behavior(gen_server).
 
--record(state, {
-          tid :: ets:tab(),
+-record(state,
+        { tid :: ets:tab(),
+          sig_fun :: libp2p_crypto:sig_fun(),
           monitors=[] :: [{{reference(), pid()}, {atom(), term()}}]
          }).
 
--export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
+-export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 %% gen_server
 %%
 
-start_link(TID) ->
-    gen_server:start_link(?MODULE, [TID], []).
+start_link(TID, SigFun) ->
+    gen_server:start_link(?MODULE, [TID, SigFun], []).
 
-init([TID]) ->
+init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_server(TID),
     % Add tcp as a default transport
@@ -30,18 +31,19 @@ init([TID]) ->
     libp2p_swarm:add_stream_handler(TID, "peer/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_peer, TID]}),
 
-    {ok, #state{tid=TID}}.
+    {ok, #state{tid=TID, sig_fun=SigFun}}.
 
 handle_call({opts, Default}, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:opts(TID, Default), State};
+handle_call(keys, _From, State=#state{tid=TID, sig_fun=SigFun}) ->
+    PubKey = libp2p_crypto:address_to_pubkey(libp2p_swarm:address(TID)),
+    {reply, {ok, PubKey, SigFun}, State};
 handle_call(name, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:name(TID), State};
 handle_call(address, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:address(TID), State};
 handle_call(peerbook, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:peerbook(TID), State};
-handle_call(keys, _From, State=#state{tid=TID}) ->
-    {reply, libp2p_swarm:keys(TID), State};
 handle_call({listen, Addr}, _From, State=#state{}) ->
     case listen_on(Addr, State) of
         {error, Error} -> {reply, {error, Error}, State};
