@@ -421,7 +421,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
 
 spawn_nat_discovery(Handler, MultiAddrs) ->
     case lists:filtermap(fun(M) -> case tcp_addr(M) of
-                                       {IP, Port, inet} ->
+                                       {IP, Port, inet, _} ->
                                            case rfc1918(IP) of
                                                false -> false;
                                                _ -> {true, {M, IP, Port}}
