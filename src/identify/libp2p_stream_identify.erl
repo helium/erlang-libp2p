@@ -14,7 +14,7 @@ init(server, _Connection, [TID, ObservedAddr]) ->
     Protocols = [Key || {Key, _} <- libp2p_swarm:stream_handlers(Sup)],
     Addr = libp2p_swarm:address(TID),
     Identify = libp2p_identify:new(Addr, ListenAddrs, ObservedAddr, Protocols),
-    {stop, normal, libp2p_identify_pb:encode_msg(Identify)}.
+    {stop, normal, libp2p_identify:encode(Identify)}.
 
 handle_data(server, _,  _) ->
     {stop, normal, undefined}.
