@@ -6,7 +6,8 @@
          listen/2, listen_addrs/1,
          add_transport_handler/2,
          add_connection_handler/3,
-         add_stream_handler/3, stream_handlers/1]).
+         add_stream_handler/3, stream_handlers/1,
+         register_session/3]).
 
 -type connect_opt() :: {unique_session, true | false}
                      | {unique_port, true | false}.
@@ -154,6 +155,14 @@ listen(Sup, Addr) ->
 listen_addrs(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, listen_addrs).
+
+%% @private Register a session wih the swarm. This is used in
+%% start_server_session to get an accepted connection to be registered
+%% and monitored by the sware server.
+-spec register_session(supervisor:sup_ref(), string(), libp2p_session:pid()) -> ok.
+register_session(Sup, Addr, SessionPid) ->
+    Server = libp2p_swarm_sup:server(Sup),
+    gen_server:cast(Server, {register_session, Addr, SessionPid}).
 
 
 % Connect

@@ -109,19 +109,44 @@ gossip_test() ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
 
-    libp2p_swarm:connect(S1, S2ListenAddr),
+    {ok, S1Session} = libp2p_swarm:connect(S1, S2ListenAddr),
 
     S1PeerBook = libp2p_swarm:peerbook(S1),
-    S2PeerBook = libp2p_swarm:peerbook(S1),
+    S2PeerBook = libp2p_swarm:peerbook(S2),
     S1Addr = libp2p_swarm:address(S1),
     S2Addr = libp2p_swarm:address(S2),
 
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S1PeerBook, S2Addr) end),
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, S1Addr) end),
 
-    {ok, S2PeerInfo} = libp2p_peerbook:get(S1PeerBook, S2Addr),
+    %% The S2 entry in S1 should end up containing the address of S1
+    %% as a connected peer
+    ok = test_util:wait_until(fun() ->
+                                      {ok, S2PeerInfo} = libp2p_peerbook:get(S1PeerBook, S2Addr),
+                                      [S1Addr] == libp2p_peer:connected_peers(S2PeerInfo)
+                              end),
 
-    ok = test_util:wait_until(fun() -> [S1Addr] == libp2p_peer:connected_peers(S2PeerInfo) end),
+    %% and the S1 entry in S2 should end up containing the address of
+    %% S2 as a connected peer
+    ok = test_util:wait_until(fun() ->
+                                      {ok, S1PeerInfo} = libp2p_peerbook:get(S2PeerBook, S1Addr),
+                                      [S2Addr] == libp2p_peer:connected_peers(S1PeerInfo)
+                              end),
+
+    %% Close the session
+    libp2p_session:close(S1Session),
+
+    %% After the session closes S1 should no longer have S2 as a connected peer
+    ok = test_util:wait_until(fun() ->
+                                      {ok, S1Info} = libp2p_peerbook:get(S1PeerBook, S1Addr),
+                                      [] == libp2p_peer:connected_peers(S1Info)
+                              end),
+
+    %% And S2 should no longer have S1 as a connected peer
+    ok = test_util:wait_until(fun() ->
+                                      {ok, S2Info} = libp2p_peerbook:get(S2PeerBook, S2Addr),
+                                      [] == libp2p_peer:connected_peers(S2Info)
+                              end),
 
     test_util:teardown_swarms(Swarms).
 
