@@ -4,6 +4,8 @@
 
 -record(state,
         { tid :: ets:tab(),
+          connection_policy :: atom(),
+          connection_policy_state :: any(),
           sig_fun :: libp2p_crypto:sig_fun(),
           monitors=[] :: [{{reference(), pid()}, {atom(), term()}}]
          }).
@@ -31,7 +33,12 @@ init([TID, SigFun]) ->
     libp2p_swarm:add_stream_handler(TID, "peer/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_peer, TID]}),
 
-    {ok, #state{tid=TID, sig_fun=SigFun}}.
+    ConnPolicy = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), connection_policy,
+                                       libp2p_connection_policy),
+    {ok, ConnPolicyState} = ConnPolicy:init(TID),
+
+    {ok, #state{tid=TID, sig_fun=SigFun,
+                connection_policy=ConnPolicy, connection_policy_state=ConnPolicyState}}.
 
 handle_call({opts, Default}, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:opts(TID, Default), State};
@@ -76,14 +83,24 @@ handle_info({identify, Result, Kind}, State=#state{tid=TID}) ->
             end;
         {error, _} -> {noreply, State}
     end;
-handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{}) ->
-    {noreply, remove_monitor(MonitorRef, Pid, State)};
+handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
+    NewState = remove_monitor(MonitorRef, Pid, State),
+    PeerBook = libp2p_swarm:peerbook(TID),
+    libp2p_peerbook:unregister_session(PeerBook, Pid),
+    {noreply, NewState};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
     {stop, Reason, State};
 handle_info(Msg, _State) ->
     lager:warning("Unhandled message ~p", [Msg]).
 
 
+handle_cast({register_session, Addr, SessionPid}, State=#state{}) ->
+    %% Called from listeners accepting their own connections. This is
+    %% called from start_server_session. The actual peerbook
+    %% registration doesn't happen until we receive an identify
+    %% message.
+    NewState = add_monitor(libp2p_config:session(), [Addr], SessionPid, State),
+    {noreply, NewState};
 handle_cast({add_transport_handler, Transport}, State=#state{}) ->
     case start_transport(Transport, State) of
         {error, Error} -> error(Error);
