@@ -223,7 +223,7 @@ transport_options(IP, TID) ->
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
-        {IP, Port, Type} ->
+        {IP, Port, Type, AddrOpts} ->
             {TransportOpts, ListenOpts0} = transport_options(IP, TID),
             % Non-overidable options, taken from ranch_tcp:listen
             DefaultListenOpts = [binary, {active, false}, {packet, raw},
@@ -233,7 +233,7 @@ listen_on(Addr, TID) ->
                                               DefaultListenOpts),
             % Dialyzer severely dislikes ranch_tcp:listen so we
             % emulate it's behavior here
-            case gen_tcp:listen(Port, [Type | ListenOpts]) of
+            case gen_tcp:listen(Port, [Type | AddrOpts] ++ ListenOpts) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
                     ChildSpec = ranch:child_spec(ListenAddrs,
@@ -257,11 +257,11 @@ listen_on(Addr, TID) ->
                 -> {ok, libp2p_session:pid()} | {error, term()}.
 connect_to(Addr, UserOptions, Timeout, TID) ->
     case tcp_addr(Addr) of
-        {IP, Port, Type} ->
+        {IP, Port, Type, AddrOpts} ->
             UniqueSession = proplists:get_value(unique_session, UserOptions, false),
             UniquePort = proplists:get_value(unique_port, UserOptions, false),
             ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, Addr, ListenAddrs, UniqueSession, UniquePort),
+            Options = connect_options(Type, AddrOpts, Addr, ListenAddrs, UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
                     libp2p_transport:start_client_session(TID, Addr, new_connection(Socket));
@@ -272,15 +272,15 @@ connect_to(Addr, UserOptions, Timeout, TID) ->
     end.
 
 
-connect_options(Type, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->
-    [Type];
-connect_options(Type, _, _, false, _UniquePort) when Type /= inet ->
-    [Type];
-connect_options(Type, _, _, false, UniquePort) when UniquePort == true ->
-    [Type, {reuseaddr, true}];
-connect_options(Type, Addr, ListenAddrs, false, false) ->
+connect_options(Type, Opts, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->
+    [Type | Opts];
+connect_options(Type, Opts, _, _, false, _UniquePort) when Type /= inet ->
+    [Type | Opts];
+connect_options(Type, Opts, _, _, false, UniquePort) when UniquePort == true ->
+    [Type, {reuseaddr, true} | Opts];
+connect_options(Type, Opts, Addr, ListenAddrs, false, false) ->
     MAddr = multiaddr:new(Addr),
-    [Type, {reuseaddr, true}, reuseport(), {port, find_matching_listen_port(MAddr, ListenAddrs)}].
+    [Type, {reuseaddr, true}, reuseport(), {port, find_matching_listen_port(MAddr, ListenAddrs)} | Opts].
 
 find_matching_listen_port(_Addr, []) ->
     0;
@@ -290,7 +290,7 @@ find_matching_listen_port(Addr, [H|ListenAddrs]) ->
     ListenProtocols = [ element(1, T) || T <- multiaddr:protocols(ListenAddr)],
     case ConnectProtocols == ListenProtocols of
         true ->
-            {_, Port, _} = tcp_addr(ListenAddr),
+            {_, Port, _, _} = tcp_addr(ListenAddr),
             Port;
         false ->
             find_matching_listen_port(Addr, ListenAddrs)
@@ -327,7 +327,7 @@ tcp_listen_addrs(Socket) ->
 
 
 -spec tcp_addr(string() | binary())
-              -> {inet:ip_address(), non_neg_integer(), inet | inet6} | {error, term()}.
+              -> {inet:ip_address(), non_neg_integer(), inet | inet6, [any()]} | {error, term()}.
 tcp_addr(MAddr) when is_binary(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(MAddr));
 tcp_addr(MAddr) when is_list(MAddr) ->
@@ -338,10 +338,10 @@ tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
     case AddrType of
         "ip4" ->
             {ok, IP} = inet:parse_ipv4_address(Address),
-            {IP, Port, inet};
+            {IP, Port, inet, []};
         "ip6" ->
             {ok, IP} = inet:parse_ipv6_address(Address),
-            {IP, Port, inet6};
+            {IP, Port, inet6, [{ipv6_v6only, true}]};
         _ -> {error, {unsupported_address, Addr}}
     end;
 tcp_addr(Addr, _Protocols) ->
