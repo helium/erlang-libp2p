@@ -5,14 +5,14 @@
 -behavior(gen_statem).
 -behavior(libp2p_connection).
 
--record(send_state, {
-          window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
+-record(send_state,
+        { window :: non_neg_integer(),
           waiter = undefined :: {gen_statem:from(), binary()} | undefined,
           timer = undefined :: timer() | undefined
          }).
 
--record(recv_state, {
-          window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
+-record(recv_state,
+        { window :: non_neg_integer(),
           % Collects window updates to only send updates above a certain threshold
           pending_window = 0 :: non_neg_integer(),
           data = <<>> :: binary(),
@@ -21,14 +21,15 @@
           timer = undefined :: timer() | undefined
          }).
 
--record(state, {
-          session :: libp2p_yamux:session(),
+-record(state,
+        { session :: libp2p_yamux:session(),
           addr_info :: undefined | {string(), string()},
           inert_pid=undefined :: undefined | pid(),
           handler=undefined :: undefined | pid(),
           tid :: ets:tab(),
           stream_id :: libp2p_yamux:stream_id(),
           close_state=open :: open | pending,
+          max_window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
           recv_state=#recv_state{} :: #recv_state{},
           send_state=#send_state{} :: #send_state{}
          }).
@@ -67,7 +68,11 @@ receive_stream(Session, TID, StreamID) ->
 init({Session, TID, StreamID, Flags}) ->
     erlang:process_flag(trap_exit, true),
     gen_statem:cast(self(), {init, Flags}),
-    {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID}}.
+    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [yamux, max_window],
+                                      ?DEFAULT_MAX_WINDOW_SIZE),
+    {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
+                           send_state=#send_state{window=MaxWindow},
+                           recv_state=#recv_state{window=MaxWindow}}}.
 
 callback_mode() -> handle_event_function.
 
@@ -263,17 +268,6 @@ terminate(_Reason, _State, Data=#state{}) ->
 
 
 %%
-%% Config
-%%
-
--spec config_get(#state{}, term(), term()) -> term().
-config_get(#state{tid=TID}, Key, Default) ->
-    case ets:lookup(TID, Key) of
-        [] -> Default;
-        [Value] -> Value
-    end.
-
-%%
 %% Close
 %%
 
@@ -302,11 +296,11 @@ window_send_update(Delta, State=#state{recv_state=#recv_state{pending_window=Pen
     State#state{recv_state=State#state.recv_state#recv_state{pending_window=PendingWindow + Delta}}.
 
 -spec window_receive_update(libp2p_yamux_session:header(), #state{}) -> #state{}.
-window_receive_update(Header, State=#state{send_state=SendState=#send_state{window=SendWindow}}) ->
+window_receive_update(Header, State=#state{max_window=MaxWindow,
+                                           send_state=SendState=#send_state{window=SendWindow}}) ->
     case libp2p_yamux_session:header_length(Header) of
         0 -> State;
         Delta ->
-            MaxWindow = config_get(State, {yamux, max_stream_window}, ?DEFAULT_MAX_WINDOW_SIZE),
             NewWindow = min(SendWindow + Delta, MaxWindow),
             State#state{send_state=SendState#send_state{window=NewWindow}}
     end.

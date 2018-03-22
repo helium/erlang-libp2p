@@ -1,4 +1,4 @@
-.PHONY: compile rel cover test typecheck
+.PHONY: compile rel cover test typecheck doc
 
 REBAR=./rebar3
 SHORTSHA=`git rev-parse --short HEAD`
@@ -21,11 +21,14 @@ shell:
 clean:
 	$(REBAR) clean
 
-cover: test
+cover:
 	$(REBAR) cover
 
-test: compile
+test:
 	$(REBAR) as test do eunit
 
 typecheck:
 	$(REBAR) dialyzer
+
+doc:
+	$(REBAR) edoc
