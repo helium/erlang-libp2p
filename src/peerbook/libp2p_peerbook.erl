@@ -8,17 +8,18 @@
 
 -behviour(gen_server).
 
--record(state, {
-          tid :: ets:tab(),
+-record(state,
+        { tid :: ets:tab(),
           store :: reference(),
           notify :: atom(),
           nat_type = unknown :: libp2p_peer:nat_type(),
+          stale_time :: integer(),
+          stale_timer :: reference(),
           sessions=#{} :: #{libp2p_crypto:address() => [libp2p_session:pid()]},
           sigfun :: fun((binary()) -> binary())
+        }).
 
-         }).
-
--define(PEER_STALE_TIME, 24 * 60 * 60).
+-define(DEFAULT_PEER_STALE_TIME, 24 * 60 * 60).
 
 %%
 %% API
@@ -70,7 +71,7 @@ start_link(TID, SigFun) ->
 %% bitcask:open does not pass dialyzer correctly so we turn of the
 %% using init/1 function and this_peer since it's only used in
 %% init_peer/1
--dialyzer({nowarn_function, [init/1, this_peer/1]}).
+-dialyzer({nowarn_function, [init/1]}).
 
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
@@ -81,8 +82,13 @@ init([TID, SigFun]) ->
     case bitcask:open(DataDir, [read_write]) of
         {error, Reason} -> {stop, Reason};
         Ref ->
-            State = #state{tid=TID, store=Ref, notify=Group, sigfun=SigFun},
-            _ThisPeer = this_peer(State),
+            Opts = libp2p_swarm:opts(TID, []),
+            StaleTime = libp2p_config:get_opt(Opts, [peerbook, stale_time],
+                                              ?DEFAULT_PEER_STALE_TIME),
+
+            StaleTimer = erlang:send_after(0, self(), stale_timeout),
+            State = #state{tid=TID, store=Ref, notify=Group, sigfun=SigFun,
+                           stale_timer=StaleTimer, stale_time=StaleTime},
             {ok, State}
     end.
 
@@ -126,24 +132,18 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p~n", [Msg]),
     {reply, ok, State}.
 
-handle_cast(changed_listener, State=#state{notify=Group}) ->
-    Peer = mk_this_peer(State),
-    group_notify_peers(Group, undefined, [Peer]),
-    {noreply, State};
+handle_cast(changed_listener, State=#state{}) ->
+    {noreply, update_this_peer(State)};
 handle_cast({update_nat_type, UpdatedNatType},
-            State=#state{notify=Group, nat_type=NatType}) when UpdatedNatType /= NatType->
-    Peer = mk_this_peer(State),
-    group_notify_peers(Group, undefined, [Peer]),
-    {noreply, State};
+            State=#state{nat_type=NatType}) when UpdatedNatType /= NatType->
+    {noreply, update_this_peer(State)};
 handle_cast({register_session, SessionPid, Identify, Kind},
-            State=#state{tid=TID, sessions=Sessions, notify=Group, store=Store}) ->
+            State=#state{tid=TID, sessions=Sessions, store=Store}) ->
     SessionAddr = libp2p_identify:address(Identify),
     SessionPids = maps:get(SessionAddr, Sessions, []),
     NewSessions = maps:put(SessionAddr, [SessionPid | SessionPids], Sessions),
-    NewState = State#state{sessions=NewSessions},
 
-    Peer = mk_this_peer(NewState),
-    group_notify_peers(Group, undefined, [Peer]),
+    NewState = update_this_peer(State#state{sessions=NewSessions}),
 
     case Kind of
         client ->
@@ -168,6 +168,8 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p~n", [Msg]),
     {noreply, State}.
 
+handle_info(stale_timeout, State=#state{}) ->
+    {noreply, update_this_peer(State)};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p~n", [Msg]),
     {noreply, State}.
@@ -181,15 +183,13 @@ terminate(_Reason, #state{store=Store}) ->
 %%
 
 
-this_peer(State=#state{tid=TID, store=Store}) ->
-    case fetch_peer(libp2p_swarm:address(TID), Store) of
-        {error, not_found} -> mk_this_peer(State);
-        {ok, ThisPeer} ->
-            case libp2p_peer:is_stale(ThisPeer, ?PEER_STALE_TIME) of
-                true -> mk_this_peer(State);
-                false -> ThisPeer
-            end
-    end.
+-spec update_this_peer(#state{}) -> #state{}.
+update_this_peer(State=#state{notify=Group, stale_time=StaleTime, stale_timer=StaleTimer}) ->
+    Peer = mk_this_peer(State),
+    group_notify_peers(Group, undefined, [Peer]),
+    erlang:cancel_timer(StaleTimer),
+    erlang:send_after(StaleTime, self(), stale_timeout),
+    State#state{stale_timer=StaleTimer}.
 
 mk_this_peer(#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType, store=Store}) ->
     SwarmAddr = libp2p_swarm:address(TID),

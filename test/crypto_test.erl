@@ -14,10 +14,30 @@ generate_full_key() ->
         false -> {PrivKey, PubKey}
     end.
 
+save_load_test_() ->
+     {setup,
+      fun() ->
+              "crypto_" ++ integer_to_list(erlang:phash2(make_ref()))
+      end,
+      fun(N) -> file:delete(N) end,
+      {with,
+       [fun(FileName) ->
+                 Keys = {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+                 ?assertEqual(ok, libp2p_crypto:save_keys(Keys, FileName)),
+                 {ok, LPrivKey, LPubKey} = libp2p_crypto:load_keys(FileName),
+                 ?assertEqual({PrivKey, PubKey}, {LPrivKey, LPubKey}),
+                 ok
+         end,
+        fun(FileName) ->
+                ?assertMatch({error, _}, libp2p_crypto:load_keys(FileName ++ "no")),
+                ok
+        end
+       ]}
+     }.
+
 
 address_test() ->
-    {ok, _PrivKey, CompactKey} = ecc_compact:generate_key(),
-    PubKey = ecc_compact:recover_key(CompactKey),
+    {_PrivKey, PubKey} = libp2p_crypto:generate_keys(),
 
     Address = libp2p_crypto:pubkey_to_address(PubKey),
     B58Address = libp2p_crypto:address_to_b58(Address),
