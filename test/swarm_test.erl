@@ -9,5 +9,6 @@ accessor_test() ->
     ?assertEqual(libp2p_crypto:pubkey_to_address(PubKey), libp2p_swarm:address(S1)),
 
     ?assertEqual([], libp2p_swarm:opts(S1, [])),
+    ?assertMatch("swarm" ++ _, atom_to_list(libp2p_swarm:name(S1))),
 
     test_util:teardown_swarms(Swarms).
