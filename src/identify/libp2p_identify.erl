@@ -48,7 +48,7 @@ new(Address, ListenAddrs, ObservedAddr, Protocols) ->
         multiaddr:new(ObservedAddr),
         Protocols, AgentVersion).
 
--spec new(libp2p_crypto:address(), [multiaddr:multiaddr()], multiaddr:multiaddr(), [string()], string()) -> libp2p_identify_pb:libp2p_identify_pb().
+-spec new(libp2p_crypto:address(), [multiaddr:multiaddr()], multiaddr:multiaddr(), [string()], string()) -> identify().
 new(Address, ListenAddrs, ObservedAddr, Protocols, AgentVersion) ->
     #libp2p_identify_pb{publicKey=Address,
                         protocol_version=?VERSION,
