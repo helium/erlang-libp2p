@@ -4,10 +4,8 @@
 
 -record(state,
         { tid :: ets:tab(),
-          connection_policy :: atom(),
-          connection_policy_state :: any(),
           sig_fun :: libp2p_crypto:sig_fun(),
-          monitors=[] :: [{{reference(), pid()}, {atom(), term()}}]
+          monitors=[] :: [{pid(), {reference(), atom(), [string()]}}]
          }).
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -21,8 +19,9 @@ start_link(TID, SigFun) ->
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_server(TID),
-    % Add tcp as a default transport
+    % Add tcp and p2p as a default transports
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_tcp),
+    libp2p_swarm:add_transport_handler(TID, libp2p_transport_p2p),
     % Register the default connection handler
     libp2p_swarm:add_connection_handler(TID, "yamux/1.0.0",
                                         {{libp2p_yamux_session, start_server},
@@ -33,12 +32,7 @@ init([TID, SigFun]) ->
     libp2p_swarm:add_stream_handler(TID, "peer/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_peer, TID]}),
 
-    ConnPolicy = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), connection_policy,
-                                       libp2p_connection_policy),
-    {ok, ConnPolicyState} = ConnPolicy:init(TID),
-
-    {ok, #state{tid=TID, sig_fun=SigFun,
-                connection_policy=ConnPolicy, connection_policy_state=ConnPolicyState}}.
+    {ok, #state{tid=TID, sig_fun=SigFun}}.
 
 handle_call({opts, Default}, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:opts(TID, Default), State};
@@ -90,8 +84,10 @@ handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     {noreply, NewState};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
     {stop, Reason, State};
-handle_info(Msg, _State) ->
-    lager:warning("Unhandled message ~p", [Msg]).
+handle_info(Msg, State) ->
+    lager:warning("Unhandled message ~p", [Msg]),
+    {noreply, State}.
+
 
 
 handle_cast({register_session, Addr, SessionPid}, State=#state{}) ->
@@ -130,14 +126,19 @@ terminate(_Reason, #state{tid=TID}) ->
 
 -spec add_monitor(atom(), [string()], pid(), #state{}) -> #state{}.
 add_monitor(Kind, Addrs, Pid, State=#state{monitors=Monitors}) ->
-    MonitorRef = erlang:monitor(process, Pid),
-    State#state{monitors=[{{MonitorRef, Pid}, {Kind, Addrs}} | Monitors]}.
+    SortedAddrs = lists:sort(Addrs),
+    Value = case lists:keyfind(Pid, 1, Monitors) of
+                false -> {erlang:monitor(process, Pid), Kind, SortedAddrs};
+                {Pid, {MonitorRef, Kind, StoredAddrs}} ->
+                    {MonitorRef, Kind, lists:merge(StoredAddrs, SortedAddrs)}
+            end,
+    State#state{monitors=lists:keystore(Pid, 1, Monitors, {Pid, Value})}.
 
 -spec remove_monitor(reference(), pid(), #state{}) -> #state{}.
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
-    case lists:keytake({MonitorRef, Pid}, 1, Monitors) of
+    case lists:keytake(Pid, 1, Monitors) of
         false -> State;
-        {value, {_, {Kind, Addrs}}, NewMonitors} ->
+        {value, {Pid, {MonitorRef, Kind, Addrs}}, NewMonitors} ->
             lists:foreach(fun(Addr) -> libp2p_config:remove_pid(TID, Kind, Addr) end, Addrs),
             State#state{monitors=NewMonitors}
     end.
@@ -190,21 +191,10 @@ listen_on(Addr, State=#state{tid=TID}) ->
 -spec connect_to(string(), [libp2p_swarm:connect_opt()], pos_integer(), #state{})
                 -> {ok, libp2p_session:pid(), #state{}} | {error, term()}.
 connect_to(Addr, Options, Timeout, State=#state{tid=TID}) ->
-    case libp2p_transport:for_addr(TID, Addr) of
-        {ok, ConnAddr, {Transport, TransportPid}} ->
-            case libp2p_config:lookup_session(TID, ConnAddr, Options) of
-                {ok, Pid} ->
-                    {ok, Pid, State};
-                false ->
-                    lager:info("Connecting to ~p", [ConnAddr]),
-                    case Transport:connect(TransportPid, ConnAddr, Options, Timeout) of
-                        {error, Error} ->
-                            {error, Error};
-                        {ok, SessionPid} ->
-                            % And monitor the session
-                            {ok, SessionPid, add_monitor(libp2p_config:session(),
-                                                         [ConnAddr], SessionPid, State)}
-                    end
-            end;
-        {error, Error} -> {error, Error}
+    lager:info("Swarm connecting to ~p", [Addr]),
+    case libp2p_transport:connect_to(Addr, Options, Timeout, TID) of
+        {error, Reason} -> {error, Reason};
+        {ok, ConnAddr, SessionPid} ->
+            {ok, SessionPid, add_monitor(libp2p_config:session(),
+                                         [ConnAddr], SessionPid, State)}
     end.
