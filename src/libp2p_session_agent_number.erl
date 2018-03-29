@@ -61,11 +61,10 @@ handle_info(Msg, _State) ->
 %% Internal
 %%
 
-check_connections(Kind=peerbook, State=#state{tid=TID, monitors=Monitors,
-                                              peerbook_connections=PeerBookCount}) ->
+check_connections(Kind=peerbook, State=#state{tid=TID, peerbook_connections=PeerBookCount}) ->
     PeerAddrs = libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)),
     %% Get currently connected addresses
-    CurrentAddrs = connected_addrs(Kind, Monitors),
+    CurrentAddrs = connected_addrs(Kind, State),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [libp2p_swarm:address(TID)],
     %% Remove the current addrs from all possible peer addresses
@@ -80,12 +79,11 @@ check_connections(Kind=peerbook, State=#state{tid=TID, monitors=Monitors,
             mk_connections(libp2p_swarm:swarm(TID), Kind, ShuffledAddrs, MissingCount, State)
     end.
 
-connected_addrs(_Kind, []) ->
-  [];
-connected_addrs(Kind, [{_Pid, {_MonitorRef, Kind, Addrs}} | Tail]) ->
-    Addrs ++ connected_addrs(Kind, Tail);
-connected_addrs(Kind, [_H | Tail]) ->
-    connected_addrs(Kind, Tail).
+connected_addrs(Kind, #state{monitors=Monitors}) ->
+    lists:flatten(lists:foldl(fun({_Pid, {_MonitorRef, StoredKind, Addrs}}, Acc) when StoredKind == Kind ->
+                                      [Addrs | Acc];
+                                 (_, Acc) -> Acc
+                              end, [], Monitors)).
 
 -spec add_monitor(atom(), libp2p_crypto:address(), pid(), #state{}) -> #state{}.
 add_monitor(Kind, Addr, Pid, State=#state{monitors=Monitors}) ->
