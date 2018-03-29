@@ -4,12 +4,13 @@
 -behavior(gen_server).
 
 
+%% libp2p_transport
 -export([start_listener/2, new_connection/1, connect/4, match_addr/1]).
 
-% gen_server
+%% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
-% libp2p_onnection
+%% libp2p_connection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
          fdset/1, fdclr/1
@@ -31,7 +32,7 @@
          }).
 
 
-%% API
+%% libp2p_transport
 %%
 
 -spec new_connection(inet:socket()) -> libp2p_connection:connection().
@@ -125,7 +126,7 @@ init([TID]) ->
                                     {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
     {ok, #state{tid=TID, stun_sup=StunSup}}.
 
-%% API
+%% libp2p_transport
 %%
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
     Response = case listen_on(Addr, TID) of
@@ -182,8 +183,6 @@ handle_info({record_listen_addr, NatType, InternalAddr, ExternalAddr}, State=#st
         _ ->
             {noreply, State}
     end;
-
-
 handle_info(Msg, _State) ->
     lager:warning("Unhandled message ~p", [Msg]).
 

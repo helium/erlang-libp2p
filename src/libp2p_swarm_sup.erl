@@ -12,6 +12,7 @@
 -define(SUP, swarm_sup).
 -define(SERVER, swarm_server).
 -define(PEERBOOK, swarm_peerbook).
+-define(SESSION_AGENT, swarm_session_agent).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
 -define(OPTS, swarm_opts).
@@ -63,7 +64,7 @@ init([Name, Opts]) ->
                    worker,
                    [libp2p_peerbook]
                   }
-                 ],
+                 ] ++ session_agent_spec(Opts, [TID]),
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -74,6 +75,19 @@ init_keys(Opts) ->
             {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
             {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
         {PubKey, SigFun} -> {PubKey, SigFun}
+    end.
+
+-spec session_agent_spec(libp2p_swarm:opts(), [any()]) -> [supervisor:child_spec()].
+session_agent_spec(Opts, Args) ->
+    case libp2p_config:get_opt(Opts, session_agent, false) of
+        false -> [];
+        AgentModule -> [{ ?SESSION_AGENT,
+                         {AgentModule, start_link, Args},
+                         permanent,
+                         10000,
+                         worker,
+                         [AgentModule]
+                       }]
     end.
 
 -spec sup(ets:tab()) -> supervisor:sup_ref().

@@ -2,8 +2,14 @@
 
 -type connection_handler() :: {atom(), atom()}.
 
+-callback start_link(ets:tab()) -> {ok, pid()} | {error, term()}.
+-callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
+-callback connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer()) -> {ok, libp2p_session:pid()} | {error, term()}.
+-callback match_addr(string()) -> {ok, string()} | false.
+
+
 -export_type([connection_handler/0]).
--export([for_addr/2, start_client_session/3, start_server_session/3]).
+-export([for_addr/2, connect_to/4, start_client_session/3, start_server_session/3]).
 
 
 -spec for_addr(ets:tab(), string()) -> {ok, string(), {atom(), pid()}} | {error, term()}.
@@ -16,6 +22,28 @@ for_addr(TID, Addr) ->
                    (_, Acc) -> Acc
                 end, {error, {unsupported_address, Addr}}, libp2p_config:lookup_transports(TID)).
 
+%% @doc Connect through a transport service. This is a convenience
+%% function that verifies the given multiaddr, finds the right
+%% transport, and checks if a session already exists for the given
+%% multiaddr. The existing session is returned if it already exists,
+%% or a `connect' call is made to transport service to perform the
+%% actual connect.
+-spec connect_to(string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab())
+                -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+connect_to(Addr, Options, Timeout, TID) ->
+    case libp2p_transport:for_addr(TID, Addr) of
+        {ok, ConnAddr, {Transport, TransportPid}} ->
+            case libp2p_config:lookup_session(TID, ConnAddr, Options) of
+                {ok, Pid} -> {ok, ConnAddr, Pid};
+                false ->
+                    lager:info("~p connecting to ~p", [Transport, ConnAddr]),
+                    case Transport:connect(TransportPid, ConnAddr, Options, Timeout) of
+                        {error, Error} -> {error, Error};
+                        {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
+                    end
+            end;
+        {error, Error} -> {error, Error}
+    end.
 
 %%
 %% Session negotiation
