@@ -4,7 +4,7 @@
 
 
 %% gen_server
--export([start_link/1, init/1, handle_info/2, handle_call/3, handle_cast/2]).
+-export([start_link/1, init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
 
 
 -type monitor_entry() :: {pid(), {reference(), atom(), binary()}}.
@@ -64,6 +64,9 @@ handle_info(drop_timeout, State=#state{monitors=Monitors, drop_timeout=DropTimeO
     {noreply, State#state{monitors=NewMonitors, drop_timer=schedule_drop_timer(DropTimeOut)}};
 handle_info(Msg, _State) ->
     lager:warning("Unhandled message ~p", [Msg]).
+
+terminate(_Reason, #state{drop_timer=DropTimer}) ->
+    erlang:cancel_timer(DropTimer).
 
 
 %% Internal
