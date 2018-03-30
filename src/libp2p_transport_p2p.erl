@@ -1,29 +1,25 @@
 -module(libp2p_transport_p2p).
 
--behavior(gen_server).
 -behavior(libp2p_transport).
 
-% gen_server
--export([start_link/1, init/1, handle_call/3, handle_cast/2]).
-
 % libp2p_transport
--export([start_listener/2, connect/4, match_addr/1]).
+-export([start_link/1, start_listener/2, connect/5, match_addr/1]).
 
-
--record(state,
-       { tid :: ets:tab()
-       }).
 
 %% libp2p_transport
 %%
+
+-spec start_link(ets:tab()) -> ignore.
+start_link(_TID) ->
+    ignore.
 
 -spec start_listener(pid(), string()) -> {error, unsupported}.
 start_listener(_Pid, _Addr) ->
     {error, unsupported}.
 
--spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer()) -> {ok, libp2p_session:pid()} | {error, term()}.
-connect(Pid, MAddr, Options, Timeout) ->
-    gen_server:call(Pid, {connect, MAddr, Options, Timeout}, infinity).
+-spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
+connect(_Pid, MAddr, Options, Timeout, TID) ->
+    connect_to(MAddr, Options, Timeout, TID).
 
 -spec match_addr(string()) -> {ok, string()} | false.
 match_addr(Addr) when is_list(Addr) ->
@@ -34,29 +30,6 @@ match_protocols([A={"p2p", _} | _]) ->
 match_protocols(_) ->
     false.
 
-
-%% gen_server
-%%
-
-start_link(TID) ->
-    gen_server:start_link(?MODULE, [TID], []).
-
-init([TID]) ->
-    erlang:process_flag(trap_exit, true),
-    {ok, #state{tid=TID}}.
-
-%% libp2p_transport
-%
-handle_call({connect, MAddr, DialOptions, Timeout}, _From, State=#state{tid=TID}) ->
-    {reply, connect_to(MAddr, DialOptions, Timeout, TID), State};
-handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p~n", [Msg]),
-    {reply, ok, State}.
-
-
-handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p~n", [Msg]),
-    {noreply, State}.
 
 %% Internal: Connect
 %%

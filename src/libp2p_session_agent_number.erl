@@ -92,7 +92,7 @@ check_connections(Kind=peerbook, State=#state{tid=TID, peerbook_connections=Peer
             lager:debug("Session agent trying to open ~p connections from ~p available",
                         [MissingCount, length(ShuffledAddrs)]),
             %% Create connections for the missing number of connections
-            mk_connections(libp2p_swarm:swarm(TID), Kind, ShuffledAddrs, MissingCount, State)
+            mk_connections(TID, Kind, ShuffledAddrs, MissingCount, State)
     end.
 
 -spec connections(atom(), #state{}) -> [{pid(), libp2p_crypto:address()}].
@@ -126,17 +126,19 @@ remove_monitor(MonitorRef, Pid, State=#state{monitors=Monitors}) ->
 monitor_addr({_Pid, {_Ref, _Kind, Addr}}) ->
     Addr.
 
--spec mk_connections(pid(), atom(), [libp2p_crypto:address()], non_neg_integer(), #state{}) -> #state{}.
-mk_connections(_Swarm, _Kind, Addrs, Count, State)  when Addrs == [] orelse Count == 0 ->
+-spec mk_connections(ets:tab(), atom(), [libp2p_crypto:address()], non_neg_integer(), #state{}) -> #state{}.
+mk_connections(_TID, _Kind, Addrs, Count, State)  when Addrs == [] orelse Count == 0 ->
     State;
-mk_connections(Swarm, Kind, [Addr | Tail], Count, State) ->
+mk_connections(TID, Kind, [Addr | Tail], Count, State) ->
     MAddr = mk_p2p_addr(Addr),
-    case libp2p_swarm:connect(Swarm, MAddr) of
+    %% We don't go through the swarm to connect to avoid blocking the swarm server
+    case libp2p_transport:connect_to(MAddr, [], 5000, TID) of
         {error, Reason} ->
             lager:debug("Moving past ~p error: ~p", [MAddr, Reason]),
-            mk_connections(Swarm, Kind, Tail, Count, State);
-        {ok, SessionPid} ->
-            mk_connections(Swarm, Kind, Tail, Count - 1, add_monitor(Kind, Addr, SessionPid, State))
+            mk_connections(TID, Kind, Tail, Count, State);
+        {ok, ConnAddr, SessionPid} ->
+            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), ConnAddr, SessionPid),
+            mk_connections(TID, Kind, Tail, Count - 1, add_monitor(Kind, Addr, SessionPid, State))
     end.
 
 -spec mk_p2p_addr(libp2p_crypto:address()) -> string().
