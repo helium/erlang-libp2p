@@ -2,9 +2,9 @@
 
 -type connection_handler() :: {atom(), atom()}.
 
--callback start_link(ets:tab()) -> {ok, pid()} | {error, term()}.
+-callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
--callback connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer()) -> {ok, libp2p_session:pid()} | {error, term()}.
+-callback connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
 -callback match_addr(string()) -> {ok, string()} | false.
 
 
@@ -37,7 +37,7 @@ connect_to(Addr, Options, Timeout, TID) ->
                 {ok, Pid} -> {ok, ConnAddr, Pid};
                 false ->
                     lager:info("~p connecting to ~p", [Transport, ConnAddr]),
-                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout) of
+                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
                         {error, Error} -> {error, Error};
                         {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
                     catch

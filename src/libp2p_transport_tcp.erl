@@ -5,7 +5,7 @@
 
 
 %% libp2p_transport
--export([start_listener/2, new_connection/1, connect/4, match_addr/1]).
+-export([start_listener/2, new_connection/1, connect/5, match_addr/1]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -47,9 +47,9 @@ new_connection(Socket) ->
 start_listener(Pid, Addr) ->
     gen_server:call(Pid, {start_listener, Addr}).
 
--spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer()) -> {ok, libp2p_session:pid()} | {error, term()}.
-connect(Pid, MAddr, Options, Timeout) ->
-    gen_server:call(Pid, {connect, MAddr, Options, Timeout}, infinity).
+-spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
+connect(_Pid, MAddr, Options, Timeout, TID) ->
+    connect_to(MAddr, Options, Timeout, TID).
 
 
 -spec match_addr(string()) -> {ok, string()} | false.
@@ -136,8 +136,6 @@ handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
                    {error, Error} -> {error, Error}
                    end,
     {reply, Response, State};
-handle_call({connect, MAddr, DialOptions, Timeout}, _From, State=#state{tid=TID}) ->
-    {reply, connect_to(MAddr, DialOptions, Timeout, TID), State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p~n", [Msg]),
     {reply, ok, State}.
