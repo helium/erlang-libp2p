@@ -37,9 +37,11 @@ connect_to(Addr, Options, Timeout, TID) ->
                 {ok, Pid} -> {ok, ConnAddr, Pid};
                 false ->
                     lager:info("~p connecting to ~p", [Transport, ConnAddr]),
-                    case Transport:connect(TransportPid, ConnAddr, Options, Timeout) of
+                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout) of
                         {error, Error} -> {error, Error};
                         {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
+                    catch
+                        What:Why -> {error, {What, Why}}
                     end
             end;
         {error, Error} -> {error, Error}

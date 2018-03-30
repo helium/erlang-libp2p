@@ -190,7 +190,8 @@ handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p~n", [Msg]),
     {noreply, State}.
 
-terminate(_Reason, #state{store=Store}) ->
+terminate(_Reason, #state{store=Store, stale_timer=StaleTimer}) ->
+    erlang:cancel_timer(StaleTimer),
     bitcask:close(Store).
 
 
