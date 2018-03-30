@@ -46,6 +46,11 @@ basic_test() ->
 
     ?assertNot(libp2p_peerbook:is_key(PeerBook, <<"foo">>)),
 
+    %% Test removal
+    ok = libp2p_peerbook:remove(PeerBook, libp2p_peer:address(Peer1)),
+    ?assertNot(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1))),
+    ?assertEqual({error, no_delete}, libp2p_peerbook:remove(PeerBook, Address)),
+
     clear_peerbook(Name).
 
 bad_peer_test() ->

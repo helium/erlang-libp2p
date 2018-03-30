@@ -45,6 +45,8 @@ handle_call(address, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:address(TID), State};
 handle_call(peerbook, _From, State=#state{tid=TID}) ->
     {reply, libp2p_swarm:peerbook(TID), State};
+handle_call(session_agent, _From, State=#state{tid=TID}) ->
+    {reply, libp2p_swarm:session_agent(TID), State};
 handle_call({listen, Addr}, _From, State=#state{}) ->
     case listen_on(Addr, State) of
         {error, Error} -> {reply, {error, Error}, State};
