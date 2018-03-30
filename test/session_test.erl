@@ -3,7 +3,9 @@
 -include_lib("eunit/include/eunit.hrl").
 
 open_close_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+    Swarms = [S1, S2] = test_util:setup_swarms(2, [{libp2p_session_agent_number,
+                                                    [{peerbook_connections, 0}]
+                                                   }]),
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
     ?assertEqual(open, libp2p_session:close_state(Session1)),
