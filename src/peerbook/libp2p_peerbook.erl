@@ -3,7 +3,7 @@
 -include_lib("bitcask/include/bitcask.hrl").
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
--export([keys/1, values/1, put/2,get/2, is_key/2,
+-export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
          join_notify/2, register_session/4,  unregister_session/2,
          changed_listener/1, update_nat_type/2]).
 
@@ -46,6 +46,10 @@ keys(Pid) ->
 -spec values(pid()) -> [libp2p_peer:peer()].
 values(Pid) ->
     gen_server:call(Pid, values).
+
+-spec remove(pid(), libp2p_crypto:address()) -> ok | {error, no_delete}.
+remove(Pid, ID) ->
+    gen_server:call(Pid, {remove, ID}).
 
 -spec join_notify(pid(), pid()) -> ok.
 join_notify(Pid, Joiner) ->
@@ -132,6 +136,12 @@ handle_call({put, PeerList, CallerPid}, _From, State=#state{store=Store, notify=
     % Notify group of new peers
     group_notify_peers(Group, CallerPid, NewPeers),
     {reply, ok, State};
+handle_call({remove, ID}, _From, State=#state{tid=TID, store=Store}) ->
+    Result = case ID == libp2p_swarm:address(TID) of
+                 true -> {error, no_delete};
+                 false -> delete_peer(ID, Store)
+             end,
+    {reply, Result, State};
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p~n", [Msg]),
@@ -228,6 +238,10 @@ store_peer(Peer, Store) ->
         {error, Error} -> error(Error);
         ok -> ok
     end.
+
+-spec delete_peer(libp2p_crypto:address(), reference()) -> ok.
+delete_peer(ID, Store) ->
+    bitcask:delete(Store, ID).
 
 -spec group_create(atom()) -> atom().
 group_create(SwarmName) ->

@@ -7,7 +7,7 @@
          add_transport_handler/2,
          add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1,
-         register_session/3]).
+         register_session/3, session_agent/1]).
 
 -type connect_opt() :: {unique_session, true | false}
                      | {unique_port, true | false}.
@@ -209,3 +209,13 @@ add_stream_handler(Sup, Key, HandlerDef) ->
 stream_handlers(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, stream_handlers).
+
+%% Session Agent
+%%
+
+-spec session_agent(supervisor:sup_ref() | ets:tab()) -> pid().
+session_agent(Sup) when is_pid(Sup) ->
+    Server = libp2p_swarm_sup:server(Sup),
+    gen_server:call(Server, session_agent);
+session_agent(TID) ->
+    libp2p_swarm_sup:session_agent(TID).
