@@ -111,7 +111,9 @@ put_test() ->
 
 
 gossip_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+    Swarms = [S1, S2] = test_util:setup_swarms(2, [{libp2p_session_agent_number,
+                                                    [{peerbook_connections, 0}]
+                                                   }]),
     [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
 
     {ok, S1Session} = libp2p_swarm:connect(S1, S2ListenAddr),
