@@ -122,7 +122,7 @@ init([TID]) ->
 
     {ok, StunSup} = supervisor:start_link(libp2p_simple_sup, []),
 
-    libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), "stungun/1.0.0",
+    libp2p_swarm:add_stream_handler(TID, "stungun/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
     {ok, #state{tid=TID, stun_sup=StunSup}}.
 

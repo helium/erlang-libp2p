@@ -194,10 +194,10 @@ insert_connection_handler(TID, {Key, ServerMF, ClientMF}) ->
 %% Streams
 %%
 
--spec lookup_stream_handlers(ets:tab()) -> [{string(), handler()}].
+-spec lookup_stream_handlers(ets:tab()) -> [{string(), libp2p_session:stream_handler()}].
 lookup_stream_handlers(TID) ->
     lookup_handlers(TID, ?STREAM_HANDLER).
 
--spec insert_stream_handler(ets:tab(), {string(), handler()}) -> true.
+-spec insert_stream_handler(ets:tab(), {string(), libp2p_session:stream_handler()}) -> true.
 insert_stream_handler(TID, {Key, ServerMF}) ->
     ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}).
