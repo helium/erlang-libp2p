@@ -20,16 +20,13 @@ init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_server(TID),
     % Add tcp and p2p as a default transports
-    lager:debug("Adding transport handlers"),
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_tcp),
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_p2p),
     % Register the default connection handler
-    lager:debug("Adding connection handlers"),
     libp2p_swarm:add_connection_handler(TID, "yamux/1.0.0",
                                         {{libp2p_yamux_session, start_server},
                                          {libp2p_yamux_session, start_client}}),
     % Register default stream handlers
-    lager:debug("Adding stream handlers"),
     libp2p_swarm:add_stream_handler(TID, "identify/1.0.0",
                                     {libp2p_stream_identify, server, []}),
     libp2p_swarm:add_stream_handler(TID, "peer/1.0.0",
@@ -43,7 +40,7 @@ handle_call(keys, _From, State=#state{tid=TID, sig_fun=SigFun}) ->
     PubKey = libp2p_crypto:address_to_pubkey(libp2p_swarm:address(TID)),
     {reply, {ok, PubKey, SigFun}, State};
 handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p~n", [Msg]),
+    lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
 handle_info({identify, Result, Kind}, State=#state{tid=TID}) ->
@@ -85,14 +82,14 @@ handle_cast({register, Kind, Addrs, SessionPid}, State=#state{}) ->
     {noreply, NewState};
 
 handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p~n", [Msg]),
+    lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
 
 terminate(_Reason, #state{tid=TID}) ->
     lists:foreach(fun({Addr, Pid}) ->
                           libp2p_config:remove_session(TID, Addr),
-                          catch libp2p_session:close(Pid)
+                          catch libp2p_session:close(Pid, shutdown, infinity)
                   end, libp2p_config:lookup_sessions(TID)).
 
 %% Internal

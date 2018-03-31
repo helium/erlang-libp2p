@@ -10,45 +10,19 @@
          register_session/3, register_listener/3,
          session_agent/1]).
 
--type connect_opt() :: {unique_session, true | false}
-                     | {unique_port, true | false}.
-
 -type swarm_opts() :: [swarm_opt()].
--export_type([swarm_opts/0]).
+-type connect_opts() :: [connect_opt()].
+
+-export_type([swarm_opts/0, connect_opts/0]).
 
 -type swarm_opt() :: {key, {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}}
-                   | {listen_opts, [listen_opt()]}
-                   | {peerbook, [peerbook_opt()]}
-                   | {yamux, [yamux_opt()]}.
+                   | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
+                   | {libp2p_peerbook, [libp2p_peerbook:opt()]}
+                   | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}
+                   | {libp2p_session_agent_number, [libp2p_session_agent_number:opt()]}.
 
--type listen_opt() :: {tcp, tcp_listen_opt()}
-                    | {max_connections, pos_integer()}.
-
--type tcp_listen_opt() :: {backlog, non_neg_integer()}
-                        | {buffer, non_neg_integer()}
-                        | {delay_send, boolean()}
-                        | {dontroute, boolean()}
-                        | {exit_on_close, boolean()}
-                        | {fd, non_neg_integer()}
-                        | {high_msgq_watermark, non_neg_integer()}
-                        | {high_watermark, non_neg_integer()}
-                        | {keepalive, boolean()}
-                        | {linger, {boolean(), non_neg_integer()}}
-                        | {low_msgq_watermark, non_neg_integer()}
-                        | {low_watermark, non_neg_integer()}
-                        | {nodelay, boolean()}
-                        | {port, inet:port_number()}
-                        | {priority, integer()}
-                        | {raw, non_neg_integer(), non_neg_integer(), binary()}
-                        | {recbuf, non_neg_integer()}
-                        | {send_timeout, timeout()}
-                        | {send_timeout_close, boolean()}
-                        | {sndbuf, non_neg_integer()}
-                        | {tos, integer()}.
-
--type peerbook_opt() :: {stale_time, pos_integer()}.
-
--type yamux_opt() :: {max_window, pos_integer()}.
+-type connect_opt() :: {unique_session, boolean()}
+                     | {unique_port, boolean()}.
 
 -define(CONNECT_TIMEOUT, 5000).
 
@@ -75,7 +49,7 @@ start(Name, Opts)  ->
 -spec stop(pid()) -> ok.
 stop(Sup) ->
     Ref = erlang:monitor(process, Sup),
-    exit(Sup, normal),
+    exit(Sup, shutdown),
     receive
         {'DOWN', Ref, process, Sup, _Reason} -> ok
     after 5000 ->
@@ -235,7 +209,7 @@ add_connection_handler(TID, Key, {ServerMF, ClientMF}) ->
 connect(Sup, Addr) ->
     connect(Sup, Addr, [], ?CONNECT_TIMEOUT).
 
--spec connect(supervisor:sup_ref() | ets:tab(), string(), [connect_opt()], pos_integer())
+-spec connect(supervisor:sup_ref() | ets:tab(), string(), connect_opts(), pos_integer())
              -> {ok, libp2p_session:pid()} | {error, term()}.
 connect(Sup, Addr, Options, Timeout) when is_pid(Sup) ->
     connect(tid(Sup), Addr, Options, Timeout);
@@ -254,7 +228,7 @@ connect(TID, Addr, Options, Timeout) ->
 dial(Sup, Addr, Path) ->
     dial(Sup, Addr, Path, [], ?CONNECT_TIMEOUT).
 
--spec dial(supervisor:sup_ref(), string(), string(),[connect_opt()], pos_integer())
+-spec dial(supervisor:sup_ref(), string(), string(), connect_opts(), pos_integer())
           -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(Sup, Addr, Path, Options, Timeout) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")

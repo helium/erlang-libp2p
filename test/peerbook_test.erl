@@ -14,7 +14,14 @@ mk_peerbook() ->
     {ok, Pid} = libp2p_peerbook:start_link(TID, mk_sigfun(PrivKey)),
     {Pid, CompactKey, Name}.
 
-clear_peerbook(Name) ->
+clear_peerbook(Pid, Name) ->
+    Ref = erlang:monitor(process, Pid),
+    exit(Pid, normal),
+    receive
+        {'DOWN', Ref, process, Pid, _Reason} -> ok
+    after 1000 ->
+            error(timeout)
+    end,
     DirName = filename:join(libp2p_config:data_dir(), Name),
     test_util:rm_rf(DirName).
 
@@ -51,7 +58,7 @@ basic_test() ->
     ?assertNot(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1))),
     ?assertEqual({error, no_delete}, libp2p_peerbook:remove(PeerBook, Address)),
 
-    clear_peerbook(Name).
+    clear_peerbook(PeerBook, Name).
 
 bad_peer_test() ->
     {PeerBook, _Address, Name} = mk_peerbook(),
@@ -67,7 +74,7 @@ bad_peer_test() ->
     ?assertError(invalid_signature, libp2p_peerbook:put(PeerBook, [InvalidPeer])),
     ?assertNot(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(InvalidPeer))),
 
-    clear_peerbook(Name).
+    clear_peerbook(PeerBook, Name).
 
 put_test() ->
     {PeerBook, Address, Name} = mk_peerbook(),
@@ -107,7 +114,7 @@ put_test() ->
     DiffValues = sets:subtract(PeerBookValues, KnownValues),
     ?assertEqual(0, sets:size(DiffValues)),
 
-    clear_peerbook(Name).
+    clear_peerbook(PeerBook, Name).
 
 
 gossip_test() ->
@@ -159,7 +166,7 @@ gossip_test() ->
 
 
 stale_test() ->
-    Swarms = [S1] = test_util:setup_swarms(1, [{peerbook, [{stale_time, 100}]}]),
+    Swarms = [S1] = test_util:setup_swarms(1, [{libp2p_peerbook, [{stale_time, 100}]}]),
 
     PeerBook = libp2p_swarm:peerbook(S1),
     S1Addr = libp2p_swarm:address(S1),

@@ -1,4 +1,4 @@
--module(session_agent).
+-module(session_agent_test).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -33,6 +33,7 @@ agent_number_test() ->
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1)) end),
+    ?assertEqual(1, length(libp2p_session_agent:sessions(S1Agent))),
 
     %% Make S1 forget about S1
     libp2p_peerbook:remove(S1PeerBook, libp2p_swarm:address(S2)),

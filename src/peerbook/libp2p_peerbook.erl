@@ -7,6 +7,9 @@
          join_notify/2, register_session/4,  unregister_session/2,
          changed_listener/1, update_nat_type/2]).
 
+-type opt() :: {stale_time, pos_integer()}.
+-export_type([opt/0]).
+
 -behviour(gen_server).
 
 -record(state,
@@ -14,7 +17,9 @@
           store :: reference(),
           notify :: atom(),
           nat_type = unknown :: libp2p_peer:nat_type(),
-          stale_time :: integer(),
+          peer_time=1000 :: pos_integer(),
+          peer_timer :: undefined | reference(),
+          stale_time :: pos_integer(),
           stale_timer :: reference(),
           sessions=[] :: [{libp2p_crypto:address(), libp2p_session:pid()}],
           sigfun :: fun((binary()) -> binary())
@@ -92,7 +97,7 @@ init([TID, SigFun]) ->
         {error, Reason} -> {stop, Reason};
         Ref ->
             Opts = libp2p_swarm:opts(TID, []),
-            StaleTime = libp2p_config:get_opt(Opts, [peerbook, stale_time],
+            StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time],
                                               ?DEFAULT_PEER_STALE_TIME),
 
             StaleTimer = erlang:send_after(1, self(), stale_timeout),
@@ -144,7 +149,7 @@ handle_call({remove, ID}, _From, State=#state{tid=TID, store=Store}) ->
     {reply, Result, State};
 
 handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p~n", [Msg]),
+    lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
 handle_cast(changed_listener, State=#state{}) ->
@@ -181,25 +186,26 @@ handle_cast({join_notify, JoinPid}, State=#state{notify=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
 handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p~n", [Msg]),
+    lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info(peer_timeout, State=#state{}) ->
+    {noreply, notify_this_peer(State)};
 handle_info(stale_timeout, State=#state{}) ->
     try
         {noreply, update_this_peer(State)}
     catch
-        error:Why ->
+        error:{error, enoent} ->
             %% In fast swarm startup and shutdown (i.e. during test)
             %% this may happen since the underlying store is
             %% deleted. Catch and stop.
-            {stop, Why, State}
+            {stop, normal, State}
     end;
 handle_info(Msg, State) ->
-    lager:warning("Unhandled info: ~p~n", [Msg]),
+    lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
-terminate(_Reason, #state{store=Store, stale_timer=StaleTimer}) ->
-    erlang:cancel_timer(StaleTimer),
+terminate(_Reason, #state{store=Store}) ->
     bitcask:close(Store).
 
 
@@ -207,14 +213,27 @@ terminate(_Reason, #state{store=Store, stale_timer=StaleTimer}) ->
 %% Internal
 %%
 
+notify_this_peer(State=#state{tid=TID, notify=Group, store=Store}) ->
+    try
+        {ok, Peer} = fetch_peer(libp2p_swarm:address(TID), Store),
+        group_notify_peers(Group, undefined, [Peer])
+    catch
+        _:_ -> ok
+    end,
+    State#state{peer_timer=undefined}.
 
 -spec update_this_peer(#state{}) -> #state{}.
-update_this_peer(State=#state{notify=Group, stale_time=StaleTime, stale_timer=StaleTimer}) ->
-    Peer = mk_this_peer(State),
-    group_notify_peers(Group, undefined, [Peer]),
+update_this_peer(State=#state{peer_time=PeerTime, peer_timer=PeerTimer,
+                              stale_time=StaleTime, stale_timer=StaleTimer}) ->
+    _ = mk_this_peer(State),
+    case PeerTimer of
+        undefined -> ok;
+        Other -> erlang:cancel_timer(Other)
+    end,
+    NewPeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
     erlang:cancel_timer(StaleTimer),
     erlang:send_after(StaleTime, self(), stale_timeout),
-    State#state{stale_timer=StaleTimer}.
+    State#state{stale_timer=StaleTimer, peer_timer=NewPeerTimer}.
 
 mk_this_peer(#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType, store=Store}) ->
     SwarmAddr = libp2p_swarm:address(TID),

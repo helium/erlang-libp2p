@@ -3,6 +3,31 @@
 -behaviour(libp2p_connection).
 -behavior(gen_server).
 
+-type listen_opt() :: {backlog, non_neg_integer()}
+                    | {buffer, non_neg_integer()}
+                    | {delay_send, boolean()}
+                    | {dontroute, boolean()}
+                    | {exit_on_close, boolean()}
+                    | {fd, non_neg_integer()}
+                    | {high_msgq_watermark, non_neg_integer()}
+                    | {high_watermark, non_neg_integer()}
+                    | {keepalive, boolean()}
+                    | {linger, {boolean(), non_neg_integer()}}
+                    | {low_msgq_watermark, non_neg_integer()}
+                    | {low_watermark, non_neg_integer()}
+                    | {nodelay, boolean()}
+                    | {port, inet:port_number()}
+                    | {priority, integer()}
+                    | {raw, non_neg_integer(), non_neg_integer(), binary()}
+                    | {recbuf, non_neg_integer()}
+                    | {send_timeout, timeout()}
+                    | {send_timeout_close, boolean()}
+                    | {sndbuf, non_neg_integer()}
+                    | {tos, integer()}.
+
+-type opt() :: {listen, [listen_opt()]}.
+
+-export_type([opt/0, listen_opt/0]).
 
 %% libp2p_transport
 -export([start_listener/2, new_connection/1, connect/5, match_addr/1]).
@@ -47,10 +72,10 @@ new_connection(Socket) ->
 start_listener(Pid, Addr) ->
     gen_server:call(Pid, {start_listener, Addr}).
 
--spec connect(pid(), string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
+-spec connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
+             -> {ok, libp2p_session:pid()} | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     connect_to(MAddr, Options, Timeout, TID).
-
 
 -spec match_addr(string()) -> {ok, string()} | false.
 match_addr(Addr) when is_list(Addr) ->
@@ -137,11 +162,11 @@ handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
                    end,
     {reply, Response, State};
 handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p~n", [Msg]),
+    lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p~n", [Msg]),
+    lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
 %%  Discover/Stun
@@ -190,38 +215,29 @@ terminate(_Reason, #state{}) ->
 %% Internal: Listen/Connect
 %%
 
--spec transport_options(inet:ip_address(), ets:tab()) -> {[term()], [term()]}.
-transport_options(IP, TID) ->
+-spec listen_options(inet:ip_address(), ets:tab()) -> [term()].
+listen_options(IP, TID) ->
     OptionDefaults = [
                       {ip, IP},
                       {backlog, 1024},
                       {nodelay, true},
                       {send_timeout, 30000},
-                      {send_timeout_close, true},
-
-                      % Transport options. Add new transport
-                      % default options to TransportKeys below
-                      {max_connections, 1024}
+                      {send_timeout_close, true}
                      ],
-    TransportKeys = sets:from_list([max_connections]),
     % Go get the tcp listen options
-    Options = case libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [listen_opts, tcp]) of
-                  undefined -> OptionDefaults;
-                  {ok, Values} ->
-                      sets:to_list(sets:union(sets:from_list(Values),
-                                              sets:from_list(OptionDefaults)))
-              end,
-    % Split out the transport from the listen options
-    lists:partition(fun({Key, _}) ->
-                            sets:is_element(Key, TransportKeys)
-                    end, Options).
+    case libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, listen]) of
+        undefined -> OptionDefaults;
+        {ok, Values} ->
+            sets:to_list(sets:union(sets:from_list(Values),
+                                    sets:from_list(OptionDefaults)))
+    end.
                                                 %
 -spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
         {IP, Port, Type, AddrOpts} ->
-            {TransportOpts, ListenOpts0} = transport_options(IP, TID),
+            ListenOpts0 = listen_options(IP, TID),
             % Non-overidable options, taken from ranch_tcp:listen
             DefaultListenOpts = [binary, {active, false}, {packet, raw},
                                  {reuseaddr, true}, reuseport()],
@@ -234,7 +250,7 @@ listen_on(Addr, TID) ->
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
                     ChildSpec = ranch:child_spec(ListenAddrs,
-                                                 ranch_tcp, [{socket, Socket} | TransportOpts],
+                                                 ranch_tcp, [{socket, Socket}],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
@@ -250,7 +266,7 @@ listen_on(Addr, TID) ->
     end.
 
 
--spec connect_to(string(), [libp2p_swarm:connect_opt()], pos_integer(), ets:tab())
+-spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
                 -> {ok, libp2p_session:pid()} | {error, term()}.
 connect_to(Addr, UserOptions, Timeout, TID) ->
     case tcp_addr(Addr) of
@@ -486,7 +502,6 @@ try_nat_pmp(Handler, {MultiAddr, _IP, Port}) ->
 -spec mask_address(inet:ip_address(), pos_integer()) -> integer().
 mask_address(Addr={_, _, _, _}, Maskbits) ->
     B = list_to_binary(tuple_to_list(Addr)),
-    lager:debug("address as binary: ~w ~w", [B,Maskbits]),
     <<Subnet:Maskbits, _Host/bitstring>> = B,
     Subnet.
 %mask_address(_, _) ->
