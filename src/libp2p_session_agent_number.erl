@@ -4,7 +4,12 @@
 
 
 %% gen_server
--export([start_link/1, init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
+-export([start_link/1, init/1, handle_info/2, handle_call/3, handle_cast/2]).
+
+-type opt() :: {peerbook_connections, pos_integer()}
+             | {drop_timeout, pos_integer()}.
+
+-export_type([opt/0]).
 
 
 -type monitor_entry() :: {pid(), {reference(), atom(), binary()}}.
@@ -24,28 +29,31 @@ start_link(TID) ->
     gen_server:start_link(?MODULE, [TID], []).
 
 init([TID]) ->
+    erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_session_agent(TID),
     Opts = libp2p_swarm:opts(TID, []),
     PeerBookCount = libp2p_config:get_opt(Opts, [?MODULE, peerbook_connections],
                                           ?DEFAULT_PEERBOOK_CONNECTIONS),
     DropTimeOut = libp2p_config:get_opt(Opts, [?MODULE, drop_timeout], ?DEFAULT_DROP_TIMEOUT),
-    self() ! init_connections,
+    self() ! check_connections,
     libp2p_peerbook:join_notify(libp2p_swarm:peerbook(TID), self()),
-    {ok, (#state{tid=TID, peerbook_connections=PeerBookCount,
-                 drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)})}.
+    {ok, #state{tid=TID, peerbook_connections=PeerBookCount,
+                drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)}}.
 
 handle_call(sessions, _From, State=#state{}) ->
     {reply, connections(peerbook, State), State};
 handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p~n", [Msg]),
+    lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
 handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p~n", [Msg]),
+    lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(init_connections, State=#state{}) ->
+handle_info(check_connections, State=#state{}) ->
     {noreply, check_connections(peerbook, State)};
+handle_info({register_connection, Kind, Addr, SessionPid}, State=#state{}) ->
+    {noreply, add_monitor(Kind, Addr, SessionPid, State)};
 handle_info({new_peers, []}, State=#state{}) ->
     {noreply, State};
 handle_info({new_peers, _}, State=#state{}) ->
@@ -65,9 +73,6 @@ handle_info(drop_timeout, State=#state{monitors=Monitors, drop_timeout=DropTimeO
 handle_info(Msg, _State) ->
     lager:warning("Unhandled message ~p", [Msg]).
 
-terminate(_Reason, #state{drop_timer=DropTimer}) ->
-    erlang:cancel_timer(DropTimer).
-
 
 %% Internal
 %%
@@ -76,6 +81,7 @@ terminate(_Reason, #state{drop_timer=DropTimer}) ->
 schedule_drop_timer(DropTimeOut) ->
     erlang:send_after(DropTimeOut, self(), drop_timeout).
 
+-spec check_connections(atom(), #state{}) -> #state{}.
 check_connections(Kind=peerbook, State=#state{tid=TID, peerbook_connections=PeerBookCount}) ->
     PeerAddrs = libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)),
     %% Get currently connected addresses
@@ -87,13 +93,21 @@ check_connections(Kind=peerbook, State=#state{tid=TID, peerbook_connections=Peer
     %% Shuffle the available addresses
     {_, ShuffledAddrs} = lists:unzip(lists:sort([ {rand:uniform(), Addr} || Addr <- AvailableAddrs])),
     case PeerBookCount - length(CurrentAddrs) of
-        0 -> State;
-        MissingCount ->
-            lager:debug("Session agent trying to open ~p connections from ~p available",
-                        [MissingCount, length(ShuffledAddrs)]),
-            %% Create connections for the missing number of connections
-            mk_connections(TID, Kind, ShuffledAddrs, MissingCount, State)
-    end.
+        %% No missing connections
+        0 -> ok;
+        %% No targets to try to connect to
+        _MissingCount when length(ShuffledAddrs) == 0 -> ok;
+        %% Go try to connect one with the available shuffled addresses
+        _ ->
+            lager:debug("Session agent trying to open a connection from ~p available",
+                        [length(ShuffledAddrs)]),
+            %% Create connections for the missinge number of connections
+            Parent = self(),
+            spawn(fun() ->
+                          mk_connection(Parent, TID, Kind, ShuffledAddrs)
+                  end)
+    end,
+    State.
 
 -spec connections(atom(), #state{}) -> [{pid(), libp2p_crypto:address()}].
 connections(Kind, #state{monitors=Monitors}) ->
@@ -126,19 +140,20 @@ remove_monitor(MonitorRef, Pid, State=#state{monitors=Monitors}) ->
 monitor_addr({_Pid, {_Ref, _Kind, Addr}}) ->
     Addr.
 
--spec mk_connections(ets:tab(), atom(), [libp2p_crypto:address()], non_neg_integer(), #state{}) -> #state{}.
-mk_connections(_TID, _Kind, Addrs, Count, State)  when Addrs == [] orelse Count == 0 ->
-    State;
-mk_connections(TID, Kind, [Addr | Tail], Count, State) ->
+-spec mk_connection(pid(), ets:tab(), atom(), [libp2p_crypto:address()])
+                   -> check_connections
+                          | {register_connection, atom(), libp2p_crypto:address(), libp2p_session:pid()}.
+mk_connection(Parent, _TID, _Kind, Addrs)  when Addrs == [] ->
+    Parent ! check_connections;
+mk_connection(Parent, TID, Kind, [Addr | Tail]) ->
     MAddr = mk_p2p_addr(Addr),
-    %% We don't go through the swarm to connect to avoid blocking the swarm server
     case libp2p_transport:connect_to(MAddr, [], 5000, TID) of
         {error, Reason} ->
             lager:debug("Moving past ~p error: ~p", [MAddr, Reason]),
-            mk_connections(TID, Kind, Tail, Count, State);
+            mk_connection(Parent, TID, Kind, Tail);
         {ok, ConnAddr, SessionPid} ->
             libp2p_swarm:register_session(libp2p_swarm:swarm(TID), ConnAddr, SessionPid),
-            mk_connections(TID, Kind, Tail, Count - 1, add_monitor(Kind, Addr, SessionPid, State))
+            Parent ! {register_connection, Kind, Addr, SessionPid}
     end.
 
 -spec mk_p2p_addr(libp2p_crypto:address()) -> string().

@@ -16,18 +16,19 @@
 -define(LISTENER, listener).
 
 -type handler() :: {atom(), atom()}.
+-type opts() :: [{atom(), any()}].
 
 %%
 %% Global config
 %%
 
--spec get_opt(libp2p_swarm:swarm_opts(), atom() | list()) -> undefined | {ok, any()}.
+-spec get_opt(opts(), atom() | list()) -> undefined | {ok, any()}.
 get_opt(Opts, L) when is_list(Opts), is_list(L)  ->
     get_opt_l(L, Opts);
 get_opt(Opts, K) when is_list(Opts), is_atom(K) ->
     get_opt_l([K], Opts).
 
--spec get_opt(libp2p_swarm:swarm_opts(), atom() | list(), any()) -> any().
+-spec get_opt(opts(), atom() | list(), any()) -> any().
 get_opt(Opts, K, Default) ->
     case get_opt(Opts, K) of
         {ok, V}   -> V;
@@ -126,6 +127,8 @@ insert_listener(TID, Addrs, Pid) ->
     lists:foreach(fun(A) ->
                           insert_pid(TID, ?LISTENER, A, Pid)
                   end, Addrs),
+    %% TODO: This was a convenient place to notify peerbook, but can
+    %% we not do this here?
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:changed_listener(PeerBook),
     true.
@@ -137,6 +140,8 @@ lookup_listener(TID, Addr) ->
 -spec remove_listener(ets:tab(), string()) -> true.
 remove_listener(TID, Addr) ->
     remove_pid(TID, ?LISTENER, Addr),
+    %% TODO: This was a convenient place to notify peerbook, but can
+    %% we not do this here?
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:changed_listener(PeerBook),
     true.
@@ -157,12 +162,13 @@ session() ->
 insert_session(TID, Addr, Pid) ->
     insert_pid(TID, ?SESSION, Addr, Pid).
 
--spec lookup_session(ets:tab(), string(), libp2p_swarm:connect_opt())
-                    -> {ok, pid()} | false.
+-spec lookup_session(ets:tab(), string(), opts()) -> {ok, pid()} | false.
 lookup_session(TID, Addr, Options) ->
-    case lists:keyfind(unique_session, 1, Options) of
-        {unique_session, true} -> false;
-        _ -> lookup_pid(TID, ?SESSION, Addr)
+    case get_opt(Options, unique_session, false) of
+        %% Unique session, return that we don't know about the given
+        %% session
+        true -> false;
+        false -> lookup_pid(TID, ?SESSION, Addr)
     end.
 
 -spec lookup_session(ets:tab(), string()) -> {ok, pid()} | false.

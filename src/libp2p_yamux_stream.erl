@@ -37,9 +37,9 @@
 
 -type stream() :: reference().
 -type timer() :: undefined | reference().
+-type opt() :: {max_window, pos_integer()}.
 
-
--export_type([stream/0]).
+-export_type([stream/0, opt/0]).
 
 -define(CLOSE_STATE(S), S#state.close_state).
 -define(WINDOW_DATA(S), S#state.recv_state#recv_state.data).
@@ -68,7 +68,7 @@ receive_stream(Session, TID, StreamID) ->
 init({Session, TID, StreamID, Flags}) ->
     erlang:process_flag(trap_exit, true),
     gen_statem:cast(self(), {init, Flags}),
-    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [yamux, max_window],
+    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, max_window],
                                       ?DEFAULT_MAX_WINDOW_SIZE),
     {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
                            send_state=#send_state{window=MaxWindow},

@@ -122,7 +122,7 @@ handle_info({timeout_ping, PingID}, State=#state{}) ->
 handle_info(timeout, State) ->
     {stop, normal, State};
 handle_info(Msg, State) ->
-    lager:warning("Unhandled message: ~p~n", [Msg]),
+    lager:warning("Unhandled message: ~p", [Msg]),
     {stop, unknown, State}.
 
 % Open
@@ -209,7 +209,7 @@ decode_header(<<?VERSION:8/integer-unsigned,
                StreamID:32/integer-unsigned-big,
                Length:32/integer-unsigned-big>>) ->
     #header{type=Type, flags=Flags, stream_id=StreamID, length=Length}.
-  
+
 
 -spec encode_header(header()) -> binary().
 encode_header(#header{type=Type, flags=Flags, stream_id=StreamID, length=Length}) ->
