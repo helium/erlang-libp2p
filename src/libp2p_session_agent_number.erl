@@ -7,7 +7,10 @@
 -export([start_link/1, init/1, handle_info/2, handle_call/3, handle_cast/2]).
 
 -type opt() :: {peerbook_connections, pos_integer()}
-             | {drop_timeout, pos_integer()}.
+             | {drop_timeout, pos_integer()}
+             | {stream_clients, [client_spec()]}.
+
+-type client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
 
 -export_type([opt/0]).
 
@@ -17,6 +20,7 @@
 -record(state,
        { tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
+         client_specs :: [client_spec()],
          drop_timeout :: pos_integer(),
          drop_timer :: reference(),
          monitors=[] :: [monitor_entry()]
@@ -35,10 +39,12 @@ init([TID]) ->
     PeerBookCount = libp2p_config:get_opt(Opts, [?MODULE, peerbook_connections],
                                           ?DEFAULT_PEERBOOK_CONNECTIONS),
     DropTimeOut = libp2p_config:get_opt(Opts, [?MODULE, drop_timeout], ?DEFAULT_DROP_TIMEOUT),
+    ClientSpecs = libp2p_config:get_opt(Opts, [?MODULE, stream_clients], []),
     self() ! check_connections,
     libp2p_peerbook:join_notify(libp2p_swarm:peerbook(TID), self()),
     {ok, #state{tid=TID, peerbook_connections=PeerBookCount,
-                drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)}}.
+                drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut),
+                client_specs=ClientSpecs}}.
 
 handle_call(sessions, _From, State=#state{}) ->
     {reply, connections(peerbook, State), State};
@@ -52,7 +58,10 @@ handle_cast(Msg, State) ->
 
 handle_info(check_connections, State=#state{}) ->
     {noreply, check_connections(peerbook, State)};
-handle_info({register_connection, Kind, Addr, SessionPid}, State=#state{}) ->
+handle_info({register_connection, Kind, Addr, SessionPid}, State=#state{client_specs=ClientSpecs}) ->
+    lists:foreach(fun({Path, {M, A}}) ->
+                          libp2p_session:start_client_framed_stream(Path, SessionPid, M, A)
+                  end, ClientSpecs),
     {noreply, add_monitor(Kind, Addr, SessionPid, State)};
 handle_info({new_peers, []}, State=#state{}) ->
     {noreply, State};
