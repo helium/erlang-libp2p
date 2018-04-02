@@ -2,11 +2,24 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+listen_test_() ->
+    {foreach,
+     fun() ->
+             test_util:setup(),
+             {ok, Swarm} = libp2p_swarm:start(test),
+             Swarm
+     end,
+     fun(Swarm) ->
+             test_util:teardown_swarms([Swarm])
+     end,
+     test_util:with(
+      [ {"Port 0", fun port0/1},
+        {"Address 0", fun addr0/1},
+        {"Already listening", fun already/1},
+        {"Bad address", fun bad_addr/1}
+      ])}.
 
-port0_test() ->
-    test_util:setup(),
-
-    {ok, Swarm} = libp2p_swarm:start(test, []),
+port0(Swarm) ->
     ?assertEqual([], libp2p_swarm:listen_addrs(Swarm)),
 
     ?assertEqual(ok, libp2p_swarm:listen(Swarm, "/ip4/127.0.0.1/tcp/0")),
@@ -16,13 +29,9 @@ port0_test() ->
     ?assertEqual(ok, libp2p_swarm:listen(Swarm, "/ip6/::1/tcp/0")),
     ?assertMatch(["/ip4/127.0.0.1/" ++ _, "/ip6/::1/" ++ _], libp2p_swarm:listen_addrs(Swarm)),
 
-    test_util:teardown_swarms([Swarm]).
+    ok.
 
-addr0_test() ->
-    test_util:setup(),
-
-    {ok, Swarm} = libp2p_swarm:start(test),
-
+addr0(Swarm) ->
     ?assertEqual(ok, libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0")),
 
     ListenAddrs = libp2p_swarm:listen_addrs(Swarm),
@@ -33,28 +42,20 @@ addr0_test() ->
                           ?assertMatch({ok, _}, inet:parse_ipv4_address(IP)),
                           ?assert(list_to_integer(Port) > 0)
                   end, PAddrs),
+    ok.
 
-    test_util:teardown_swarms([Swarm]).
-
-already_test() ->
-    test_util:setup(),
-
-    {ok, Swarm} = libp2p_swarm:start(test),
+already(Swarm) ->
     ok = libp2p_swarm:listen(Swarm, "/ip4/127.0.0.1/tcp/0"),
     [ListenAddr] = libp2p_swarm:listen_addrs(Swarm),
 
     ?assertMatch({error, _}, libp2p_swarm:listen(Swarm, ListenAddr)),
 
-    test_util:teardown_swarms([Swarm]).
+    ok.
 
-bad_addr_test() ->
-    test_util:setup(),
-
-    {ok, Swarm} = libp2p_swarm:start(test),
-
+bad_addr(Swarm) ->
     ?assertMatch({error, {unsupported_address, _}},
                  libp2p_swarm:listen(Swarm, "/onion/timaq4ygg2iegci7:1234")),
     ?assertMatch({error, {unsupported_address, _}},
                  libp2p_swarm:listen(Swarm, "/udp/1234/udt")),
 
-    test_util:teardown_swarms([Swarm]).
+    ok.

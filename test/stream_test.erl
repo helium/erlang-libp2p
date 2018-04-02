@@ -3,8 +3,15 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("src/libp2p_yamux.hrl").
 
-auto_close_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+stream_test_() ->
+    test_util:foreach(
+      [ fun auto_close/1,
+        fun close/1,
+        fun timeout/1,
+        fun window/1
+      ]).
+
+auto_close([S1, S2]) ->
     ok = serve_stream:register(S2, "serve"),
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 
@@ -38,10 +45,9 @@ auto_close_test() ->
     ?assertEqual({error, closed}, libp2p_connection:recv(Stream, 1)),
     ?assertEqual(closed, libp2p_connection:close_state(Stream)),
 
-    test_util:teardown_swarms(Swarms).
+    ok.
 
-close_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+close([S1 ,S2]) ->
     ok = serve_stream:register(S2, "serve"),
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 
@@ -57,11 +63,10 @@ close_test() ->
     ?assertEqual(ok, libp2p_connection:close(Stream)),
     ?assertEqual(closed, libp2p_connection:close_state(Stream)),
 
-    test_util:teardown_swarms(Swarms).
+    ok.
 
 
-timeout_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+timeout([S1, S2]) ->
     serve_stream:register(S2, "serve"),
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 
@@ -73,10 +78,9 @@ timeout_test() ->
     BigData = <<0:(8 * (?DEFAULT_MAX_WINDOW_SIZE + 1))/integer>>,
     ?assertEqual({error, timeout}, libp2p_connection:send(Stream, BigData, 100)),
 
-    test_util:teardown_swarms(Swarms).
+    ok.
 
-window_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+window([S1, S2]) ->
     serve_stream:register(S2, "serve"),
     {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
 
@@ -93,4 +97,4 @@ window_test() ->
                end,
     ?assertEqual({ok, BigData}, Received),
 
-    test_util:teardown_swarms(Swarms).
+    ok.
