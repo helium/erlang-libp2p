@@ -18,7 +18,7 @@ dial(FromSwarm, ToSwarm, Name) ->
     [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Stream} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
     Server = receive
-                 {hello, S} -> S
+                 {hello_server, S} -> S
              after 100 -> erlang:exit(timeout)
              end,
     {ok, Client} = libp2p_framed_stream:client(?MODULE, Stream, []),
@@ -26,9 +26,12 @@ dial(FromSwarm, ToSwarm, Name) ->
 
 
 init(server, Connection, [Path, Parent]) ->
-    Parent ! {hello, self()},
+    Parent ! {hello_server, self()},
     {ok, #state{connection=Connection, path=Path, parent=Parent}};
 init(client, Connection, []) ->
+    {ok, #state{connection=Connection}};
+init(client, Connection, [Parent]) ->
+    Parent ! {hello_client, self()},
     {ok, #state{connection=Connection}}.
 
 
