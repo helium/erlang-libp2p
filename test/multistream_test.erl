@@ -2,6 +2,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+
 tcp_connect(Addr) ->
     [{"ip4", IPStr}, {"tcp", PortStr}] = multiaddr:protocols(multiaddr:new(Addr)),
     {ok, IP} = inet:parse_address(IPStr),
@@ -10,8 +11,14 @@ tcp_connect(Addr) ->
     libp2p_transport_tcp:new_connection(Socket).
 
 
-client_ls_test() ->
-    Swarms = [S1] = test_util:setup_swarms(1, []),
+multistream_test_() ->
+    test_util:foreachx(
+      [ {"Multistream client negotiation", 1, [], fun client_negotiate_handler/1},
+        {"Multistream client list", 1, [], fun client_ls/1}
+      ]).
+
+
+client_ls([S1]) ->
     [Addr|_] = libp2p_swarm:listen_addrs(S1),
 
     Connection = tcp_connect(Addr),
@@ -20,10 +27,10 @@ client_ls_test() ->
     ?assertMatch(["yamux/1.0.0" | _], libp2p_multistream_client:ls(Connection)),
     ?assertEqual(ok, libp2p_multistream_client:select("yamux/1.0.0", Connection)),
 
-    test_util:teardown_swarms(Swarms).
+    ok.
 
-client_negotiate_handler_test() ->
-    Swarms = [S1] = test_util:setup_swarms(1, []),
+
+client_negotiate_handler([S1]) ->
     [Addr|_] = libp2p_swarm:listen_addrs(S1),
 
     Connection = tcp_connect(Addr),
@@ -31,4 +38,4 @@ client_negotiate_handler_test() ->
     Handlers = [{"othermux", "othermux"}, {"yamux/1.0.0", "yamux"}],
     ?assertEqual({ok, "yamux"}, libp2p_multistream_client:negotiate_handler(Handlers, "", Connection)),
 
-    test_util:teardown_swarms(Swarms).
+    ok.

@@ -250,7 +250,7 @@ fetch_peer(ID, Store) ->
     case bitcask:get(Store, ID) of
         {ok, Bin} -> {ok, libp2p_peer:decode(Bin)};
         not_found -> {error, not_found};
-        {error, _Error} -> error(error)
+        Other -> Other
     end.
 
 -spec fetch_peers(reference()) -> [libp2p_peer:peer()].

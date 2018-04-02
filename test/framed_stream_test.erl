@@ -2,27 +2,31 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-path_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+
+framed_stream_test_() ->
+    test_util:foreach(
+      [ fun path/1,
+        fun send/1,
+        fun handle_info/1,
+        fun handle_call/1,
+        fun handle_cast/1]).
+
+path([S1, S2]) ->
     serve_framed_stream:register(S2, "serve_frame"),
     {_Client, Server} = serve_framed_stream:dial(S1, S2, "serve_frame/hello"),
 
     ?assertEqual("/hello", serve_framed_stream:path(Server)),
+    ok.
 
-    test_util:teardown_swarms(Swarms).
-
-send_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+send([S1, S2]) ->
     serve_framed_stream:register(S2, "serve_frame"),
     {Client, Server} = serve_framed_stream:dial(S1, S2, "serve_frame"),
 
     serve_framed_stream:send(Client, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:data(Server) == <<"hello">> end),
+    ok.
 
-    test_util:teardown_swarms(Swarms).
-
-handle_info_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+handle_info([S1, S2]) ->
     serve_framed_stream:register(S2, "serve_frame"),
     {Client, _Server} = serve_framed_stream:dial(S1, S2, "serve_frame"),
 
@@ -31,11 +35,9 @@ handle_info_test() ->
     % Stop the client
     serve_framed_stream:info_fun(Client, fun(S) -> {stop, normal, S} end),
     ok = test_util:wait_until(fun() -> is_process_alive(Client) == false end),
+    ok.
 
-    test_util:teardown_swarms(Swarms).
-
-handle_call_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+handle_call([S1, S2]) ->
     serve_framed_stream:register(S2, "serve_frame"),
     {C1, _} = serve_framed_stream:dial(S1, S2, "serve_frame"),
 
@@ -50,11 +52,9 @@ handle_call_test() ->
     % Stop the other way
     ?assertMatch({'EXIT', {normal, _}}, catch serve_framed_stream:call_fun(C2, fun(S) -> {stop, normal, S} end)),
     ok = test_util:wait_until(fun() -> is_process_alive(C2) == false end),
+    ok.
 
-    test_util:teardown_swarms(Swarms).
-
-handle_cast_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+handle_cast([S1, S2]) ->
     serve_framed_stream:register(S2, "serve_frame"),
     {C1, _} = serve_framed_stream:dial(S1, S2, "serve_frame"),
 
@@ -64,5 +64,4 @@ handle_cast_test() ->
     serve_framed_stream:cast_fun(C1, fun(S) -> {stop, normal, S} end),
     ?assertMatch({'EXIT', {normal, _}}, catch serve_framed_stream:call_fun(C1, fun(S) -> {stop, normal, S} end)),
     ok = test_util:wait_until(fun() -> is_process_alive(C1) == false end),
-
-    test_util:teardown_swarms(Swarms).
+    ok.
