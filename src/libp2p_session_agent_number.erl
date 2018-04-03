@@ -8,18 +8,21 @@
 
 -type opt() :: {peerbook_connections, pos_integer()}
              | {drop_timeout, pos_integer()}
-             | {stream_clients, [client_spec()]}.
+             | {stream_clients, [client_spec()]}
+             | {seed_nodes, [seed_node()]}.
 
 -type client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
+-type seed_node() :: {node, [ListenAddr::string()]}.
 
 -export_type([opt/0]).
 
-
--type monitor_entry() :: {pid(), {reference(), atom(), binary()}}.
+-type monitor_addr() :: libp2p_crypto:address() | string().
+-type monitor_entry() :: {pid(), reference(), [{atom(), monitor_addr()}]}.
 
 -record(state,
        { tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
+         seed_nodes :: [string()],
          client_specs :: [client_spec()],
          drop_timeout :: pos_integer(),
          drop_timer :: reference(),
@@ -40,14 +43,16 @@ init([TID]) ->
                                           ?DEFAULT_PEERBOOK_CONNECTIONS),
     DropTimeOut = libp2p_config:get_opt(Opts, [?MODULE, drop_timeout], ?DEFAULT_DROP_TIMEOUT),
     ClientSpecs = libp2p_config:get_opt(Opts, [?MODULE, stream_clients], []),
-    self() ! check_connections,
+    SeedNodes = libp2p_config:get_opt(Opts, [?MODULE, seed_nodes], []),
+    self() ! {check_connections, seed},
+    self() ! {check_connections, peerbook},
     libp2p_peerbook:join_notify(libp2p_swarm:peerbook(TID), self()),
     {ok, #state{tid=TID, peerbook_connections=PeerBookCount,
                 drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut),
-                client_specs=ClientSpecs}}.
+                seed_nodes=SeedNodes, client_specs=ClientSpecs}}.
 
 handle_call(sessions, _From, State=#state{}) ->
-    {reply, connections(peerbook, State), State};
+    {reply, connections(any, State), State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
@@ -56,8 +61,8 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(check_connections, State=#state{}) ->
-    {noreply, check_connections(peerbook, State)};
+handle_info({check_connections, Kind}, State=#state{}) ->
+    {noreply, check_connections(Kind, State)};
 handle_info({register_connection, Kind, Addr, SessionPid}, State=#state{client_specs=ClientSpecs}) ->
     lists:foreach(fun({Path, {M, A}}) ->
                           libp2p_session:start_client_framed_stream(Path, SessionPid, M, A)
@@ -67,8 +72,8 @@ handle_info({new_peers, []}, State=#state{}) ->
     {noreply, State};
 handle_info({new_peers, _}, State=#state{}) ->
     {noreply, check_connections(peerbook, State)};
-handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{}) ->
-    NewState = remove_monitor(MonitorRef, Pid, State),
+handle_info({'DOWN', _MonitorRef, process, Pid, _}, State=#state{}) ->
+    NewState = remove_monitor(Pid, State),
     {noreply, check_connections(peerbook, NewState)};
 handle_info(drop_timeout, State=#state{monitors=[], drop_timeout=DropTimeOut, drop_timer=DropTimer}) ->
     erlang:cancel_timer(DropTimer),
@@ -76,7 +81,7 @@ handle_info(drop_timeout, State=#state{monitors=[], drop_timeout=DropTimeOut, dr
 handle_info(drop_timeout, State=#state{monitors=Monitors, drop_timeout=DropTimeOut, drop_timer=DropTimer}) ->
     erlang:cancel_timer(DropTimer),
     DropEntry = lists:nth(rand:uniform(length(Monitors)), Monitors),
-    lager:info("Timeout dropping connected address ~p]", [mk_p2p_addr(monitor_addr(DropEntry))]),
+    lager:info("Timeout dropping 1 connection: ~p]", [monitor_addrs(DropEntry)]),
     NewMonitors = lists:delete(DropEntry, Monitors),
     {noreply, State#state{monitors=NewMonitors, drop_timer=schedule_drop_timer(DropTimeOut)}};
 handle_info(Msg, _State) ->
@@ -108,52 +113,68 @@ check_connections(Kind=peerbook, State=#state{tid=TID, peerbook_connections=Peer
         _MissingCount when length(ShuffledAddrs) == 0 -> ok;
         %% Go try to connect one with the available shuffled addresses
         _ ->
-            lager:debug("Session agent trying to open a connection from ~p available",
-                        [length(ShuffledAddrs)]),
             %% Create connections for the missinge number of connections
-            Parent = self(),
-            spawn(fun() ->
-                          mk_connection(Parent, TID, Kind, ShuffledAddrs)
-                  end)
+            spawn_mk_connection(self(), TID, Kind, ShuffledAddrs)
+    end,
+    State;
+check_connections(Kind=seed, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
+    {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
+    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs), sets:from_list(CurrentAddrs))),
+    case length(TargetAddrs) of
+        0 -> ok;
+        _ ->
+            spawn_mk_connection(self(), TID, Kind, TargetAddrs)
     end,
     State.
 
--spec connections(atom(), #state{}) -> [{pid(), libp2p_crypto:address()}].
-connections(Kind, #state{monitors=Monitors}) ->
-    lists:foldl(fun({Pid, {_, StoredKind, Addr}}, Acc) when StoredKind == Kind ->
-                        [{Addr, Pid} | Acc];
-                   (_, Acc) -> Acc
-                end, [], Monitors).
+spawn_mk_connection(Parent, TID, Kind, Addrs) ->
+    lager:debug("Session agent trying to open a ~p connection from ~p available",
+                [Kind, length(Addrs)]),
+    spawn(fun() ->
+                  mk_connection(Parent, TID, Kind, Addrs)
+          end).
 
--spec add_monitor(atom(), libp2p_crypto:address(), pid(), #state{}) -> #state{}.
+-spec connections(atom(), #state{}) -> [{pid(), monitor_addr()}].
+connections(Kind, #state{monitors=Monitors}) ->
+    Result = lists:foldl(fun({_Pid, _MonitorRef, Entries}, Acc) when Kind == any ->
+                                 [Entries | Acc];
+                            ({Pid, _MonitorRef, Entries}, Acc) ->
+                                 case lists:keyfind(Kind, 1, Entries) of
+                                     false -> Acc;
+                                     {Kind, Addr} -> [{Addr, Pid} | Acc]
+                                 end;
+                            (_, Acc) -> Acc
+                         end, [], Monitors),
+    lists:flatten(Result).
+
+-spec add_monitor(atom(), monitor_addr(), pid(), #state{}) -> #state{}.
 add_monitor(Kind, Addr, Pid, State=#state{monitors=Monitors}) ->
     Entry = case lists:keyfind(Pid, 1, Monitors) of
-                false -> {Pid, {erlang:monitor(process, Pid), Kind, Addr}};
-                {Pid, {MonitorRef, Kind, _}} ->
-                    %% We should not end up in a state where the same
-                    %% PID is attached to a different crypto address,
-                    %% but if it does we
-                    {Pid, {MonitorRef, Kind, Addr}}
+                false -> {Pid, erlang:monitor(process, Pid), [{Kind, Addr}]};
+                {Pid, MonitorRef, Entries} ->
+                    case lists:keyfind(Kind, 1, Entries) of
+                        false -> {Pid, MonitorRef, lists:keystore(Kind, 1, Entries, {Kind, Addr})};
+                        _ -> {Pid, Entries}
+                    end
             end,
     State#state{monitors=lists:keystore(Pid, 1, Monitors, Entry)}.
 
--spec remove_monitor(reference(), pid(), #state{}) -> #state{}.
-remove_monitor(MonitorRef, Pid, State=#state{monitors=Monitors}) ->
+-spec remove_monitor(pid(), #state{}) -> #state{}.
+remove_monitor(Pid, State=#state{monitors=Monitors}) ->
     case lists:keytake(Pid, 1, Monitors) of
         false -> State;
-        {value, {Pid, {MonitorRef, _, _}}, NewMonitors} ->
+        {value, {Pid, _MonitorRef, _Entries}, NewMonitors} ->
             State#state{monitors=NewMonitors}
     end.
 
--spec monitor_addr(monitor_entry()) -> binary().
-monitor_addr({_Pid, {_Ref, _Kind, Addr}}) ->
-    Addr.
+-spec monitor_addrs(monitor_entry()) -> [monitor_addr()].
+monitor_addrs({_Pid, _MonitorRef, Entries}) ->
+    Entries.
 
--spec mk_connection(pid(), ets:tab(), atom(), [libp2p_crypto:address()])
-                   -> check_connections
-                          | {register_connection, atom(), libp2p_crypto:address(), libp2p_session:pid()}.
-mk_connection(Parent, _TID, _Kind, Addrs)  when Addrs == [] ->
-    Parent ! check_connections;
+-spec mk_connection(pid(), ets:tab(), atom(), [monitor_addr()])
+                   -> check_connections | {register_connection, atom(), monitor_addr(), libp2p_session:pid()}.
+mk_connection(Parent, _TID, Kind, Addrs)  when Addrs == [] ->
+    erlang:send_after(1000, Parent, {check_connections, Kind});
 mk_connection(Parent, TID, Kind, [Addr | Tail]) ->
     MAddr = mk_p2p_addr(Addr),
     case libp2p_transport:connect_to(MAddr, [], 5000, TID) of
@@ -165,6 +186,8 @@ mk_connection(Parent, TID, Kind, [Addr | Tail]) ->
             Parent ! {register_connection, Kind, Addr, SessionPid}
     end.
 
--spec mk_p2p_addr(libp2p_crypto:address()) -> string().
-mk_p2p_addr(Addr) ->
-    lists:flatten(["/p2p/", libp2p_crypto:address_to_b58(Addr)]).
+-spec mk_p2p_addr(monitor_addr()) -> string().
+mk_p2p_addr(Addr) when is_binary(Addr) ->
+    lists:flatten(["/p2p/", libp2p_crypto:address_to_b58(Addr)]);
+mk_p2p_addr(MAddr) when is_list(MAddr) ->
+    MAddr.

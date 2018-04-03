@@ -71,18 +71,45 @@ stream_test() ->
     %% will cause the serve_framed_stream server to call us back when
     %% it accepts stream and the client to call us back once it
     %% connects
-    Client = receive
-                 {hello_client, C} -> C
-             after 1000 -> error(timeout)
-             end,
 
     Server = receive
                  {hello_server, S} -> S
-             after 1000 -> error(timeout)
+             after 2000 -> error(timeout)
+             end,
+
+    Client = receive
+                 {hello_client, C} -> C
+             after 2000 -> error(timeout)
              end,
 
     %% Send some data just to be sure
     serve_framed_stream:send(Client, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:data(Server) == <<"hello">> end),
+
+    test_util:teardown_swarms([S1, S2]).
+
+seed_test() ->
+    %% Set up S2 as the seed.
+    [S2] = test_util:setup_swarms(1, [ {session_agent, libp2p_session_agent_number},
+                                       {libp2p_session_agent_number, [{peerbook_connections, 0}]}
+                                       ]),
+
+    [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
+
+    %% Set up S1 to be the client..one peer connection, and S2 as the seed node
+    [S1] = test_util:setup_swarms(1, [ {session_agent, libp2p_session_agent_number},
+                                       {libp2p_session_agent_number,
+                                        [ {peerbook_connections, 1},
+                                          {seed_nodes, [S2ListenAddr]}
+                                        ]}
+                                     ]),
+
+    %% Verify that S2 finds out about S1
+    S2PeerBook = libp2p_swarm:peerbook(S2),
+    ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1)) end),
+
+    %% And the S1 has a session to S2
+    S1Agent = libp2p_swarm:session_agent(S1),
+    ?assertEqual(1, length(libp2p_session_agent:sessions(S1Agent))),
 
     test_util:teardown_swarms([S1, S2]).

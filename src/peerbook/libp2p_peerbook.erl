@@ -260,10 +260,10 @@ fetch_peers(Store) ->
                                  end, []),
     lists:reverse(Result).
 
--spec store_peer(libp2p_peer:peer(), reference()) -> ok.
+-spec store_peer(libp2p_peer:peer(), reference()) -> ok | {error, term()}.
 store_peer(Peer, Store) ->
     case bitcask:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer)) of
-        {error, Error} -> error(Error);
+        {error, Error} -> {error, Error};
         ok -> ok
     end.
 
