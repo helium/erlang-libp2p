@@ -1,4 +1,4 @@
--module(session_agent_number_test).
+-module(group_gossip_test).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -8,10 +8,10 @@ get_peer(Swarm) ->
     {ok, Peer} = libp2p_peerbook:get(PeerBook, Addr),
     Peer.
 
-session_agent_number_test_() ->
+group_gossip_test_() ->
     test_util:foreachx(
-      [ {"Peerbook connection", 2, [{session_agent, libp2p_session_agent_number},
-                                    {libp2p_session_agent_number,
+      [ {"Peerbook connection", 2, [{group_agent, libp2p_group_gossip},
+                                    {libp2p_group_gossip,
                                      [{peerbook_connections, 1}]
                                     }], fun connection/1}
       ]).
@@ -22,12 +22,12 @@ connection([S1, S2]) ->
     S1PeerBook = libp2p_swarm:peerbook(S1),
 
     %% No initial sessions since peerbook is empty
-    S1Agent = libp2p_swarm:session_agent(S1),
-    ?assertEqual([], libp2p_session_agent:sessions(S1Agent)),
+    S1Agent = libp2p_swarm:group_agent(S1),
+    ?assertEqual([], libp2p_group_gossip:sessions(S1Agent)),
 
     %% Fake a drop timer to see if sessions are attempted
     S1Agent ! drop_timeout,
-    ?assertEqual([], libp2p_session_agent:sessions(S1Agent)),
+    ?assertEqual([], libp2p_group_gossip:sessions(S1Agent)),
 
     %% Now tell S1 about S2
     libp2p_peerbook:put(S1PeerBook, [get_peer(S2)]),
@@ -35,14 +35,14 @@ connection([S1, S2]) ->
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1)) end),
-    ?assertEqual(1, length(libp2p_session_agent:sessions(S1Agent))),
+    ?assertEqual(1, length(libp2p_group_gossip:sessions(S1Agent))),
 
     %% Make S1 forget about S1
     libp2p_peerbook:remove(S1PeerBook, libp2p_swarm:address(S2)),
 
     %% And fake a timeout to ensure that the agent forgets about S2
     S1Agent ! drop_timeout,
-    ?assertEqual([], libp2p_session_agent:sessions(S1Agent)),
+    ?assertEqual([], libp2p_group_gossip:sessions(S1Agent)),
     ok.
 
 
@@ -50,8 +50,8 @@ stream_test_() ->
     {setup,
      fun () ->
              %% Set up S1 to be the client swarm..one peer connection, with a sample client spec
-             [S1] = test_util:setup_swarms(1, [ {session_agent, libp2p_session_agent_number},
-                                                {libp2p_session_agent_number,
+             [S1] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+                                                {libp2p_group_gossip,
                                                  [ {peerbook_connections, 1},
                                                    {stream_clients,
                                                     [ {"test", {serve_framed_stream, [self()]}}
@@ -61,8 +61,8 @@ stream_test_() ->
 
              %% Set up S2 as the server. No peer connections but with a
              %% registered test stream handler
-             [S2] = test_util:setup_swarms(1, [ {session_agent, libp2p_session_agent_number},
-                                                {libp2p_session_agent_number, [{peerbook_connections, 0}]}
+             [S2] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+                                                {libp2p_group_gossip, [{peerbook_connections, 0}]}
                                               ]),
              %% Add the serve stream handler to S2
              serve_framed_stream:register(S2, "test"),
@@ -99,15 +99,15 @@ seed_test_() ->
     {setup,
      fun() ->
              %% Set up S2 as the seed.
-             [S2] = test_util:setup_swarms(1, [ {session_agent, libp2p_session_agent_number},
-                                                {libp2p_session_agent_number, [{peerbook_connections, 0}]}
+             [S2] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+                                                {libp2p_group_gossip, [{peerbook_connections, 0}]}
                                               ]),
 
              [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
 
              %% Set up S1 to be the client..one peer connection, and S2 as the seed node
-             [S1] = test_util:setup_swarms(1, [ {session_agent, libp2p_session_agent_number},
-                                                {libp2p_session_agent_number,
+             [S1] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+                                                {libp2p_group_gossip,
                                                  [ {peerbook_connections, 0},
                                                    {seed_nodes, [S2ListenAddr]}
                                                  ]}
@@ -123,8 +123,8 @@ seed_test_() ->
               ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1)) end),
 
               %% And the S1 has a session to S2
-              S1Agent = libp2p_swarm:session_agent(S1),
-              ?assertEqual(1, length(libp2p_session_agent:sessions(S1Agent))),
+              S1Agent = libp2p_swarm:group_agent(S1),
+              ?assertEqual(1, length(libp2p_group_gossip:sessions(S1Agent))),
 
               ok
       end
