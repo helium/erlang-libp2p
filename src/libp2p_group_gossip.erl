@@ -11,10 +11,9 @@
 -type opt() :: {peerbook_connections, pos_integer()}
              | {drop_timeout, pos_integer()}
              | {stream_clients, [client_spec()]}
-             | {seed_nodes, [seed_node()]}.
+             | {seed_nodes, [MultiAddr::string()]}.
 
 -type client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
--type seed_node() :: {node, [ListenAddr::string()]}.
 
 -export_type([opt/0]).
 
