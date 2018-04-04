@@ -5,9 +5,9 @@
 session_test_() ->
     test_util:foreachx(
       [
-       {"Session open/close", 2, [{libp2p_session_agent_number,
-                                         [{peerbook_connections, 0}]
-                                        }], fun open_close/1},
+       {"Session open/close", 2, [{libp2p_group_gossip,
+                                   [{peerbook_connections, 0}]
+                                  }], fun open_close/1},
        {"Session Ping", 2, [], fun ping/1}
      ]).
 
