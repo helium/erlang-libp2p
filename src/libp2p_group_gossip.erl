@@ -1,7 +1,9 @@
--module(libp2p_session_agent_number).
+-module(libp2p_group_gossip).
 
 -behavior(gen_server).
 
+% API
+-export([sessions/1]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_info/2, handle_call/3, handle_cast/2]).
@@ -29,6 +31,15 @@
          monitors=[] :: [monitor_entry()]
        }).
 
+
+%% API
+%
+
+-spec sessions(pid()) -> [{libp2p_crypto:address(), libp2p_session:pid()}].
+sessions(Pid) ->
+    gen_server:call(Pid, sessions).
+
+
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
 -define(DEFAULT_DROP_TIMEOUT, 10 * 60 * 60).
 
@@ -37,7 +48,7 @@ start_link(TID) ->
 
 init([TID]) ->
     erlang:process_flag(trap_exit, true),
-    libp2p_swarm_sup:register_session_agent(TID),
+    libp2p_swarm_sup:register_group_agent(TID),
     Opts = libp2p_swarm:opts(TID, []),
     PeerBookCount = libp2p_config:get_opt(Opts, [?MODULE, peerbook_connections],
                                           ?DEFAULT_PEERBOOK_CONNECTIONS),

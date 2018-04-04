@@ -123,7 +123,7 @@ put({PeerBook, Address, _Name}) ->
 
 swarm_test_() ->
     test_util:foreachx(
-      [{"Peerbook Gossip", 2, [{libp2p_session_agent_number,
+      [{"Peerbook Gossip", 2, [{libp2p_group_gossip,
                                 [{peerbook_connections, 0}]
                                }], fun gossip/1},
        {"Peerbook Staletime", 1, [{libp2p_peerbook, [{stale_time, 100}]

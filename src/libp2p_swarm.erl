@@ -8,7 +8,7 @@
          add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1,
          register_session/3, register_listener/3,
-         session_agent/1]).
+         group_agent/1]).
 
 -type swarm_opts() :: [swarm_opt()].
 -type connect_opts() :: [connect_opt()].
@@ -19,7 +19,7 @@
                    | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
                    | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}
-                   | {libp2p_session_agent_number, [libp2p_session_agent_number:opt()]}.
+                   | {libp2p_group_gossip, [libp2p_group_gossip:opt()]}.
 
 -type connect_opt() :: {unique_session, boolean()}
                      | {unique_port, boolean()}.
@@ -253,8 +253,8 @@ stream_handlers(TID) ->
 %% Session Agent
 %%
 
--spec session_agent(supervisor:sup_ref() | ets:tab()) -> pid().
-session_agent(Sup) when is_pid(Sup) ->
-    session_agent(tid(Sup));
-session_agent(TID) ->
-    libp2p_swarm_sup:session_agent(TID).
+-spec group_agent(supervisor:sup_ref() | ets:tab()) -> pid().
+group_agent(Sup) when is_pid(Sup) ->
+    group_agent(tid(Sup));
+group_agent(TID) ->
+    libp2p_swarm_sup:group_agent(TID).
