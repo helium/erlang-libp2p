@@ -3,8 +3,12 @@
 -include_lib("bitcask/include/bitcask.hrl").
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
--export([keys/1, values/1, put/2,get/2, is_key/2,
-         join_notify/2, register_session/4, changed_listener/1, update_nat_type/2]).
+-export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
+         join_notify/2, register_session/4,  unregister_session/2,
+         changed_listener/1, update_nat_type/2]).
+
+-type opt() :: {stale_time, pos_integer()}.
+-export_type([opt/0]).
 
 -behviour(gen_server).
 
@@ -13,9 +17,11 @@
           store :: reference(),
           notify :: atom(),
           nat_type = unknown :: libp2p_peer:nat_type(),
-          stale_time :: integer(),
+          peer_time=1000 :: pos_integer(),
+          peer_timer :: undefined | reference(),
+          stale_time :: pos_integer(),
           stale_timer :: reference(),
-          sessions=#{} :: #{libp2p_crypto:address() => [libp2p_session:pid()]},
+          sessions=[] :: [{libp2p_crypto:address(), libp2p_session:pid()}],
           sigfun :: fun((binary()) -> binary())
         }).
 
@@ -46,6 +52,10 @@ keys(Pid) ->
 values(Pid) ->
     gen_server:call(Pid, values).
 
+-spec remove(pid(), libp2p_crypto:address()) -> ok | {error, no_delete}.
+remove(Pid, ID) ->
+    gen_server:call(Pid, {remove, ID}).
+
 -spec join_notify(pid(), pid()) -> ok.
 join_notify(Pid, Joiner) ->
     gen_server:cast(Pid, {join_notify, Joiner}).
@@ -53,6 +63,10 @@ join_notify(Pid, Joiner) ->
 -spec register_session(pid(), pid(), libp2p_identify:identify(), client | server) -> ok.
 register_session(Pid, SessionPid, Identify, Kind) ->
     gen_server:cast(Pid, {register_session, SessionPid, Identify, Kind}).
+
+-spec unregister_session(pid(), pid()) -> ok.
+unregister_session(Pid, SessionPid) ->
+    gen_server:cast(Pid, {unregister_session, SessionPid}).
 
 changed_listener(Pid) ->
     gen_server:cast(Pid, changed_listener).
@@ -83,10 +97,10 @@ init([TID, SigFun]) ->
         {error, Reason} -> {stop, Reason};
         Ref ->
             Opts = libp2p_swarm:opts(TID, []),
-            StaleTime = libp2p_config:get_opt(Opts, [peerbook, stale_time],
+            StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time],
                                               ?DEFAULT_PEER_STALE_TIME),
 
-            StaleTimer = erlang:send_after(0, self(), stale_timeout),
+            StaleTimer = erlang:send_after(1, self(), stale_timeout),
             State = #state{tid=TID, store=Ref, notify=Group, sigfun=SigFun,
                            stale_timer=StaleTimer, stale_time=StaleTime},
             {ok, State}
@@ -127,9 +141,15 @@ handle_call({put, PeerList, CallerPid}, _From, State=#state{store=Store, notify=
     % Notify group of new peers
     group_notify_peers(Group, CallerPid, NewPeers),
     {reply, ok, State};
+handle_call({remove, ID}, _From, State=#state{tid=TID, store=Store}) ->
+    Result = case ID == libp2p_swarm:address(TID) of
+                 true -> {error, no_delete};
+                 false -> delete_peer(ID, Store)
+             end,
+    {reply, Result, State};
 
 handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p~n", [Msg]),
+    lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
 handle_cast(changed_listener, State=#state{}) ->
@@ -137,12 +157,13 @@ handle_cast(changed_listener, State=#state{}) ->
 handle_cast({update_nat_type, UpdatedNatType},
             State=#state{nat_type=NatType}) when UpdatedNatType /= NatType->
     {noreply, update_this_peer(State)};
+handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
+    NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
+    {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({register_session, SessionPid, Identify, Kind},
             State=#state{tid=TID, sessions=Sessions, store=Store}) ->
     SessionAddr = libp2p_identify:address(Identify),
-    SessionPids = maps:get(SessionAddr, Sessions, []),
-    NewSessions = maps:put(SessionAddr, [SessionPid | SessionPids], Sessions),
-
+    NewSessions = [{SessionAddr, SessionPid} | Sessions],
     NewState = update_this_peer(State#state{sessions=NewSessions}),
 
     case Kind of
@@ -152,7 +173,7 @@ handle_cast({register_session, SessionPid, Identify, Kind},
                 lager:info("Starting discovery with ~p", [RemoteAddr]),
                 %% Pass the peerlist directly into the stream_peer client
                 %% since it is a synchronous call
-                    PeerList = fetch_peers(Store),
+                PeerList = fetch_peers(Store),
                 libp2p_session:start_client_framed_stream("peer/1.0.0", SessionPid,
                                                           libp2p_stream_peer, [TID, PeerList])
             catch
@@ -165,13 +186,15 @@ handle_cast({join_notify, JoinPid}, State=#state{notify=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
 handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p~n", [Msg]),
+    lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info(peer_timeout, State=#state{}) ->
+    {noreply, notify_this_peer(State)};
 handle_info(stale_timeout, State=#state{}) ->
     {noreply, update_this_peer(State)};
 handle_info(Msg, State) ->
-    lager:warning("Unhandled info: ~p~n", [Msg]),
+    lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 terminate(_Reason, #state{store=Store}) ->
@@ -182,31 +205,44 @@ terminate(_Reason, #state{store=Store}) ->
 %% Internal
 %%
 
+notify_this_peer(State=#state{tid=TID, notify=Group, store=Store}) ->
+    try
+        {ok, Peer} = fetch_peer(libp2p_swarm:address(TID), Store),
+        group_notify_peers(Group, undefined, [Peer])
+    catch
+        _:_ -> ok
+    end,
+    State#state{peer_timer=undefined}.
 
 -spec update_this_peer(#state{}) -> #state{}.
-update_this_peer(State=#state{notify=Group, stale_time=StaleTime, stale_timer=StaleTimer}) ->
-    Peer = mk_this_peer(State),
-    group_notify_peers(Group, undefined, [Peer]),
+update_this_peer(State=#state{peer_time=PeerTime, peer_timer=PeerTimer,
+                              stale_time=StaleTime, stale_timer=StaleTimer}) ->
+    _ = mk_this_peer(State),
+    case PeerTimer of
+        undefined -> ok;
+        Other -> erlang:cancel_timer(Other)
+    end,
+    NewPeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
     erlang:cancel_timer(StaleTimer),
     erlang:send_after(StaleTime, self(), stale_timeout),
-    State#state{stale_timer=StaleTimer}.
+    State#state{stale_timer=StaleTimer, peer_timer=NewPeerTimer}.
 
 mk_this_peer(#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType, store=Store}) ->
     SwarmAddr = libp2p_swarm:address(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
-    ConnectedAddrs = maps:keys(Sessions),
+    ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- Sessions])),
     Peer = libp2p_peer:new(SwarmAddr, ListenAddrs, ConnectedAddrs, NatType,
                            erlang:system_time(seconds), SigFun),
     store_peer(Peer, Store),
     Peer.
 
 -spec fetch_peer(libp2p_crypto:address(), reference())
-                -> libp2p_peer:peer() | {error, term()}.
+                -> {ok, libp2p_peer:peer()} | {error, term()}.
 fetch_peer(ID, Store) ->
     case bitcask:get(Store, ID) of
         {ok, Bin} -> {ok, libp2p_peer:decode(Bin)};
         not_found -> {error, not_found};
-        {error, _Error} -> error(error)
+        Other -> Other
     end.
 
 -spec fetch_peers(reference()) -> [libp2p_peer:peer()].
@@ -216,12 +252,16 @@ fetch_peers(Store) ->
                                  end, []),
     lists:reverse(Result).
 
--spec store_peer(libp2p_peer:peer(), reference()) -> ok.
+-spec store_peer(libp2p_peer:peer(), reference()) -> ok | {error, term()}.
 store_peer(Peer, Store) ->
     case bitcask:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer)) of
-        {error, Error} -> error(Error);
+        {error, Error} -> {error, Error};
         ok -> ok
     end.
+
+-spec delete_peer(libp2p_crypto:address(), reference()) -> ok.
+delete_peer(ID, Store) ->
+    bitcask:delete(Store, ID).
 
 -spec group_create(atom()) -> atom().
 group_create(SwarmName) ->

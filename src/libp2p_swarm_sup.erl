@@ -7,11 +7,13 @@
 % api
 -export([sup/1, opts/2, name/1, address/1,
          register_server/1, server/1,
+         register_session_agent/1, session_agent/1,
          register_peerbook/1, peerbook/1]).
 
 -define(SUP, swarm_sup).
 -define(SERVER, swarm_server).
 -define(PEERBOOK, swarm_peerbook).
+-define(SESSION_AGENT, swarm_session_agent).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
 -define(OPTS, swarm_opts).
@@ -63,7 +65,7 @@ init([Name, Opts]) ->
                    worker,
                    [libp2p_peerbook]
                   }
-                 ],
+                 ] ++ session_agent_spec(Opts, [TID]),
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -75,6 +77,17 @@ init_keys(Opts) ->
             {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
         {PubKey, SigFun} -> {PubKey, SigFun}
     end.
+
+-spec session_agent_spec(libp2p_swarm:opts(), [any()]) -> [supervisor:child_spec()].
+session_agent_spec(Opts, Args) ->
+    AgentModule = libp2p_config:get_opt(Opts, session_agent, libp2p_session_agent_number),
+    [{ ?SESSION_AGENT,
+       {AgentModule, start_link, Args},
+       permanent,
+       10000,
+       worker,
+       [AgentModule]
+     }].
 
 -spec sup(ets:tab()) -> supervisor:sup_ref().
 sup(TID) ->
@@ -112,3 +125,10 @@ opts(TID, Default) ->
         [{_, Opts}] -> Opts;
         [] -> Default
     end.
+
+-spec session_agent(ets:tab()) -> pid().
+session_agent(TID) ->
+    ets:lookup_element(TID, ?SESSION_AGENT, 2).
+
+register_session_agent(TID) ->
+    ets:insert(TID, {?SESSION_AGENT, self()}).

@@ -2,8 +2,14 @@
 
 -type connection_handler() :: {atom(), atom()}.
 
+-callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
+-callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
+-callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
+-callback match_addr(string()) -> {ok, string()} | false.
+
+
 -export_type([connection_handler/0]).
--export([for_addr/2, start_client_session/3, start_server_session/3]).
+-export([for_addr/2, connect_to/4, start_client_session/3, start_server_session/3]).
 
 
 -spec for_addr(ets:tab(), string()) -> {ok, string(), {atom(), pid()}} | {error, term()}.
@@ -16,6 +22,30 @@ for_addr(TID, Addr) ->
                    (_, Acc) -> Acc
                 end, {error, {unsupported_address, Addr}}, libp2p_config:lookup_transports(TID)).
 
+%% @doc Connect through a transport service. This is a convenience
+%% function that verifies the given multiaddr, finds the right
+%% transport, and checks if a session already exists for the given
+%% multiaddr. The existing session is returned if it already exists,
+%% or a `connect' call is made to transport service to perform the
+%% actual connect.
+-spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
+                -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+connect_to(Addr, Options, Timeout, TID) ->
+    case libp2p_transport:for_addr(TID, Addr) of
+        {ok, ConnAddr, {Transport, TransportPid}} ->
+            case libp2p_config:lookup_session(TID, ConnAddr, Options) of
+                {ok, Pid} -> {ok, ConnAddr, Pid};
+                false ->
+                    lager:info("~p connecting to ~p", [Transport, ConnAddr]),
+                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
+                        {error, Error} -> {error, Error};
+                        {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
+                    catch
+                        What:Why -> {error, {What, Why}}
+                    end
+            end;
+        {error, Error} -> {error, Error}
+    end.
 
 %%
 %% Session negotiation
@@ -60,6 +90,9 @@ start_server_session(Ref, TID, Connection) ->
                            {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
             {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
             libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
+            %% Since servers accept outside of the swarm server,
+            %% notify it of this new session
+            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
             libp2p_identify:spawn_identify(TID, SessionPid, server),
             {ok, SessionPid}
     end.

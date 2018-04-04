@@ -4,7 +4,7 @@
 
 -export_type([stream_handler/0]).
 
--export([ping/1, open/1, close/1, close_state/1, goaway/1, streams/1, addr_info/1]).
+-export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1]).
 
 -export([start_client_stream/2, start_client_framed_stream/4]).
 
@@ -18,7 +18,11 @@ open(Pid) ->
 
 -spec close(pid()) -> ok.
 close(Pid) ->
-    gen_server:stop(Pid).
+    close(Pid, normal, infinity).
+
+-spec close(pid(), term(), non_neg_integer() | infinity) -> ok.
+close(Pid, Reason, Timeout) ->
+    gen_server:stop(Pid, Reason, Timeout).
 
 -spec close_state(pid()) -> libp2p_connection:close_state().
 close_state(Pid) ->

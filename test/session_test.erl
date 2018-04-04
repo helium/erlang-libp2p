@@ -2,8 +2,16 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-open_close_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+session_test_() ->
+    test_util:foreachx(
+      [
+       {"Session open/close", 2, [{libp2p_session_agent_number,
+                                         [{peerbook_connections, 0}]
+                                        }], fun open_close/1},
+       {"Session Ping", 2, [], fun ping/1}
+     ]).
+
+open_close([S1, S2]) ->
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
     ?assertEqual(open, libp2p_session:close_state(Session1)),
@@ -37,15 +45,13 @@ open_close_test() ->
     ?assertEqual({error, closed}, libp2p_connection:send(Stream1, <<"hello">>)),
 
     libp2p_session:close(Session1),
-    test_util:teardown_swarms(Swarms),
+
     ok.
 
-ping_test() ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+ping([S1, S2]) ->
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
     {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
     ?assertMatch({ok, _}, libp2p_session:ping(Session)),
 
-    test_util:teardown_swarms(Swarms),
     ok.
