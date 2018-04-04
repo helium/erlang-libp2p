@@ -192,15 +192,7 @@ handle_cast(Msg, State) ->
 handle_info(peer_timeout, State=#state{}) ->
     {noreply, notify_this_peer(State)};
 handle_info(stale_timeout, State=#state{}) ->
-    try
-        {noreply, update_this_peer(State)}
-    catch
-        error:{error, enoent} ->
-            %% In fast swarm startup and shutdown (i.e. during test)
-            %% this may happen since the underlying store is
-            %% deleted. Catch and stop.
-            {stop, normal, State}
-    end;
+    {noreply, update_this_peer(State)};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
