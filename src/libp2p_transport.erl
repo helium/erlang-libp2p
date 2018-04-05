@@ -101,7 +101,7 @@ start_server_session(Ref, TID, Connection) ->
             % This should really not happen since the remote address
             % should be unique for most transports (e.g. a different
             % port for tcp)
-            exit(Pid, shutdown);
+            libp2p_session:close(Pid);
         false -> ok
     end,
     Handlers = [{Key, Handler} ||
