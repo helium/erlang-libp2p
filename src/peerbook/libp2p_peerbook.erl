@@ -98,15 +98,12 @@ init([TID, SigFun]) ->
     DataDir = libp2p_config:data_dir(TID, peerbook),
     SwarmName = libp2p_swarm:name(TID),
     Group = group_create(SwarmName),
-    case bitcask:open(DataDir, [read_write]) of
+    Opts = libp2p_swarm:opts(TID, []),
+    StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
+    case bitcask:open(DataDir, [read_write, {expiry_secs, 2 * StaleTime / 1000}]) of
         {error, Reason} -> {stop, Reason};
         Ref ->
-            Opts = libp2p_swarm:opts(TID, []),
-            StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time],
-                                              ?DEFAULT_STALE_TIME),
-            PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time],
-                                            ?DEFAULT_PEER_TIME),
-
+            PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
             {ok, notify_this_peer(#state{tid=TID, store=Ref, notify=Group, sigfun=SigFun,
                                          peer_time=PeerTime, stale_time=StaleTime})}
     end.
@@ -143,7 +140,6 @@ handle_call({put, PeerList, CallerPid}, _From, State=#state{notify=Group, tid=TI
                                                 andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
                                     end
                             end, PeerList),
-    lager:debug("NEW PEERS ~p", [NewPeers]),
     % Add new peers to the store
     lists:foreach(fun(P) -> store_peer(P, State) end, NewPeers),
     % Notify group of new peers
