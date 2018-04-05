@@ -170,8 +170,9 @@ handle_cast({update_nat_type, UpdatedNatType},
     {noreply, NewState};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
-    _ = mk_this_peer(State),
-    {noreply, State#state{sessions=NewSessions}};
+    NewState = State#state{sessions=NewSessions},
+    _ = mk_this_peer(NewState),
+    {noreply, NewState};
 handle_cast({register_session, SessionPid, Identify, Kind},
             State=#state{tid=TID, sessions=Sessions}) ->
     SessionAddr = libp2p_identify:address(Identify),
