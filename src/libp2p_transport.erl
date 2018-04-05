@@ -97,19 +97,19 @@ start_client_session(TID, Addr, Connection) ->
 start_server_session(Ref, TID, Connection) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
     case libp2p_config:lookup_session(TID, RemoteAddr) of
-        {ok, _Pid} ->
+        {ok, Pid} ->
             % This should really not happen since the remote address
             % should be unique for most transports (e.g. a different
             % port for tcp)
-            {error, {already_connected, RemoteAddr}};
-        false ->
-            Handlers = [{Key, Handler} ||
-                           {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
-            {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
-            libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
-            %% Since servers accept outside of the swarm server,
-            %% notify it of this new session
-            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
-            libp2p_identify:spawn_identify(TID, SessionPid, server),
-            {ok, SessionPid}
-    end.
+            exit(Pid, shutdown);
+        false -> ok
+    end,
+    Handlers = [{Key, Handler} ||
+                   {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
+    {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
+    libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
+    %% Since servers accept outside of the swarm server,
+    %% notify it of this new session
+    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
+    libp2p_identify:spawn_identify(TID, SessionPid, server),
+    {ok, SessionPid}.
