@@ -57,11 +57,12 @@ supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}}
     ThisTimestamp > OtherTimestamp.
 
 %% @doc Returns whether a given peer is stale relative to a given
-%% stale delta time (in seconds).
+%% stale delta time in milliseconds. Note that the accuracy of a peer
+%% entry is only up to the nearest second. .
 -spec is_stale(peer(), integer()) -> boolean().
-is_stale(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}, StaleDelta) ->
+is_stale(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}, StaleMS) ->
     Now = erlang:system_time(seconds),
-    (Timestamp + StaleDelta) > Now.
+    (Timestamp * 1000 + StaleMS) < (Now * 1000).
 
 %% @doc Encodes the given peer into its binary form.
 -spec encode(peer()) -> binary().
