@@ -7,7 +7,9 @@
          join_notify/2, register_session/4,  unregister_session/2,
          changed_listener/1, update_nat_type/2]).
 
--type opt() :: {stale_time, pos_integer()}.
+-type opt() :: {stale_time, pos_integer()}
+             | {peer_time, pos_integer()}.
+
 -export_type([opt/0]).
 
 -behviour(gen_server).
@@ -17,15 +19,17 @@
           store :: reference(),
           notify :: atom(),
           nat_type = unknown :: libp2p_peer:nat_type(),
-          peer_time=1000 :: pos_integer(),
+          peer_time :: pos_integer(),
           peer_timer :: undefined | reference(),
           stale_time :: pos_integer(),
-          stale_timer :: reference(),
           sessions=[] :: [{libp2p_crypto:address(), libp2p_session:pid()}],
           sigfun :: fun((binary()) -> binary())
         }).
 
--define(DEFAULT_PEER_STALE_TIME, 24 * 60 * 60).
+%% Default peer stale time is 24 hours (in milliseconds)
+-define(DEFAULT_STALE_TIME, 24 * 60 * 60 * 1000).
+%% Defailt "this" peer heartbeat time 5 minutes (in milliseconds)
+-define(DEFAULT_PEER_TIME, 5 * 60 * 1000).
 
 %%
 %% API
@@ -71,6 +75,7 @@ unregister_session(Pid, SessionPid) ->
 changed_listener(Pid) ->
     gen_server:cast(Pid, changed_listener).
 
+-spec update_nat_type(pid(), libp2p_peer:nat_type()) -> ok.
 update_nat_type(Pid, NatType) ->
     gen_server:cast(Pid, {update_nat_type, NatType}).
 
@@ -98,53 +103,56 @@ init([TID, SigFun]) ->
         Ref ->
             Opts = libp2p_swarm:opts(TID, []),
             StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time],
-                                              ?DEFAULT_PEER_STALE_TIME),
+                                              ?DEFAULT_STALE_TIME),
+            PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time],
+                                            ?DEFAULT_PEER_TIME),
 
-            StaleTimer = erlang:send_after(1, self(), stale_timeout),
-            State = #state{tid=TID, store=Ref, notify=Group, sigfun=SigFun,
-                           stale_timer=StaleTimer, stale_time=StaleTime},
-            {ok, State}
+            {ok, notify_this_peer(#state{tid=TID, store=Ref, notify=Group, sigfun=SigFun,
+                                         peer_time=PeerTime, stale_time=StaleTime})}
     end.
 
 
-handle_call({is_key, ID}, _From, State=#state{store=Store}) ->
+handle_call({is_key, ID}, _From, State=#state{}) ->
     Response = try
-                   bitcask:fold_keys(Store, fun(#bitcask_entry{key=SID}, _) when SID == ID ->
-                                                    throw({ok, ID});
-                                               (_, Acc) -> Acc
-                                            end, false)
+                   fold_peers(fun(Key, _, _) when Key == ID ->
+                                      throw({ok, ID});
+                                 (_, _, Acc) -> Acc
+                              end, false, State)
                catch
                    throw:{ok, ID} -> true
                end,
     {reply, Response, State};
-handle_call(keys, _From, State=#state{store=Store}) ->
-    {reply, bitcask:list_keys(Store), State};
-handle_call(values, _From, State=#state{store=Store}) ->
-    {reply, fetch_peers(Store), State};
-handle_call({get, ID}, _From, State=#state{store=Store}) ->
-    {reply, fetch_peer(ID, Store), State};
-handle_call({put, PeerList, CallerPid}, _From, State=#state{store=Store, notify=Group, tid=TID}) ->
+handle_call(keys, _From, State=#state{}) ->
+    {reply, fetch_keys(State), State};
+handle_call(values, _From, State=#state{}) ->
+    {reply, fetch_peers(State), State};
+handle_call({get, ID}, _From, State=#state{}) ->
+    {reply, fetch_peer(ID, State), State};
+handle_call({put, PeerList, CallerPid}, _From, State=#state{notify=Group, tid=TID, stale_time=StaleTime}) ->
     ThisPeerId = libp2p_swarm:address(TID),
     NewPeers = lists:filter(fun(NewPeer) ->
                                     NewPeerId = libp2p_peer:address(NewPeer),
-                                    case fetch_peer(NewPeerId, Store) of
+                                    case unsafe_fetch_peer(NewPeerId, State) of
                                         {error, not_found} -> true;
                                         {ok, ExistingPeer} ->
                                             %% Only store peers that are not _this_ peer,
-                                            %% are newer than what we have
+                                            %% are newer than what we have,
+                                            %% are not stale themselves
                                             NewPeerId /= ThisPeerId
                                                 andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
+                                                andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
                                     end
                             end, PeerList),
+    lager:debug("NEW PEERS ~p", [NewPeers]),
     % Add new peers to the store
-    lists:foreach(fun(P) -> store_peer(P, Store) end, NewPeers),
+    lists:foreach(fun(P) -> store_peer(P, State) end, NewPeers),
     % Notify group of new peers
     group_notify_peers(Group, CallerPid, NewPeers),
     {reply, ok, State};
-handle_call({remove, ID}, _From, State=#state{tid=TID, store=Store}) ->
+handle_call({remove, ID}, _From, State=#state{tid=TID}) ->
     Result = case ID == libp2p_swarm:address(TID) of
                  true -> {error, no_delete};
-                 false -> delete_peer(ID, Store)
+                 false -> delete_peer(ID, State)
              end,
     {reply, Result, State};
 
@@ -153,18 +161,23 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(changed_listener, State=#state{}) ->
-    {noreply, update_this_peer(State)};
+    _ = mk_this_peer(State),
+    {noreply, State};
 handle_cast({update_nat_type, UpdatedNatType},
             State=#state{nat_type=NatType}) when UpdatedNatType /= NatType->
-    {noreply, update_this_peer(State)};
+    NewState = State#state{nat_type=UpdatedNatType},
+    _  = mk_this_peer(NewState),
+    {noreply, NewState};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
-    {noreply, update_this_peer(State#state{sessions=NewSessions})};
+    _ = mk_this_peer(State),
+    {noreply, State#state{sessions=NewSessions}};
 handle_cast({register_session, SessionPid, Identify, Kind},
-            State=#state{tid=TID, sessions=Sessions, store=Store}) ->
+            State=#state{tid=TID, sessions=Sessions}) ->
     SessionAddr = libp2p_identify:address(Identify),
     NewSessions = [{SessionAddr, SessionPid} | Sessions],
-    NewState = update_this_peer(State#state{sessions=NewSessions}),
+    NewState = State#state{sessions=NewSessions},
+    _ = mk_this_peer(NewState),
 
     case Kind of
         client ->
@@ -173,7 +186,7 @@ handle_cast({register_session, SessionPid, Identify, Kind},
                 lager:info("Starting discovery with ~p", [RemoteAddr]),
                 %% Pass the peerlist directly into the stream_peer client
                 %% since it is a synchronous call
-                PeerList = fetch_peers(Store),
+                PeerList = fetch_peers(State),
                 libp2p_session:start_client_framed_stream("peer/1.0.0", SessionPid,
                                                           libp2p_stream_peer, [TID, PeerList])
             catch
@@ -191,8 +204,6 @@ handle_cast(Msg, State) ->
 
 handle_info(peer_timeout, State=#state{}) ->
     {noreply, notify_this_peer(State)};
-handle_info(stale_timeout, State=#state{}) ->
-    {noreply, update_this_peer(State)};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
@@ -205,62 +216,79 @@ terminate(_Reason, #state{store=Store}) ->
 %% Internal
 %%
 
-notify_this_peer(State=#state{tid=TID, notify=Group, store=Store}) ->
-    try
-        {ok, Peer} = fetch_peer(libp2p_swarm:address(TID), Store),
-        group_notify_peers(Group, undefined, [Peer])
-    catch
-        _:_ -> ok
+-spec notify_this_peer(#state{}) -> #state{}.
+notify_this_peer(State=#state{tid=TID, notify=Group, peer_time=PeerTime}) ->
+    case fetch_peer(libp2p_swarm:address(TID), State) of
+        {ok, Peer} ->
+            group_notify_peers(Group, undefined, [Peer]);
+        {error, _} -> ok
     end,
-    State#state{peer_timer=undefined}.
+    PeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
+    State#state{peer_timer=PeerTimer}.
 
--spec update_this_peer(#state{}) -> #state{}.
-update_this_peer(State=#state{peer_time=PeerTime, peer_timer=PeerTimer,
-                              stale_time=StaleTime, stale_timer=StaleTimer}) ->
-    _ = mk_this_peer(State),
-    case PeerTimer of
-        undefined -> ok;
-        Other -> erlang:cancel_timer(Other)
-    end,
-    NewPeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
-    erlang:cancel_timer(StaleTimer),
-    erlang:send_after(StaleTime, self(), stale_timeout),
-    State#state{stale_timer=StaleTimer, peer_timer=NewPeerTimer}.
-
-mk_this_peer(#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType, store=Store}) ->
+-spec mk_this_peer(#state{}) -> libp2p_peer:peer().
+mk_this_peer(State=#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType}) ->
     SwarmAddr = libp2p_swarm:address(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- Sessions])),
     Peer = libp2p_peer:new(SwarmAddr, ListenAddrs, ConnectedAddrs, NatType,
                            erlang:system_time(seconds), SigFun),
-    store_peer(Peer, Store),
+    store_peer(Peer, State),
     Peer.
 
--spec fetch_peer(libp2p_crypto:address(), reference())
-                -> {ok, libp2p_peer:peer()} | {error, term()}.
-fetch_peer(ID, Store) ->
+
+-spec unsafe_fetch_peer(libp2p_crypto:address() | undefined, #state{})
+                       -> {ok, libp2p_peer:peer()} | {error, term()}.
+unsafe_fetch_peer(undefined, _) ->
+    {error, not_found};
+unsafe_fetch_peer(ID, #state{store=Store}) ->
     case bitcask:get(Store, ID) of
         {ok, Bin} -> {ok, libp2p_peer:decode(Bin)};
-        not_found -> {error, not_found};
-        Other -> Other
+        not_found -> {error, not_found}
     end.
 
--spec fetch_peers(reference()) -> [libp2p_peer:peer()].
-fetch_peers(Store) ->
-    Result = bitcask:fold(Store, fun(_, Bin, Acc) ->
-                                         [libp2p_peer:decode(Bin) | Acc]
-                                 end, []),
-    lists:reverse(Result).
+-spec fetch_peer(libp2p_crypto:address(), #state{})
+                -> {ok, libp2p_peer:peer()} | {error, term()}.
+fetch_peer(ID, State=#state{tid=TID, stale_time=StaleTime}) ->
+    ThisPeer = libp2p_swarm:address(TID),
+    case unsafe_fetch_peer(ID, State) of
+        {ok, Peer} ->
+            case libp2p_peer:is_stale(Peer, StaleTime) of
+                true when ThisPeer == ID -> {ok, mk_this_peer(State)};
+                true -> {error, not_found};
+                false -> {ok, Peer}
+            end;
+        {error, not_found} when ThisPeer == ID -> {ok, mk_this_peer(State)};
+        {error, Error} -> {error,Error}
+    end.
 
--spec store_peer(libp2p_peer:peer(), reference()) -> ok | {error, term()}.
-store_peer(Peer, Store) ->
+
+fold_peers(Fun, Acc0, #state{store=Store, stale_time=StaleTime}) ->
+    bitcask:fold(Store, fun(Key, Bin, Acc) ->
+                                Peer = libp2p_peer:decode(Bin),
+                                case libp2p_peer:is_stale(Peer, StaleTime) of
+                                    true -> Acc;
+                                    false -> Fun(Key, Peer, Acc)
+                                end
+                        end, Acc0).
+
+-spec fetch_keys(#state{}) -> [libp2p_crypto:address()].
+fetch_keys(State=#state{}) ->
+    fold_peers(fun(Key, _, Acc) -> [Key | Acc] end, [], State).
+
+-spec fetch_peers(#state{}) -> [libp2p_peer:peer()].
+fetch_peers(State=#state{}) ->
+    fold_peers(fun(_, Peer, Acc) -> [Peer | Acc] end, [], State).
+
+-spec store_peer(libp2p_peer:peer(), #state{}) -> ok | {error, term()}.
+store_peer(Peer, #state{store=Store}) ->
     case bitcask:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer)) of
         {error, Error} -> {error, Error};
         ok -> ok
     end.
 
--spec delete_peer(libp2p_crypto:address(), reference()) -> ok.
-delete_peer(ID, Store) ->
+-spec delete_peer(libp2p_crypto:address(), #state{}) -> ok.
+delete_peer(ID, #state{store=Store}) ->
     bitcask:delete(Store, ID).
 
 -spec group_create(atom()) -> atom().

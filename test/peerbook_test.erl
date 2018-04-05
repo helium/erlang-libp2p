@@ -29,7 +29,7 @@ isolated_test_() ->
              test_util:rm_rf(DirName)
      end,
      test_util:with(
-       [ {"Accessors", fun basic/1},
+       [ {"Accessors", fun accessors/1},
          {"Bad Peer", fun bad_peer/1},
          {"Put Notifications", fun put/1}
        ])}.
@@ -38,27 +38,30 @@ mk_peer() ->
     {ok, PrivKey, PubKey} = ecc_compact:generate_key(),
     {ok, _, PubKey2} = ecc_compact:generate_key(),
     libp2p_peer:new(PubKey, ["/ip4/8.8.8.8/tcp/1234"], [PubKey2],
-                    static, erlang:system_time(), mk_sigfun(PrivKey)).
+                    static, erlang:system_time(seconds),
+                    mk_sigfun(PrivKey)).
 
 
-basic({PeerBook, Address, _Name}) ->
+accessors({PeerBook, Address, _Name}) ->
     Peer1 = mk_peer(),
     Peer2 = mk_peer(),
 
     libp2p_peerbook:put(PeerBook, [Peer1]),
     libp2p_peerbook:put(PeerBook, [Peer2]),
 
+    io:format("KEYS ~p", [libp2p_peerbook:keys(PeerBook)]),
     ?assert(libp2p_peerbook:is_key(PeerBook, Address)),
     ?assert(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1))),
     ?assert(libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer2))),
 
-    ExpectedPeers = sets:from_list([Address,
-                                    libp2p_peer:address(Peer1),
-                                    libp2p_peer:address(Peer2)]),
-    ?assert(0 == sets:size(sets:subtract(ExpectedPeers,
-                                         sets:from_list(libp2p_peerbook:keys(PeerBook))))),
+    ExpectedKeys = sets:from_list([Address,
+                                   libp2p_peer:address(Peer1),
+                                   libp2p_peer:address(Peer2)]),
+    StoredKeys = sets:from_list(libp2p_peerbook:keys(PeerBook)),
+    ?assertEqual(0, sets:size(sets:subtract(ExpectedKeys, StoredKeys))),
 
     ?assertNot(libp2p_peerbook:is_key(PeerBook, <<"foo">>)),
+    ?assertEqual({error, not_found}, libp2p_peerbook:get(PeerBook, <<"foo">>)),
 
     %% Test removal
     ok = libp2p_peerbook:remove(PeerBook, libp2p_peer:address(Peer1)),
@@ -123,10 +126,12 @@ put({PeerBook, Address, _Name}) ->
 
 swarm_test_() ->
     test_util:foreachx(
-      [{"Peerbook Gossip", 2, [{libp2p_group_gossip,
+      [
+       {"Peerbook Gossip", 2, [{libp2p_group_gossip,
                                 [{peerbook_connections, 0}]
                                }], fun gossip/1},
-       {"Peerbook Staletime", 1, [{libp2p_peerbook, [{stale_time, 100}]
+       {"Peerbook Staletime", 1, [{libp2p_peerbook, [{stale_time, 200},
+                                                     {peer_time, 400}]
                                   }], fun stale/1}
       ]).
 
@@ -140,7 +145,9 @@ gossip([S1, S2]) ->
     S1Addr = libp2p_swarm:address(S1),
     S2Addr = libp2p_swarm:address(S2),
 
+    %% Wait to see if S1 knowsabout S2
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S1PeerBook, S2Addr) end),
+    %% And if S2 knows about S1
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, S1Addr) end),
 
     %% The S2 entry in S1 should end up containing the address of S1
@@ -180,10 +187,33 @@ stale([S1]) ->
     S1Addr = libp2p_swarm:address(S1),
     {ok, S1First} = libp2p_peerbook:get(PeerBook, S1Addr),
 
+    Peer1 = mk_peer(),
+    libp2p_peerbook:put(PeerBook, [Peer1]),
+
+    %% This peer should remew itself after stale_time
     ?assertEqual(ok, test_util:wait_until(
                        fun() ->
                                {ok, S1Entry} = libp2p_peerbook:get(PeerBook, S1Addr),
                                libp2p_peer:supersedes(S1Entry, S1First)
                        end)),
+
+    Peer1Addr = libp2p_peer:address(Peer1),
+    ?assertEqual(ok, test_util:wait_until(
+                       fun() ->
+                               not libp2p_peerbook:is_key(PeerBook, Peer1Addr)
+                       end)),
+    ?assertEqual({error, not_found}, libp2p_peerbook:get(PeerBook, Peer1Addr)),
+
+    libp2p_peerbook:join_notify(PeerBook, self()),
+    libp2p_peerbook:update_nat_type(PeerBook, static),
+
+    UpdatedPeer = receive
+                      {new_peers, [P]} -> P
+                  after 1000 -> error(timeout)
+                  end,
+
+    ?assertEqual(S1Addr, libp2p_peer:address(UpdatedPeer)),
+    ?assert(libp2p_peer:supersedes(UpdatedPeer, S1First)),
+    ?assertEqual(static, libp2p_peer:nat_type(UpdatedPeer)),
 
     ok.
