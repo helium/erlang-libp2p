@@ -9,7 +9,7 @@
 
 
 -export_type([connection_handler/0]).
--export([for_addr/2, connect_to/4, start_client_session/3, start_server_session/3]).
+-export([for_addr/2, connect_to/4, find_session/3, start_client_session/3, start_server_session/3]).
 
 
 -spec for_addr(ets:tab(), string()) -> {ok, string(), {atom(), pid()}} | {error, term()}.
@@ -31,11 +31,11 @@ for_addr(TID, Addr) ->
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
                 -> {ok, string(), libp2p_session:pid()} | {error, term()}.
 connect_to(Addr, Options, Timeout, TID) ->
-    case libp2p_transport:for_addr(TID, Addr) of
-        {ok, ConnAddr, {Transport, TransportPid}} ->
-            case libp2p_config:lookup_session(TID, ConnAddr, Options) of
-                {ok, Pid} -> {ok, ConnAddr, Pid};
-                false ->
+    case find_session([Addr], Options, TID) of
+        {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
+        {error, not_found} ->
+            case for_addr(TID, Addr) of
+                {ok, ConnAddr, {Transport, TransportPid}} ->
                     lager:info("~p connecting to ~p", [Transport, ConnAddr]),
                     try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
                         {error, Error} -> {error, Error};
@@ -46,6 +46,23 @@ connect_to(Addr, Options, Timeout, TID) ->
             end;
         {error, Error} -> {error, Error}
     end.
+
+%% @doc Find a existing session for one of a given list of
+%% multiaddrs. Returns `{error not_found}' if no session is found.
+-spec find_session([string()], libp2p_config:opts(), ets:tab())
+                  -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+find_session([], _Options, _TID) ->
+    {error, not_found};
+find_session([Addr | Tail], Options, TID) ->
+    case for_addr(TID, Addr) of
+        {ok, ConnAddr, _} ->
+            case libp2p_config:lookup_session(TID, ConnAddr, Options) of
+                {ok, Pid} -> {ok, ConnAddr, Pid};
+                false -> find_session(Tail, Options, TID)
+            end;
+        {error, Error} -> {error, Error}
+    end.
+
 
 %%
 %% Session negotiation
@@ -76,23 +93,28 @@ start_client_session(TID, Addr, Connection) ->
     end.
 
 
--spec start_server_session(reference(), ets:tab(), libp2p_connection:connection()) -> {ok, pid()}.
+-spec start_server_session(reference(), ets:tab(), libp2p_connection:connection()) -> {ok, pid()} | {error, term()}.
 start_server_session(Ref, TID, Connection) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
     case libp2p_config:lookup_session(TID, RemoteAddr) of
-        {ok, _Pid} ->
+        {ok, Pid} ->
             % This should really not happen since the remote address
             % should be unique for most transports (e.g. a different
-            % port for tcp)
-            error({already_connected, RemoteAddr});
-        false ->
-            Handlers = [{Key, Handler} ||
-                           {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
-            {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
-            libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
-            %% Since servers accept outside of the swarm server,
-            %% notify it of this new session
-            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
-            libp2p_identify:spawn_identify(TID, SessionPid, server),
-            {ok, SessionPid}
-    end.
+            % port for tcp). It _can_ happen if there is no listen
+            % port (a slow listen on start with a fast connect) that
+            % is reused which can cause the same inbound remote port
+            % to already be the target of a previous outbound
+            % connection (using a 0 source port). We prefer the new
+            % inbound connection, so close the other connection.
+            libp2p_session:close(Pid);
+        false -> ok
+    end,
+    Handlers = [{Key, Handler} ||
+                   {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
+    {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
+    libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
+    %% Since servers accept outside of the swarm server,
+    %% notify it of this new session
+    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
+    libp2p_identify:spawn_identify(TID, SessionPid, server),
+    {ok, SessionPid}.

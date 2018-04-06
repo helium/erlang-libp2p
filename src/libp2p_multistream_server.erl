@@ -62,12 +62,12 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                 {Key, {M, F}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
-                    lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
+                    lager:debug("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
                     {exec, M, F, [Conn, LineRest, HandlerOpt, []]};
                 {Key, {M, F, A}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
-                    lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
+                    lager:debug("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
                     {exec, M, F, [Conn, LineRest, HandlerOpt, A]};
                 error ->
                     write(Conn, "na"),
@@ -76,7 +76,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
     end;
 handle_info(handshake, State=#state{connection=Conn}) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
-    lager:info("Starting handshake with client ~p", [RemoteAddr]),
+    lager:debug("Starting handshake with client ~p", [RemoteAddr]),
     case handshake(Conn) of
         ok ->
             fdset_return(Conn, State);
