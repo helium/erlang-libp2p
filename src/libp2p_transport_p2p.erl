@@ -42,8 +42,14 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
         {ok, Addr} ->
             case libp2p_peerbook:get(libp2p_swarm:peerbook(TID), Addr) of
                 {ok, PeerInfo} ->
-                    case connect_to_listen_addr(libp2p_peer:listen_addrs(PeerInfo), UserOptions, Timeout, TID) of
-                        {ok, SessionPid}-> {ok, SessionPid};
+                    ListenAddrs = libp2p_peer:listen_addrs(PeerInfo),
+                    case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
+                        {ok, _, SessionPid} -> {ok, SessionPid};
+                        {error, not_found} ->
+                            case connect_to_listen_addr(ListenAddrs, UserOptions, Timeout, TID) of
+                                {ok, SessionPid}-> {ok, SessionPid};
+                                {error, Error} -> {error, Error}
+                            end;
                         {error, Error} -> {error, Error}
                     end;
                 {error, Reason} -> {error, Reason}
