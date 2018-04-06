@@ -100,7 +100,12 @@ start_server_session(Ref, TID, Connection) ->
         {ok, Pid} ->
             % This should really not happen since the remote address
             % should be unique for most transports (e.g. a different
-            % port for tcp)
+            % port for tcp). It _can_ happen if there is no listen
+            % port (a slow listen on start with a fast connect) that
+            % is reused which can cause the same inbound remote port
+            % to already be the target of a previous outbound
+            % connection (using a 0 source port). We prefer the new
+            % inbound connection, so close the other connection.
             libp2p_session:close(Pid);
         false -> ok
     end,
