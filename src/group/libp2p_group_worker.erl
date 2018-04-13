@@ -91,9 +91,10 @@ connect(info, {ok, ConnAddr, SessionPid}, Data=#data{tid=TID, client_specs=Clien
     {keep_state, Data#data{monitor=erlang:monitor(process, SessionPid)}};
 connect(info, {'DOWN', Monitor, process, _Pid, _Reason}, Data=#data{monitor=Monitor}) ->
     {keep_state, Data#data{monitor=undefined, process=undefined}, ?CONNECT_RETRY};
-connect(cast, {assign_target, undefined}, Data=#data{monitor=Monitor}) ->
-    erlang:demonitor(Monitor),
-    {next_state, request_target, Data#data{monitor=undefined, target=undefined}};
+connect(cast, {assign_target, undefined}, Data=#data{monitor=Monitor, process=Process}) ->
+    kill_monitor(Monitor),
+    kill_connect(Process),
+    {next_state, request_target, Data#data{monitor=undefined, target=undefined, process=undefined}};
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
@@ -101,16 +102,22 @@ connect(EventType, Msg, Data) ->
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) ->
                        any().
 terminate(_Reason, _State, #data{monitor=Monitor, process=Process}) ->
-    case Process of
-        undefined -> ok;
-        _ -> erlang:exit(Process, kill)
-    end,
-    case Monitor of
-        undefined -> ok;
-        _ -> erlang:demonitor(Monitor)
-    end.
+    kill_connect(Process),
+    kill_monitor(Monitor).
 
 
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.
+
+%% Utilities
+
+kill_monitor(undefined) ->
+    ok;
+kill_monitor(Monitor) ->
+    erlang:demonitor(Monitor).
+
+kill_connect(undefined) ->
+    ok;
+kill_connect(Pid) ->
+    erlang:exit(Pid, kill).
