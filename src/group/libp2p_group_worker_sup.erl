@@ -1,4 +1,4 @@
--module(libp2p_group_gossip_worker_sup).
+-module(libp2p_group_worker_sup).
 
 -behavior(supervisor).
 
