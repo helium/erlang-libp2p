@@ -17,6 +17,7 @@
           server :: pid(),
           client_specs :: [libp2p_group:stream_client_spec()],
           target=undefined :: undefined | string(),
+          process=undefined :: undefined | pid(),
           monitor=undefined :: undefined | reference()
         }).
 
@@ -68,21 +69,28 @@ request_target(EventType, Msg, Data) ->
                      gen_statem:state_enter_result(connect);
              (gen_statem:event_type(), Msg :: term(), Data :: term()) ->
                      gen_statem:event_handler_result(atom()).
-connect(enter, _, Data=#data{target=Target, tid=TID, client_specs=ClientSpecs}) ->
-    case libp2p_transport:connect_to(Target, [], 5000, TID) of
-        {error, _Reason} ->
-            {keep_state, Data, ?CONNECT_RETRY};
-        {ok, ConnAddr, SessionPid} ->
-            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), ConnAddr, SessionPid),
-            lists:foreach(fun({Path, {M, A}}) ->
-                                  libp2p_session:start_client_framed_stream(Path, SessionPid, M, A)
-                          end, ClientSpecs),
-            {next_state, connect, Data#data{monitor=erlang:monitor(process, SessionPid)}}
-    end;
+connect(enter, _, Data=#data{target=Target, tid=TID}) ->
+    Parent = self(),
+    Pid = spawn(fun() -> case libp2p_transport:connect_to(Target, [], 5000, TID) of
+                             {error, Reason} ->
+                                 Parent ! {error, Reason};
+                             {ok, ConnAddr, SessionPid} ->
+                                 Parent ! {ok, ConnAddr, SessionPid}
+                         end
+                end),
+    {next_state, connect, Data#data{process=Pid}};
 connect(timeout, _, #data{}) ->
     repeat_state_and_data;
+connect(info, {error, _}, Data=#data{}) ->
+    {keep_state, Data, ?CONNECT_RETRY};
+connect(info, {ok, ConnAddr, SessionPid}, Data=#data{tid=TID, client_specs=ClientSpecs}) ->
+    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), ConnAddr, SessionPid),
+    lists:foreach(fun({Path, {M, A}}) ->
+                          libp2p_session:start_client_framed_stream(Path, SessionPid, M, A)
+                  end, ClientSpecs),
+    {keep_state, Data#data{monitor=erlang:monitor(process, SessionPid)}};
 connect(info, {'DOWN', Monitor, process, _Pid, _Reason}, Data=#data{monitor=Monitor}) ->
-    {keep_state, Data#data{monitor=undefined}, ?CONNECT_RETRY};
+    {keep_state, Data#data{monitor=undefined, process=undefined}, ?CONNECT_RETRY};
 connect(cast, {assign_target, undefined}, Data=#data{monitor=Monitor}) ->
     erlang:demonitor(Monitor),
     {next_state, request_target, Data#data{monitor=undefined, target=undefined}};
@@ -92,7 +100,11 @@ connect(EventType, Msg, Data) ->
 
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) ->
                        any().
-terminate(_Reason, _State, #data{monitor=Monitor}) ->
+terminate(_Reason, _State, #data{monitor=Monitor, process=Process}) ->
+    case Process of
+        undefined -> ok;
+        _ -> erlang:exit(Process, kill)
+    end,
     case Monitor of
         undefined -> ok;
         _ -> erlang:demonitor(Monitor)
