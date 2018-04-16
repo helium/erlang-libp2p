@@ -105,7 +105,7 @@ connect(info, {ok, ConnAddr, SessionPid}, Data=#data{tid=TID, client_specs=Clien
     {keep_state, Data#data{session_monitor=erlang:monitor(process, SessionPid),
                            send_pid=SendPid, connect_pid=undefined}};
 connect(info, {'DOWN', Monitor, process, _Pid, _Reason}, Data=#data{session_monitor=Monitor}) ->
-    {keep_state, Data#data{session_monitor=undefined}, ?CONNECT_RETRY};
+    {keep_state, Data#data{session_monitor=undefined, send_pid=undefined}, ?CONNECT_RETRY};
 connect(cast, {assign_target, undefined}, Data=#data{session_monitor=Monitor, connect_pid=Process}) ->
     kill_monitor(Monitor),
     kill_connect(Process),
