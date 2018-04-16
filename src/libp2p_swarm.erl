@@ -16,6 +16,7 @@
 -export_type([swarm_opts/0, connect_opts/0]).
 
 -type swarm_opt() :: {key, {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}}
+                   | {group_agent, atom()}
                    | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
                    | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}

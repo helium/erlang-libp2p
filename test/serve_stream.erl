@@ -2,7 +2,7 @@
 
 % public API
 -export([register/2, dial/3,
-         recv/2, recv/3, send/2,
+         recv/2, recv/3, send/2, send/3,
          close/1, close_state/1]).
 
 % internal API
@@ -17,8 +17,8 @@ serve_stream(Connection, _Path, _TID, [Parent]) ->
 
 serve_loop(Connection, Parent) ->
     receive
-        {send, Bin} ->
-            Result = libp2p_connection:send(Connection, Bin),
+        {send, Bin, Timeout} ->
+            Result = libp2p_connection:send(Connection, Bin, Timeout),
             Parent ! {send, Result},
             serve_loop(Connection, Parent);
         {recv, N, Timeout} ->
@@ -45,12 +45,15 @@ dial(FromSwarm, ToSwarm, Name) ->
     end,
     {Stream, Server}.
 
-send(Pid, Bin) ->
-    Pid ! {send, Bin},
+send(Pid, Bin, Timeout) ->
+    Pid ! {send, Bin, Timeout},
     Result = receive
                  {send, R} -> R
              end,
     Result.
+
+send(Pid, Bin) ->
+    send(Pid, Bin, 5000).
 
 recv(Pid, Size) ->
     recv(Pid, Size, 1000).
