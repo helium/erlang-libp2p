@@ -2,7 +2,7 @@
 -behaviour(libp2p_framed_stream).
 
 -export([register/2, init/3, handle_info/3, handle_data/3, handle_call/4, handle_cast/3,
-         dial/3, path/1, send/2, data/1, info_fun/2, call_fun/2, cast_fun/2]).
+         dial/3, path/1, send/2, send/3, data/1, info_fun/2, call_fun/2, cast_fun/2]).
 
 -record(state, {
           parent=undefined :: pid() | undefined,
@@ -41,8 +41,8 @@ handle_data(_, Data, State=#state{}) ->
 handle_info(_, {fn, Fun}, State=#state{}) ->
     Fun(State).
 
-handle_call(_, {send, Bin}, _From, State=#state{connection=Connection}) ->
-    Result = libp2p_framed_stream:send(Connection, Bin),
+handle_call(_, {send, Bin, Timeout}, _From, State=#state{connection=Connection}) ->
+    Result = libp2p_framed_stream:send(Connection, Bin, Timeout),
     {reply, Result, State};
 handle_call(_, path, _From, State=#state{path=Path}) ->
     {reply, Path, State};
@@ -62,7 +62,10 @@ data(Pid) ->
     gen_server:call(Pid, data).
 
 send(Pid, Bin) ->
-    gen_server:call(Pid, {send, Bin}).
+    send(Pid, Bin, 1000).
+
+send(Pid, Bin, Timeout) ->
+    gen_server:call(Pid, {send, Bin, Timeout}).
 
 info_fun(Pid, Fun) ->
     Pid ! {fn, Fun}.

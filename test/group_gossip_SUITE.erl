@@ -11,14 +11,14 @@ all() ->
     ].
 
 init_per_testcase(connection_test, Config) ->
-    Swarms = test_util:setup_swarms(2, [{group_agent, libp2p_group_gossip},
+    Swarms = test_util:setup_swarms(2, [
                                         {libp2p_group_gossip,
                                          [{peerbook_connections, 1}]
                                         }]),
     [{swarms, Swarms} | Config];
 init_per_testcase(stream_test, Config) ->
     %% Set up S1 to be the client swarm..one peer connection, with a sample client spec
-    [S1] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+    [S1] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip,
                                         [ {peerbook_connections, 1},
                                           {stream_clients,
@@ -29,22 +29,22 @@ init_per_testcase(stream_test, Config) ->
 
     %% Set up S2 as the server. No peer connections but with a
     %% registered test stream handler
-    [S2] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
-                                       {libp2p_group_gossip, [{peerbook_connections, 0}]}
+    [S2] = test_util:setup_swarms(1, [
+                                      {libp2p_group_gossip, [{peerbook_connections, 0}]}
                                      ]),
     %% Add the serve stream handler to S2
     serve_framed_stream:register(S2, "test"),
     [{swarms, [S1, S2]} | Config];
 init_per_testcase(seed_test, Config) ->
     %% Set up S2 as the seed.
-    [S2] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+    [S2] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 0}]}
                                      ]),
 
     [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
 
     %% Set up S1 to be the client..one peer connection, and S2 as the seed node
-    [S1] = test_util:setup_swarms(1, [ {group_agent, libp2p_group_gossip},
+    [S1] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip,
                                         [ {peerbook_connections, 0},
                                           {seed_nodes, [S2ListenAddr]}
@@ -65,11 +65,11 @@ connection_test(Config) ->
 
     %% No initial sessions since peerbook is empty
     S1Agent = libp2p_swarm:group_agent(S1),
-    [] = libp2p_group_gossip:sessions(S1Agent),
+    [] = libp2p_group:sessions(S1Agent),
 
     %% Fake a drop timer to see if sessions are attempted
     S1Agent ! drop_timeout,
-    [] = libp2p_group_gossip:sessions(S1Agent),
+    [] = libp2p_group:sessions(S1Agent),
 
     %% Now tell S1 about S2
     libp2p_peerbook:put(S1PeerBook, [get_peer(S2)]),
@@ -77,14 +77,18 @@ connection_test(Config) ->
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1)) end),
-    1 = length(libp2p_group_gossip:sessions(S1Agent)),
+    1 = length(libp2p_group:sessions(S1Agent)),
 
     %% Make S1 forget about S1
     libp2p_peerbook:remove(S1PeerBook, libp2p_swarm:address(S2)),
 
     %% And fake a timeout to ensure that the agent forgets about S2
     S1Agent ! drop_timeout,
-    [] = libp2p_group_gossip:sessions(S1Agent),
+    [] = libp2p_group:sessions(S1Agent),
+
+    %% Sending to a gossip group without a stream client config should fail silently
+    libp2p_group:send(S1Agent, <<"no way">>),
+
     ok.
 
 
@@ -105,13 +109,14 @@ stream_test(Config) ->
              after 2000 -> error(timeout)
              end,
 
-    Client = receive
-                 {hello_client, C} -> C
-             after 2000 -> error(timeout)
-             end,
+    _ = receive
+            {hello_client, C} -> C
+        after 2000 -> error(timeout)
+        end,
 
     %% Send some data just to be sure
-    serve_framed_stream:send(Client, <<"hello">>),
+    S1Agent = libp2p_swarm:group_agent(S1),
+    libp2p_group:send(S1Agent, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:data(Server) == <<"hello">> end),
 
     ok.
@@ -125,7 +130,7 @@ seed_test(Config) ->
 
     %% And the S1 has a session to S2
     S1Agent = libp2p_swarm:group_agent(S1),
-    1 = length(libp2p_group_gossip:sessions(S1Agent)),
+    1 = length(libp2p_group:sessions(S1Agent)),
 
     ok.
 

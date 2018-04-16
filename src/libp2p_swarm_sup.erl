@@ -65,7 +65,7 @@ init([Name, Opts]) ->
                    worker,
                    [libp2p_peerbook]
                   }
-                 ] ++ group_agent_spec(Opts, [TID]),
+                 ] ++ group_agent_spec(Opts, TID),
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -78,16 +78,10 @@ init_keys(Opts) ->
         {PubKey, SigFun} -> {PubKey, SigFun}
     end.
 
--spec group_agent_spec(libp2p_swarm:opts(), [any()]) -> [supervisor:child_spec()].
-group_agent_spec(Opts, Args) ->
+-spec group_agent_spec(libp2p_swarm:opts(), ets:tab()) -> [supervisor:child_spec()].
+group_agent_spec(Opts, TID) ->
     AgentModule = libp2p_config:get_opt(Opts, group_agent, libp2p_group_gossip),
-    [{ ?GROUP_AGENT,
-       {AgentModule, start_link, Args},
-       permanent,
-       10000,
-       worker,
-       [AgentModule]
-     }].
+    [AgentModule:group_agent_spec(?GROUP_AGENT, TID)].
 
 -spec sup(ets:tab()) -> supervisor:sup_ref().
 sup(TID) ->
