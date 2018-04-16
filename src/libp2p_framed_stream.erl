@@ -8,7 +8,7 @@
 % API
 -export([client/3, server/3, server/4]).
 % libp2p_connection
--export([send/2, recv/1, recv/2]).
+-export([send/2, send/3, recv/1, recv/2]).
 
 -define(RECV_TIMEOUT, 5000).
 
@@ -220,15 +220,18 @@ terminate(Reason, #state{kind=Kind, connection=Connection, module=Module, state=
     libp2p_connection:fdclr(Connection),
     libp2p_connection:close(Connection).
 
--spec send(libp2p_connection:connection(), binary() | list()) -> ok | {error, term()}.
-send(Connection, Data) when is_list(Data) ->
-    send(Connection, list_to_binary(Data));
-send(_, <<>>) ->
+-spec send(libp2p_connection:connection(), binary() | list(), pos_integer()) -> ok | {error, term()}.
+send(Connection, Data, Timeout) when is_list(Data) ->
+    send(Connection, list_to_binary(Data), Timeout);
+send(_, <<>>, _) ->
     ok;
-send(Connection, Data) ->
+send(Connection, Data, Timeout) ->
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    libp2p_connection:send(Connection, Bin).
+    libp2p_connection:send(Connection, Bin, Timeout).
 
+-spec send(libp2p_connection:connection(), binary() | list()) -> ok | {error, term()}.
+send(Connection, Data) ->
+    send(Connection, Data, 5000).
 
 -spec recv(libp2p_connection:connection()) -> {ok, binary()} | {error, term()}.
 recv(Connection) ->

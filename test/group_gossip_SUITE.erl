@@ -85,6 +85,10 @@ connection_test(Config) ->
     %% And fake a timeout to ensure that the agent forgets about S2
     S1Agent ! drop_timeout,
     [] = libp2p_group:sessions(S1Agent),
+
+    %% Sending to a gossip group without a stream client config should fail silently
+    libp2p_group:send(S1Agent, <<"no way">>),
+
     ok.
 
 
@@ -105,13 +109,14 @@ stream_test(Config) ->
              after 2000 -> error(timeout)
              end,
 
-    Client = receive
-                 {hello_client, C} -> C
-             after 2000 -> error(timeout)
-             end,
+    _ = receive
+            {hello_client, C} -> C
+        after 2000 -> error(timeout)
+        end,
 
     %% Send some data just to be sure
-    serve_framed_stream:send(Client, <<"hello">>),
+    S1Agent = libp2p_swarm:group_agent(S1),
+    libp2p_group:send(S1Agent, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:data(Server) == <<"hello">> end),
 
     ok.

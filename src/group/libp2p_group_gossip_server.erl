@@ -3,7 +3,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/2, request_target/3]).
+-export([start_link/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
@@ -23,11 +23,6 @@
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 
-%% API
-%%
-
-request_target(Pid, Kind, WorkerPid) ->
-    gen_server:cast(Pid, {request_target, Kind, WorkerPid}).
 
 %% gen_server
 %%
@@ -66,6 +61,14 @@ handle_cast({request_target, Kind=seed, WorkerPid}, State=#state{seed_nodes=Seed
     {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs), sets:from_list(CurrentAddrs))),
     {noreply, assign_target(Kind, WorkerPid, TargetAddrs, State)};
+handle_cast({send, Bin}, State=#state{}) ->
+    {_, Pids} = lists:unzip(connections(all, State)),
+    lists:foreach(fun(Pid) ->
+                          libp2p_group_worker:send(Pid, ignore, Bin)
+                  end, Pids),
+    {noreply, State};
+handle_cast({send_result, _Ref, _Reason}, State=#state{}) ->
+    {noreply, State};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
