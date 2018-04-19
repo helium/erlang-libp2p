@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+message data {
+  bool ack = 1;
+  bytes data = 2;
+}
