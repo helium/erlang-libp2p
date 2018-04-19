@@ -8,7 +8,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -record(state,
-       { sup :: supervisor:sup_ref(),
+       { sup :: pid(),
          tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
          seed_nodes :: [string()],

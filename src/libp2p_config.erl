@@ -18,6 +18,8 @@
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
 
+-export_type([opts/0]).
+
 %%
 %% Global config
 %%

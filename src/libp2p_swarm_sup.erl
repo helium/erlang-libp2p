@@ -72,7 +72,7 @@ init([Name, Opts]) ->
     {ok, {SupFlags, ChildSpecs}}.
 
 
--spec init_keys(libp2p_swarm:opts()) -> {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}.
+-spec init_keys(libp2p_swarm:swarm_opts()) -> {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}.
 init_keys(Opts) ->
     case libp2p_config:get_opt(Opts, key, false) of
         false ->
@@ -81,19 +81,19 @@ init_keys(Opts) ->
         {PubKey, SigFun} -> {PubKey, SigFun}
     end.
 
--spec group_agent_spec(libp2p_swarm:opts(), ets:tab()) -> [supervisor:child_spec()].
+-spec group_agent_spec(libp2p_swarm:swarm_opts(), ets:tab()) -> [supervisor:child_spec()].
 group_agent_spec(Opts, TID) ->
     AgentModule = libp2p_config:get_opt(Opts, group_agent, libp2p_group_gossip),
     [AgentModule:group_agent_spec(?GROUP_AGENT, TID)].
 
--spec sup(ets:tab()) -> supervisor:sup_ref().
+-spec sup(ets:tab()) -> pid().
 sup(TID) ->
     ets:lookup_element(TID, ?SUP, 2).
 
 register_server(TID) ->
     ets:insert(TID, {?SERVER, self()}).
 
--spec server(ets:tab() | supervisor:sup_ref()) -> pid().
+-spec server(ets:tab() | pid()) -> pid().
 server(Sup) when is_pid(Sup) ->
     Children = supervisor:which_children(Sup),
     {?SERVER, Pid, _, _} = lists:keyfind(?SERVER, 1, Children),

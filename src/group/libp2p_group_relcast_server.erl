@@ -8,10 +8,10 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -record(state,
-       { sup :: supervisor:sup_ref(),
+       { sup :: pid(),
          tid :: ets:tab(),
          client_specs :: [libp2p_group:stream_client_spec()],
-         targets :: [libp2p_crypto:address()],
+         targets :: [string()],
          workers=[] :: [pid()]
        }).
 
@@ -62,7 +62,7 @@ handle_info(Msg, State) ->
 %% Internal
 %%
 
--spec start_child(supervisor:sup_ref(), integer(), #state{}) -> pid().
+-spec start_child(pid(), integer(), #state{}) -> pid().
 start_child(Sup, Index, #state{tid=TID, client_specs=ClientSpecs}) ->
     ChildSpec = #{ id => make_ref(),
                    start => {libp2p_group_worker, start_link, [Index, ClientSpecs, self(), TID]},

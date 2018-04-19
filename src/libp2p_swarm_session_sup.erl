@@ -17,7 +17,6 @@ init([TID]) ->
     SupFlags = #{ strategy  => one_for_one},
     {ok, {SupFlags, []}}.
 
--spec sup(ets:tab()) -> supervisor:sup_ref().
+-spec sup(ets:tab()) -> pid().
 sup(TID) ->
     ets:lookup_element(TID, ?SUP, 2).
-

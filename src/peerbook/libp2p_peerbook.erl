@@ -22,7 +22,7 @@
           peer_time :: pos_integer(),
           peer_timer :: undefined | reference(),
           stale_time :: pos_integer(),
-          sessions=[] :: [{libp2p_crypto:address(), libp2p_session:pid()}],
+          sessions=[] :: [{libp2p_crypto:address(), pid()}],
           sigfun :: fun((binary()) -> binary())
         }).
 

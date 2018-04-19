@@ -45,8 +45,7 @@ addr_info(Pid) ->
 %% Stream negotiation
 %%
 
--spec start_client_stream(string(), libp2p_session:pid())
-                         -> {ok, libp2p_connection:connection()} | {error, term()}.
+-spec start_client_stream(string(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 start_client_stream(Path, SessionPid) ->
     try libp2p_session:open(SessionPid) of
         {error, Error} -> {error, Error};
@@ -63,7 +62,7 @@ start_client_stream(Path, SessionPid) ->
     end.
 
 
--spec start_client_framed_stream(string(), libp2p_session:pid(), atom(), [any()])
+-spec start_client_framed_stream(string(), pid(), atom(), [any()])
                                 -> {ok, pid()} | {error, term()} | ignore.
 start_client_framed_stream(Path, SessionPid, Module, Args) ->
     case start_client_stream(Path, SessionPid) of

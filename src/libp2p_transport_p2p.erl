@@ -18,7 +18,7 @@ start_listener(_Pid, _Addr) ->
     {error, unsupported}.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-             -> {ok, libp2p_session:pid()} | {error, term()}.
+             -> {ok, pid()} | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     connect_to(MAddr, Options, Timeout, TID).
 
@@ -36,7 +36,7 @@ match_protocols(_) ->
 %%
 
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, libp2p_session:pid()} | {error, term()}.
+                -> {ok, pid()} | {error, term()}.
 connect_to(MAddr, UserOptions, Timeout, TID) ->
     case p2p_addr(MAddr) of
         {ok, Addr} ->
@@ -58,7 +58,7 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
     end.
 
 -spec connect_to_listen_addr([string()], libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                            -> {ok, libp2p_session:pid()} | {error, term()}.
+                            -> {ok, pid()} | {error, term()}.
 connect_to_listen_addr([], _UserOptions, _Timeout, _TID) ->
     {error, no_listen_addr};
 connect_to_listen_addr([ListenAddr | Tail], UserOptions, Timeout, TID) ->

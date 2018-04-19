@@ -1,7 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
-         wait_until/1, wait_until/3, rm_rf/1, foreach/1, with/1, foreachx/1]).
+         wait_until/1, wait_until/3, rm_rf/1, dial/3]).
 
 setup() ->
     application:ensure_all_started(ranch),
@@ -62,24 +62,7 @@ rm_rf(Dir) ->
     ok = lists:foreach(fun file:del_dir/1, Sorted),
     file:del_dir(Dir).
 
-with(Pairs) ->
-    [fun(Swarms) ->
-             {Name, fun() -> F(Swarms) end}
-     end || {Name, F} <- Pairs].
-
-withx(Tuples) ->
-    [{{N, Opts},
-      fun(_, Swarms) ->
-              {Name, fun() -> F(Swarms) end}
-      end}
-     || {Name, N, Opts, F} <- Tuples].
-
-foreach(Tuples) ->
-    {foreach, fun setup_swarms/0, fun teardown_swarms/1,
-     with(Tuples)}.
-
-foreachx(Tuples) ->
-    {foreachx,
-     fun({N, Opts}) -> setup_swarms(N, Opts) end,
-     fun (_, Swarms) -> teardown_swarms(Swarms) end,
-    withx(Tuples)}.
+dial(FromSwarm, ToSwarm, Name) ->
+    [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
+    {ok, Stream} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
+    Stream.

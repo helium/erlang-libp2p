@@ -4,7 +4,7 @@
 
 -callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
--callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
+-callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 -callback match_addr(string()) -> {ok, string()} | false.
 
 
@@ -29,7 +29,7 @@ for_addr(TID, Addr) ->
 %% or a `connect' call is made to transport service to perform the
 %% actual connect.
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+                -> {ok, string(), pid()} | {error, term()}.
 connect_to(Addr, Options, Timeout, TID) ->
     case find_session([Addr], Options, TID) of
         {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
@@ -50,7 +50,7 @@ connect_to(Addr, Options, Timeout, TID) ->
 %% @doc Find a existing session for one of a given list of
 %% multiaddrs. Returns `{error not_found}' if no session is found.
 -spec find_session([string()], libp2p_config:opts(), ets:tab())
-                  -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+                  -> {ok, string(), pid()} | {error, term()}.
 find_session([], _Options, _TID) ->
     {error, not_found};
 find_session([Addr | Tail], Options, TID) ->
@@ -69,7 +69,7 @@ find_session([Addr | Tail], Options, TID) ->
 %%
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, libp2p_session:pid()} | {error, term()}.
+                          -> {ok, pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of

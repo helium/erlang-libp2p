@@ -5,9 +5,11 @@
 -behavior(gen_statem).
 -behavior(libp2p_connection).
 
+
+
 -record(send_state,
         { window :: non_neg_integer(),
-          waiter = undefined :: {gen_statem:from(), binary()} | undefined,
+          waiter = undefined :: {from(), binary()} | undefined,
           timer = undefined :: timer() | undefined
          }).
 
@@ -17,24 +19,24 @@
           pending_window = 0 :: non_neg_integer(),
           data = <<>> :: binary(),
           waiter_data = <<>> :: binary(),
-          waiter = undefined :: {gen_statem:from(), non_neg_integer()} | undefined,
+          waiter = undefined :: {from(), non_neg_integer()} | undefined,
           timer = undefined :: timer() | undefined
          }).
 
 -record(state,
-        { session :: libp2p_yamux:session(),
+        { session :: pid(),
           addr_info :: undefined | {string(), string()},
           inert_pid=undefined :: undefined | pid(),
           handler=undefined :: undefined | pid(),
           tid :: ets:tab(),
-          stream_id :: libp2p_yamux:stream_id(),
+          stream_id :: libp2p_yamux_session:stream_id(),
           close_state=open :: open | pending,
           max_window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
           recv_state=#recv_state{} :: #recv_state{},
           send_state=#send_state{} :: #send_state{}
          }).
 
-
+-type from() :: {pid(), term()}.
 -type stream() :: reference().
 -type timer() :: undefined | reference().
 -type opt() :: {max_window, pos_integer()}.
@@ -342,7 +344,7 @@ data_recv_timeout(State=#state{recv_state=RecvState=#recv_state{waiter={From, _}
     State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}.
 
 
--spec data_recv(gen_statem:from(), non_neg_integer(), non_neg_integer() | infinity, #state{}) -> #state{}.
+-spec data_recv(from(), non_neg_integer(), non_neg_integer() | infinity, #state{}) -> #state{}.
 data_recv(From, Size, Timeout, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, timer=undefined, waiter=undefined}})
   when byte_size(Data) + byte_size(WaiterData) < Size ->
     % lager:debug("Blocking receiver for ~p bytes, timeout ~p, data ~p", [Size, Timeout, byte_size(Data)]),
@@ -421,7 +423,7 @@ data_send_timeout(State=#state{send_state=SendState=#send_state{waiter={From, _}
     gen_statem:reply(From, {error, timeout}),
     State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}.
 
--spec data_send(gen_statem:from(), binary(), non_neg_integer(), #state{}) -> #state{}.
+-spec data_send(from(), binary(), non_neg_integer(), #state{}) -> #state{}.
 data_send(From, <<>>, _Timeout, State=#state{}) ->
     % Empty data for sender, we're done
     gen_statem:reply(From, ok),

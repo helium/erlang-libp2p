@@ -51,8 +51,8 @@
 
 -record(state, {
           tid :: ets:tab(),
-          stun_sup ::supervisor:sup_ref(),
-          stun_txns=#{} :: maps:map(),
+          stun_sup ::pid(),
+          stun_txns=#{} :: #{},
           observed_addrs=sets:new() :: sets:set()
          }).
 
@@ -73,7 +73,7 @@ start_listener(Pid, Addr) ->
     gen_server:call(Pid, {start_listener, Addr}).
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-             -> {ok, libp2p_session:pid()} | {error, term()}.
+             -> {ok, pid()} | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     connect_to(MAddr, Options, Timeout, TID).
 
@@ -267,7 +267,7 @@ listen_on(Addr, TID) ->
 
 
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, libp2p_session:pid()} | {error, term()}.
+                -> {ok, pid()} | {error, term()}.
 connect_to(Addr, UserOptions, Timeout, TID) ->
     case tcp_addr(Addr) of
         {IP, Port, Type, AddrOpts} ->

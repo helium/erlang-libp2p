@@ -23,7 +23,7 @@
 -record(state, {
           connection :: libp2p_connection:connection(),
           tid :: ets:tab(),
-          stream_sup :: supervisor:sup_ref(),
+          stream_sup :: pid(),
           next_stream_id :: stream_id(),
           pings=#{} :: #{ping_id() => reference()},
           next_ping_id=0 :: ping_id(),
@@ -42,6 +42,8 @@
 -type ping_id() :: non_neg_integer().
 -type flags() :: non_neg_integer().  % 0 | (bit combo of ?SYN | ?ACK | ?FIN | ?RST)
 -type goaway() :: ?GOAWAY_NORMAL | ?GOAWAY_PROTOCOL | ?GOAWAY_INTERNAL.
+
+-export_type([stream_id/0, header/0]).
 
 % gen_server
 -export([init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
