@@ -16,4 +16,4 @@ before_script:
       sudo sh -c 'echo 0 > /proc/sys/net/ipv6/conf/all/disable_ipv6';
     fi
 
-script: ./rebar3 as test do ct && ./rebar3 dialyzer && ./rebar3 coveralls send
+script: ./rebar3 as test do eunit,ct && ./rebar3 dialyzer && ./rebar3 coveralls send

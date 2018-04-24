@@ -25,7 +25,7 @@ cover:
 	$(REBAR) cover
 
 test:
-	$(REBAR) as test do ct
+	$(REBAR) as test do eunit,ct
 
 typecheck:
 	$(REBAR) dialyzer

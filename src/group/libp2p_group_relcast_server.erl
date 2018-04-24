@@ -145,38 +145,43 @@ set_bit(Offset, V, Bin) when bit_size(Bin) > Offset ->
     <<A:Offset, _:1, B/bits>> = Bin,
     <<A:Offset, V:1, B/bits>>.
 
--spec set_bits([pos_integer()], 0 | 1, binary()) -> binary().
+-spec set_bits([pos_integer()], 0 | 1, bitstring()) -> bitstring().
 set_bits([], _V, Acc) ->
     Acc;
 set_bits([Index | Tail], V, Acc) ->
     set_bits(Tail, V, set_bit(Index - 1, V, Acc)).
+
+workers_byte_length(#state{workers=Workers}) ->
+    Val = length(Workers),
+    Multiple = Val div 8,
+    case Val rem 8 of
+        0 -> Multiple;
+        _ -> Multiple + 1
+    end.
 
 -spec store_message(msg_kind(), msg_key(), Targets::[pos_integer()] | binary(), Msg::binary(), #state{})
                    -> ok | {error, term()}.
 store_message(?INBOUND, Key, _, Msg, #state{store=Store}) ->
     bitcask:put(Store, Key, Msg);
 store_message(Kind=?OUTBOUND, Key, Prefix, Msg, #state{store=Store}) when is_binary(Prefix) ->
-    PrefixLength = bit_size(Prefix),
-    bitcask:put(Store, Key, <<Kind:8/integer-unsigned, Prefix:PrefixLength/bits, Msg/binary>>);
+    PrefixLength = byte_size(Prefix),
+    bitcask:put(Store, Key, <<Kind:8/integer-unsigned, Prefix:PrefixLength/binary, Msg/binary>>);
 store_message(Kind=?OUTBOUND, Key, Targets, Msg, State=#state{}) ->
-    PrefixLength = ack_length(State),
-    Prefix = set_bits(Targets, 1, <<0:PrefixLength>>),
+    PrefixLength = workers_byte_length(State),
+    Prefix = set_bits(Targets, 1, <<0:PrefixLength/unit:8>>),
     store_message(Kind, Key, Prefix, Msg, State).
 
-ack_length(#state{targets=Targets}) ->
-    (length(Targets) + 7) band (bnot 7).
-
-%% -spec delete_message(msg_kind(), msg_key(), pos_integer(), #state{}) -> ok.
+-spec delete_message(msg_kind(), msg_key(), pos_integer(), #state{}) -> ok.
 delete_message(?INBOUND, Key, _Index, #state{store=Store}) ->
     bitcask:delete(Store, Key);
 delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
-    PrefixLength = ack_length(State),
+    PrefixLength = workers_byte_length(State),
     case bitcask:get(Store, Key) of
         {error, Error} -> error(Error);
         not_found -> error(not_found);
-        {ok, <<_Kind:8/integer-unsigned, Prefix:PrefixLength, Msg/binary>>} ->
+        {ok, <<Kind:8/integer-unsigned, Prefix:PrefixLength/binary, Msg/binary>>} ->
             case set_bit(Index - 1, 0, Prefix) of
-                <<0:PrefixLength>> -> bitcask:delete(Store, Key);
+                <<0:PrefixLength/unit:8>> -> bitcask:delete(Store, Key);
                 NewPrefix -> store_message(Kind, Key, NewPrefix, Msg, State)
             end
     end.
@@ -211,6 +216,24 @@ set_bit_test() ->
                   end, lists:seq(0, BitSize - 1)),
     ok.
 
+workers_byte_length_test() ->
+    ?assertEqual(1, workers_byte_length(#state{workers=lists:seq(1, 7)})),
+    ?assertEqual(2, workers_byte_length(#state{workers=lists:seq(1, 9)})),
+    ?assertEqual(2, workers_byte_length(#state{workers=lists:seq(1, 16)})),
+    ok.
 
+store_delete_test() ->
+    Store = bitcask:open(lib:nonl(os:cmd("mktemp -d")), [read_write]),
+    State = #state{workers=lists:seq(1, 5), store=Store},
+    MsgKey = mk_message_key(),
+    ok = store_message(?INBOUND, MsgKey, ignore, <<"hello">>, State),
+    ok = delete_message(?INBOUND, MsgKey, 0, State),
+
+    ok = store_message(?OUTBOUND, MsgKey, [1, 3], <<"outbound">>, State),
+    ok = delete_message(?OUTBOUND, MsgKey, 1, State),
+    {ok, _} = bitcask:get(Store, MsgKey),
+    ok = delete_message(?OUTBOUND, MsgKey, 3, State),
+    not_found = bitcask:get(Store, MsgKey),
+    ok.
 
 -endif.
