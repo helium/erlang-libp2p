@@ -4,8 +4,8 @@
 -export([register/2, init/3, handle_info/3, handle_data/3, handle_call/4, handle_cast/3,
          dial/3, path/1, send/2, send/3, data/1, info_fun/2, call_fun/2, cast_fun/2]).
 
--record(state, {
-          parent=undefined :: pid() | undefined,
+-record(state,
+        { parent=undefined :: pid() | undefined,
           path=undefined :: binary() | undefined,
           connection :: libp2p_connection:connection(),
           data=undefined :: binary() | undefined
@@ -35,7 +35,7 @@ init(client, Connection, [Parent]) ->
 
 
 handle_data(_, Data, State=#state{}) ->
-    {noresp, State#state{data=Data}}.
+    {noreply, State#state{data=Data}}.
 
 handle_info(_, {fn, Fun}, State=#state{}) ->
     Fun(State).

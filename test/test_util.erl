@@ -5,8 +5,8 @@
 
 setup() ->
     application:ensure_all_started(ranch),
-    %% application:ensure_all_started(lager),
-    %% lager:set_loglevel(lager_console_backend, debug),
+    application:ensure_all_started(lager),
+    lager:set_loglevel(lager_console_backend, debug),
     %% lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
     ok.
 
@@ -33,7 +33,7 @@ teardown_swarms(Swarms) ->
     Names =  lists:map(fun libp2p_swarm:name/1, Swarms),
     lists:map(fun libp2p_swarm:stop/1, Swarms),
     lists:foreach(fun(N) ->
-                          SwarmDir = filename:join(libp2p_config:data_dir(), N),
+                          SwarmDir = filename:join(libp2p_config:data_dir(), [N]),
                           rm_rf(SwarmDir)
                   end, Names).
 

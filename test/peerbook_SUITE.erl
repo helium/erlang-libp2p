@@ -248,5 +248,5 @@ teardown_peerbook(Config) ->
     after 1000 ->
             error(timeout)
              end,
-    DirName = filename:join(libp2p_config:data_dir(), Name),
+    DirName = filename:join(libp2p_config:data_dir(), [Name]),
     test_util:rm_rf(DirName).

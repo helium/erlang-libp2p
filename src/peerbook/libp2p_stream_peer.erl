@@ -13,7 +13,7 @@ init(client, _Connection, [TID, PeerList]) ->
     libp2p_peerbook:join_notify(PeerBook, self()),
     case PeerList of
         [] -> {ok, #state{peerbook=PeerBook}};
-        L -> {ok, libp2p_peer:encode_list(L), #state{peerbook=PeerBook}}
+        L -> {ok, #state{peerbook=PeerBook}, libp2p_peer:encode_list(L)}
     end;
 init(server, _Connection, [_Path, TID]) ->
     PeerBook = libp2p_swarm:peerbook(TID),
@@ -21,18 +21,18 @@ init(server, _Connection, [_Path, TID]) ->
     PeerList = libp2p_peerbook:values(PeerBook),
     case PeerList of
         [] -> {ok, #state{peerbook=PeerBook}};
-        L -> {ok, libp2p_peer:encode_list(L), #state{peerbook=PeerBook}}
+        L -> {ok, #state{peerbook=PeerBook}, libp2p_peer:encode_list(L)}
     end.
 
 handle_data(_, Data, State=#state{peerbook=PeerBook}) ->
     DecodedList = libp2p_peer:decode_list(Data),
     try
         libp2p_peerbook:put(PeerBook, DecodedList),
-        {noresp, State}
+        {noreply, State}
     catch
         _:_ -> {stop, normal, State}
     end.
 
 handle_info(_, {new_peers, NewPeers}, State=#state{}) ->
     EncodedList = libp2p_peer:encode_list(NewPeers),
-    {resp, EncodedList, State}.
+    {noreply, State, EncodedList}.

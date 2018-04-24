@@ -95,7 +95,7 @@ start_link(TID, SigFun) ->
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_peerbook(TID),
-    DataDir = libp2p_config:data_dir(TID, peerbook),
+    DataDir = libp2p_config:data_dir(TID, [peerbook]),
     SwarmName = libp2p_swarm:name(TID),
     Group = group_create(SwarmName),
     Opts = libp2p_swarm:opts(TID, []),

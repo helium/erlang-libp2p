@@ -60,13 +60,13 @@ data_dir(Name) when is_atom(Name) ->
 data_dir(TID) ->
     data_dir(libp2p_swarm:name(TID)).
 
--spec data_dir(ets:tab() | string(), file:name_all()) -> string().
-data_dir(Dir, Name) when is_list(Dir) ->
-    FileName = filename:join(Dir, Name),
+-spec data_dir(ets:tab() | string(), [file:name_all()]) -> file:filename_all().
+data_dir(Dir, Names) when is_list(Dir) ->
+    FileName = filename:join(Dir, Names),
     ok = filelib:ensure_dir(FileName),
     FileName;
-data_dir(TID, Name) ->
-    data_dir(data_dir(TID), Name).
+data_dir(TID, Names) ->
+    data_dir(data_dir(TID), Names).
 
 %%
 %% Common pid CRUD

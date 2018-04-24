@@ -6,6 +6,6 @@
 request_target(Pid, Kind, WorkerPid) ->
     gen_server:cast(Pid, {request_target, Kind, WorkerPid}).
 
--spec send_result(Server::pid(), term(), any()) -> ok.
-send_result(Pid, Ref, Reason) ->
-    gen_server:cast(Pid, {send_result, Ref, Reason}).
+-spec send_result(Server::pid(), Ref::term(), Result::any()) -> ok.
+send_result(Pid, Ref, Result) ->
+    gen_server:cast(Pid, {send_result, Ref, Result}).
