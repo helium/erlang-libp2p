@@ -108,7 +108,6 @@ server(Connection, Path, _TID, [Module | Args]) ->
 
 -spec init_module(atom(), atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
 init_module(Kind, Module, Connection, Args) ->
-    lager:info("INIT ~p", [Module]),
     case Module:init(Kind, Connection, Args) of
         {ok, ModuleState} ->
             case handle_fd_set(#state{kind=Kind, connection=Connection,

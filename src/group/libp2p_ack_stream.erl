@@ -7,7 +7,7 @@
 -callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok  | {error, term()}.
 
 %% API
--export([send/3]).
+-export([server/4, send/3]).
 %% libp2p_framed_stream
 -export([init/3, handle_data/3, handle_call/4, handle_info/3]).
 
@@ -22,12 +22,14 @@
 %% API
 %%
 
+server(Connection, _Path, _TID, Args) ->
+    libp2p_framed_stream:server(?MODULE, Connection, Args).
+
 send(Pid, Data, Timeout) ->
     gen_server:call(Pid, {send, Data, Timeout}).
 
-init(server, _Connection, [_Path, AckRef, AckModule, AckState]) ->
-    {ok, #state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
-init(client, _Connection, [AckRef, AckModule, AckState]) ->
+init(_, _Connection, Args=[AckRef, AckModule, AckState]) ->
+    lager:debug("ARGS ~p", [Args]),
     {ok, #state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
 handle_data(_, Data, State=#state{}) ->
