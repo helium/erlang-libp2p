@@ -2,7 +2,7 @@
 [{<<"base32">>,{pkg,<<"base32">>,<<"0.1.0">>},1},
  {<<"bitcask">>,
   {git,"https://github.com/helium/bitcask",
-       {ref,"fa6e5166de683a351ca63f97b6a08c9b815affab"}},
+       {ref,"fc41011a5a81ba37bf7352a40fbf8ce07c196747"}},
   0},
  {<<"ecc_compact">>,{pkg,<<"ecc_compact">>,<<"1.0.1">>},0},
  {<<"erl_base58">>,{pkg,<<"erl_base58">>,<<"0.0.1">>},0},
