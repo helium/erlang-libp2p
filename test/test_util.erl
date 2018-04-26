@@ -1,6 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
+         connect_swarms/2,
          wait_until/1, wait_until/3, rm_rf/1, dial/3]).
 
 setup() ->
@@ -36,6 +37,11 @@ teardown_swarms(Swarms) ->
                           SwarmDir = filename:join(libp2p_config:data_dir(), [N]),
                           rm_rf(SwarmDir)
                   end, Names).
+
+connect_swarms(Source, Target) ->
+    [TargetAddr | _] = libp2p_swarm:listen_addrs(Target),
+    {ok, Session} = libp2p_swarm:connect(Source, TargetAddr),
+    Session.
 
 wait_until(Fun) ->
     wait_until(Fun, 40, 100).

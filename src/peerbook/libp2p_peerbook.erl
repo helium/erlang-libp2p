@@ -183,6 +183,10 @@ handle_cast({register_session, SessionPid, Identify, Kind},
                 lager:info("Starting discovery with ~p", [RemoteAddr]),
                 %% Pass the peerlist directly into the stream_peer client
                 %% since it is a synchronous call
+                %%
+                %% TODO: Can this be moved into a higher level by
+                %% using a group_gosip to gossip peers instead of
+                %% eagerly exchanging peers on every new connection?
                 PeerList = fetch_peers(State),
                 libp2p_session:start_client_framed_stream("peer/1.0.0", SessionPid,
                                                           libp2p_stream_peer, [TID, PeerList])

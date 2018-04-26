@@ -1,7 +1,7 @@
 -module(ack_stream_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([handle_data/3]).
+-export([accept_stream/3, handle_data/3]).
 -export([ack_test/1]).
 
 
@@ -11,7 +11,7 @@ all() ->
 init_per_testcase(_, Config) ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     libp2p_swarm:add_stream_handler(S2, "serve_ack_frame",
-                                    {libp2p_ack_stream, server, [ack_server_ref, ?MODULE, self()]}),
+                                    {libp2p_ack_stream, server, [?MODULE, self()]}),
     Stream = test_util:dial(S1, S2, "serve_ack_frame"),
     {ok, Client} = libp2p_framed_stream:client(libp2p_ack_stream, Stream,
                                                [ack_client_ref, ?MODULE, self()]),
@@ -29,6 +29,10 @@ ack_test(Config) ->
     after 100 -> erlang:exit(timeout)
     end,
     ok.
+
+accept_stream(Pid, Connection, Path) ->
+    Pid ! {accept_stream, Connection, Path},
+    {ok, ack_server_ref}.
 
 
 handle_data(Pid, Ref, Bin) ->

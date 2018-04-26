@@ -21,9 +21,7 @@ init_per_testcase(stream_test, Config) ->
     [S1] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip,
                                         [ {peerbook_connections, 1},
-                                          {stream_clients,
-                                           [ {"test", {serve_framed_stream, [self()]}}
-                                           ]}
+                                          {stream_client, {"test", {serve_framed_stream, [self()]}} }
                                         ]}
                                      ]),
 

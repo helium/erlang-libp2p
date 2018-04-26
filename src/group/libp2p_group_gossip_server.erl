@@ -12,7 +12,7 @@
          tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
          seed_nodes :: [string()],
-         client_specs :: [libp2p_group:stream_client_spec()],
+         client_spec :: libp2p_group:stream_client_spec(),
          workers=[] :: [worker()],
          drop_timeout :: pos_integer(),
          drop_timer :: reference()
@@ -32,14 +32,18 @@ start_link(Sup, TID) ->
 
 init([Sup, TID]) ->
     erlang:process_flag(trap_exit, true),
+    %% TODO: Remove the assumption that this is _the_ group agent for
+    %% the swarm. Perhaps by moving the creation into the swarm server
+    %% instead of directly in the swarm_sup?
     libp2p_swarm_sup:register_group_agent(TID),
     Opts = libp2p_swarm:opts(TID, []),
     PeerBookCount = libp2p_group_gossip:get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
     DropTimeOut = libp2p_group_gossip:get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
-    ClientSpecs = libp2p_group_gossip:get_opt(Opts, stream_clients, []),
+    ClientSpec = libp2p_group_gossip:get_opt(Opts, stream_client, undefined),
     SeedNodes = libp2p_group_gossip:get_opt(Opts, seed_nodes, []),
     self() ! {start_workers, PeerBookCount, length(SeedNodes)},
-    {ok, #state{sup=Sup, tid=TID, seed_nodes=SeedNodes, client_specs=ClientSpecs, peerbook_connections=PeerBookCount,
+    {ok, #state{sup=Sup, tid=TID, client_spec=ClientSpec,
+                seed_nodes=SeedNodes, peerbook_connections=PeerBookCount,
                 drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)}}.
 
 handle_call(sessions, _From, State=#state{}) ->
@@ -125,10 +129,10 @@ drop_target(Kind, WorkerPid, State=#state{workers=Workers}) ->
     State#state{workers=NewWorkers}.
 
 -spec start_child(atom(), #state{}) -> worker().
-start_child(Kind, #state{tid=TID, client_specs=ClientSpecs, sup=Sup}) ->
+start_child(Kind, #state{tid=TID, client_spec=ClientSpec, sup=Sup}) ->
     WorkerSup = libp2p_group_gossip_sup:workers(Sup),
     ChildSpec = #{ id => make_ref(),
-                   start => {libp2p_group_worker, start_link, [Kind, ClientSpecs, self(), TID]},
+                   start => {libp2p_group_worker, start_link, [Kind, ClientSpec, self(), TID]},
                    restart => permanent
                  },
     {ok, WorkerPid} = supervisor:start_child(WorkerSup, ChildSpec),

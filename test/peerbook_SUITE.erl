@@ -144,7 +144,7 @@ gossip_test(Config) ->
     S1Addr = libp2p_swarm:address(S1),
     S2Addr = libp2p_swarm:address(S2),
 
-    %% Wait to see if S1 knowsabout S2
+    %% Wait to see if S1 knows about S2
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S1PeerBook, S2Addr) end),
     %% And if S2 knows about S1
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, S1Addr) end),
