@@ -31,7 +31,6 @@ match_protocols([A={"p2p", _} | _]) ->
 match_protocols(_) ->
     false.
 
-
 %% Internal: Connect
 %%
 

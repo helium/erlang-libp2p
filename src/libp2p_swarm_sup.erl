@@ -54,6 +54,13 @@ init([Name, Opts]) ->
                    supervisor,
                    [libp2p_swarm_transport_sup]
                   },
+                  {groups,
+                   {libp2p_swarm_group_sup, start_link, [TID]},
+                   permanent,
+                   10000,
+                   supervisor,
+                   [libp2p_swarm_group_sup]
+                  },
                   {?SERVER,
                    {libp2p_swarm_server, start_link, [TID, SigFun]},
                    permanent,

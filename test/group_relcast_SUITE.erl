@@ -1,52 +1,115 @@
 -module(group_relcast_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([unicast_test/1, restart_test/1]).
+-export([unicast_test/1, multicast_test/1, restart_test/1]).
 
 all() ->
     [ %% restart_test,
-      unicast_test
+      unicast_test,
+      multicast_test
     ].
 
 init_per_testcase(_, Config) ->
-    Swarms = [S1, S2] = test_util:setup_swarms(2, []),
-    Addrs = [libp2p_swarm:address(S1),
-             libp2p_swarm:address(S2)],
-    [{swarms, Swarms}, {swarm_addrs, Addrs} | Config].
+    Swarms = test_util:setup_swarms(3, []),
+    [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
+await_peerbook(Swarm, Swarms) ->
+    Addrs = lists:delete(
+              libp2p_swarm:address(Swarm),
+              [libp2p_swarm:address(S) || S <- Swarms]),
+    PeerBook = libp2p_swarm:peerbook(Swarm),
+    test_util:wait_until(
+      fun() ->
+              lists:all(fun(Addr) -> libp2p_peerbook:is_key(PeerBook, Addr) end,
+                        Addrs)
+      end).
+
+await_peerbooks(Swarms) ->
+    lists:foreach(fun(S) ->
+                          ok = await_peerbook(S, Swarms)
+                  end, Swarms).
+
 unicast_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
-    Members = proplists:get_value(swarm_addrs, Config),
+    Swarms = [S1, S2, S3] = proplists:get_value(swarms, Config),
 
     test_util:connect_swarms(S1, S2),
+    test_util:connect_swarms(S1, S3),
+    %% TODO: Why does await not work witout S2 being connected through
+    %% S3? S2 and S3 should discover eachother through S1
+    test_util:connect_swarms(S3, S2),
 
-    %% Wait to see if S1 knows about S2
-    ok = test_util:wait_until(fun() ->
-                                      libp2p_peerbook:is_key(libp2p_swarm:peerbook(S1),
-                                                             libp2p_swarm:address(S2))
-                              end),
-    %% And if S2 knows about S1
-    ok = test_util:wait_until(fun() ->
-                                      libp2p_peerbook:is_key(libp2p_swarm:peerbook(S2),
-                                                             libp2p_swarm:address(S1))
-                              end),
+    await_peerbooks(Swarms),
 
-    G1Args = ["test", lists:delete(libp2p_swarm:address(S1), Members), input_unicast(1), undefined],
-    {ok, G1} = libp2p_group_relcast:start_link(S1, relcast_handler, G1Args),
+    %% G1 takes input and unicasts it to the member at index1 (G2)
+    G1Args = [relcast_handler, [[libp2p_swarm:address(S2), libp2p_swarm:address(S3)],
+                                input_unicast(1), undefined]],
+    {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
-    G2Args = ["test", lists:delete(libp2p_swarm:address(S2), Members), undefined, handle_msg(ok)],
-    {ok, _G2} = libp2p_group_relcast:start_link(S2, relcast_handler, G2Args),
+    %% G2 handles any incoming message by sending a message to member
+    %% 2 (G3)
+    G2Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S3)],
+                                undefined, handle_msg({send, [{unicast, 2, <<"hello2">>}]})]],
+    {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
+
+    %% G3 handles a messages by just aknowledging it
+    G3Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S2)],
+                                undefined, handle_msg(ok)]],
+    {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
+
+    %% Give G1 some input. This should end up getting to G2 who then
+    %% sends a message to G3.
+    libp2p_group_relcast:handle_input(G1, <<"hello">>),
+
+    %% Receive the message from G2 as handled by G3
+    receive
+        {handle_msg, 2, <<"hello2">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+    ok.
+
+
+multicast_test(Config) ->
+    Swarms = [S1, S2, S3] = proplists:get_value(swarms, Config),
+
+    test_util:connect_swarms(S1, S2),
+    test_util:connect_swarms(S1, S3),
+    %% TODO: Why does await not work witout S2 being connected through
+    %% S3? S2 and S3 should discover eachother through S1
+    test_util:connect_swarms(S3, S2),
+
+    await_peerbooks(Swarms),
+
+    %% G1 takes input and broadcasts
+    G1Args = [relcast_handler, [[libp2p_swarm:address(S2), libp2p_swarm:address(S3)],
+                                input_multicast(), undefined]],
+    {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
+
+    %% G2 handles a message by acknowledging it
+    G2Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S3)],
+                                undefined, handle_msg(ok)]],
+    {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
+
+    %% G3 handles a messages by aknowledging it
+    G3Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S2)],
+                                undefined, handle_msg(ok)]],
+    {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
 
     libp2p_group_relcast:handle_input(G1, <<"hello">>),
 
+    %% Receive messages from both G2 and G3
     receive
-        {handle_msg, 1, <<"hello">>} -> ok
-    after 1000 -> error(timeout)
+        {handle_message, 1, <<"hello">>} ->
+            receive
+                {handle_message, 1, <<"hello">>} -> ok
+            after 5000 -> timeout
+            end
+    after 5000 -> timeout
     end,
+
     ok.
 
 restart_test(_Config) ->
@@ -61,14 +124,17 @@ restart_test(_Config) ->
 
 input_unicast(Index) ->
     fun(Msg) ->
-            io:format("INPUT"),
             {send, [{unicast, Index, Msg}]}
+    end.
+
+input_multicast() ->
+    fun(Msg) ->
+            {send, [{multicast, Msg}]}
     end.
 
 handle_msg(Resp) ->
     Parent = self(),
     fun(Index, Msg) ->
-            io:format("HANDLE"),
             Parent ! {handle_msg, Index, Msg},
             Resp
     end.

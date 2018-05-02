@@ -3,7 +3,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start_link/4, assign_target/2, assign_stream/3, assign_session/3, send/3]).
+-export([start_link/4, assign_target/2, assign_stream/3, send/3]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -15,7 +15,7 @@
         { tid :: ets:tab(),
           kind :: atom(),
           server :: pid(),
-          client_spec :: libp2p_group:stream_client_spec(),
+          client_spec=undefined :: undefined | libp2p_group:stream_client_spec(),
           target=undefined :: undefined | string(),
           send_pid=undefined :: undefined | libp2p_connection:connection(),
           connect_pid=undefined :: undefined | pid(),
@@ -32,10 +32,7 @@ assign_target(Pid, MAddr) ->
     gen_statem:cast(Pid, {assign_target, MAddr}).
 
 assign_stream(Pid, MAddr, Connection) ->
-    gen_statem:cast(Pid, {assign_stream, MAddr, Connection}).
-
-assign_session(Pid, MAddr, SessionPid) ->
-    gen_statem:cast(Pid, {assign_session, MAddr, SessionPid}).
+    gen_statem:call(Pid, {assign_stream, MAddr, Connection}).
 
 -spec send(pid(), term(), binary()) -> ok.
 send(Pid, Ref, Data) ->
@@ -73,11 +70,6 @@ request_target(cast, {assign_target, undefined}, #data{}) ->
     repeat_state_and_data;
 request_target(cast, {assign_target, MAddr}, Data=#data{}) ->
     {next_state, connect, Data#data{target=MAddr}};
-request_target(cast, {assign_stream, MAddr, Connection}, Data=#data{}) ->
-    %% Use connect_pid to work around the enter action for connect
-    %% and re-issue the event in the connect state
-    {next_state, connect, Data#data{connect_pid=self(), send_pid=Connection},
-     [{next_event, info, {assign_stream, MAddr, Connection}}]};
 request_target(cast, {send, Ref, _Bin}, #data{server=Server}) ->
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
@@ -96,51 +88,71 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
                          case libp2p_transport:connect_to(Target, [], 5000, TID) of
                              {error, Reason} ->
                                  Parent ! {error, Reason};
-                             {ok, ConnAddr, SessionPid} ->
-                                 libp2p_swarm:register_session(libp2p_swarm:swarm(TID), ConnAddr, SessionPid),
-                                 assign_session(Parent, ConnAddr, SessionPid)
+                             {ok, _Addr, SessionPid} ->
+                                 {_, RemoteAddr} = libp2p_session:addr_info(SessionPid),
+                                 Parent ! {assign_session, RemoteAddr, SessionPid}
                          end
                  end),
     {next_state, connect, Data#data{connect_pid=Pid}};
 connect(timeout, _, #data{}) ->
     repeat_state_and_data;
-connect(info, {error, Reason}, Data=#data{}) ->
-    lager:debug("Connect error: ~p", [Reason]),
-    {keep_state, Data#data{connect_pid=undefined}, ?CONNECT_RETRY};
-connect(info, {'DOWN', _, process, Pid, normal}, Data=#data{connect_pid=Pid}) ->
-    {keep_state, Data#data{connect_pid=undefined}};
-connect(info, {'DOWN', _, process, Pid, _}, Data=#data{connect_pid=Pid}) ->
-    {keep_state, Data#data{connect_pid=undefined}, ?CONNECT_RETRY};
+connect(info, {error, _Reason}, Data=#data{}) ->
+    {keep_state, Data, ?CONNECT_RETRY};
 connect(info, {'DOWN', Monitor, process, _Pid, _Reason}, Data=#data{session_monitor=Monitor}) ->
+    %% The _session_ that this worker is monitoring went away. Set a
+    %% timer to try again.
     {keep_state, Data#data{session_monitor=undefined, send_pid=undefined}, ?CONNECT_RETRY};
-connect(cast, {assign_session, _ConnAddr, SessionPid},
-        Data=#data{session_monitor=Monitor, client_spec=undefined}) ->
-    kill_monitor(Monitor),
-    {keep_state, Data#data{session_monitor=erlang:monitor(process, SessionPid),
-                           send_pid=undefined}};
-connect(cast, {assign_session, _ConnAddr, SessionPid},
-        Data=#data{session_monitor=Monitor, client_spec={Path, {M, A}}}) ->
-    kill_monitor(Monitor),
+connect(info, {'DOWN', _, process, _, normal}, Data=#data{}) ->
+    %% Ignore a normal down for the connect pid, since it completed
+    %% it's work successfully
+    {keep_state, Data#data{connect_pid=undefined}};
+connect(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
+    %% The connect process wend down for a non-normal reason. Set a
+    %% timeout to try again.
+    {keep_state, Data#data{connect_pid=undefined}, ?CONNECT_RETRY};
+connect(info, {assign_session, _ConnAddr, _SessionPid},
+        #data{session_monitor=Monitor}) when Monitor /= undefined ->
+    %% Attempting to assign a session when we already have one
+    lager:notice("Trying to assign a session while one is being monitored"),
+    keep_state_and_data;
+connect(info, {assign_session, _ConnAddr, SessionPid},
+        Data=#data{session_monitor=Monitor=undefined, client_spec=undefined}) ->
+    %% Assign a session without a client spec. Just monitor the
+    %% session
+    {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid), send_pid=undefined}};
+connect(info, {assign_session, _ConnAddr, SessionPid},
+        Data=#data{kind=Kind, server=Server, session_monitor=Monitor,
+                   client_spec={Path, {M, A}}}) ->
+    %% Assign session with a client spec. Start client
     case libp2p_session:start_client_framed_stream(Path, SessionPid, M, A) of
         {ok, ClientPid} ->
             Connection = libp2p_connection:new(M, ClientPid),
-            {keep_state, Data#data{session_monitor=erlang:monitor(process, SessionPid),
-                                   send_pid=Connection}};
+            libp2p_group_server:send_ready(Server, Kind),
+            {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid), send_pid=Connection}};
         {error, Error} ->
-            lager:info("FAILED TO START CLIENT ~p: ~p", [Path, Error]),
-            {keep_state, Data#data{session_monitor=undefined,
-                                   send_pid=undefined}, ?CONNECT_RETRY}
+            lager:notice("Failed to start client on ~p: ~p", [Path, Error]),
+            {keep_state, Data#data{session_monitor=monitor_session(Monitor, undefined), send_pid=undefined}, ?CONNECT_RETRY}
     end;
-connect(cast, {assign_stream, ConnAddr, Connection}, Data=#data{tid=TID, session_monitor=Monitor}) ->
-    kill_monitor(Monitor),
+connect({call, From}, {assign_stream, ConnAddr, Connection},
+        Data=#data{tid=TID, kind=Kind, server=Server, session_monitor=Monitor, send_pid=undefined}) ->
+    %% Assign a stream. Monitor the session and remember the
+    %% connection
     {ok, SessionPid} = libp2p_config:lookup_session(TID, ConnAddr),
-    {keep_state, Data#data{session_monitor=erlang:monitor(process, SessionPid), send_pid=Connection}};
-connect(cast, {assign_target, undefined}, Data=#data{session_monitor=Monitor, connect_pid=Process}) ->
-    kill_monitor(Monitor),
-    kill_connect(Process),
-    {next_state, request_target, Data#data{session_monitor=undefined, target=undefined, connect_pid=undefined}};
-connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined, connect_pid=ConnectPid}) ->
-    lager:info("SEND WHILE NOT CONNECTED ~p", [ConnectPid]),
+    libp2p_group_server:send_ready(Server, Kind),
+    {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid), send_pid=Connection},
+    [{reply, From, ok}]};
+connect({call, From}, {assign_stream, _ConnAddr, _Connection}, #data{}) ->
+    %% If send_pid known we have an existing stream. Do not replace.
+    {keep_state_and_data, [{reply, From, {error, already_connected}}]};
+connect({call, From}, {assign_target, undefined}, Data=#data{session_monitor=Monitor, connect_pid=Process}) ->
+    %% When we assign an undefined target we go back to the
+    %% request_target state.
+    {next_state, request_target, Data#data{session_monitor=monitor_session(Monitor, undefined),
+                                           target=undefined,
+                                           connect_pid=kill_connect(Process)},
+    [{reply, From, ok}]};
+connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
+    %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
@@ -154,7 +166,7 @@ connect(EventType, Msg, Data) ->
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
 terminate(_Reason, _State, #data{session_monitor=Monitor, connect_pid=Process}) ->
     kill_connect(Process),
-    kill_monitor(Monitor).
+    monitor_session(Monitor, undefined).
 
 
 handle_event(EventType, Msg, #data{}) ->
@@ -163,12 +175,21 @@ handle_event(EventType, Msg, #data{}) ->
 
 %% Utilities
 
-kill_monitor(undefined) ->
-    ok;
-kill_monitor(Monitor) ->
-    erlang:demonitor(Monitor).
+-spec monitor_session(Monitor::reference() | undefined, SessionPid::pid() | undefined) -> undefined | reference().
+monitor_session(undefined, undefined) ->
+    undefined;
+monitor_session(Monitor, undefined) ->
+    erlang:demonitor(Monitor),
+    undefined;
+monitor_session(undefined, SessionPid) ->
+    erlang:monitor(process, SessionPid);
+monitor_session(Monitor, SessionPid) ->
+    erlang:demonitor(Monitor),
+    erlang:monitor(process, SessionPid).
 
+-spec kill_connect(pid() | undefined) -> undefined.
 kill_connect(undefined) ->
-    ok;
+    undefined;
 kill_connect(Pid) ->
-    erlang:exit(Pid, kill).
+    erlang:exit(Pid, kill),
+    undefined.

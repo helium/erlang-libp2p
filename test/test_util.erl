@@ -8,7 +8,7 @@ setup() ->
     application:ensure_all_started(ranch),
     application:ensure_all_started(lager),
     lager:set_loglevel(lager_console_backend, debug),
-    %% lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
+    lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
     ok.
 
 setup_swarms(0, _Opts, Acc) ->

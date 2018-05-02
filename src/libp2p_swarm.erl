@@ -8,6 +8,7 @@
          add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1,
          register_session/3, register_listener/3,
+         add_group/4,
          group_agent/1]).
 
 -type swarm_opts() :: [swarm_opt()].
@@ -250,6 +251,32 @@ stream_handlers(Sup) when is_pid(Sup) ->
     stream_handlers(tid(Sup));
 stream_handlers(TID) ->
     libp2p_config:lookup_stream_handlers(TID).
+
+
+%% Group
+%%
+
+-spec add_group(pid() | ets:tab(), GroupID::string(), Module::atom(), Args::[any()]) -> {ok, pid()} | {error, term()}.
+add_group(Sup, GroupID, Module, Args) when is_pid(Sup) ->
+    add_group(tid(Sup), GroupID, Module, Args);
+add_group(TID, GroupID, Module, Args) ->
+    case libp2p_config:lookup_group(TID, GroupID) of
+        {ok, _Pid} -> ok;
+        false ->
+            GroupSup = libp2p_swarm_group_sup:sup(TID),
+            ChildSpec = #{ id => GroupID,
+                           start => {Module, start_link, [TID, GroupID, Args]},
+                           restart => temporary,
+                           shutdown => 5000,
+                           type => worker },
+            case supervisor:start_child(GroupSup, ChildSpec) of
+                {error, Error} -> {error, Error};
+                {ok, GroupPid} ->
+                    libp2p_config:insert_group(TID, GroupID, GroupPid),
+                    {ok, GroupPid}
+            end
+    end.
+
 
 %% Session Agent
 %%

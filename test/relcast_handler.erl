@@ -9,8 +9,8 @@
           input_handler
        }).
 
-init([GroupID, Members, InputHandler, MessageHandler]) ->
-    {ok, GroupID, Members, #state{message_handler=MessageHandler, input_handler=InputHandler}}.
+init([Members, InputHandler, MessageHandler]) ->
+    {ok, Members, #state{message_handler=MessageHandler, input_handler=InputHandler}}.
 
 handle_message(Index, Msg, State=#state{message_handler=Handler}) ->
     {State, Handler(Index, Msg)}.

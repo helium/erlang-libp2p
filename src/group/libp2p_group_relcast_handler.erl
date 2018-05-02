@@ -2,7 +2,7 @@
 
 
 -callback init(Args::any()) ->
-    {ok, GroupdID::string(), TargetAddrs::[libp2p_crypto:address()], State::any()}
+    {ok, TargetAddrs::[libp2p_crypto:address()], State::any()}
         | {error, term()}.
 -callback handle_input(Msg::binary(), State::any()) -> handler_result().
 -callback handle_message(Index::pos_integer(), Msg::binary(), State::any()) -> handler_result().

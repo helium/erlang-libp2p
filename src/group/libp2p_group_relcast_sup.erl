@@ -10,10 +10,10 @@
 -define(SERVER, server).
 -define(WORKERS, workers).
 
-start_link(TID, Handler, Args) ->
-    supervisor:start_link(?MODULE, [Handler, Args, TID]).
+start_link(TID, GroupID, Args) ->
+    supervisor:start_link(?MODULE, [TID, GroupID, Args]).
 
-init([Handler, Args, TID]) ->
+init([TID, GroupID, Args]) ->
     SupFlags = #{strategy => one_for_all},
     ChildSpecs =
         [
@@ -22,7 +22,7 @@ init([Handler, Args, TID]) ->
             type => supervisor
           },
          #{ id => server,
-            start => {libp2p_group_relcast_server, start_link, [Handler, Args, self(), TID]}
+            start => {libp2p_group_relcast_server, start_link, [TID, GroupID, Args, self()]}
           }
         ],
     {ok, {SupFlags, ChildSpecs}}.

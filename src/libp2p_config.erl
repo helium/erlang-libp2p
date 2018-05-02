@@ -7,13 +7,15 @@
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
-         lookup_stream_handlers/1, insert_stream_handler/2]).
+         lookup_stream_handlers/1, insert_stream_handler/2,
+         insert_group/3, lookup_group/2, remove_group/2]).
 
 -define(CONNECTION_HANDLER, connection_handler).
 -define(STREAM_HANDLER, stream_handler).
 -define(TRANSPORT, transport).
 -define(SESSION, session).
 -define(LISTENER, listener).
+-define(GROUP, group).
 
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
@@ -209,3 +211,19 @@ lookup_stream_handlers(TID) ->
 -spec insert_stream_handler(ets:tab(), {string(), libp2p_session:stream_handler()}) -> true.
 insert_stream_handler(TID, {Key, ServerMF}) ->
     ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}).
+
+%%
+%% Groups
+%%
+
+-spec insert_group(ets:tab(), string(), pid()) -> true.
+insert_group(TID, GroupID, Pid) ->
+    insert_pid(TID, ?GROUP, GroupID, Pid).
+
+-spec lookup_group(ets:tab(), string()) -> {ok, pid()} | false.
+lookup_group(TID, GroupID) ->
+    lookup_pid(TID, ?GROUP, GroupID).
+
+-spec remove_group(ets:tab(), string()) -> true.
+remove_group(TID, GroupID) ->
+    remove_pid(TID, ?GROUP, GroupID).
