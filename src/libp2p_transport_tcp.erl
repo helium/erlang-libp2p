@@ -445,16 +445,16 @@ spawn_nat_discovery(Handler, MultiAddrs) ->
         [] -> ok;
         [Tuple|_] ->
             %% TODO we should make a port mapping for EACH address
-            %% here, for weird multihomed machines, but nat_upnp and
+            %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
             spawn(fun() -> try_nat_pmp(Handler, Tuple) end),
-            spawn(fun() -> try_nat_upnp(Handler, Tuple) end)
+            spawn(fun() -> try_natupnp_v1(Handler, Tuple) end)
     end.
 
 
-nat_external_address(nat_upnp, Context) ->
-    {ok, ExtAddress} = nat_upnp:get_external_ip_address(Context),
+nat_external_address(natupnp_v1, Context) ->
+    {ok, ExtAddress} = natupnp_v1:get_external_address(Context),
     {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
     ParsedExtAddress;
 nat_external_address(natpmp, Context) ->
@@ -463,14 +463,14 @@ nat_external_address(natpmp, Context) ->
     ParsedExtAddress.
 
 
-try_nat_upnp(Handler, {MultiAddr, _IP, Port}) ->
-    case nat_upnp:discover() of
+try_natupnp_v1(Handler, {MultiAddr, _IP, Port}) ->
+    case natupnp_v1:discover() of
         {ok, Context} ->
-            case nat_upnp:add_port_mapping(Context, tcp, Port, Port, "erlang-libp2p", 0) of
+            case natupnp_v1:add_port_mapping(Context, tcp, Port, Port, 0) of
                 ok ->
                     %% figure out the external IP
-                    ExternalAddress = nat_external_address(nat_upnp, Context),
-                    Handler ! {record_listen_addr, nat_upnp, MultiAddr, to_multiaddr({ExternalAddress, Port})};
+                    ExternalAddress = nat_external_address(natupnp_v1, Context),
+                    Handler ! {record_listen_addr, natupnp_v1, MultiAddr, to_multiaddr({ExternalAddress, Port})};
                 _ ->
                     lager:warning("unable to add upnp mapping"),
                     ok
