@@ -8,14 +8,14 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/3, accept_stream/3]).
+-export([handle_data/3, accept_stream/4]).
 
 -record(state,
        { sup :: pid(),
          tid :: ets:tab(),
          group_id :: string(),
-         targets :: [string()],
-         workers=[] :: [pid()],
+         self_index :: pos_integer(),
+         workers=[] :: [worker_info()],
          store :: reference(),
          handler :: atom(),
          handler_state :: any()
@@ -25,6 +25,7 @@
 -define(OUTBOUND, 0).
 -define(GROUP_PATH_BASE, "relcast/").
 
+-type worker_info() :: {MAddr::string(), Index::pos_integer(), pid() | self}.
 -type msg_kind() :: ?OUTBOUND | ?INBOUND.
 -type msg_key() :: binary().
 
@@ -36,8 +37,8 @@ handle_input(Pid, Msg) ->
 handle_data(Pid, Ref, Bin) ->
     gen_server:call(Pid, {handle_data, Ref, Bin}).
 
-accept_stream(Pid, Connection, Path) ->
-    gen_server:call(Pid, {accept_stream, Connection, Path}).
+accept_stream(Pid, MAddr, Connection, Path) ->
+    gen_server:call(Pid, {accept_stream, MAddr, Connection, Path}).
 
 
 %% gen_server
@@ -58,24 +59,28 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
             case bitcask:open(DataDir, [read_write]) of
                 {error, Reason} -> {stop, {error, Reason}};
                 Ref ->
-                    self() ! start_workers,
-                    {ok, #state{sup=Sup, tid=TID, group_id=GroupID,
-                                targets=lists:map(fun mk_multiaddr/1, Addrs),
-                                handler=Handler, handler_state=HandlerState, store=Ref}}
+                    self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
+                    SelfAddr = libp2p_swarm:address(TID),
+                    case lists:keyfind(SelfAddr, 2, lists:zip(lists:seq(1, length(Addrs)), Addrs)) of
+                        {SelfIndex, SelfAddr} ->
+                            {ok, #state{sup=Sup, tid=TID, group_id=GroupID,
+                                        self_index=SelfIndex,
+                                        handler=Handler, handler_state=HandlerState, store=Ref}};
+                        false -> {error, {not_found, SelfAddr}}
+                    end
             end;
         {error, Reason} -> {stop, {error, Reason}}
     end.
 
-handle_call(sessions, _From, State=#state{targets=Targets, workers=Workers}) ->
-    {reply, lists:zip(Targets, Workers), State};
-handle_call({accept_stream, _Connection, _Path}, _From, State=#state{workers=[]}) ->
+handle_call({accept_stream, _MAddr, _Connection, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
-handle_call({accept_stream, Connection, Path}, _From, State=#state{}) ->
-    case find_worker(mk_multiaddr(Path), State)  of
-        {error, Error} -> {reply, {error, Error}, State};
-        {ok, Index, Worker} ->
-            {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-            libp2p_group_worker:assign_stream(Worker, RemoteAddr, Connection),
+handle_call({accept_stream, MAddr, Connection, Path}, _From,
+            State=#state{self_index=SelfIndex, workers=Workers}) ->
+    case lists:keyfind(mk_multiaddr(Path), 1, Workers) of
+        false -> {reply, {error, not_found}};
+        {_, SelfIndex, self} -> {reply, {errror, bad_arg}};
+        {_, Index, Worker} ->
+            libp2p_group_worker:assign_stream(Worker, MAddr, Connection),
             {reply, {ok, Index}, State}
     end;
 handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState}) ->
@@ -103,8 +108,9 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_cast({request_target, Index, WorkerPid}, State=#state{targets=Targets}) ->
-    libp2p_group_worker:assign_target(WorkerPid, lists:nth(Index, Targets)),
+handle_cast({request_target, Index, WorkerPid}, State=#state{workers=Workers}) ->
+    {Target, Index, WorkerPid} = lists:nth(Index, Workers),
+    libp2p_group_worker:assign_target(WorkerPid, Target),
     {noreply, State};
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
     case Handler:handle_input(Msg, HandlerState) of
@@ -141,12 +147,11 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(start_workers, State=#state{group_id=GroupID, tid=TID}) ->
+handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
     ServerPath = lists:flatten(?GROUP_PATH_BASE, GroupID),
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
-    Workers = start_workers(State),
-    {noreply, State#state{workers=Workers}};
+    {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
@@ -156,20 +161,18 @@ terminate(_Reason, #state{store=Store}) ->
     bitcask:close(Store).
 
 
-find_worker(MAddr, #state{workers=Workers, targets=Targets}) ->
-    case lists:keyfind(MAddr, 1, lists:zip3(Targets, lists:seq(1, length(Workers)), Workers)) of
-        false -> {error, not_found};
-        {MAddr, Index, Worker} -> {ok, Index, Worker}
-    end.
-
 %% Internal
 %%
 
-start_workers(#state{sup=Sup, group_id=GroupID, targets=TargetAddrs, tid=TID}) ->
+-spec start_workers([string()], #state{}) -> [worker_info()].
+start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
+                                  self_index=SelfIndex}) ->
     WorkerSup = libp2p_group_relcast_sup:workers(Sup),
     Path = lists:flatten([?GROUP_PATH_BASE, GroupID, "/",
                           libp2p_crypto:address_to_b58(libp2p_swarm:address(TID))]),
-    lists:map(fun(Index) ->
+    lists:map(fun({Index, Addr}) when Index == SelfIndex ->
+                      {Addr, Index, self};
+                  ({Index, Addr}) ->
                       ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self()]}},
                       {ok, WorkerPid} = supervisor:start_child(
                                           WorkerSup,
@@ -179,8 +182,8 @@ start_workers(#state{sup=Sup, group_id=GroupID, targets=TargetAddrs, tid=TID}) -
                                              restart => permanent
                                            }),
                       sys:get_status(WorkerPid),
-                      WorkerPid
-              end, lists:seq(1, length(TargetAddrs))).
+                      {Addr, Index, WorkerPid}
+              end, lists:zip(lists:seq(1, length(TargetAddrs)), TargetAddrs)).
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
     lists:flatten(["/p2p/", libp2p_crypto:address_to_b58(Addr)]);
@@ -245,7 +248,7 @@ delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
             end
     end.
 
--spec lookup_messages(msg_kind(), pos_integer(), #state{}) -> [binary()].
+-spec lookup_messages(msg_kind(), pos_integer(), #state{}) -> [{msg_key(), binary()}].
 lookup_messages(Kind, Index, State=#state{store=Store}) ->
     PrefixLength = workers_byte_length(State),
     bitcask:fold(Store,
@@ -260,13 +263,17 @@ lookup_messages(Kind, Index, State=#state{store=Store}) ->
 
 -spec dispatch_next_message(pos_integer(), #state{}) -> ok.
 dispatch_next_message(Index, State=#state{workers=Workers}) ->
-    Worker = lists:nth(Index, Workers),
     case lookup_messages(?OUTBOUND, Index, State) of
-        [{Key, Msg} | _] -> dispatch_message(Worker, Key, Index, Msg);
+        [{Key, Msg} | _] -> dispatch_message(lists:nth(Index, Workers), Key, Msg, State);
         _ -> ok
     end.
 
-dispatch_message(Worker, Key, Index, Msg) ->
+dispatch_message({_, Index, self}, _Key, Msg, #state{self_index=Index}) ->
+    %% Dispatch a message to self directly
+    spawn(fun() ->
+                  handle_data(self(), Index, Msg)
+          end);
+dispatch_message({_, Index, Worker}, Key, Msg, #state{}) ->
     libp2p_group_worker:send(Worker, {Key, Index}, Msg).
 
 send_messages([], #state{}) ->
@@ -274,15 +281,15 @@ send_messages([], #state{}) ->
 send_messages([{unicast, Index, Msg} | Tail], State=#state{workers=Workers}) ->
     Key = mk_message_key(),
     store_message(?OUTBOUND, Key, [Index], Msg, State),
-    dispatch_message(lists:nth(Index, Workers), Key, Index, Msg),
+    dispatch_message(lists:nth(Index, Workers), Key, Msg, State),
     send_messages(Tail, State);
 send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers}) ->
     Key = mk_message_key(),
-    Targets = lists:seq(1, length(Workers)),
-    store_message(?OUTBOUND, Key, Targets, Msg, State),
-    lists:foreach(fun({Index, Worker}) ->
-                          dispatch_message(Worker, Key, Index, Msg)
-                  end, lists:zip(Targets, Workers)),
+    Indexes = lists:seq(1, length(Workers)),
+    store_message(?OUTBOUND, Key, Indexes, Msg, State),
+    lists:foreach(fun(Worker) ->
+                          dispatch_message(Worker, Key, Msg, State)
+                  end, Workers),
     send_messages(Tail, State).
 
 %% Tests

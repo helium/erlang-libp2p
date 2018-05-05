@@ -5,16 +5,21 @@
 -behavior(libp2p_framed_stream).
 
 -callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok  | {error, term()}.
--callback accept_stream(State::any(), Connection::libp2p_connection:connection(), Path::string()) ->
+-callback accept_stream(State::any(), MAddr::string(),
+                        Connection::libp2p_connection:connection(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
 
 %% API
--export([server/4, send/3]).
+-export([server/4]).
 %% libp2p_framed_stream
 -export([init/3, handle_data/3, handle_call/4, handle_info/3]).
+%% libp2p_connection
+-export([send/3, addr_info/1]).
+
 
 -record(state,
-        { ack_module :: atom(),
+        { connection :: libp2p_connection:connection(),
+          ack_module :: atom(),
           ack_state :: any(),
           ack_ref :: any(),
           send_timer=undefined :: undefined | reference(),
@@ -27,22 +32,36 @@
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
+%% libp2p_connection
+%%
+
 send(Pid, Data, Timeout) ->
     gen_server:call(Pid, {send, Data, Timeout}).
 
+addr_info(Pid) ->
+    gen_server:call(Pid, addr_info).
+
+%% libp2p_framed_stream
+%%
+
 init(server, Connection, [Path, AckModule, AckState]) ->
-    case AckModule:accept_stream(AckState, Connection, Path) of
+    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
+    case AckModule:accept_stream(AckState, RemoteAddr, libp2p_connection:new(?MODULE, self()), Path) of
         {ok, AckRef} ->
-            {ok, #state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
+            {ok, #state{connection=Connection,
+                        ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
         {error, Reason} ->
             {stop, {error, Reason}}
     end;
-init(client, _Connection, [AckRef, AckModule, AckState]) ->
-    {ok, #state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
+init(client, Connection, [AckRef, AckModule, AckState]) ->
+    {ok, #state{connection=Connection,
+                ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
 handle_data(_, Data, State=#state{}) ->
     handle_message(libp2p_ack_stream_pb:decode_msg(Data, libp2p_data_pb), State).
 
+handle_call(_, addr_info, _From, State=#state{connection=Connection}) ->
+    {reply, libp2p_connection:addr_info(Connection), State};
 handle_call(_, {send, Data, Timeout}, From, State=#state{}) ->
     Msg = #libp2p_data_pb{data=Data},
     Timer = erlang:send_after(Timeout, self(), send_timeout),

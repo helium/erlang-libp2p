@@ -44,20 +44,19 @@ unicast_test(Config) ->
 
     await_peerbooks(Swarms),
 
+    Members = [libp2p_swarm:address(S) || S <- Swarms],
+
     %% G1 takes input and unicasts it to the member at index1 (G2)
-    G1Args = [relcast_handler, [[libp2p_swarm:address(S2), libp2p_swarm:address(S3)],
-                                input_unicast(1), undefined]],
+    G1Args = [relcast_handler, [Members, input_unicast(2), undefined]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles any incoming message by sending a message to member
-    %% 2 (G3)
-    G2Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S3)],
-                                undefined, handle_msg({send, [{unicast, 2, <<"hello2">>}]})]],
+    %% 3 (G3)
+    G2Args = [relcast_handler, [Members, undefined, handle_msg({send, [{unicast, 3, <<"hello2">>}]})]],
     {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     %% G3 handles a messages by just aknowledging it
-    G3Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S2)],
-                                undefined, handle_msg(ok)]],
+    G3Args = [relcast_handler, [Members, undefined, handle_msg(ok)]],
     {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
 
     %% Give G1 some input. This should end up getting to G2 who then
@@ -66,7 +65,7 @@ unicast_test(Config) ->
 
     %% Receive the message from G2 as handled by G3
     receive
-        {handle_msg, 2, <<"hello2">>} -> ok
+        {handle_msg, 3, <<"hello2">>} -> ok
     after 5000 -> error(timeout)
     end,
     ok.
@@ -83,28 +82,27 @@ multicast_test(Config) ->
 
     await_peerbooks(Swarms),
 
+    Members = [libp2p_swarm:address(S) || S <- Swarms],
+
     %% G1 takes input and broadcasts
-    G1Args = [relcast_handler, [[libp2p_swarm:address(S2), libp2p_swarm:address(S3)],
-                                input_multicast(), undefined]],
+    G1Args = [relcast_handler, [Members, input_multicast(), undefined]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles a message by acknowledging it
-    G2Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S3)],
-                                undefined, handle_msg(ok)]],
+    G2Args = [relcast_handler, [Members, undefined, handle_msg(ok)]],
     {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     %% G3 handles a messages by aknowledging it
-    G3Args = [relcast_handler, [[libp2p_swarm:address(S1), libp2p_swarm:address(S2)],
-                                undefined, handle_msg(ok)]],
+    G3Args = [relcast_handler, [Members, undefined, handle_msg(ok)]],
     {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
 
     libp2p_group_relcast:handle_input(G1, <<"hello">>),
 
     %% Receive messages from both G2 and G3
     receive
-        {handle_message, 1, <<"hello">>} ->
+        {handle_message, 2, <<"hello">>} ->
             receive
-                {handle_message, 1, <<"hello">>} -> ok
+                {handle_message, 3, <<"hello">>} -> ok
             after 5000 -> timeout
             end
     after 5000 -> timeout

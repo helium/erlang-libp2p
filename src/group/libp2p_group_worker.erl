@@ -72,7 +72,7 @@ request_target(cast, {assign_target, MAddr}, Data=#data{}) ->
     {next_state, connect, Data#data{target=MAddr}};
 request_target(cast, {send, Ref, _Bin}, #data{server=Server}) ->
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
-    keep_state_and_data;
+    {keep_state_and_data, ?ASSIGN_RETRY};
 request_target(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
@@ -114,11 +114,11 @@ connect(info, {assign_session, _ConnAddr, _SessionPid},
         #data{session_monitor=Monitor}) when Monitor /= undefined ->
     %% Attempting to assign a session when we already have one
     lager:notice("Trying to assign a session while one is being monitored"),
-    keep_state_and_data;
+    {keep_state_and_data, ?CONNECT_RETRY};
 connect(info, {assign_session, _ConnAddr, SessionPid},
         Data=#data{session_monitor=Monitor=undefined, client_spec=undefined}) ->
     %% Assign a session without a client spec. Just monitor the
-    %% session
+    %% session. Success, no timeout needed
     {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid), send_pid=undefined}};
 connect(info, {assign_session, _ConnAddr, SessionPid},
         Data=#data{kind=Kind, server=Server, session_monitor=Monitor,
@@ -133,28 +133,21 @@ connect(info, {assign_session, _ConnAddr, SessionPid},
             lager:notice("Failed to start client on ~p: ~p", [Path, Error]),
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, undefined), send_pid=undefined}, ?CONNECT_RETRY}
     end;
-connect({call, From}, {assign_stream, ConnAddr, Connection},
+connect({call, From}, {assign_stream, MAddr, Connection},
         Data=#data{tid=TID, kind=Kind, server=Server, session_monitor=Monitor, send_pid=undefined}) ->
     %% Assign a stream. Monitor the session and remember the
     %% connection
-    {ok, SessionPid} = libp2p_config:lookup_session(TID, ConnAddr),
+    {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
     libp2p_group_server:send_ready(Server, Kind),
     {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid), send_pid=Connection},
     [{reply, From, ok}]};
-connect({call, From}, {assign_stream, _ConnAddr, _Connection}, #data{}) ->
+connect({call, From}, {assign_stream, _MAddr, _Connection}, #data{}) ->
     %% If send_pid known we have an existing stream. Do not replace.
     {keep_state_and_data, [{reply, From, {error, already_connected}}]};
-connect({call, From}, {assign_target, undefined}, Data=#data{session_monitor=Monitor, connect_pid=Process}) ->
-    %% When we assign an undefined target we go back to the
-    %% request_target state.
-    {next_state, request_target, Data#data{session_monitor=monitor_session(Monitor, undefined),
-                                           target=undefined,
-                                           connect_pid=kill_connect(Process)},
-    [{reply, From, ok}]};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
-    keep_state_and_data;
+    {keep_state_and_data, ?CONNECT_RETRY};
 connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
     Result = libp2p_connection:send(SendPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
