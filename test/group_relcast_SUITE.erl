@@ -65,7 +65,7 @@ unicast_test(Config) ->
 
     %% Receive the message from G2 as handled by G3
     receive
-        {handle_msg, 3, <<"hello2">>} -> ok
+        {handle_msg, 2, <<"hello2">>} -> ok
     after 5000 -> error(timeout)
     end,
     ok.

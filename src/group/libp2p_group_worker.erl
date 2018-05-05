@@ -94,6 +94,10 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
                          end
                  end),
     {next_state, connect, Data#data{connect_pid=Pid}};
+connect(enter, _, Data=#data{connect_pid=ConnectPid})  ->
+    lager:debug("KILLCONNECT"),
+    kill_connect(ConnectPid),
+    {repeat_state, Data#data{connect_pid=undefined}};
 connect(timeout, _, #data{}) ->
     repeat_state_and_data;
 connect(info, {error, _Reason}, Data=#data{}) ->
@@ -133,6 +137,10 @@ connect(info, {assign_session, _ConnAddr, SessionPid},
             lager:notice("Failed to start client on ~p: ~p", [Path, Error]),
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, undefined), send_pid=undefined}, ?CONNECT_RETRY}
     end;
+connect({call, From}, {assign_stream, _MAddr, _Connection}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
+    %% If send_pid known we have an existing stream. Do not replace.
+    lager:debug("ALREADY SEND CONNECTED"),
+    {keep_state_and_data, [{reply, From, {error, already_connected}}]};
 connect({call, From}, {assign_stream, MAddr, Connection},
         Data=#data{tid=TID, kind=Kind, server=Server, session_monitor=Monitor, send_pid=undefined}) ->
     %% Assign a stream. Monitor the session and remember the
@@ -141,14 +149,13 @@ connect({call, From}, {assign_stream, MAddr, Connection},
     libp2p_group_server:send_ready(Server, Kind),
     {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid), send_pid=Connection},
     [{reply, From, ok}]};
-connect({call, From}, {assign_stream, _MAddr, _Connection}, #data{}) ->
-    %% If send_pid known we have an existing stream. Do not replace.
-    {keep_state_and_data, [{reply, From, {error, already_connected}}]};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
+    lager:debug("NOT SEND CONNECTED, RETRY"),
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
-    {keep_state_and_data, ?CONNECT_RETRY};
+    keep_state_and_data;
 connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
+    lager:debug("SENDING CONNECTED ~p", [Ref]),
     Result = libp2p_connection:send(SendPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     keep_state_and_data;

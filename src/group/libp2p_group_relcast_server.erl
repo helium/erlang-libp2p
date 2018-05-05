@@ -83,9 +83,11 @@ handle_call({accept_stream, MAddr, Connection, Path}, _From,
             libp2p_group_worker:assign_stream(Worker, MAddr, Connection),
             {reply, {ok, Index}, State}
     end;
-handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState}) ->
+handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState,
+                                                          self_index=SelfIndex}) ->
     %% Incoming message, add to queue
     MsgKey = mk_message_key(),
+    lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     store_message(?INBOUND, MsgKey, [], Msg, State),
     %% Fast return since the message is stored
     gen_server:reply(From, ok),
@@ -236,15 +238,18 @@ store_message(Kind=?OUTBOUND, Key, Targets, Msg, State=#state{}) ->
 -spec delete_message(msg_kind(), msg_key(), pos_integer(), #state{}) -> ok.
 delete_message(?INBOUND, Key, _Index, #state{store=Store}) ->
     bitcask:delete(Store, Key);
-delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
+delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store, self_index=SelfIndex}) ->
     PrefixLength = workers_byte_length(State),
     case bitcask:get(Store, Key) of
         {error, Error} -> error(Error);
         not_found -> ok;
         {ok, <<Kind:8/integer-unsigned, Prefix:PrefixLength/binary, Msg/binary>>} ->
             case set_bit(Index - 1, 0, Prefix) of
-                <<0:PrefixLength/unit:8>> -> bitcask:delete(Store, Key);
-                NewPrefix -> store_message(Kind, Key, NewPrefix, Msg, State)
+                <<0:PrefixLength/unit:8>> ->
+                    lager:debug("~p DELETING MSG FOR ~p ~p", [SelfIndex, Index, Msg]),
+                    bitcask:delete(Store, Key);
+                NewPrefix ->
+                    store_message(Kind, Key, NewPrefix, Msg, State)
             end
     end.
 
@@ -262,9 +267,11 @@ lookup_messages(Kind, Index, State=#state{store=Store}) ->
 
 
 -spec dispatch_next_message(pos_integer(), #state{}) -> ok.
-dispatch_next_message(Index, State=#state{workers=Workers}) ->
+dispatch_next_message(Index, State=#state{workers=Workers, self_index=SelfIndex}) ->
     case lookup_messages(?OUTBOUND, Index, State) of
-        [{Key, Msg} | _] -> dispatch_message(lists:nth(Index, Workers), Key, Msg, State);
+        [{Key, Msg} | _] ->
+            lager:debug("~p DISPATCHING TO ~p ~p", [SelfIndex, Index, Msg]),
+            dispatch_message(lists:nth(Index, Workers), Key, Msg, State);
         _ -> ok
     end.
 
@@ -329,9 +336,11 @@ store_delete_test() ->
 
     ok = delete_message(?OUTBOUND, MsgKey, 1, State),
     {ok, _} = bitcask:get(Store, MsgKey),
+    ?assertEqual([], lookup_messages(?OUTBOUND, 1, State)),
 
     ok = delete_message(?OUTBOUND, MsgKey, 3, State),
     not_found = bitcask:get(Store, MsgKey),
+    ?assertEqual([], lookup_messages(?OUTBOUND, 3, State)),
     ok.
 
 -endif.
