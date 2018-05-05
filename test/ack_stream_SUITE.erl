@@ -1,7 +1,7 @@
 -module(ack_stream_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accept_stream/3, handle_data/3]).
+-export([accept_stream/4, handle_data/3]).
 -export([ack_test/1]).
 
 
@@ -30,7 +30,7 @@ ack_test(Config) ->
     end,
     ok.
 
-accept_stream(Pid, Connection, Path) ->
+accept_stream(Pid, _MAddr, Connection, Path) ->
     Pid ! {accept_stream, Connection, Path},
     {ok, ack_server_ref}.
 
