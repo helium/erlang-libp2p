@@ -1,6 +1,6 @@
 -module(libp2p_group_server).
 
--export([request_target/3, send_result/3, send_ready/2]).
+-export([request_target/3, send_result/3, send_ready/3]).
 
 -spec request_target(Server::pid(), term(), Worker::pid()) -> ok.
 request_target(Pid, Kind, WorkerPid) ->
@@ -10,6 +10,6 @@ request_target(Pid, Kind, WorkerPid) ->
 send_result(Pid, Ref, Result) ->
     gen_server:cast(Pid, {send_result, Ref, Result}).
 
--spec send_ready(Server::pid(), Ref::term()) -> ok.
-send_ready(Pid, Ref) ->
-    gen_server:cast(Pid, {send_ready, Ref}).
+-spec send_ready(Server::pid(), Ref::term(), Ready::boolean()) -> ok.
+send_ready(Pid, Ref, Ready) ->
+    gen_server:cast(Pid, {send_ready, Ref, Ready}).

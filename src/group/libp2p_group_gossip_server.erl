@@ -71,6 +71,8 @@ handle_cast({send, Bin}, State=#state{}) ->
                           libp2p_group_worker:send(Pid, ignore, Bin)
                   end, Pids),
     {noreply, State};
+handle_cast({send_ready, _Ref, _Ready}, State=#state{}) ->
+    {noreply, State};
 handle_cast({send_result, _Ref, _Reason}, State=#state{}) ->
     {noreply, State};
 handle_cast(Msg, State) ->

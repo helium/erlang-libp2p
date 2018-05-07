@@ -5,8 +5,8 @@
 
 all() ->
     [ %% restart_test,
-      unicast_test,
-      multicast_test
+      unicast_test
+      %% multicast_test
     ].
 
 init_per_testcase(_, Config) ->
