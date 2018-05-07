@@ -12,8 +12,12 @@
 init([Members, InputHandler, MessageHandler]) ->
     {ok, Members, #state{message_handler=MessageHandler, input_handler=InputHandler}}.
 
+handle_message(_Index, _Msg, State=#state{message_handler=undefined}) ->
+    {State, ok};
 handle_message(Index, Msg, State=#state{message_handler=Handler}) ->
     {State, Handler(Index, Msg)}.
 
+handle_input(_Msg, State=#state{input_handler=undefined}) ->
+    {State, ok};
 handle_input(Msg, State=#state{input_handler=Handler}) ->
     {State, Handler(Msg)}.

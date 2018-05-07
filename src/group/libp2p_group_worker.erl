@@ -95,7 +95,6 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
                  end),
     {next_state, connect, Data#data{connect_pid=Pid}};
 connect(enter, _, Data=#data{connect_pid=ConnectPid})  ->
-    lager:debug("KILLCONNECT"),
     kill_connect(ConnectPid),
     {repeat_state, Data#data{connect_pid=undefined}};
 connect(timeout, _, #data{}) ->
@@ -143,7 +142,6 @@ connect(info, {assign_session, _ConnAddr, SessionPid},
     end;
 connect({call, From}, {assign_stream, _MAddr, _Connection}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
-    lager:debug("ALREADY SEND CONNECTED"),
     {keep_state_and_data, [{reply, From, {error, already_connected}}]};
 connect({call, From}, {assign_stream, MAddr, Connection},
         Data=#data{tid=TID, session_monitor=Monitor, send_pid=undefined}) ->
@@ -155,11 +153,9 @@ connect({call, From}, {assign_stream, MAddr, Connection},
     [{reply, From, ok}]};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
-    lager:debug("NOT SEND CONNECTED, RETRY"),
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
-    lager:debug("SENDING CONNECTED ~p", [Ref]),
     Result = libp2p_connection:send(SendPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     keep_state_and_data;
@@ -198,6 +194,8 @@ kill_connect(Pid) ->
     erlang:exit(Pid, kill),
     undefined.
 
+update_send_pid(SendPid, #data{send_pid=SendPid}) ->
+    SendPid;
 update_send_pid(SendPid, #data{kind=Kind, server=Server}) ->
     Notice = case SendPid of
                  undefined -> false;

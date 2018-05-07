@@ -86,11 +86,9 @@ handle_call({accept_stream, MAddr, Connection, Path}, _From,
             libp2p_group_worker:assign_stream(Worker, MAddr, Connection),
             {reply, {ok, Index}, State}
     end;
-handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState,
-                                                          self_index=SelfIndex}) ->
+handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState}) ->
     %% Incoming message, add to queue
     MsgKey = mk_message_key(),
-    lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     store_message(?INBOUND, MsgKey, [], Msg, State),
     %% Fast return since the message is stored
     gen_server:reply(From, ok),
@@ -129,11 +127,10 @@ handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=Han
         {NewHandlerState, stop, Reason} ->
             {stop, Reason, NewHandlerState}
         end;
-handle_cast({send_ready, Index, Ready}, State=#state{self_index=SelfIndex}) ->
+handle_cast({send_ready, Index, Ready}, State=#state{}) ->
     %% Sent by group worker after it gets a stream set up (send just
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
-    lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
     NewState = ready_worker(Index, Ready, State),
     case Ready of
         true ->
@@ -148,11 +145,10 @@ handle_cast({send_result, {Key, Index}, ok}, State=#state{}) ->
     delete_message(?OUTBOUND, Key, Index, State),
     dispatch_next_message(Index, State),
     {noreply, State};
-handle_cast({send_result, {_Key, Index}, Error}, State=#state{self_index=SelfIndex}) ->
+handle_cast({send_result, {_Key, Index}, _Error}, State=#state{}) ->
     %% Sent by group worker on error. Instead of looking up the
     %% message by key again we locate the first message that needs to
     %% be sent and dispatch it.
-    lager:debug("~p SEND ERROR TO ~p: ~p ", [SelfIndex, Index, Error]),
     dispatch_next_message(Index, State),
     {noreply, State};
 handle_cast(Msg, State) ->
@@ -215,13 +211,14 @@ dispatch_next_message(Index, State=#state{workers=Workers}) ->
 
 dispatch_message({_, Index, self, _}, _Key, Msg, #state{self_index=Index}) ->
     %% Dispatch a message to self directly
+    Parent = self(),
     spawn(fun() ->
-                  handle_data(self(), Index, Msg)
+                  handle_data(Parent, Index, Msg)
           end);
-dispatch_message({_, Index, _Worker, false}, _Key, Msg, #state{self_index=SelfIndex}) ->
-    lager:debug("~p NOT READY TO DISPATCHING TO ~p ~p", [SelfIndex, Index, Msg]);
-dispatch_message({_, Index, Worker, true}, Key, Msg, #state{self_index=SelfIndex}) ->
-    lager:debug("~p DISPATCHING TO ~p ~p", [SelfIndex, Index, Msg]),
+dispatch_message({_, _Index, _Worker, false}, _Key, _Msg, #state{}) ->
+    %% Not ready to dispatch to the given worker
+    ok;
+dispatch_message({_, Index, Worker, true}, Key, Msg, #state{}) ->
     libp2p_group_worker:send(Worker, {Key, Index}, Msg).
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
@@ -275,7 +272,7 @@ store_message(Kind=?OUTBOUND, Key, Targets, Msg, State=#state{}) ->
 -spec delete_message(msg_kind(), msg_key(), pos_integer(), #state{}) -> ok.
 delete_message(?INBOUND, Key, _Index, #state{store=Store}) ->
     bitcask:delete(Store, Key);
-delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store, self_index=SelfIndex}) ->
+delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
     PrefixLength = workers_byte_length(State),
     case bitcask:get(Store, Key) of
         {error, Error} -> error(Error);
@@ -283,7 +280,6 @@ delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store, self_index=
         {ok, <<Kind:8/integer-unsigned, Prefix:PrefixLength/binary, Msg/binary>>} ->
             case set_bit(Index - 1, 0, Prefix) of
                 <<0:PrefixLength/unit:8>> ->
-                    lager:debug("~p DELETING MSG FOR ~p ~p", [SelfIndex, Index, Msg]),
                     bitcask:delete(Store, Key);
                 NewPrefix ->
                     store_message(Kind, Key, NewPrefix, Msg, State)

@@ -5,8 +5,8 @@
 
 all() ->
     [ %% restart_test,
-      unicast_test
-      %% multicast_test
+      unicast_test,
+      multicast_test
     ].
 
 init_per_testcase(_, Config) ->
@@ -46,8 +46,9 @@ unicast_test(Config) ->
 
     Members = [libp2p_swarm:address(S) || S <- Swarms],
 
-    %% G1 takes input and unicasts it to the member at index1 (G2)
-    G1Args = [relcast_handler, [Members, input_unicast(2), undefined]],
+    %% G1 takes input and unicasts it to itself, then handles the
+    %% message to self by sending a message to G2
+    G1Args = [relcast_handler, [Members, input_unicast(1), handle_msg({send, [{unicast, 2, <<"hello1">>}]})]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles any incoming message by sending a message to member
@@ -62,6 +63,18 @@ unicast_test(Config) ->
     %% Give G1 some input. This should end up getting to G2 who then
     %% sends a message to G3.
     libp2p_group_relcast:handle_input(G1, <<"hello">>),
+
+    %% Receive input message from G1 as handled by G1
+    receive
+        {handle_msg, 1, <<"hello">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    %% Receive message from G1 as handled by G2
+    receive
+        {handle_msg, 1, <<"hello1">>} -> ok
+    after 5000 -> error(timeout)
+    end,
 
     %% Receive the message from G2 as handled by G3
     receive
