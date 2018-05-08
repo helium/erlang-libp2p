@@ -89,9 +89,9 @@ basic(Config) ->
                     ok;
                 {libp2p_transport_tcp, spawn_nat_discovery, _} ->
                     handle_discovery(L, undefined);
-                {natpmp, _, _} ->
+                {natpmp, add_port_mapping, _} ->
                     handle_natpmp(L, undefined);
-                {natupnp_v1, _, _} ->
+                {natupnp_v1, add_port_mapping, _} ->
                     handle_natupnp_v1(L, undefined);
                 _ ->
                     ok
