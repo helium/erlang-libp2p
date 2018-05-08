@@ -197,10 +197,10 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             end,
             {noreply, State#state{stun_txns=NewStunTxns}}
     end;
-handle_info({record_listen_addr, NatType, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
+handle_info({record_listen_addr, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
-            lager:info("added ~p port mapping from ~s to ~s", [NatType, InternalAddr, ExternalAddr]),
+            lager:info("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
             libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
             {noreply, State};
         _ ->
@@ -448,54 +448,29 @@ spawn_nat_discovery(Handler, MultiAddrs) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            spawn(fun() -> try_nat_pmp(Handler, Tuple) end),
-            spawn(fun() -> try_natupnp_v1(Handler, Tuple) end)
+            spawn(fun() -> try_nat(Handler, Tuple) end)
     end.
 
+try_nat(Handler, {MultiAddr, _IP, Port}) ->
+    case nat:discover() of
+        {ok, Context} ->
+            case nat:add_port_mapping(Context, tcp, Port, Port, 3600) of
+                {ok, _Since, Port, Port, _MappingLifetime} ->
+                    ExternalAddress = nat_external_address(Context),
+                    Handler ! {record_listen_addr, MultiAddr, to_multiaddr({ExternalAddress, Port})};
+                {error, _Reason} ->
+                    lager:warning("unable to add nat mapping: ~p", [_Reason]),
+                    ok
+            end;
+        _ ->
+            lager:info("no nat discovered"),
+            ok
+    end.
 
-nat_external_address(natupnp_v1, Context) ->
-    {ok, ExtAddress} = natupnp_v1:get_external_address(Context),
-    {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
-    ParsedExtAddress;
-nat_external_address(natpmp, Context) ->
-    {ok, ExtAddress} = natpmp:get_external_address(Context),
+nat_external_address(Context) ->
+    {ok, ExtAddress} = nat:get_external_address(Context),
     {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
     ParsedExtAddress.
-
-
-try_natupnp_v1(Handler, {MultiAddr, _IP, Port}) ->
-    case natupnp_v1:discover() of
-        {ok, Context} ->
-            case natupnp_v1:add_port_mapping(Context, tcp, Port, Port, 0) of
-                ok ->
-                    %% figure out the external IP
-                    ExternalAddress = nat_external_address(natupnp_v1, Context),
-                    Handler ! {record_listen_addr, natupnp_v1, MultiAddr, to_multiaddr({ExternalAddress, Port})};
-                _ ->
-                    lager:warning("unable to add upnp mapping"),
-                    ok
-            end;
-        _ ->
-            lager:info("no upnp discovered"),
-            ok
-    end.
-
-try_nat_pmp(Handler, {MultiAddr, _IP, Port}) ->
-    case natpmp:discover() of
-        {ok, Context} ->
-            case natpmp:add_port_mapping(Context, tcp, Port, Port, 3600) of
-                {ok, _, _, _, _} ->
-                    %% figure out the external IP
-                    ExternalAddr = nat_external_address(natpmp, Context),
-                    Handler ! {record_listen_addr, natpmp, MultiAddr, to_multiaddr({ExternalAddr, Port})};
-                _ ->
-                    lager:warning("unable to add PMP mapping"),
-                    ok
-            end;
-        _ ->
-            lager:info("no PMP discovered"),
-            ok
-    end.
 
 %% @doc Get the subnet mask as an integer, stolen from an old post on
 %%      erlang-questions.

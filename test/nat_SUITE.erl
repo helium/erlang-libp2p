@@ -83,11 +83,15 @@ basic(Config) ->
         fun(Pid) ->
             L = lists:reverse(maps:get(Pid, Traces)),
             case lists:nth(1, L) of
+                {natupnp_v1, discover, []} ->
+                    ok;
+                {natpmp, discover, []} ->
+                    ok;
                 {libp2p_transport_tcp, spawn_nat_discovery, _} ->
                     handle_discovery(L, undefined);
-                {libp2p_transport_tcp, try_nat_pmp, _} ->
+                {natpmp, _, _} ->
                     handle_natpmp(L, undefined);
-                {libp2p_transport_tcp, try_natupnp_v1, _} ->
+                {natupnp_v1, _, _} ->
                     handle_natupnp_v1(L, undefined);
                 _ ->
                     ok
@@ -102,18 +106,13 @@ basic(Config) ->
 
 -spec handle_discovery(list(), any()) -> ok.
 handle_discovery([], _Meta) -> ok;
-handle_discovery([{libp2p_transport_tcp, spawn_nat_discovery, Data}|Traces], _Meta) ->
-    [_, [Addr]] = Data,
+handle_discovery([{libp2p_transport_tcp, spawn_nat_discovery, [_, [Addr|_]]}|Traces], _Meta) ->
     handle_discovery(Traces, Addr);
-handle_discovery([{libp2p_transport_tcp, handle_info, [{record_listen_addr, T, Addr, _ExtAddr}, _State]}|Traces], Addr) when T =:= natupnp_v1 orelse T =:= natpmp ->
+handle_discovery([{libp2p_transport_tcp, handle_info, [{record_listen_addr, Addr, _ExtAddr}, _State]}|Traces], Addr) ->
     handle_discovery(Traces, Addr).
 
 -spec handle_natpmp(list(), any()) -> ok.
 handle_natpmp([], _Meta) -> ok;
-handle_natpmp([{libp2p_transport_tcp, try_nat_pmp, _Data}|Traces], _Meta) ->
-    handle_natpmp(Traces, _Meta);
-handle_natpmp([{natpmp, discover, []}|Traces], _Meta) ->
-    handle_natpmp(Traces, _Meta);
 handle_natpmp([{natpmp, add_port_mapping, [Addr, tcp, 8333, 8333, 3600]}|Traces], _Meta) ->
     handle_natpmp(Traces, Addr);
 handle_natpmp([{libp2p_transport_tcp, nat_external_address, [natpmp, Addr]}|Traces], Addr) ->
@@ -123,13 +122,10 @@ handle_natpmp([{natpmp, get_external_address, [Addr]}|Traces], Addr) ->
 
 -spec handle_natupnp_v1(list(), any()) -> ok.
 handle_natupnp_v1([], _Meta) -> ok;
-handle_natupnp_v1([{libp2p_transport_tcp, try_natupnp_v1, _Data}|Traces], _Meta) ->
-    handle_natupnp_v1(Traces, _Meta);
-handle_natupnp_v1([{natupnp_v1, discover, []}|Traces], _Meta) ->
-    handle_natupnp_v1(Traces, _Meta);
-handle_natupnp_v1([{natupnp_v1, add_port_mapping, [{nat_upnp, A1, A2}, tcp, 8333, 8333, 0]}|Traces], _Meta) ->
+handle_natupnp_v1([{natupnp_v1, add_port_mapping, [{nat_upnp, A1, A2}, tcp, 8333, 8333, 3600]}|Traces], _Meta) ->
     handle_natupnp_v1(Traces, {A1, A2});
-handle_natupnp_v1([{libp2p_transport_tcp, nat_external_address, [natupnp_v1, {nat_upnp, A1, A2}]}|Traces], {A1, A2}) ->
+
+handle_natupnp_v1([{libp2p_transport_tcp, nat_external_address, [{natupnp_v1, {nat_upnp, A1, A2}}]}|Traces], {A1, A2}) ->
     handle_natupnp_v1(Traces, {A1, A2});
 handle_natupnp_v1([{natupnp_v1, get_external_address, [{nat_upnp, A1, A2}]}|Traces], {A1, A2}) ->
     handle_natupnp_v1(Traces, {A1, A2}).
