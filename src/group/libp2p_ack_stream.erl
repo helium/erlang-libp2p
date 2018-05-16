@@ -36,7 +36,7 @@ server(Connection, Path, _TID, Args) ->
 %%
 
 send(Pid, Data, Timeout) ->
-    gen_server:call(Pid, {send, Data, Timeout}).
+    gen_server:call(Pid, {send, Data, Timeout}, infinity).
 
 addr_info(Pid) ->
     gen_server:call(Pid, addr_info).

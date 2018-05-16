@@ -112,7 +112,7 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({request_target, Index, WorkerPid}, State=#state{workers=Workers}) ->
-    {Target, Index, WorkerPid, _} = lists:nth(Index, Workers),
+    {Target, Index, WorkerPid, _} = lists:keyfind(Index, 2, Workers),
     libp2p_group_worker:assign_target(WorkerPid, Target),
     {noreply, State};
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
@@ -195,17 +195,20 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
 
 ready_worker(Index, Ready, State=#state{workers=Workers}) ->
     NewWorkers = case lists:keyfind(Index, 2, Workers) of
-                     {Addr, Index, Worker, _} ->
-                         lists:keystore(Index, 2, Workers, {Addr, Index, Worker, Ready});
+                     {Addr, Index, WorkerPid, _} ->
+                         lists:keystore(Index, 2, Workers, {Addr, Index, WorkerPid, Ready});
                      false -> Workers
                  end,
     State#state{workers=NewWorkers}.
 
+lookup_worker(Index, #state{workers=Workers}) ->
+    lists:keyfind(Index, 2, Workers).
+
 -spec dispatch_next_message(pos_integer(), #state{}) -> ok.
-dispatch_next_message(Index, State=#state{workers=Workers}) ->
+dispatch_next_message(Index, State=#state{}) ->
     case lookup_messages(?OUTBOUND, Index, State) of
         [{Key, Msg} | _] ->
-            dispatch_message(lists:nth(Index, Workers), Key, Msg, State);
+            dispatch_message(lookup_worker(Index, State), Key, Msg, State);
         _ -> ok
     end.
 
@@ -300,10 +303,10 @@ lookup_messages(Kind, Index, State=#state{store=Store}) ->
 
 send_messages([], #state{}) ->
     ok;
-send_messages([{unicast, Index, Msg} | Tail], State=#state{workers=Workers}) ->
+send_messages([{unicast, Index, Msg} | Tail], State=#state{}) ->
     Key = mk_message_key(),
     store_message(?OUTBOUND, Key, [Index], Msg, State),
-    dispatch_message(lists:nth(Index, Workers), Key, Msg, State),
+    dispatch_message(lookup_worker(Index, State), Key, Msg, State),
     send_messages(Tail, State);
 send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers}) ->
     Key = mk_message_key(),

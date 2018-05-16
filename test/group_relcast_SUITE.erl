@@ -111,17 +111,20 @@ multicast_test(Config) ->
 
     libp2p_group_relcast:handle_input(G1, <<"hello">>),
 
-    %% Receive messages from both G2 and G3
-    receive
-        {handle_message, 2, <<"hello">>} ->
-            receive
-                {handle_message, 3, <<"hello">>} -> ok
-            after 5000 -> timeout
-            end
-    after 5000 -> timeout
-    end,
+    Messages = receive_messages([]),
+    2 = length(Messages),
 
     ok.
+
+receive_messages(Acc) ->
+    receive
+        Msg ->
+            io:format("MSG ~p", [Msg]),
+            receive_messages([Msg | Acc])
+    after 5000 ->
+            Acc
+    end.
+
 
 restart_test(_Config) ->
     %% Restarting a relcast group should resend outbound messages that
