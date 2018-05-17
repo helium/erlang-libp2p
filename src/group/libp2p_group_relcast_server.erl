@@ -114,7 +114,7 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({request_target, Index, WorkerPid}, State=#state{workers=Workers}) ->
-    {Target, Index, WorkerPid, _} = lists:keyfind(Index, 2, Workers),
+    {Target, Index, _WorkerPid, _} = lists:keyfind(Index, 2, Workers),
     libp2p_group_worker:assign_target(WorkerPid, Target),
     {noreply, State};
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
@@ -247,6 +247,11 @@ mk_message_key() ->
     {Time, Offset} = {erlang:monotonic_time(nanosecond), erlang:unique_integer([monotonic])},
     <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8>>.
 
+sort_message_keys({A, _}, {B, _}) ->
+    <<TimeA:19/integer-signed-unit:8, OffsetA:19/integer-signed-unit:8>> = A,
+    <<TimeB:19/integer-signed-unit:8, OffsetB:19/integer-signed-unit:8>> = B,
+    {TimeA, OffsetA} =< {TimeB, OffsetB}.
+
 
 -spec set_bit(non_neg_integer(), 0 | 1, binary()) -> binary().
 set_bit(Offset, V, Bin) when bit_size(Bin) > Offset ->
@@ -300,6 +305,9 @@ delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
                 <<0:PrefixLength/unit:8>> ->
                     lager:debug("DELETING KEY: ~p", [base58:binary_to_base58(Key)]),
                     bitcask:delete(Store, Key);
+                Prefix = <<N:PrefixLength/unit:8>> ->
+                    lager:debug("~p DUPLICATE PREFIX ~.2b ~p", [Index, N, base58:binary_to_base58(Key)]),
+                    ok;
                 NewPrefix= <<N:PrefixLength/unit:8>> ->
                     lager:debug("~p PREFIX ~.2b: ~p", [Index, N, base58:binary_to_base58(Key)]),
                     store_message(Kind, Key, NewPrefix, Msg, State)
@@ -309,29 +317,30 @@ delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
 -spec lookup_messages(msg_kind(), pos_integer(), #state{}) -> [{msg_key(), binary()}].
 lookup_messages(Kind, Index, State=#state{store=Store}) ->
     PrefixLength = workers_byte_length(State),
-    %% TODO: Verify that this fold does not need a reversal
-    bitcask:fold(Store,
+    Res = bitcask:fold(Store,
                  fun(Key, Bin, Acc) ->
                          <<Kind:8/integer-unsigned, Prefix:PrefixLength/binary, Msg/binary>> = Bin,
                          case is_bit_set(Index -1, Prefix) of
                              true -> [{Key, Msg} | Acc];
                              false -> Acc
                          end
-                 end, []).
+                 end, []),
+    %% sort by key age
+    lists:sort(fun sort_message_keys/2, Res).
 
 send_messages([], State=#state{}) ->
     State;
 send_messages([{unicast, Index, Msg} | Tail], State=#state{}) ->
     Key = mk_message_key(),
     store_message(?OUTBOUND, Key, [Index], Msg, State),
-    send_messages(Tail, dispatch_message(Index, Key, Msg, State));
+    send_messages(Tail, dispatch_next_message(Index, State));
 send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers, self_index=SelfIndex}) ->
     Key = mk_message_key(),
     Indexes = lists:seq(1, length(Workers)),
     lager:debug("~p STORED MULTICAST: ~p", [SelfIndex, base58:binary_to_base58(Key)]),
     store_message(?OUTBOUND, Key, Indexes, Msg, State),
     NewState = lists:foldr(fun({_, Index, _Pid, _}, AccState) ->
-                                   dispatch_message(Index, Key, Msg, AccState)
+                                   dispatch_next_message(Index, AccState)
                            end, State, Workers),
     send_messages(Tail, NewState).
 
