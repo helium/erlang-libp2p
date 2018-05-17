@@ -155,10 +155,16 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
-    Result = libp2p_connection:send(SendPid, Bin),
-    libp2p_group_server:send_result(Server, Ref, Result),
-    keep_state_and_data;
+connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, session_monitor=Monitor}) ->
+    case libp2p_connection:send(SendPid, Bin) of
+        ok ->
+            libp2p_group_server:send_result(Server, Ref, ok),
+            keep_state_and_data;
+        Error ->
+            libp2p_group_server:send_result(Server, Ref, Error),
+            {repeat_state, Data#data{session_monitor=monitor_session(Monitor, undefined),
+                                     send_pid=update_send_pid(undefined, Data)}}
+    end;
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
