@@ -153,7 +153,7 @@ handle_cast({send_result, {Key, Index}, Error}, State=#state{self_index=SelfInde
     %% message by key again we locate the first message that needs to
     %% be sent and dispatch it.
     lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key), Error]),
-    {noreply, dispatch_next_message(Index, ready_worker(Index, true, State))};
+    {noreply, dispatch_next_message(Index, State)};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.

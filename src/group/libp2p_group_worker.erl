@@ -158,10 +158,11 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, session_monitor=Monitor}) ->
-    Result = libp2p_connection:send(SendPid, Bin),
-    libp2p_group_server:send_result(Server, Ref, Result),
+    Result = (catch libp2p_connection:send(SendPid, Bin)),
+    lager:notice("connection died, closing session, re-requesting target"),
     case Result of
         ok ->
+            libp2p_group_server:send_result(Server, Ref, Result),
             keep_state_and_data;
         _ ->
             %% TODO: This should NOT need to happen. The theory here
@@ -170,8 +171,12 @@ connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, sess
             %% just terminates the session altogether to see if this
             %% is actually true.
             {_, SessionPid} = Monitor,
-            libp2p_session:close(SessionPid),
-            {next_state, request_target, Data#data{send_pid=update_send_pid(undefined, Data),
+            catch libp2p_session:close(SessionPid),
+            %% This sends a ready false to the server which is
+            %% delivered before the error result
+            NewSendPid = update_send_pid(undefined, Data),
+            libp2p_group_server:send_result(Server, Ref, Result),
+            {next_state, request_target, Data#data{send_pid=NewSendPid,
                                                    session_monitor=monitor_session(Monitor, undefined)}}
     end;
 connect(EventType, Msg, Data) ->
