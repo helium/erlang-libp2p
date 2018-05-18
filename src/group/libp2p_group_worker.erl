@@ -19,11 +19,13 @@
           target=undefined :: undefined | string(),
           send_pid=undefined :: undefined | libp2p_connection:connection(),
           connect_pid=undefined :: undefined | pid(),
-          session_monitor=undefined :: undefined | reference()
+          session_monitor=undefined :: session_monitor()
         }).
 
 -define(ASSIGN_RETRY, 500).
 -define(CONNECT_RETRY, 1000).
+
+-type session_monitor() :: undefined | {reference(), pid()}.
 
 %% API
 
@@ -155,10 +157,23 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
+connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, session_monitor=Monitor}) ->
     Result = libp2p_connection:send(SendPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
-    keep_state_and_data;
+    case Result of
+        ok ->
+            keep_state_and_data;
+        _ ->
+            %% TODO: This should NOT need to happen. The theory here
+            %% is that the session gets wedged trying to send partial
+            %% data and as a result can't hear a receipt. This hammer
+            %% just terminates the session altogether to see if this
+            %% is actually true.
+            {_, SessionPid} = Monitor,
+            libp2p_session:close(SessionPid),
+            {next_state, Data#data{send_pid=update_send_pid(undefined, Data),
+                                  session_monitor=monitor_session(Monitor, undefined)}}
+    end;
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
@@ -175,17 +190,17 @@ handle_event(EventType, Msg, #data{}) ->
 
 %% Utilities
 
--spec monitor_session(Monitor::reference() | undefined, SessionPid::pid() | undefined) -> undefined | reference().
+-spec monitor_session(Monitor::session_monitor(), SessionPid::pid() | undefined) -> undefined | session_monitor().
 monitor_session(undefined, undefined) ->
     undefined;
-monitor_session(Monitor, undefined) ->
+monitor_session({Monitor, _}, undefined) ->
     erlang:demonitor(Monitor),
     undefined;
 monitor_session(undefined, SessionPid) ->
-    erlang:monitor(process, SessionPid);
-monitor_session(Monitor, SessionPid) ->
+    {erlang:monitor(process, SessionPid), SessionPid};
+monitor_session({Monitor, _}, SessionPid) ->
     erlang:demonitor(Monitor),
-    erlang:monitor(process, SessionPid).
+    {erlang:monitor(process, SessionPid), SessionPid}.
 
 -spec kill_connect(pid() | undefined) -> undefined.
 kill_connect(undefined) ->
