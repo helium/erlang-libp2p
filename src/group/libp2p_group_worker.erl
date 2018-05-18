@@ -171,8 +171,8 @@ connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, sess
             %% is actually true.
             {_, SessionPid} = Monitor,
             libp2p_session:close(SessionPid),
-            {next_state, Data#data{send_pid=update_send_pid(undefined, Data),
-                                  session_monitor=monitor_session(Monitor, undefined)}}
+            {next_state, request_target, Data#data{send_pid=update_send_pid(undefined, Data),
+                                                   session_monitor=monitor_session(Monitor, undefined)}}
     end;
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
