@@ -159,12 +159,12 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     keep_state_and_data;
 connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, session_monitor=Monitor}) ->
     Result = (catch libp2p_connection:send(SendPid, Bin)),
-    lager:notice("connection died, closing session, re-requesting target"),
     case Result of
         ok ->
             libp2p_group_server:send_result(Server, Ref, Result),
             keep_state_and_data;
         _ ->
+            lager:notice("connection died: ~p, closing session, re-requesting target", [Result]),
             %% TODO: This should NOT need to happen. The theory here
             %% is that the session gets wedged trying to send partial
             %% data and as a result can't hear a receipt. This hammer
@@ -176,7 +176,7 @@ connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, sess
             %% delivered before the error result
             NewSendPid = update_send_pid(undefined, Data),
             libp2p_group_server:send_result(Server, Ref, Result),
-            {next_state, request_target, Data#data{send_pid=NewSendPid,
+            {repeat_state, Data#data{send_pid=NewSendPid,
                                                    session_monitor=monitor_session(Monitor, undefined)}}
     end;
 connect(EventType, Msg, Data) ->
