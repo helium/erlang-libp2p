@@ -22,6 +22,7 @@
           ack_module :: atom(),
           ack_state :: any(),
           ack_ref :: any(),
+          msg_seq=0 :: non_neg_integer(),
           send_timer=undefined :: undefined | reference(),
           send_from=undefined :: undefined | term()
         }).
@@ -62,10 +63,10 @@ handle_data(_, Data, State=#state{}) ->
 
 handle_call(_, addr_info, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:addr_info(Connection), State};
-handle_call(_, {send, Data, Timeout}, From, State=#state{}) ->
-    Msg = #libp2p_data_pb{data=Data},
+handle_call(_, {send, Data, Timeout}, From, State=#state{msg_seq=Seq}) ->
+    Msg = #libp2p_data_pb{data=Data, seq=Seq},
     Timer = erlang:send_after(Timeout, self(), send_timeout),
-    {noreply, State#state{send_from=From, send_timer=Timer}, libp2p_ack_stream_pb:encode_msg(Msg)};
+    {noreply, State#state{send_from=From, send_timer=Timer, msg_seq=Seq + 1}, libp2p_ack_stream_pb:encode_msg(Msg)};
 handle_call(Kind, Msg, _From, State=#state{}) ->
     lager:warning("Unhandled ~p call ~p", [Kind, Msg]),
     {noreply, State}.
@@ -90,14 +91,14 @@ cancel_timer(Timer) ->
     undefined.
 
 -spec handle_message(#libp2p_data_pb{}, #state{}) -> libp2p_framed_stream:handle_data_result().
-handle_message(#libp2p_data_pb{ack=true, data=_}, State=#state{send_from=From, send_timer=Timer}) ->
+handle_message(#libp2p_data_pb{ack=true, seq=_Seq, data=_}, State=#state{send_from=From, send_timer=Timer}) ->
     gen_server:reply(From, ok),
     {noreply, State#state{send_from=undefined, send_timer=cancel_timer(Timer)}};
-handle_message(#libp2p_data_pb{ack=false, data=Bin},
+handle_message(#libp2p_data_pb{ack=false, data=Bin, seq=Seq},
                State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
     case AckModule:handle_data(AckState, AckRef, Bin) of
         ok ->
-            Ack = #libp2p_data_pb{ack=true},
+            Ack = #libp2p_data_pb{ack=true, seq=Seq},
             {noreply, State, libp2p_ack_stream_pb:encode_msg(Ack)};
         {error, Reason} ->
             {stop, {error, Reason}, State}
