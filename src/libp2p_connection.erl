@@ -17,7 +17,7 @@
          controlling_process/2]).
 
 -callback acknowledge(any(), any()) -> ok.
--callback send(any(), iodata(), non_neg_integer()) -> ok | {error, term()}.
+-callback send(any(), iodata(), non_neg_integer() | infinity) -> ok | {error, term()}.
 -callback recv(any(), non_neg_integer(), non_neg_integer()) -> {ok, binary()} | {error, term()}.
 -callback close(any()) -> ok.
 -callback close_state(any()) -> close_state().
@@ -37,7 +37,7 @@ new(Module, State) ->
 send(#connection{module=Module, state=State}, Data) ->
     Module:send(State, Data, ?SEND_TIMEOUT).
 
--spec send(connection(), iodata(), non_neg_integer()) -> ok | {error, term()}.
+-spec send(connection(), iodata(), non_neg_integer() | infinity) -> ok | {error, term()}.
 send(#connection{module=Module, state=State}, Data, Timeout) ->
     Module:send(State, Data, Timeout).
 

@@ -20,12 +20,14 @@
 -define(GOAWAY_PROTOCOL, 16#01).
 -define(GOAWAY_INTERNAL, 16#02).
 
--record(state, {
-          connection :: libp2p_connection:connection(),
+-record(state,
+        { connection :: libp2p_connection:connection(),
           tid :: ets:tab(),
           stream_sup :: pid(),
           next_stream_id :: stream_id(),
-          pings=#{} :: #{ping_id() => reference()},
+          sends=#{} :: #{send_id() => send_info()},
+          send_pid :: pid(),
+          pings=#{} :: #{ping_id() => ping_info()},
           next_ping_id=0 :: ping_id(),
           goaway_state=none :: none | local | remote
          }).
@@ -40,6 +42,10 @@
 -type header() :: #header{}.
 -type stream_id() :: non_neg_integer().
 -type ping_id() :: non_neg_integer().
+-type ping_info() :: {From::pid(), Timer::reference(), StartTime::integer()}.
+-type send_id() :: reference().
+-type send_info() :: {Timer::reference(), Info::any()}.
+-type send_result() :: ok | {error, term()}.
 -type flags() :: non_neg_integer().  % 0 | (bit combo of ?SYN | ?ACK | ?FIN | ?RST)
 -type goaway() :: ?GOAWAY_NORMAL | ?GOAWAY_PROTOCOL | ?GOAWAY_INTERNAL.
 
@@ -49,7 +55,8 @@
 -export([init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
 % API
 -export([start_server/4, start_client/3]).
--export([send/2, send/3,
+-export([send_header/2, send_header/3,
+         send_data/3, send_data/4,
          header_length/1,
          header_data/3, header_update/3]).
 
@@ -70,7 +77,7 @@ start_client(Connection, Path, TID) ->
 
 call(Pid, Cmd) ->
     try
-        gen_server:call(Pid, Cmd)
+        gen_server:call(Pid, Cmd, infinity)
     catch
         exit:{noproc, _} ->
             {error, closed};
@@ -80,17 +87,21 @@ call(Pid, Cmd) ->
             {error, closed}
     end.
 
--spec send(pid(), header() | binary()) -> ok | {error, term()}.
-send(Pid, Header=#header{}) ->
-    send(Pid, encode_header(Header));
-send(Pid, Data) when is_binary(Data) ->
-    call(Pid, {send, Data}).
+-spec send_header(pid(), header()) -> ok | {error, term()}.
+send_header(Pid, Header=#header{}) ->
+    send_header(Pid, Header, ?TIMEOUT).
 
--spec send(pid(), header() | binary(), binary()) -> ok | {error, term()}.
-send(Pid, Header=#header{}, Data) ->
-    send(Pid, encode_header(Header), Data);
-send(Pid, Header, Data) ->
-    call(Pid, {send, <<Header/binary, Data/binary>>}).
+-spec send_header(pid(), header(), non_neg_integer()) -> ok | {error, term()}.
+send_header(Pid, Header=#header{}, Timeout) ->
+    call(Pid, {send, encode_header(Header), Timeout}).
+
+-spec send_data(pid(), header(), binary()) -> ok | {error, term()}.
+send_data(Pid, Header, Data) ->
+    send_data(Pid, Header, Data, ?TIMEOUT).
+
+-spec send_data(pid(), header(), binary(), non_neg_integer()) -> ok | {error, term()}.
+send_data(Pid, Header, Data, Timeout) ->
+    call(Pid, {send, <<(encode_header(Header))/binary, Data/binary>>, Timeout}).
 
 %%
 %% gen_server
@@ -99,8 +110,11 @@ send(Pid, Header, Data) ->
 init({TID, Connection, _Path, NextStreamId}) ->
     erlang:process_flag(trap_exit, true),
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
+    SendPid = spawn_link(mk_send_fn(self(), Connection)),
     State = #state{connection=Connection, tid=TID,
-                   stream_sup=StreamSup, next_stream_id=NextStreamId},
+                   stream_sup=StreamSup,
+                   send_pid=SendPid,
+                   next_stream_id=NextStreamId},
     gen_server:enter_loop(?MODULE, [], fdset(Connection, State), ?TIMEOUT).
 
 handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
@@ -118,11 +132,18 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
                 ?PING -> {noreply, fdset(Connection, ping_receive(Header, State))}
             end
     end;
+handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
+    case maps:take(Key, Sends) of
+        error -> {noreply, State};
+        {{Timer, Info}, NewSends} ->
+            erlang:cancel_timer(Timer),
+            NewState = State#state{sends=NewSends},
+            {noreply, handle_send_result(Info, Result, NewState)}
+    end;
+
 handle_info({timeout_ping, PingID}, State=#state{}) ->
     {noreply, ping_timeout(PingID, State)};
 
-handle_info(timeout, State) ->
-    {stop, normal, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p", [Msg]),
     {stop, unknown, State}.
@@ -139,23 +160,21 @@ handle_call(open, _From, State=#state{next_stream_id=NextStreamID}) ->
 
 % Send
 %
-handle_call({send, Data}, _From, State) ->
-    {reply, session_send(Data, State), State};
+handle_call({send, Data, Timeout}, From, State) ->
+    {noreply, session_send({call, From}, Data, Timeout, State)};
 
 % Ping
 %
-handle_call(ping, From, State=#state{}) ->
-    case ping_send(From, State) of
-        {error, Error} -> {reply, {error, Error}, State};
-        {ok, NewState} -> {noreply, NewState}
-    end;
+handle_call(ping, From, State=#state{next_ping_id=NextPingID}) ->
+    {noreply, session_send({ping, From, NextPingID}, header_ping(NextPingID), ?TIMEOUT,
+                           State#state{next_ping_id=NextPingID + 1})};
 
 % Go Away
 %
 handle_call(goaway, _From, State=#state{goaway_state=local}) ->
     {reply, ok, State};
 handle_call(goaway, _From, State=#state{}) ->
-    {reply, ok, goaway_send(?GOAWAY_NORMAL, State)};
+    {reply, ok, goaway_cast(?GOAWAY_NORMAL, State)};
 handle_call(streams, _From, State=#state{stream_sup=StreamSup}) ->
     {reply, [Pid || {_, Pid, _, _} <- supervisor:which_children(StreamSup)], State};
 handle_call(addr_info, _From, State=#state{connection=Connection}) ->
@@ -163,15 +182,18 @@ handle_call(addr_info, _From, State=#state{connection=Connection}) ->
 handle_call(close_state, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:close_state(Connection), State};
 
-handle_call(_Msg, _From, State) ->
+handle_call(Msg, _From, State) ->
+    lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_cast(_Msg, State) ->
+handle_cast(Msg, State) ->
+    lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
 
-terminate(_Reason, #state{connection=Connection}) ->
+terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
     fdclr(Connection),
+    erlang:exit(SendPid, Reason),
     libp2p_connection:close(Connection).
 
 
@@ -214,21 +236,56 @@ encode_header(#header{type=Type, flags=Flags, stream_id=StreamID, length=Length}
       Length:32/integer-unsigned-big>>.
 
 
+-spec session_send(any(), header() | binary(), non_neg_integer(), #state{}) -> #state{}.
+session_send(Info, Header=#header{}, Timeout, State=#state{}) ->
+    session_send(Info, encode_header(Header), Timeout, State);
+session_send(Info, Data, Timeout, State=#state{send_pid=SendPid, sends=Sends}) when is_binary(Data)->
+    Key = make_ref(),
+    Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
+    SendPid ! {send, Key, Data},
+    State#state{sends=maps:put(Key, {Timer, Info}, Sends)}.
+
+-spec session_cast(header() | binary(), #state{}) -> #state{}.
+session_cast(Header=#header{}, State=#state{}) ->
+    session_cast(encode_header(Header), State);
+session_cast(Data, State=#state{send_pid=SendPid}) when is_binary(Data) ->
+    SendPid ! {cast, Data},
+    State.
+
+mk_send_fn(Handler, Connection) ->
+    fun Fun() ->
+            receive
+                {send, Ref, Data} ->
+                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
+                        {'EXIT', Error} -> Handler ! {send_result, Ref, {error, Error}};
+                        Result -> Handler ! {send_result, Ref, Result}
+                    end,
+                    Fun();
+                {cast, Data} ->
+                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
+                        {'EXIT', Error} ->
+                            lager:notice("Error casting on connection ~p", [Error]);
+                        _ -> ok
+                    end,
+                    Fun()
+            end
+    end.
+
+-spec handle_send_result(Info::any(), send_result(), #state{}) -> #state{}.
+handle_send_result({ping, From, PingID}, ok, State=#state{pings=Pings}) ->
+    TimerRef = erlang:send_after(?TIMEOUT, self(), {timeout_ping, PingID}),
+    NewPings = maps:put(PingID, {From, TimerRef, erlang:system_time(millisecond)}, Pings),
+    State#state{pings=NewPings};
+handle_send_result({ping, From, _}, Error, State=#state{}) ->
+    gen_server:reply(From, Error),
+    State;
+handle_send_result({call, From}, Result, State=#state{}) ->
+    gen_server:reply(From, Result),
+    State.
+
 %%
 %% Ping
 %%
-
--spec ping_send(pid(), #state{}) -> {ok, #state{}} | {error, term()}.
-ping_send(From, State=#state{tid=TID, next_ping_id=NextPingID, pings=Pings}) ->
-    case session_send(header_ping(NextPingID), State) of
-        {error, Error} -> {error, Error};
-        ok ->
-            Opts = libp2p_swarm:opts(TID, []),
-            WriteTimeOut = libp2p_config:get_opt(Opts, [?MODULE, write_timeout], ?DEFAULT_WRITE_TIMEOUT),
-            TimerRef = erlang:send_after(WriteTimeOut, self(), {timeout_ping, NextPingID}),
-            Pings2 = maps:put(NextPingID, {From, erlang:system_time(millisecond), TimerRef}, Pings),
-            {ok, State#state{next_ping_id=NextPingID + 1, pings=Pings2}}
-    end.
 
 -spec ping_timeout(ping_id(), #state{}) -> #state{}.
 ping_timeout(PingID, State=#state{pings=Pings}) ->
@@ -242,17 +299,16 @@ ping_timeout(PingID, State=#state{pings=Pings}) ->
 -spec ping_receive(header(), #state{}) -> #state{}.
 ping_receive(#header{flags=Flags, length=PingID}, State=#state{}) when ?FLAG_IS_SET(Flags, ?SYN) ->
     % ping request, respond
-    session_send(header_ping_ack(PingID), State),
-    State;
+    session_cast(header_ping_ack(PingID), State);
 ping_receive(#header{length=PingID}, State=#state{pings=Pings}) ->
     % a ping response, cancel timer and respond to the original caller
     % with the ping time
     case maps:take(PingID, Pings) of
         error -> State;
-        {{From, StartTime, TimerRef}, Pings2} ->
+        {{From, TimerRef, StartTime}, NewPings} ->
             erlang:cancel_timer(TimerRef),
             gen_server:reply(From, {ok, erlang:system_time(millisecond) - StartTime}),
-            State#state{pings=Pings2}
+            State#state{pings=NewPings}
     end.
 
 
@@ -260,10 +316,9 @@ ping_receive(#header{length=PingID}, State=#state{pings=Pings}) ->
 %% GoAway
 %%
 
--spec goaway_send(goaway(), #state{}) -> #state{}.
-goaway_send(Reason, State=#state{}) ->
-    session_send(header_goaway(Reason), State),
-    State#state{goaway_state=local}.
+-spec goaway_cast(goaway(), #state{}) -> #state{}.
+goaway_cast(Reason, State=#state{}) ->
+    session_cast(header_goaway(Reason), State#state{goaway_state=local}).
 
 -spec goaway_receive(header(), #state{}) -> {noreply, #state{}} | {stop, term(), #state{}}.
 goaway_receive(#header{length=?GOAWAY_NORMAL}, State=#state{connection=Connection}) ->
@@ -315,12 +370,12 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
                 ?DATA when Length > 0 ->
                     lager:notice("Discarding data for missing stream ~p (RST)", [StreamID]),
                     libp2p_connection:recv(Connection, Length),
-                    session_send(header_update(?RST, StreamID, 0), State);
+                    session_cast(header_update(?RST, StreamID, 0), State);
                 ?UPDATE when ?FLAG_IS_SET(Flags, ?RST) ->
                     ok; %ignore an inbound RST when the stream is gone
                 _ ->
                     lager:notice("Missing stream ~p (RST)" ,[StreamID]),
-                    session_send(header_update(?RST, StreamID, 0), State)
+                    session_cast(header_update(?RST, StreamID, 0), State)
             end;
         {ok, Pid} ->
             case Type of
@@ -332,7 +387,7 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
                     case libp2p_connection:recv(Connection, Length) of
                         {error, Reason} ->
                             lager:warning("Failed to read data for ~p: ~p", [StreamID, Reason]),
-                            goaway_send(?GOAWAY_INTERNAL, State);
+                            goaway_cast(?GOAWAY_INTERNAL, State);
                         {ok, Data} ->
                             libp2p_yamux_stream:receive_data(Pid, Data)
                     end
@@ -342,14 +397,13 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
 
 -spec message_receive_stream(header(), #state{}) -> #state{}.
 message_receive_stream(#header{stream_id=StreamID}, State=#state{goaway_state=local}) ->
-    session_send(header_update(?RST, StreamID, 0), State),
-    State;
+    session_cast(header_update(?RST, StreamID, 0), State);
 message_receive_stream(#header{stream_id=StreamID}, State=#state{}) ->
     %% TODO: Send ?RST on accept backlog exceeded
     case stream_lookup(StreamID, State) of
         {ok, _Pid} ->
             lager:notice("Duplicate incoming stream: ~p", [StreamID]),
-            goaway_send(?GOAWAY_PROTOCOL, State);
+            goaway_cast(?GOAWAY_PROTOCOL, State);
         {error, not_found} ->
             stream_receive(StreamID, State),
             State
@@ -392,14 +446,3 @@ header_data(StreamID, Flags, Length) ->
 -spec header_length(header()) -> non_neg_integer().
 header_length(#header{length=Length}) ->
     Length.
-
--spec session_send(header() | binary(), #state{}) -> ok | {error, term()}.
-session_send(Header=#header{}, State=#state{}) ->
-    session_send(encode_header(Header), State);
-session_send(Data, #state{connection=Connection}) when is_binary(Data)->
-    case libp2p_connection:send(Connection, Data) of
-        {error, Reason} ->
-            lager:info("Failed to send data: ~p", [Reason]),
-            {error, Reason};
-        ok -> ok
-    end.

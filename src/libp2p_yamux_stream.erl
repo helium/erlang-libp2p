@@ -73,8 +73,8 @@ init({Session, TID, StreamID, Flags}) ->
     MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, max_window],
                                       ?DEFAULT_MAX_WINDOW_SIZE),
     {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
-                           send_state=#send_state{window=MaxWindow},
-                           recv_state=#recv_state{window=MaxWindow}}}.
+                            send_state=#send_state{window=MaxWindow},
+                            recv_state=#recv_state{window=MaxWindow}}}.
 
 callback_mode() -> handle_event_function.
 
@@ -156,14 +156,14 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     % Client side "open", send out a SYN. The corresponding ACK is
     % received as a window update
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
-    case libp2p_yamux_session:send(Session, Header) of
+    case libp2p_yamux_session:send_header(Session, Header) of
         ok -> {next_state, connecting, Data};
         {error, _Reason} -> {stop, normal, Data}
     end;
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     %% Starting as a server, fire of an ACK right away
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
-    case libp2p_yamux_session:send(Session, Header) of
+    case libp2p_yamux_session:send_header(Session, Header) of
         {error, _Reason} -> {stop, normal, Data};
         ok ->
             %% Start a multistream server to negotiate the handler
@@ -275,7 +275,7 @@ terminate(_Reason, _State, Data=#state{}) ->
 
 close_send(#state{stream_id=StreamID, session=Session}) ->
     Header = libp2p_yamux_session:header_update(?RST, StreamID, 0),
-    libp2p_yamux_session:send(Session, Header).
+    libp2p_yamux_session:send_header(Session, Header).
 
 %%
 %% Windows
@@ -292,7 +292,7 @@ window_send_update(Delta, State=#state{session=Session, stream_id=StreamID, recv
     HeaderDelta = PendingWindow + Delta,
     Header = libp2p_yamux_session:header_update(0, StreamID, HeaderDelta),
     % lager:debug("Sending window update for ~p: ~p", [StreamID, HeaderDelta]),
-    libp2p_yamux_session:send(Session, Header),
+    libp2p_yamux_session:send_header(Session, Header),
     State#state{recv_state=State#state.recv_state#recv_state{pending_window=0}};
 window_send_update(Delta, State=#state{recv_state=#recv_state{pending_window=PendingWindow}}) ->
     State#state{recv_state=State#state.recv_state#recv_state{pending_window=PendingWindow + Delta}}.
@@ -437,7 +437,7 @@ data_send(From, Data, Timeout, State=#state{session=Session, stream_id=StreamID,
     Window = min(byte_size(Data), SendWindow),
     <<SendData:Window/binary, Rest/binary>> = Data,
     Header = libp2p_yamux_session:header_data(StreamID, 0, Window),
-    case libp2p_yamux_session:send(Session, Header, SendData) of
+    case libp2p_yamux_session:send_data(Session, Header, SendData) of
         {error, Error} ->
             gen_statem:reply(From, {error, Error}),
             State;

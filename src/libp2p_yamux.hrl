@@ -7,6 +7,4 @@
 -define(FLAG_SET(Flags, Flag), Flags band Flag).
 -define(FLAG_CLR(Flags, Flag), (Flags band (bnot Flag))).
 
--define(DEFAULT_WRITE_TIMEOUT, 10000).
 -define(DEFAULT_MAX_WINDOW_SIZE, (256 * 1024)).
-
