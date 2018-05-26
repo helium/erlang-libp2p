@@ -36,7 +36,7 @@ init([Sup, TID]) ->
     %% the swarm. Perhaps by moving the creation into the swarm server
     %% instead of directly in the swarm_sup?
     libp2p_swarm_sup:register_group_agent(TID),
-    Opts = libp2p_swarm:opts(TID, []),
+    Opts = libp2p_swarm:opts(TID),
     PeerBookCount = libp2p_group_gossip:get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
     DropTimeOut = libp2p_group_gossip:get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
     ClientSpec = libp2p_group_gossip:get_opt(Opts, stream_client, undefined),

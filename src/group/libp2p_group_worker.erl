@@ -17,7 +17,7 @@
           server :: pid(),
           client_spec=undefined :: undefined | libp2p_group:stream_client_spec(),
           target=undefined :: undefined | string(),
-          send_pid=undefined :: undefined | libp2p_connection:connection(),
+          send_pid=undefined :: undefined | pid(),
           connect_pid=undefined :: undefined | pid(),
           session_monitor=undefined :: session_monitor()
         }).
@@ -97,7 +97,7 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
                  end),
     {next_state, connect, Data#data{connect_pid=Pid}};
 connect(enter, _, Data=#data{connect_pid=ConnectPid})  ->
-    kill_connect(ConnectPid),
+    kill_pid(ConnectPid),
     {repeat_state, Data#data{connect_pid=undefined}};
 connect(timeout, _, #data{}) ->
     repeat_state_and_data;
@@ -131,34 +131,33 @@ connect(info, {assign_session, _ConnAddr, SessionPid},
 connect(info, {assign_session, _ConnAddr, SessionPid},
         Data=#data{session_monitor=Monitor, client_spec={Path, {M, A}}}) ->
     %% Assign session with a client spec. Start client
-    case libp2p_session:start_client_framed_stream(Path, SessionPid, M, A) of
-        {ok, ClientPid} ->
-            Connection = libp2p_connection:new(M, ClientPid),
+    case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of
+        {ok, StreamPid} ->
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
-                                   send_pid=update_send_pid(Connection, Data)}};
+                                   send_pid=update_send_pid(StreamPid, Data)}};
         {error, Error} ->
             lager:notice("Failed to start client on ~p: ~p", [Path, Error]),
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, undefined),
                                    send_pid=update_send_pid(undefined, Data)},
              ?CONNECT_RETRY}
     end;
-connect({call, From}, {assign_stream, _MAddr, _Connection}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
+connect({call, From}, {assign_stream, _MAddr, _StreamPid}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
     {keep_state_and_data, [{reply, From, {error, already_connected}}]};
-connect({call, From}, {assign_stream, MAddr, Connection},
+connect({call, From}, {assign_stream, MAddr, StreamPid},
         Data=#data{tid=TID, session_monitor=Monitor, send_pid=undefined}) ->
     %% Assign a stream. Monitor the session and remember the
     %% connection
     {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
     {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
-                           send_pid=update_send_pid(Connection, Data)},
+                           send_pid=update_send_pid(StreamPid, Data)},
     [{reply, From, ok}]};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, session_monitor=Monitor}) ->
-    Result = (catch libp2p_connection:send(SendPid, Bin)),
+    Result = (catch libp2p_framed_stream:send(SendPid, Bin)),
     case Result of
         ok ->
             libp2p_group_server:send_result(Server, Ref, Result),
@@ -184,11 +183,14 @@ connect(EventType, Msg, Data) ->
 
 
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
-terminate(_Reason, _State, #data{session_monitor=Monitor, connect_pid=Process}) ->
-    kill_connect(Process),
+terminate(_Reason, _State, #data{session_monitor=Monitor, send_pid=SendPid, connect_pid=Process}) ->
+    kill_pid(Process),
+    kill_pid(SendPid),
     monitor_session(Monitor, undefined).
 
 
+handle_event(info, {'EXIT', _, normal}, #data{}) ->
+    keep_state_and_data;
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.
@@ -207,10 +209,11 @@ monitor_session({Monitor, _}, SessionPid) ->
     erlang:demonitor(Monitor),
     {erlang:monitor(process, SessionPid), SessionPid}.
 
--spec kill_connect(pid() | undefined) -> undefined.
-kill_connect(undefined) ->
+-spec kill_pid(pid() | undefined) -> undefined.
+kill_pid(undefined) ->
     undefined;
-kill_connect(Pid) ->
+kill_pid(Pid) ->
+    unlink(Pid),
     erlang:exit(Pid, kill),
     undefined.
 

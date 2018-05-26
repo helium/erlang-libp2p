@@ -25,7 +25,7 @@ accessor_test(Config) ->
     {ok, PubKey, _} = libp2p_swarm:keys(S1),
     true = libp2p_crypto:pubkey_to_address(PubKey) == libp2p_swarm:address(S1),
 
-    [] = libp2p_swarm:opts(S1, []),
+    [{base_dir, _}] = libp2p_swarm:opts(S1),
     "swarm" ++ _ = atom_to_list(libp2p_swarm:name(S1)),
 
     ok.

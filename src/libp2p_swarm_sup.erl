@@ -5,7 +5,7 @@
 % supervisor
 -export([init/1, start_link/1]).
 % api
--export([sup/1, opts/2, name/1, address/1,
+-export([sup/1, opts/1, name/1, address/1,
          register_server/1, server/1,
          register_group_agent/1, group_agent/1,
          register_peerbook/1, peerbook/1]).
@@ -123,11 +123,11 @@ address(TID) ->
 name(TID) ->
     ets:lookup_element(TID, ?NAME, 2).
 
--spec opts(ets:tab(), any()) -> libp2p_config:opts() | any().
-opts(TID, Default) ->
+-spec opts(ets:tab()) -> libp2p_config:opts() | any().
+opts(TID) ->
     case ets:lookup(TID, ?OPTS) of
         [{_, Opts}] -> Opts;
-        [] -> Default
+        [] -> []
     end.
 
 -spec group_agent(ets:tab()) -> pid().

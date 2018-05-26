@@ -171,14 +171,10 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info({identify, Result, _}, State=#state{}) ->
-    case Result of
-        {ok, PeerAddr, Identify} ->
-            ObservedAddr = libp2p_identify:observed_addr(Identify),
-            {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
-        {error, _} ->
-            {noreply, State}
-    end;
+handle_info({identify, _, Session, Identify}, State=#state{}) ->
+    {_, PeerAddr} = libp2p_session:addr_info(Session),
+    ObservedAddr = libp2p_identify:observed_addr(Identify),
+    {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
@@ -225,7 +221,7 @@ listen_options(IP, TID) ->
                       {send_timeout_close, true}
                      ],
     % Go get the tcp listen options
-    case libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, listen]) of
+    case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, listen]) of
         undefined -> OptionDefaults;
         {ok, Values} ->
             sets:to_list(sets:union(sets:from_list(Values),

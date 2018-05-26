@@ -110,7 +110,7 @@ send_data(Pid, Header, Data, Timeout) ->
 init({TID, Connection, _Path, NextStreamId}) ->
     erlang:process_flag(trap_exit, true),
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
-    SendPid = spawn_link(mk_send_fn(self(), Connection)),
+    SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     State = #state{connection=Connection, tid=TID,
                    stream_sup=StreamSup,
                    send_pid=SendPid,
@@ -176,7 +176,8 @@ handle_call(goaway, _From, State=#state{goaway_state=local}) ->
 handle_call(goaway, _From, State=#state{}) ->
     {reply, ok, goaway_cast(?GOAWAY_NORMAL, State)};
 handle_call(streams, _From, State=#state{stream_sup=StreamSup}) ->
-    {reply, [Pid || {_, Pid, _, _} <- supervisor:which_children(StreamSup)], State};
+    {reply, [libp2p_yamux_stream:new_connection(Pid) ||
+                {_, Pid, _, _} <- supervisor:which_children(StreamSup)], State};
 handle_call(addr_info, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:addr_info(Connection), State};
 handle_call(close_state, _From, State=#state{connection=Connection}) ->
@@ -251,25 +252,6 @@ session_cast(Header=#header{}, State=#state{}) ->
 session_cast(Data, State=#state{send_pid=SendPid}) when is_binary(Data) ->
     SendPid ! {cast, Data},
     State.
-
-mk_send_fn(Handler, Connection) ->
-    fun Fun() ->
-            receive
-                {send, Ref, Data} ->
-                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
-                        {'EXIT', Error} -> Handler ! {send_result, Ref, {error, Error}};
-                        Result -> Handler ! {send_result, Ref, Result}
-                    end,
-                    Fun();
-                {cast, Data} ->
-                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
-                        {'EXIT', Error} ->
-                            lager:notice("Error casting on connection ~p", [Error]);
-                        _ -> ok
-                    end,
-                    Fun()
-            end
-    end.
 
 -spec handle_send_result(Info::any(), send_result(), #state{}) -> #state{}.
 handle_send_result({ping, From, PingID}, ok, State=#state{pings=Pings}) ->

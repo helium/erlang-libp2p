@@ -95,10 +95,10 @@ start_link(TID, SigFun) ->
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_peerbook(TID),
-    DataDir = libp2p_config:data_dir(TID, [peerbook]),
+    DataDir = libp2p_config:swarm_dir(TID, [peerbook]),
     SwarmName = libp2p_swarm:name(TID),
     Group = group_create(SwarmName),
-    Opts = libp2p_swarm:opts(TID, []),
+    Opts = libp2p_swarm:opts(TID),
     StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
     case bitcask:open(DataDir, [read_write, {expiry_secs, 2 * StaleTime / 1000}]) of
         {error, Reason} -> {stop, Reason};
@@ -188,8 +188,8 @@ handle_cast({register_session, SessionPid, Identify, Kind},
                 %% using a group_gosip to gossip peers instead of
                 %% eagerly exchanging peers on every new connection?
                 PeerList = fetch_peers(State),
-                libp2p_session:start_client_framed_stream("peer/1.0.0", SessionPid,
-                                                          libp2p_stream_peer, [TID, PeerList])
+                libp2p_session:dial_framed_stream("peer/1.0.0", SessionPid,
+                                                  libp2p_stream_peer, [TID, PeerList])
             catch
                 _What:_Why -> ok
             end;

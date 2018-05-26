@@ -12,10 +12,9 @@ init_per_testcase(_, Config) ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
     libp2p_swarm:add_stream_handler(S2, "serve_ack_frame",
                                     {libp2p_ack_stream, server, [?MODULE, self()]}),
-    Stream = test_util:dial(S1, S2, "serve_ack_frame"),
-    {ok, Client} = libp2p_framed_stream:client(libp2p_ack_stream, Stream,
-                                               [ack_client_ref, ?MODULE, self()]),
-    [{swarms, Swarms}, {client, Client} | Config].
+    Connection = test_util:dial(S1, S2, "serve_ack_frame"),
+    {ok, Stream} = libp2p_ack_stream:client(Connection, [ack_client_ref, ?MODULE, self()]),
+    [{swarms, Swarms}, {client, Stream} | Config].
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),
@@ -23,15 +22,19 @@ end_per_testcase(_, Config) ->
 
 ack_test(Config) ->
     Client = proplists:get_value(client, Config),
-    libp2p_ack_stream:send(Client, <<"hello">>, 100),
+    libp2p_framed_stream:send(Client, <<"hello">>, 100),
     receive
         {handle_data, ack_server_ref, <<"hello">>} -> ok
     after 100 -> erlang:exit(timeout)
     end,
-    ok.
 
-accept_stream(Pid, _MAddr, Connection, Path) ->
-    Pid ! {accept_stream, Connection, Path},
+    Swarms = proplists:get_value(swarms, Config),
+    test_util:teardown_swarms(Swarms).
+
+    %% ok.
+
+accept_stream(Pid, _MAddr, StreamPid, Path) ->
+    Pid ! {accept_stream, StreamPid, Path},
     {ok, ack_server_ref}.
 
 

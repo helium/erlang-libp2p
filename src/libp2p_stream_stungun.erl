@@ -2,7 +2,9 @@
 
 -behavior(libp2p_framed_stream).
 
--export([start_client/3, start_client/5, init/3, handle_data/3, handle_info/3]).
+-export([start_client/3, start_client/5]).
+%% libp2p_framed_stream
+-export([client/2, server/4, init/3, handle_data/3, handle_info/3]).
 
 -define(OK, <<0:8/integer-unsigned>>).
 -define(PORT_RESTRICTED_NAT, <<1:8/integer-unsigned>>).
@@ -17,6 +19,10 @@
 
 -define(STUN_TIMEOUT, 500).
 
+%%
+%% libp2p_framed_stream
+%%
+
 start_client(TxnID, TID, PeerAddr) ->
     start_client(TxnID, TID, PeerAddr, self(), ?STUN_TIMEOUT).
 
@@ -24,10 +30,19 @@ start_client(TxnID, TID, PeerAddr, Handler, Timeout) ->
     PeerPath = lists:flatten(io_lib:format("stungun/1.0.0/dial/~b", [TxnID])),
     Swarm = libp2p_swarm:swarm(TID),
     case libp2p_swarm:dial(Swarm, PeerAddr, PeerPath) of
-        {ok, Connection} ->
-            libp2p_framed_stream:client(?MODULE, Connection, [TxnID, Handler, Timeout]);
+        {ok, Connection} -> client(Connection, [TxnID, Handler, Timeout]);
         {error, Error} -> {error, Error}
     end.
+
+%%
+%% libp2p_framed_stream
+%%
+
+client(Connection, Args) ->
+    libp2p_framed_stream:client(?MODULE, Connection, Args).
+
+server(Connection, Path, _TID, Args) ->
+    libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
 init(client, _Connection, [TxnID, Handler, Timeout]) ->
     Ref = erlang:send_after(Timeout, self(), timeout),

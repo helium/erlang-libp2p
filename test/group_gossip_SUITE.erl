@@ -31,7 +31,7 @@ init_per_testcase(stream_test, Config) ->
                                       {libp2p_group_gossip, [{peerbook_connections, 0}]}
                                      ]),
     %% Add the serve stream handler to S2
-    serve_framed_stream:register(S2, "test"),
+    serve_framed_stream:register(S2, "test", []),
     [{swarms, [S1, S2]} | Config];
 init_per_testcase(seed_test, Config) ->
     %% Set up S2 as the seed.
@@ -115,7 +115,7 @@ stream_test(Config) ->
     %% Send some data just to be sure
     S1Agent = libp2p_swarm:group_agent(S1),
     libp2p_group:send(S1Agent, <<"hello">>),
-    ok = test_util:wait_until(fun() -> serve_framed_stream:data(Server) == <<"hello">> end),
+    ok = test_util:wait_until(fun() -> serve_framed_stream:server_data(Server) == <<"hello">> end),
 
     ok.
 

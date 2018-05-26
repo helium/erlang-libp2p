@@ -15,6 +15,7 @@
          acknowledge/2, fdset/1, fdclr/1,
          addr_info/1, close/1, close_state/1,
          controlling_process/2]).
+-export([mk_async_sender/2]).
 
 -callback acknowledge(any(), any()) -> ok.
 -callback send(any(), iodata(), non_neg_integer() | infinity) -> ok | {error, term()}.
@@ -80,3 +81,32 @@ addr_info(#connection{module=Module, state=State}) ->
 -spec controlling_process(connection(), pid())-> ok | {error, closed | not_owner | atom()}.
 controlling_process(#connection{module=Module, state=State}, Pid) ->
     Module:controlling_process(State, Pid).
+
+
+%%
+%% Utilities
+%%
+
+-spec mk_async_sender(pid(), libp2p_connection:connection()) -> fun().
+mk_async_sender(Handler, Connection) ->
+    fun Fun() ->
+            receive
+                {send, Ref, Data} ->
+                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
+                        {'EXIT', Error} ->
+                            lager:notice("Failed sending on connection for ~p: ~p", [Handler, Error]),
+                            Handler ! {send_result, Ref, {error, Error}};
+                        Result ->
+                            Handler ! {send_result, Ref, Result}
+                    end,
+                    Fun();
+                {cast, Data} ->
+                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
+                        {'EXIT', Error} ->
+                            lager:notice("Failed casting on connection for ~p: ~p", [Handler, Error]);
+                        _ ->
+                            ok
+                    end,
+                    Fun()
+            end
+    end.

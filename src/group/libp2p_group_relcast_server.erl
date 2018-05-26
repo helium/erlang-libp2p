@@ -37,8 +37,8 @@ handle_input(Pid, Msg) ->
 handle_data(Pid, Ref, Bin) ->
     gen_server:call(Pid, {handle_data, Ref, Bin}).
 
-accept_stream(Pid, MAddr, Connection, Path) ->
-    gen_server:call(Pid, {accept_stream, MAddr, Connection, Path}).
+accept_stream(Pid, MAddr, StreamPid, Path) ->
+    gen_server:call(Pid, {accept_stream, MAddr, StreamPid, Path}).
 
 
 %% gen_server
@@ -55,7 +55,7 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
     erlang:process_flag(trap_exit, true),
     case Handler:init(HandlerArgs) of
         {ok, Addrs, HandlerState} ->
-            DataDir = libp2p_config:data_dir(TID, [groups, GroupID]),
+            DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
             case bitcask:open(DataDir, [read_write]) of
                 {error, Reason} -> {stop, {error, Reason}};
                 Ref ->
@@ -73,9 +73,9 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
         {error, Reason} -> {stop, {error, Reason}}
     end.
 
-handle_call({accept_stream, _MAddr, _Connection, _Path}, _From, State=#state{workers=[]}) ->
+handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
-handle_call({accept_stream, MAddr, Connection, Path}, _From,
+handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
             State=#state{self_index=SelfIndex, workers=Workers}) ->
     case lists:keyfind(mk_multiaddr(Path), 1, Workers) of
         false ->
@@ -83,7 +83,7 @@ handle_call({accept_stream, MAddr, Connection, Path}, _From,
         {_, SelfIndex, self, _} ->
             {reply, {errror, bad_arg}, State};
         {_, Index, Worker, _} ->
-            libp2p_group_worker:assign_stream(Worker, MAddr, Connection),
+            libp2p_group_worker:assign_stream(Worker, MAddr, StreamPid),
             {reply, {ok, Index}, State}
     end;
 handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState,

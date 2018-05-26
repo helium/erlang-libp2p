@@ -1,7 +1,7 @@
 -module(libp2p_config).
 
 -export([get_opt/2, get_opt/3,
-         data_dir/0, data_dir/1, data_dir/2,
+         base_dir/1, swarm_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
@@ -51,24 +51,15 @@ get_opt_l([H|T], [_|_] = L) ->
 get_opt_l(_, _) ->
     undefined.
 
+base_dir(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    get_opt(Opts, base_dir, "data").
 
--spec data_dir() -> string().
-data_dir() ->
-    "data".
-
--spec data_dir(ets:tab()) -> string().
-data_dir(Name) when is_atom(Name) ->
-    filename:join(data_dir(), Name);
-data_dir(TID) ->
-    data_dir(libp2p_swarm:name(TID)).
-
--spec data_dir(ets:tab() | string(), [file:name_all()]) -> file:filename_all().
-data_dir(Dir, Names) when is_list(Dir) ->
-    FileName = filename:join(Dir, Names),
+-spec swarm_dir(ets:tab(), [file:name_all()]) -> file:filename_all().
+swarm_dir(TID, Names) ->
+    FileName = filename:join(base_dir(TID), [libp2p_swarm:name(TID) | Names]),
     ok = filelib:ensure_dir(FileName),
-    FileName;
-data_dir(TID, Names) ->
-    data_dir(data_dir(TID), Names).
+    FileName.
 
 %%
 %% Common pid CRUD

@@ -43,20 +43,12 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_info({identify, Result, Kind}, State=#state{tid=TID}) ->
+handle_info({identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
     %% Response from a connect_to or accept initiated
     %% spawn_identify. Register the connection in peerbook
-    case Result of
-       {ok, PeerAddr, Identify} ->
-            case libp2p_config:lookup_session(TID, PeerAddr) of
-                {ok, SessionPid} ->
-                    PeerBook = libp2p_swarm:peerbook(TID),
-                    libp2p_peerbook:register_session(PeerBook, SessionPid, Identify, Kind),
-                    {noreply, State};
-                false -> {noreply, State}
-            end;
-        {error, _} -> {noreply, State}
-    end;
+    PeerBook = libp2p_swarm:peerbook(TID),
+    libp2p_peerbook:register_session(PeerBook, Session, Identify, Kind),
+    {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
     PeerBook = libp2p_swarm:peerbook(TID),

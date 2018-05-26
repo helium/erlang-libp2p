@@ -1,7 +1,7 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, swarm/1, tid/1,
-         opts/2, name/1, address/1, keys/1, peerbook/1,
+         opts/1, name/1, address/1, keys/1, peerbook/1,
          dial/3, dial/5, connect/2, connect/4,
          listen/2, listen_addrs/1,
          add_transport_handler/2,
@@ -17,6 +17,7 @@
 -export_type([swarm_opts/0, connect_opts/0]).
 
 -type swarm_opt() :: {key, {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}}
+                   | {base_dir, string()}
                    | {group_agent, atom()}
                    | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
@@ -109,11 +110,11 @@ peerbook(TID) ->
     libp2p_swarm_sup:peerbook(TID).
 
 %% @doc Get the options a swarm was started with.
--spec opts(ets:tab() | pid(), any()) -> swarm_opts() | any().
-opts(Sup, Default) when is_pid(Sup) ->
-    opts(tid(Sup), Default);
-opts(TID, Default) ->
-    libp2p_swarm_sup:opts(TID, Default).
+-spec opts(ets:tab() | pid()) -> swarm_opts() | any().
+opts(Sup) when is_pid(Sup) ->
+    opts(tid(Sup));
+opts(TID) ->
+    libp2p_swarm_sup:opts(TID).
 
 
 
@@ -236,7 +237,7 @@ dial(Sup, Addr, Path, Options, Timeout) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     case connect(Sup, Addr, Options, Timeout) of
         {error, Error} -> {error, Error};
-        {ok, SessionPid} ->libp2p_session:start_client_stream(Path, SessionPid)
+        {ok, SessionPid} ->libp2p_session:dial(Path, SessionPid)
     end.
 
 -spec add_stream_handler(pid() | ets:tab(), string(), libp2p_session:stream_handler()) -> ok.

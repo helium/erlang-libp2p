@@ -48,7 +48,7 @@ end_per_testcase(stale_test, Config) ->
 %%
 
 accessor_test(Config) ->
-    {PeerBook, Address, _Name} = proplists:get_value(peerbook, Config),
+    {PeerBook, Address} = proplists:get_value(peerbook, Config),
 
     Peer1 = mk_peer(),
     Peer2 = mk_peer(),
@@ -77,7 +77,7 @@ accessor_test(Config) ->
     ok.
 
 bad_peer_test(Config) ->
-    {PeerBook, _Address, _Name} = proplists:get_value(peerbook, Config),
+    {PeerBook, _Address} = proplists:get_value(peerbook, Config),
 
     {ok, _PrivKey1, PubKey1} = ecc_compact:generate_key(),
     {ok, PrivKey2, PubKey2} = ecc_compact:generate_key(),
@@ -94,7 +94,7 @@ bad_peer_test(Config) ->
 
 
 put_test(Config) ->
-    {PeerBook, Address, _Name} = proplists:get_value(peerbook, Config),
+    {PeerBook, Address} = proplists:get_value(peerbook, Config),
 
     PeerList1 = [mk_peer() || _ <- lists:seq(1, 5)],
 
@@ -236,17 +236,17 @@ setup_peerbook(Config) ->
     ets:insert(TID, {swarm_name, Name}),
     {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
     ets:insert(TID, {swarm_address, CompactKey}),
+    TmpDir = lib:nonl(os:cmd("mktemp -d")),
+    ets:insert(TID, {swarm_opts, [{base_dir, TmpDir}]}),
     {ok, Pid} = libp2p_peerbook:start_link(TID, libp2p_crypto:mk_sig_fun(PrivKey)),
-    [{peerbook, {Pid, CompactKey, Name}} | Config].
+    [{peerbook, {Pid, CompactKey}} | Config].
 
 teardown_peerbook(Config) ->
-    {Pid, _, Name} = proplists:get_value(peerbook, Config),
+    {Pid, _} = proplists:get_value(peerbook, Config),
     Ref = erlang:monitor(process, Pid),
     exit(Pid, normal),
     receive
         {'DOWN', Ref, process, Pid, _Reason} -> ok
     after 1000 ->
             error(timeout)
-             end,
-    DirName = filename:join(libp2p_config:data_dir(), [Name]),
-    test_util:rm_rf(DirName).
+    end.

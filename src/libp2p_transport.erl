@@ -83,7 +83,7 @@ start_client_session(TID, Addr, Connection) ->
             SessionSup = libp2p_swarm_session_sup:sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
             libp2p_config:insert_session(TID, Addr, SessionPid),
-            libp2p_identify:spawn_identify(TID, SessionPid, client),
+            libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
                 ok -> {ok, SessionPid};
                 {error, Error} ->
@@ -116,5 +116,5 @@ start_server_session(Ref, TID, Connection) ->
     %% Since servers accept outside of the swarm server,
     %% notify it of this new session
     libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
-    libp2p_identify:spawn_identify(TID, SessionPid, server),
+    libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), server),
     {ok, SessionPid}.

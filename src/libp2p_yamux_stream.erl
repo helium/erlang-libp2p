@@ -70,7 +70,7 @@ receive_stream(Session, TID, StreamID) ->
 init({Session, TID, StreamID, Flags}) ->
     erlang:process_flag(trap_exit, true),
     gen_statem:cast(self(), {init, Flags}),
-    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, max_window],
+    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, max_window],
                                       ?DEFAULT_MAX_WINDOW_SIZE),
     {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
                             send_state=#send_state{window=MaxWindow},
