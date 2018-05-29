@@ -156,28 +156,10 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-connect(cast, {send, Ref, Bin}, Data=#data{server=Server, send_pid=SendPid, session_monitor=Monitor}) ->
-    Result = (catch libp2p_framed_stream:send(SendPid, Bin)),
-    case Result of
-        ok ->
-            libp2p_group_server:send_result(Server, Ref, Result),
-            keep_state_and_data;
-        _ ->
-            lager:notice("connection died: ~p, closing session, re-requesting target", [Result]),
-            %% TODO: This should NOT need to happen. The theory here
-            %% is that the session gets wedged trying to send partial
-            %% data and as a result can't hear a receipt. This hammer
-            %% just terminates the session altogether to see if this
-            %% is actually true.
-            {_, SessionPid} = Monitor,
-            catch libp2p_session:close(SessionPid),
-            %% This sends a ready false to the server which is
-            %% delivered before the error result
-            NewSendPid = update_send_pid(undefined, Data),
-            libp2p_group_server:send_result(Server, Ref, Result),
-            {repeat_state, Data#data{send_pid=NewSendPid,
-                                                   session_monitor=monitor_session(Monitor, undefined)}}
-    end;
+connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
+    Result = libp2p_framed_stream:send(SendPid, Bin),
+    libp2p_group_server:send_result(Server, Ref, Result),
+    keep_state_and_data;
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 

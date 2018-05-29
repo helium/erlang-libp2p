@@ -354,7 +354,8 @@ handle_resp_send(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendP
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
     SendPid ! {send, Key, Bin},
-    State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
+    {ok, NewState} = handle_fdset(State#state{sends=maps:put(Key, {Timer, Action}, Sends)}),
+    NewState.
 
 -spec handle_send_result(send_result_action(), ok | {error, term()}, #state{}) ->
                                 {noreply, #state{}} |
