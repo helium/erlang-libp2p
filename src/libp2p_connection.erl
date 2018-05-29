@@ -92,7 +92,7 @@ mk_async_sender(Handler, Connection) ->
     fun Fun() ->
             receive
                 {send, Ref, Data} ->
-                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
+                    case (catch libp2p_connection:send(Connection, Data)) of
                         {'EXIT', Error} ->
                             lager:notice("Failed sending on connection for ~p: ~p", [Handler, Error]),
                             Handler ! {send_result, Ref, {error, Error}};
@@ -101,7 +101,7 @@ mk_async_sender(Handler, Connection) ->
                     end,
                     Fun();
                 {cast, Data} ->
-                    case (catch libp2p_connection:send(Connection, Data, infinity)) of
+                    case (catch libp2p_connection:send(Connection, Data)) of
                         {'EXIT', Error} ->
                             lager:notice("Failed casting on connection for ~p: ~p", [Handler, Error]);
                         _ ->

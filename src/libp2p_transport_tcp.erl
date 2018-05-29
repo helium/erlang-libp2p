@@ -90,8 +90,7 @@ match_protocols(_) ->
 %% libp2p_connection
 %%
 -spec send(tcp_state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data, Timeout) ->
-    Transport:setopts(Socket, [{send_timeout, Timeout}]),
+send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
     Transport:send(Socket, Data).
 
 -spec recv(tcp_state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
@@ -227,6 +226,11 @@ listen_options(IP, TID) ->
             sets:to_list(sets:union(sets:from_list(Values),
                                     sets:from_list(OptionDefaults)))
     end.
+
+
+-spec common_options() -> [term()].
+common_options() ->
+    [binary, {active, false}, {packet, raw}].
                                                 %
 -spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 listen_on(Addr, TID) ->
@@ -235,8 +239,7 @@ listen_on(Addr, TID) ->
         {IP, Port, Type, AddrOpts} ->
             ListenOpts0 = listen_options(IP, TID),
             % Non-overidable options, taken from ranch_tcp:listen
-            DefaultListenOpts = [binary, {active, false}, {packet, raw},
-                                 {reuseaddr, true}, reuseport()],
+            DefaultListenOpts = [{reuseaddr, true}, reuseport()] ++ common_options(),
             % filter out disallowed options and supply default ones
             ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
                                               DefaultListenOpts),
@@ -270,7 +273,7 @@ connect_to(Addr, UserOptions, Timeout, TID) ->
             UniqueSession = proplists:get_value(unique_session, UserOptions, false),
             UniquePort = proplists:get_value(unique_port, UserOptions, false),
             ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, AddrOpts, Addr, ListenAddrs, UniqueSession, UniquePort),
+            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs, UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
                     libp2p_transport:start_client_session(TID, Addr, new_connection(Socket));
