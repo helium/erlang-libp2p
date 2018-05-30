@@ -6,7 +6,7 @@
 
 -export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1]).
 
--export([dial/2, dial_framed_stream/4, dial_framed_connection/4]).
+-export([dial/2, dial_framed_stream/4]).
 
 -spec ping(pid()) -> {ok, pos_integer()} | {error, term()}.
 ping(Pid) ->
@@ -68,12 +68,4 @@ dial_framed_stream(Path, SessionPid, Module, Args) ->
     case dial(Path, SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} -> Module:client(Connection, Args)
-    end.
-
--spec dial_framed_connection(Path::string(), Session::pid(), Module::atom(), Args::[any()]) ->
-                                    {ok, libp2p_connection:connection()} | {error, term()} | ignore.
-dial_framed_connection(Path, SessionPid, Module, Args) ->
-    case dial_framed_stream(Path, SessionPid, Module, Args) of
-        {ok, Stream} -> {ok, libp2p_framed_stream:new_connection(Stream)};
-        Other -> Other
     end.

@@ -71,8 +71,7 @@ path_test(Config) ->
 send_test(Config) ->
     {Client, Server} = proplists:get_value(serve, Config),
 
-    Connection = serve_framed_stream:new_connection(Client),
-    libp2p_connection:send(Connection, <<"hello">>),
+    libp2p_framed_stream:send(Client, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:server_data(Server) == <<"hello">> end),
     ok.
 
@@ -91,7 +90,7 @@ handle_call_test(Config) ->
     {C1, S1} = proplists:get_value(serve, Config),
 
     %% Try addr_info
-    {_, _} = libp2p_connection:addr_info(serve_framed_stream:new_connection(C1)),
+    {_, _} = libp2p_framed_stream:addr_info(C1),
 
     %% Try a reply
     test_reply = gen_server:call(S1, {reply, test_reply}),
@@ -114,11 +113,10 @@ handle_call_test(Config) ->
     ok = test_util:wait_until(fun() -> is_process_alive(S2) == false end),
 
     {C3, _} = serve_framed_stream:dial(Sw1, Sw2, "serve_frame"),
-    C3Conn = serve_framed_stream:new_connection(C3),
-    open = libp2p_connection:close_state(C3Conn),
+    open = libp2p_framed_stream:close_state(C3),
     %% Stop the client
-    libp2p_connection:close(C3Conn),
-    closed = libp2p_connection:close_state(C3Conn),
+    libp2p_framed_stream:close(C3),
+    closed = libp2p_framed_stream:close_state(C3),
 
     ok.
 

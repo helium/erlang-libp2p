@@ -1,16 +1,13 @@
 -module(libp2p_framed_stream).
 
 -behavior(gen_server).
--behavior(libp2p_connection).
 
 
 % gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
--export([client/3, server/3, server/4, new_connection/1, send/2]).
-% libp2p_connection
--export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
-         fdset/1, fdclr/1, addr_info/1, controlling_process/2]).
+-export([client/3, server/3, server/4, send/2, send/3,
+         close/1, close_state/1, addr_info/1]).
 
 -define(RECV_TIMEOUT, 5000).
 -define(SEND_TIMEOUT, 5000).
@@ -130,21 +127,21 @@ init_module(Kind, Module, Connection, Args) ->
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     case Module:init(Kind, Connection, Args) of
         {ok, ModuleState} ->
-            handle_fdset(#state{kind=Kind,
-                                connection=Connection, send_pid=SendPid,
-                                module=Module, state=ModuleState});
+            {ok, handle_fdset(#state{kind=Kind,
+                                     connection=Connection, send_pid=SendPid,
+                                     module=Module, state=ModuleState})};
         {ok, ModuleState, Response} ->
-            handle_fdset(handle_resp_send(noreply, Response,
-                                          #state{kind=Kind,
-                                                 connection=Connection, send_pid=SendPid,
-                                                 module=Module, state=ModuleState}));
+            {ok, handle_fdset(handle_resp_send(noreply, Response,
+                                               #state{kind=Kind,
+                                                      connection=Connection, send_pid=SendPid,
+                                                      module=Module, state=ModuleState}))};
         {stop, Reason} ->
             libp2p_connection:close(Connection),
             {error, Reason};
         {stop, Reason, Response} ->
-            handle_fdset(handle_resp_send({stop, Reason}, Response,
-                                          #state{kind=Kind, connection=Connection, send_pid=SendPid,
-                                                 module=Module, state=undefined}))
+            {ok, handle_fdset(handle_resp_send({stop, Reason}, Response,
+                                               #state{kind=Kind, connection=Connection, send_pid=SendPid,
+                                                      module=Module, state=undefined}))}
     end.
 
 
@@ -165,13 +162,13 @@ handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
         {ok, Bin} ->
             case Module:handle_data(Kind, Bin, ModuleState0) of
                 {noreply, ModuleState}  ->
-                    {noreply, State#state{state=ModuleState}};
+                    {noreply, handle_fdset(State#state{state=ModuleState})};
                 {noreply, ModuleState, Response} ->
-                    {noreply, handle_resp_send(noreply, Response, State#state{state=ModuleState})};
+                    {noreply, handle_fdset(handle_resp_send(noreply, Response, State#state{state=ModuleState}))};
                 {stop, Reason, ModuleState} ->
                     {stop, Reason, State#state{state=ModuleState}};
                 {stop, Reason, ModuleState, Response} ->
-                    {noreply, handle_resp_send({stop, Reason}, Response, State#state{state=ModuleState})}
+                    {noreply, handle_fdset(handle_resp_send({stop, Reason}, Response, State#state{state=ModuleState}))}
             end
     end;
 handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
@@ -263,12 +260,6 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
     libp2p_connection:close(Connection).
 
 
-%%
-%% libp2p_connection
-%%
-new_connection(Stream) ->
-    libp2p_connection:new(?MODULE, Stream).
-
 call(Pid, Cmd) ->
     try
         gen_server:call(Pid, Cmd)
@@ -296,27 +287,8 @@ send(Pid, Data) ->
 send(Pid, Data, Timeout) ->
     call(Pid, {send, Data, Timeout}).
 
-recv(_Pid, _Size, _Timeout) ->
-    %% TODO: Inbound data is normally handled by the handle_data
-    %% callback and not through receive. But.. it would be nice to be
-    %% consistent and line this up with other streams and fdset
-    %% notifications(?)
-    {error, unsupported}.
-
-acknowledge(_, _) ->
-    ok.
-
-fdset(_Pid) ->
-    {error, unsupported}.
-
-fdclr(_Pid) ->
-    ok.
-
 addr_info(Pid) ->
     call(Pid, addr_info).
-
-controlling_process(_Pid, _Owner) ->
-    {error, unsupported}.
 
 
 %% Internal
@@ -336,13 +308,10 @@ handle_recv(Connection, Timeout) ->
             end
     end.
 
--spec handle_fdset(#state{}) -> {ok, #state{}} | {error, term()}.
+-spec handle_fdset(#state{}) -> #state{}.
 handle_fdset(State=#state{connection=Connection}) ->
-    case libp2p_connection:fdset(Connection) of
-        ok -> {ok, State};
-        {error, Error} -> {error, Error}
-
-    end.
+    libp2p_connection:fdset(Connection),
+    State.
 
 -spec handle_resp_send(send_result_action(), binary(), #state{}) -> #state{}.
 handle_resp_send(Action, Data, State=#state{}) ->
@@ -354,8 +323,7 @@ handle_resp_send(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendP
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
     SendPid ! {send, Key, Bin},
-    {ok, NewState} = handle_fdset(State#state{sends=maps:put(Key, {Timer, Action}, Sends)}),
-    NewState.
+    State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
 
 -spec handle_send_result(send_result_action(), ok | {error, term()}, #state{}) ->
                                 {noreply, #state{}} |
