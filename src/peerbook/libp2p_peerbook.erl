@@ -140,6 +140,10 @@ handle_call({put, PeerList, CallerPid}, _From, State=#state{notify=Group, tid=TI
                                                 andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
                                     end
                             end, PeerList),
+    lager:notice("PEERBOOK ~p ADDING ~p: ~p", [libp2p_crypto:address_to_b58(ThisPeerId),
+                                               length(NewPeers),
+                                               [libp2p_crypto:address_to_b58(libp2p_peer:address(P))
+                                                || P <- NewPeers]]),
     % Add new peers to the store
     lists:foreach(fun(P) -> store_peer(P, State) end, NewPeers),
     % Notify group of new peers
