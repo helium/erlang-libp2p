@@ -299,11 +299,11 @@ group_create(SwarmName) ->
     Name.
 
 
-notify_peers(Pids, ExcludePid, PeerList) ->
-    [Pid ! {new_peers, PeerList} || Pid <- Pids, Pid /= ExcludePid].
-
+group_notify_peers(_Group, _ExcludePid, []) ->
+    ok;
 group_notify_peers(Group, ExcludePid, PeerList) ->
-    notify_peers(pg2:get_members(Group), ExcludePid, PeerList).
+    Pids = pg2:get_members(Group),
+    [Pid ! {new_peers, PeerList} || Pid <- Pids, Pid /= ExcludePid].
 
 group_join(Group, Pid) ->
     ok = pg2:join(Group, Pid),

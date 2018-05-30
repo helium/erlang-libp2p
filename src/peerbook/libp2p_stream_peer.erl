@@ -44,5 +44,10 @@ handle_data(_, Data, State=#state{peerbook=PeerBook}) ->
     end.
 
 handle_info(_, {new_peers, NewPeers}, State=#state{}) ->
-    EncodedList = libp2p_peer:encode_list(NewPeers),
-    {noreply, State, EncodedList}.
+    case NewPeers of
+        [] ->
+            {noreply, State};
+        _ ->
+            EncodedList = libp2p_peer:encode_list(NewPeers),
+            {noreply, State, EncodedList}
+    end.
