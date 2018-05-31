@@ -12,7 +12,7 @@
 -export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
          pubkey_to_address/1, address_to_pubkey/1,
          address_to_b58/1, b58_to_address/1,
-         pubkey_to_b58/1, b58_to_pubkey/1
+         pubkey_to_b58/1, b58_to_pubkey/1, verify/3
         ]).
 
 -spec make_public_key(private_key()) -> public_key().
@@ -73,6 +73,11 @@ pubkey_to_b58(PubKey) ->
 -spec b58_to_pubkey(string()) -> public_key().
 b58_to_pubkey(Str) ->
     address_to_pubkey(b58_to_address(Str)).
+
+%% @doc Verifies a digital signature, using sha256.
+-spec verify(binary(), binary(), public_key()) -> boolean().
+verify(Bin, Signature, PubKey) ->
+    public_key:verify(Bin, sha256, Signature, PubKey).
 
 -spec address_to_b58(address()) -> string().
 address_to_b58(Addr) ->
