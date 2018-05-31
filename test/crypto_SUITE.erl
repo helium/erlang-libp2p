@@ -6,10 +6,10 @@
 
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([save_load_test/1, address_test/1]).
+-export([save_load_test/1, address_test/1, verify_test/1]).
 
 all() ->
-    [address_test, save_load_test].
+    [address_test, save_load_test, verify_test].
 
 generate_full_key() ->
     PrivKey = #'ECPrivateKey'{parameters=Params, publicKey=PubKeyPoint} =
@@ -58,3 +58,14 @@ address_test(_Config) ->
     {_, FullKey} = generate_full_key(),
     {'EXIT', {not_compact, _}} = (catch libp2p_crypto:pubkey_to_address(FullKey)),
     ok.
+
+
+verify_test(_Config) ->
+    {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+
+    Bin = <<"sign me please">>,
+    Sign = libp2p_crypto:mk_sig_fun(PrivKey),
+    Signature = Sign(Bin),
+
+    true = libp2p_crypto:verify(Bin, Signature, PubKey),
+    false = libp2p_crypto:verify(<<"failed...">>, Signature, PubKey).
