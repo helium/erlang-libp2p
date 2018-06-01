@@ -10,7 +10,7 @@ all() ->
     ].
 
 init_per_testcase(_, Config) ->
-    Swarms = test_util:setup_swarms(3, []),
+    Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]}]),
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->
@@ -38,9 +38,6 @@ unicast_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
-    %% TODO: Why does await not work witout S2 being connected through
-    %% S3? S2 and S3 should discover eachother through S1
-    test_util:connect_swarms(S3, S2),
 
     await_peerbooks(Swarms),
 
@@ -89,9 +86,6 @@ multicast_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
-    %% TODO: Why does await not work witout S2 being connected through
-    %% S3? S2 and S3 should discover eachother through S1
-    test_util:connect_swarms(S3, S2),
 
     await_peerbooks(Swarms),
 

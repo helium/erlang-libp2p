@@ -252,6 +252,8 @@ update_this_peer(State=#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_typ
 
 
 -spec notify_new_peers([libp2p_peer:peer()], #state{}) -> #state{}.
+notify_new_peers([], State=#state{}) ->
+    State;
 notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime, notify_peers=NotifyPeers,
                                         stale_time=_StaleTime}) ->
     %% Cache the new peers to be sent out but make sure that the new
@@ -272,14 +274,14 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% peers will keep notifications ticking at the notify_time, but
     %% that no timer is firing if there's nothing to notify.
     NewNotifyTimer = case NotifyTimer of
-                         undefined -> erlang:send_after(NotifyTime, self(), notify_timeout);
+                         undefined when map_size(NewNotifyPeers) > 0 ->
+                             erlang:send_after(NotifyTime, self(), notify_timeout);
                          Other -> Other
                      end,
     State#state{notify_peers=NewNotifyPeers, notify_timer=NewNotifyTimer}.
 
 -spec notify_peers(#state{}) -> #state{}.
 notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) == 0 ->
-    lager:info("NO PEERS TO NOTIFY"),
     State;
 notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup}) ->
     PeerList = maps:values(NotifyPeers),
