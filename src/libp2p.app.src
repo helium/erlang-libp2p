@@ -24,8 +24,7 @@
                   ranch,
                   inert,
                   multiaddr,
-                  nat_upnp,
-                  natpmp,
+                  nat,
                   ecc_compact,
                   bitcask
                  ]},
