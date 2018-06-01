@@ -207,10 +207,10 @@ lookup_worker(Index, #state{workers=Workers}) ->
     lists:keyfind(Index, 2, Workers).
 
 -spec dispatch_next_message(pos_integer(), #state{}) -> #state{}.
-dispatch_next_message(Index, State=#state{self_index=SelfIndex}) ->
+dispatch_next_message(Index, State=#state{self_index=_SelfIndex}) ->
     case lookup_messages(?OUTBOUND, Index, State) of
         [{Key, Msg} | _] ->
-            lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
+            %% lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
             dispatch_message(Index, Key, Msg, State);
         _ -> State
     end.

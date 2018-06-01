@@ -13,19 +13,21 @@ all() ->
     ].
 
 init_per_testcase(accessor_test, Config) ->
-    setup_peerbook(Config);
+    setup_peerbook(Config, []);
 init_per_testcase(bad_peer_test, Config) ->
-    setup_peerbook(Config);
+    setup_peerbook(Config, []);
 init_per_testcase(put_test, Config) ->
-    setup_peerbook(Config);
+    setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 500}]
+                            }]);
 init_per_testcase(gossip_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 0}]
                                         }]),
     [{swarms, Swarms} | Config];
 init_per_testcase(stale_test, Config) ->
-    Swarms = test_util:setup_swarms(1, [{libp2p_peerbook, [{stale_time, 200},
-                                                           {peer_time, 400}]
+    Swarms = test_util:setup_swarms(1, [{libp2p_peerbook, [{stale_time, 100},
+                                                           {peer_time, 400},
+                                                           {notify_time, 500}]
                                         }]),
     [{swarms, Swarms} | Config].
 
@@ -120,9 +122,10 @@ put_test(Config) ->
                              libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(P) )
                      end, ExtraPeers),
 
-    ExtraPeers = receive
+    ReceivedPeers = receive
                         {new_peers, L} -> L
                     end,
+    true = sets:is_subset(sets:from_list(peer_keys(ExtraPeers)), sets:from_list(peer_keys(ReceivedPeers))),
 
     {ok, ThisPeer} = libp2p_peerbook:get(PeerBook, Address),
     KnownValues = sets:from_list(PeerList1 ++ PeerList2 ++ [ThisPeer]),
@@ -208,20 +211,31 @@ stale_test(Config) ->
     libp2p_peerbook:join_notify(PeerBook, self()),
     libp2p_peerbook:update_nat_type(PeerBook, static),
 
-    UpdatedPeer = receive
-                      {new_peers, [P]} -> P
-                  after 1000 -> error(timeout)
-                  end,
-
-    S1Addr =  libp2p_peer:address(UpdatedPeer),
-    true = libp2p_peer:supersedes(UpdatedPeer, S1First),
-    static =  libp2p_peer:nat_type(UpdatedPeer),
-
+    ok = test_util:wait_until(
+          fun() ->
+                  UpdatedPeers = receive
+                                     {new_peers, P} -> P
+                                 after 500 -> undefined
+                                 end,
+                  case UpdatedPeers of
+                      undefined -> ok;
+                      _ ->
+                          [UpdatedPeer] = lists:filter(fun(P) ->
+                                                               libp2p_peer:address(P) == S1Addr
+                                                       end, UpdatedPeers),
+                          S1Addr == libp2p_peer:address(UpdatedPeer)
+                              andalso true == libp2p_peer:supersedes(UpdatedPeer, S1First)
+                              andalso static ==  libp2p_peer:nat_type(UpdatedPeer)
+                  end
+          end),
     ok.
 
 
 %% Util
 %%
+
+peer_keys(PeerList) ->
+    [libp2p_crypto:address_to_b58(libp2p_peer:address(P)) || P <- PeerList].
 
 mk_peer() ->
     {ok, PrivKey, PubKey} = ecc_compact:generate_key(),
@@ -230,14 +244,14 @@ mk_peer() ->
                     static, erlang:system_time(seconds),
                     libp2p_crypto:mk_sig_fun(PrivKey)).
 
-setup_peerbook(Config) ->
+setup_peerbook(Config, Opts) ->
     Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
     TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {swarm_name, Name}),
     {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
     ets:insert(TID, {swarm_address, CompactKey}),
     TmpDir = lib:nonl(os:cmd("mktemp -d")),
-    ets:insert(TID, {swarm_opts, [{base_dir, TmpDir}]}),
+    ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, TmpDir})}),
     {ok, Pid} = libp2p_peerbook:start_link(TID, libp2p_crypto:mk_sig_fun(PrivKey)),
     [{peerbook, {Pid, CompactKey}} | Config].
 

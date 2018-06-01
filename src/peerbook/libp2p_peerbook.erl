@@ -17,11 +17,14 @@
 -record(state,
         { tid :: ets:tab(),
           store :: reference(),
-          notify :: atom(),
           nat_type = unknown :: libp2p_peer:nat_type(),
           peer_time :: pos_integer(),
           peer_timer :: undefined | reference(),
           stale_time :: pos_integer(),
+          notify_group :: atom(),
+          notify_time :: pos_integer(),
+          notify_timer=undefined :: reference() | undefined,
+          notify_peers=#{} :: #{libp2p_crypto:address() => libp2p_peer:peer()},
           sessions=[] :: [{libp2p_crypto:address(), pid()}],
           sigfun :: fun((binary()) -> binary())
         }).
@@ -30,6 +33,10 @@
 -define(DEFAULT_STALE_TIME, 24 * 60 * 60 * 1000).
 %% Defailt "this" peer heartbeat time 5 minutes (in milliseconds)
 -define(DEFAULT_PEER_TIME, 5 * 60 * 1000).
+%% Default timer for new peer notifications to connected peers. This
+%% allows for fast arrivels to coalesce a number of new peers before a
+%% new list is sent out.
+-define(DEFAULT_NOTIFY_TIME, 5 * 1000).
 
 %%
 %% API
@@ -104,8 +111,10 @@ init([TID, SigFun]) ->
         {error, Reason} -> {stop, Reason};
         Ref ->
             PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
-            {ok, notify_this_peer(#state{tid=TID, store=Ref, notify=Group, sigfun=SigFun,
-                                         peer_time=PeerTime, stale_time=StaleTime})}
+            NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
+            {ok, update_this_peer(#state{tid=TID, store=Ref, notify_group=Group, sigfun=SigFun,
+                                         peer_time=PeerTime, notify_time=NotifyTime,
+                                         stale_time=StaleTime})}
     end.
 
 
@@ -123,9 +132,18 @@ handle_call(keys, _From, State=#state{}) ->
     {reply, fetch_keys(State), State};
 handle_call(values, _From, State=#state{}) ->
     {reply, fetch_peers(State), State};
-handle_call({get, ID}, _From, State=#state{}) ->
-    {reply, fetch_peer(ID, State), State};
-handle_call({put, PeerList, CallerPid}, _From, State=#state{notify=Group, tid=TID, stale_time=StaleTime}) ->
+handle_call({get, ID}, _From, State=#state{tid=TID}) ->
+    ThisPeerID = libp2p_swarm:address(TID),
+    case fetch_peer(ID, State) of
+        {error, not_found} when ID == ThisPeerID ->
+            NewState = update_this_peer(State),
+            {reply, fetch_peer(ID, NewState), NewState};
+        {error, Error} ->
+            {reply, {error, Error}, State};
+        {ok, Peer} ->
+            {reply, {ok, Peer}, State}
+    end;
+handle_call({put, PeerList, _}, _From, State=#state{tid=TID, stale_time=StaleTime}) ->
     ThisPeerId = libp2p_swarm:address(TID),
     NewPeers = lists:filter(fun(NewPeer) ->
                                     NewPeerId = libp2p_peer:address(NewPeer),
@@ -148,8 +166,7 @@ handle_call({put, PeerList, CallerPid}, _From, State=#state{notify=Group, tid=TI
     % Add new peers to the store
     lists:foreach(fun(P) -> store_peer(P, State) end, NewPeers),
     % Notify group of new peers
-    group_notify_peers(Group, CallerPid, NewPeers),
-    {reply, ok, State};
+    {reply, ok, notify_new_peers(NewPeers, State)};
 handle_call({remove, ID}, _From, State=#state{tid=TID}) ->
     Result = case ID == libp2p_swarm:address(TID) of
                  true -> {error, no_delete};
@@ -162,24 +179,18 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(changed_listener, State=#state{}) ->
-    _ = mk_this_peer(State),
-    {noreply, State};
+    {noreply, update_this_peer(State)};
 handle_cast({update_nat_type, UpdatedNatType},
             State=#state{nat_type=NatType}) when UpdatedNatType /= NatType->
-    NewState = State#state{nat_type=UpdatedNatType},
-    _  = mk_this_peer(NewState),
-    {noreply, NewState};
+    {noreply, update_this_peer(State#state{nat_type=UpdatedNatType})};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
-    NewState = State#state{sessions=NewSessions},
-    _ = mk_this_peer(NewState),
-    {noreply, NewState};
+    {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({register_session, SessionPid, Identify, Kind},
             State=#state{tid=TID, sessions=Sessions}) ->
     SessionAddr = libp2p_identify:address(Identify),
     NewSessions = [{SessionAddr, SessionPid} | Sessions],
-    NewState = State#state{sessions=NewSessions},
-    _ = mk_this_peer(NewState),
+    NewState = update_this_peer(State#state{sessions=NewSessions}),
 
     case Kind of
         client ->
@@ -192,7 +203,7 @@ handle_cast({register_session, SessionPid, Identify, Kind},
                 %% TODO: Can this be moved into a higher level by
                 %% using a group_gosip to gossip peers instead of
                 %% eagerly exchanging peers on every new connection?
-                PeerList = fetch_peers(State),
+                PeerList = fetch_peers(NewState),
                 libp2p_session:dial_framed_stream("peer/1.0.0", SessionPid,
                                                   libp2p_stream_peer, [TID, PeerList])
             catch
@@ -201,7 +212,7 @@ handle_cast({register_session, SessionPid, Identify, Kind},
         _ -> ok
     end,
     {noreply, NewState};
-handle_cast({join_notify, JoinPid}, State=#state{notify=Group}) ->
+handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
 handle_cast(Msg, State) ->
@@ -209,7 +220,9 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info(peer_timeout, State=#state{}) ->
-    {noreply, notify_this_peer(State)};
+    {noreply, update_this_peer(State)};
+handle_info(notify_timeout, State=#state{}) ->
+    {noreply, notify_peers(State#state{notify_timer=undefined})};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
@@ -221,26 +234,59 @@ terminate(_Reason, #state{store=Store}) ->
 %%
 %% Internal
 %%
-
--spec notify_this_peer(#state{}) -> #state{}.
-notify_this_peer(State=#state{tid=TID, notify=Group, peer_time=PeerTime}) ->
-    case fetch_peer(libp2p_swarm:address(TID), State) of
-        {ok, Peer} ->
-            group_notify_peers(Group, undefined, [Peer]);
-        {error, _} -> ok
-    end,
-    PeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
-    State#state{peer_timer=PeerTimer}.
-
--spec mk_this_peer(#state{}) -> libp2p_peer:peer().
-mk_this_peer(State=#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType}) ->
+-spec update_this_peer(#state{}) -> #state{}.
+update_this_peer(State=#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType,
+                             peer_time=PeerTime, peer_timer=PeerTimer}) ->
     SwarmAddr = libp2p_swarm:address(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- Sessions])),
     Peer = libp2p_peer:new(SwarmAddr, ListenAddrs, ConnectedAddrs, NatType,
                            erlang:system_time(seconds), SigFun),
     store_peer(Peer, State),
-    Peer.
+    case PeerTimer of
+        undefined -> ok;
+        _ -> erlang:cancel_timer(PeerTimer)
+    end,
+    NewPeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
+    notify_new_peers([Peer], State#state{peer_timer=NewPeerTimer}).
+
+
+-spec notify_new_peers([libp2p_peer:peer()], #state{}) -> #state{}.
+notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime, notify_peers=NotifyPeers,
+                                        stale_time=_StaleTime}) ->
+    %% Cache the new peers to be sent out but make sure that the new
+    %% peers are not stale we only replace already cached versions if
+    %% the new peers supersede existing ones
+    NewNotifyPeers = lists:foldl(
+                       fun (Peer, Acc) ->
+                               case maps:find(libp2p_peer:address(Peer), Acc) of
+                                   error -> maps:put(libp2p_peer:address(Peer), Peer, Acc);
+                                   {ok, FoundPeer} ->
+                                       case libp2p_peer:supersedes(Peer, FoundPeer) of
+                                           true -> maps:put(libp2p_peer:address(Peer), Peer, Acc);
+                                           false -> Acc
+                                       end
+                               end
+                       end, NotifyPeers, NewPeers),
+    %% Set up a timer if ntot already set. This ensures that fast new
+    %% peers will keep notifications ticking at the notify_time, but
+    %% that no timer is firing if there's nothing to notify.
+    NewNotifyTimer = case NotifyTimer of
+                         undefined -> erlang:send_after(NotifyTime, self(), notify_timeout);
+                         Other -> Other
+                     end,
+    State#state{notify_peers=NewNotifyPeers, notify_timer=NewNotifyTimer}.
+
+-spec notify_peers(#state{}) -> #state{}.
+notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) == 0 ->
+    lager:info("NO PEERS TO NOTIFY"),
+    State;
+notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup}) ->
+    PeerList = maps:values(NotifyPeers),
+    lager:info("NOTIFYING PEERS: ~p", [[libp2p_crypto:address_to_b58(libp2p_peer:address(P)) || P <- PeerList]]),
+    [Pid ! {new_peers, PeerList} || Pid <- pg2:get_members(NotifyGroup)],
+    State#state{notify_peers=#{}}.
+
 
 
 -spec unsafe_fetch_peer(libp2p_crypto:address() | undefined, #state{})
@@ -255,16 +301,13 @@ unsafe_fetch_peer(ID, #state{store=Store}) ->
 
 -spec fetch_peer(libp2p_crypto:address(), #state{})
                 -> {ok, libp2p_peer:peer()} | {error, term()}.
-fetch_peer(ID, State=#state{tid=TID, stale_time=StaleTime}) ->
-    ThisPeer = libp2p_swarm:address(TID),
+fetch_peer(ID, State=#state{stale_time=StaleTime}) ->
     case unsafe_fetch_peer(ID, State) of
         {ok, Peer} ->
             case libp2p_peer:is_stale(Peer, StaleTime) of
-                true when ThisPeer == ID -> {ok, mk_this_peer(State)};
                 true -> {error, not_found};
                 false -> {ok, Peer}
             end;
-        {error, not_found} when ThisPeer == ID -> {ok, mk_this_peer(State)};
         {error, Error} -> {error,Error}
     end.
 
@@ -302,13 +345,6 @@ group_create(SwarmName) ->
     Name = list_to_atom(filename:join(SwarmName, peerbook)),
     ok = pg2:create(Name),
     Name.
-
-
-group_notify_peers(_Group, _ExcludePid, []) ->
-    ok;
-group_notify_peers(Group, ExcludePid, PeerList) ->
-    Pids = pg2:get_members(Group),
-    [Pid ! {new_peers, PeerList} || Pid <- Pids, Pid /= ExcludePid].
 
 group_join(Group, Pid) ->
     ok = pg2:join(Group, Pid),
