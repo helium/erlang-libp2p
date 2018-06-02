@@ -17,7 +17,7 @@ init_per_testcase(accessor_test, Config) ->
 init_per_testcase(bad_peer_test, Config) ->
     setup_peerbook(Config, []);
 init_per_testcase(put_test, Config) ->
-    setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 500}]
+    setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}]
                             }]);
 init_per_testcase(gossip_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,

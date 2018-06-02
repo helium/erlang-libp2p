@@ -19,6 +19,7 @@
           target=undefined :: undefined | string(),
           send_pid=undefined :: undefined | pid(),
           connect_pid=undefined :: undefined | pid(),
+          connect_retry_timer=undefined :: undefined | reference(),
           session_monitor=undefined :: session_monitor()
         }).
 
@@ -99,16 +100,15 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
 connect(enter, _, Data=#data{connect_pid=ConnectPid})  ->
     kill_pid(ConnectPid),
     {repeat_state, Data#data{connect_pid=undefined}};
-connect(timeout, _, #data{}) ->
-    repeat_state_and_data;
+connect(info, connect_retry, Data=#data{}) ->
+    {repeat_state, Data#data{connect_retry_timer=undefined}};
 connect(info, {error, _Reason}, Data=#data{}) ->
-    {keep_state, Data, ?CONNECT_RETRY};
+    {keep_state, connect_retry(Data)};
 connect(info, {'DOWN', Monitor, process, _Pid, _Reason}, Data=#data{session_monitor=Monitor}) ->
     %% The _session_ that this worker is monitoring went away. Set a
     %% timer to try again.
-    {keep_state, Data#data{session_monitor=undefined,
-                           send_pid=update_send_pid(undefined, Data)},
-     ?CONNECT_RETRY};
+    {keep_state, connect_retry(Data#data{session_monitor=undefined,
+                                         send_pid=update_send_pid(undefined, Data)})};
 connect(info, {'DOWN', _, process, _, normal}, Data=#data{}) ->
     %% Ignore a normal down for the connect pid, since it completed
     %% it's work successfully
@@ -116,12 +116,12 @@ connect(info, {'DOWN', _, process, _, normal}, Data=#data{}) ->
 connect(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
     %% The connect process wend down for a non-normal reason. Set a
     %% timeout to try again.
-    {keep_state, Data#data{connect_pid=undefined}, ?CONNECT_RETRY};
+    {keep_state, connect_retry(Data#data{connect_pid=undefined})};
 connect(info, {assign_session, _ConnAddr, _SessionPid},
         #data{session_monitor=Monitor}) when Monitor /= undefined ->
     %% Attempting to assign a session when we already have one
     lager:notice("Trying to assign a session while one is being monitored"),
-    {keep_state_and_data, ?CONNECT_RETRY};
+    keep_state_and_data;
 connect(info, {assign_session, _ConnAddr, SessionPid},
         Data=#data{session_monitor=Monitor=undefined, client_spec=undefined}) ->
     %% Assign a session without a client spec. Just monitor the
@@ -137,9 +137,8 @@ connect(info, {assign_session, _ConnAddr, SessionPid},
                                    send_pid=update_send_pid(StreamPid, Data)}};
         {error, Error} ->
             lager:notice("Failed to start client on ~p: ~p", [Path, Error]),
-            {keep_state, Data#data{session_monitor=monitor_session(Monitor, undefined),
-                                   send_pid=update_send_pid(undefined, Data)},
-             ?CONNECT_RETRY}
+            {keep_state, connect_retry(Data#data{session_monitor=monitor_session(Monitor, undefined),
+                                                 send_pid=update_send_pid(undefined, Data)})}
     end;
 connect({call, From}, {assign_stream, _MAddr, _StreamPid}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
@@ -178,6 +177,13 @@ handle_event(EventType, Msg, #data{}) ->
     keep_state_and_data.
 
 %% Utilities
+
+-spec connect_retry(#data{}) -> #data{}.
+connect_retry(Data=#data{connect_retry_timer=undefined}) ->
+    Timer = erlang:send_after(?CONNECT_RETRY, self(), connect_retry),
+    Data#data{connect_retry_timer=Timer};
+connect_retry(Data=#data{}) ->
+    Data.
 
 -spec monitor_session(Monitor::session_monitor(), SessionPid::pid() | undefined) -> undefined | session_monitor().
 monitor_session(undefined, undefined) ->

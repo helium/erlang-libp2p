@@ -254,8 +254,8 @@ update_this_peer(State=#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_typ
 -spec notify_new_peers([libp2p_peer:peer()], #state{}) -> #state{}.
 notify_new_peers([], State=#state{}) ->
     State;
-notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime, notify_peers=NotifyPeers,
-                                        stale_time=_StaleTime}) ->
+notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime,
+                                        notify_peers=NotifyPeers, stale_time=_StaleTime}) ->
     %% Cache the new peers to be sent out but make sure that the new
     %% peers are not stale we only replace already cached versions if
     %% the new peers supersede existing ones
