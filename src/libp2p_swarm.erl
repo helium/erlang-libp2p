@@ -297,7 +297,7 @@ add_group(Sup, GroupID, Module, Args) when is_pid(Sup) ->
     add_group(tid(Sup), GroupID, Module, Args);
 add_group(TID, GroupID, Module, Args) ->
     case libp2p_config:lookup_group(TID, GroupID) of
-        {ok, _Pid} -> ok;
+        {ok, Pid} -> {ok, Pid};
         false ->
             GroupSup = libp2p_swarm_group_sup:sup(TID),
             ChildSpec = #{ id => GroupID,

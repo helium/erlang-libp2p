@@ -47,6 +47,8 @@ unicast_test(Config) ->
     %% message to self by sending a message to G2
     G1Args = [relcast_handler, [Members, input_unicast(1), handle_msg({send, [{unicast, 2, <<"hello1">>}]})]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
+    %% Adding the same group twice is the same group pid
+    {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles any incoming message by sending a message to member
     %% 3 (G3)
