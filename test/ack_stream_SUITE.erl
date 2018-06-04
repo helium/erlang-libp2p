@@ -28,10 +28,7 @@ ack_test(Config) ->
     after 100 -> erlang:exit(timeout)
     end,
 
-    Swarms = proplists:get_value(swarms, Config),
-    test_util:teardown_swarms(Swarms).
-
-    %% ok.
+    ok.
 
 accept_stream(Pid, _MAddr, StreamPid, Path) ->
     Pid ! {accept_stream, StreamPid, Path},

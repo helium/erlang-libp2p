@@ -1,17 +1,20 @@
 -module(swarm_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accessor_test/1]).
+-export([accessor_test/1, stop_test/1]).
 
 all() ->
     [
-     accessor_test
+     accessor_test,
+     stop_test
     ].
 
 init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(1, []),
     [{swarms, Swarms} | Config].
 
+end_per_testcase(stop_test, _Config) ->
+    ok;
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),
     test_util:teardown_swarms(Swarms).
@@ -27,5 +30,13 @@ accessor_test(Config) ->
 
     [{base_dir, _}] = libp2p_swarm:opts(S1),
     "swarm" ++ _ = atom_to_list(libp2p_swarm:name(S1)),
+
+    ok.
+
+stop_test(Config) ->
+    [S1] = proplists:get_value(swarms, Config),
+
+    libp2p_swarm:stop(S1),
+    true = libp2p_swarm:is_stopping(S1),
 
     ok.

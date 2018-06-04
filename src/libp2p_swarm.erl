@@ -1,6 +1,6 @@
 -module(libp2p_swarm).
 
--export([start/1, start/2, stop/1, swarm/1, tid/1,
+-export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
          opts/1, name/1, address/1, keys/1, peerbook/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
@@ -52,6 +52,7 @@ start(Name, Opts)  ->
 %% @doc Stops the given swarm.
 -spec stop(pid()) -> ok.
 stop(Sup) ->
+    ets:insert(tid(Sup), {shutown, true}),
     Ref = erlang:monitor(process, Sup),
     exit(Sup, shutdown),
     receive
@@ -59,6 +60,23 @@ stop(Sup) ->
     after 5000 ->
             error(timeout)
     end.
+
+is_stopping(Sup) when is_pid(Sup) ->
+    try
+        is_stopping(tid(Sup))
+    catch
+        exit:{noproc, _} -> true
+    end;
+is_stopping(TID) ->
+    try
+         case ets:lookup(TID, shutdown) of
+             [] -> false;
+             _ -> true
+         end
+    catch
+        exit:{noproc, _} -> true
+    end.
+
 
 % Access
 %

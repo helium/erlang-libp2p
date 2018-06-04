@@ -2,7 +2,7 @@
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
          connect_swarms/2,
-         wait_until/1, wait_until/3, rm_rf/1, dial/3]).
+         wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5]).
 
 setup() ->
     application:ensure_all_started(ranch),
@@ -70,3 +70,8 @@ dial(FromSwarm, ToSwarm, Name) ->
     [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Connection} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
     Connection.
+
+dial_framed_stream(FromSwarm, ToSwarm, Name, Module, Args) ->
+    [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
+    {ok, Stream} = libp2p_swarm:dial_framed_stream(FromSwarm, ToAddr, Name, Module, Args),
+    Stream.

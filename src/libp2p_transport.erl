@@ -31,20 +31,24 @@ for_addr(TID, Addr) ->
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
                 -> {ok, string(), pid()} | {error, term()}.
 connect_to(Addr, Options, Timeout, TID) ->
-    case find_session([Addr], Options, TID) of
-        {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
-        {error, not_found} ->
-            case for_addr(TID, Addr) of
-                {ok, ConnAddr, {Transport, TransportPid}} ->
-                    lager:info("~p connecting to ~p", [Transport, ConnAddr]),
-                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
-                        {error, Error} -> {error, Error};
-                        {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
-                    catch
-                        What:Why -> {error, {What, Why}}
-                    end
-            end;
-        {error, Error} -> {error, Error}
+    case libp2p_swarm:is_stopping(TID) of
+        true -> {error, stopping};
+        false ->
+            case find_session([Addr], Options, TID) of
+                {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
+                {error, not_found} ->
+                    case for_addr(TID, Addr) of
+                        {ok, ConnAddr, {Transport, TransportPid}} ->
+                            lager:info("~p connecting to ~p", [Transport, ConnAddr]),
+                            try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
+                                {error, Error} -> {error, Error};
+                                {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
+                            catch
+                                What:Why -> {error, {What, Why}}
+                            end
+                    end;
+                {error, Error} -> {error, Error}
+            end
     end.
 
 %% @doc Find a existing session for one of a given list of

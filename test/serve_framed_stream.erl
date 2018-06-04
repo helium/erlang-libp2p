@@ -25,12 +25,11 @@ register(Swarm, Name, Callbacks) ->
     libp2p_swarm:add_stream_handler(Swarm, Name, {libp2p_framed_stream, server, [?MODULE, self(), Callbacks]}).
 
 dial(FromSwarm, ToSwarm, Name) ->
-    Connection = test_util:dial(FromSwarm, ToSwarm, Name),
+    Stream = test_util:dial_framed_stream(FromSwarm, ToSwarm, Name, ?MODULE, []),
     Server = receive
                  {hello_server, S} -> S
              after 100 -> erlang:exit(timeout)
              end,
-    {ok, Stream} = client(Connection, []),
     {Stream, Server}.
 
 new_connection(Client) ->
