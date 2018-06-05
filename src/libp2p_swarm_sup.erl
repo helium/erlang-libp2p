@@ -3,7 +3,7 @@
 -behaviour(supervisor).
 
 % supervisor
--export([init/1]).
+-export([init/1, start_link/1]).
 % api
 -export([sup/1, opts/2, name/1, address/1,
          register_server/1, server/1,
@@ -17,6 +17,9 @@
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
 -define(OPTS, swarm_opts).
+
+start_link(Args) ->
+    supervisor:start_link(?MODULE, Args).
 
 init([Name, Opts]) ->
     inert:start(),
