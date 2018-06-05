@@ -159,10 +159,10 @@ handle_call({put, PeerList, _}, _From, State=#state{tid=TID, stale_time=StaleTim
                                     end
                             end, PeerList),
 
-    lager:notice("PEERBOOK ~p ADDING ~p: ~p", [libp2p_crypto:address_to_b58(ThisPeerId),
-                                               length(NewPeers),
-                                               [libp2p_crypto:address_to_b58(libp2p_peer:address(P))
-                                                || P <- NewPeers]]),
+    %% lager:notice("PEERBOOK ~p ADDING ~p: ~p", [libp2p_crypto:address_to_b58(ThisPeerId),
+    %%                                            length(NewPeers),
+    %%                                            [libp2p_crypto:address_to_b58(libp2p_peer:address(P))
+    %%                                             || P <- NewPeers]]),
     % Add new peers to the store
     lists:foreach(fun(P) -> store_peer(P, State) end, NewPeers),
     % Notify group of new peers
@@ -285,7 +285,8 @@ notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) 
     State;
 notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup}) ->
     PeerList = maps:values(NotifyPeers),
-    lager:info("NOTIFYING PEERS: ~p", [[libp2p_crypto:address_to_b58(libp2p_peer:address(P)) || P <- PeerList]]),
+    %% lager:info("NOTIFYING PEERS: ~p",
+    %%            [[libp2p_crypto:address_to_b58(libp2p_peer:address(P)) || P <- PeerList]]),
     [Pid ! {new_peers, PeerList} || Pid <- pg2:get_members(NotifyGroup)],
     State#state{notify_peers=#{}}.
 
