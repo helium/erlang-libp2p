@@ -2,12 +2,13 @@
 
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([open_close_test/1, ping_test/1]).
+-export([open_close_test/1, ping_test/1, sessions_test/1]).
 
 all() ->
     [
-     open_close_test
-     , ping_test
+     open_close_test,
+     ping_test,
+     sesions_test
     ].
 
 init_per_testcase(open_close_test, Config) ->
@@ -15,7 +16,7 @@ init_per_testcase(open_close_test, Config) ->
                                          [{peerbook_connections, 0}]
                                         }]),
     [{swarms, Swarms} | Config];
-init_per_testcase(ping_test, Config) ->
+init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(2, []),
     [{swarms, Swarms} | Config].
 
@@ -76,5 +77,16 @@ ping_test(Config) ->
 
     {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
     {ok, _} = libp2p_session:ping(Session),
+
+    ok.
+
+sessions_test(Config) ->
+    [S1, S2] = proplists:get_value(swarms, Config),
+
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
+
+    {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
+
+    [Session] = libp2p_swarm:sessions(S1),
 
     ok.

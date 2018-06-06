@@ -1,7 +1,7 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
-         opts/1, name/1, address/1, keys/1, peerbook/1,
+         opts/1, name/1, address/1, keys/1, peerbook/1, sessions/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
          listen/2, listen_addrs/1,
@@ -136,6 +136,13 @@ opts(TID) ->
     libp2p_swarm_sup:opts(TID).
 
 
+%% @doc Get a list of libp2p_session pids for all open sessions to
+%% remote peers.
+-spec sessions(ets:tab() | pid()) -> [pid()].
+sessions(Sup) when is_pid(Sup) ->
+    sessions(tid(Sup));
+sessions(TID) ->
+    [Pid || {_, Pid} <- libp2p_config:lookup_sessions(TID)].
 
 % Transport
 %
