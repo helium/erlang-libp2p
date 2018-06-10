@@ -256,7 +256,9 @@ session_cast(Data, State=#state{send_pid=SendPid}) when is_binary(Data) ->
     SendPid ! {cast, Data},
     State.
 
--spec handle_send_result(Info::any(), send_result(), #state{}) -> #state{}.
+-spec handle_send_result(Info::any(), send_result(), #state{}) ->
+                                {noreply, #state{}} |
+                                {stop, normal, #state{}}.
 handle_send_result({ping, From, PingID}, ok, State=#state{pings=Pings}) ->
     TimerRef = erlang:send_after(?TIMEOUT, self(), {timeout_ping, PingID}),
     NewPings = maps:put(PingID, {From, TimerRef, erlang:system_time(millisecond)}, Pings),
