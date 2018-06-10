@@ -53,13 +53,16 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) ->
-    PeerAddrs = libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)),
+    PeerAddrs = [ "/p2p/"++ libp2p_crypto:address_to_b58(Key)
+                  || Key <- libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)) ],
     %% Get currently connected addresses
     {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
+    LocalAddr = "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_swarm:address(TID)),
     %% Exclude the local swarm address from the available addresses
-    ExcludedAddrs = CurrentAddrs ++ [libp2p_swarm:address(TID)],
+    ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
     %% Remove the current addrs from all possible peer addresses
-    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(PeerAddrs), sets:from_list(ExcludedAddrs))),
+    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(PeerAddrs),
+                                             sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(Kind, WorkerPid, TargetAddrs, State)};
 handle_cast({request_target, Kind=seed, WorkerPid}, State=#state{seed_nodes=SeedAddrs}) ->
     {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),

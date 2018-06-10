@@ -147,10 +147,14 @@ connect({call, From}, {assign_stream, MAddr, StreamPid},
         Data=#data{tid=TID, session_monitor=Monitor, send_pid=undefined}) ->
     %% Assign a stream. Monitor the session and remember the
     %% connection
-    {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
-    {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
-                           send_pid=update_send_pid(StreamPid, Data)},
-    [{reply, From, ok}]};
+    case libp2p_config:lookup_session(TID, MAddr) of
+        {ok, SessionPid} ->
+            {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
+                                   send_pid=update_send_pid(StreamPid, Data)},
+             [{reply, From, ok}]};
+        false ->
+            {keep_state_and_data, [{reply, From, {error, unknown_session}}]}
+    end;
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),

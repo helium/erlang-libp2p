@@ -78,10 +78,10 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
-terminate(_Reason, #state{tid=TID}) ->
+terminate(Reason, #state{tid=TID}) ->
     lists:foreach(fun({Addr, Pid}) ->
                           libp2p_config:remove_session(TID, Addr),
-                          catch libp2p_session:close(Pid, shutdown, infinity)
+                          catch libp2p_session:close(Pid, Reason, infinity)
                   end, libp2p_config:lookup_sessions(TID)).
 
 %% Internal
@@ -93,7 +93,7 @@ add_monitor(Kind, Addrs, Pid, State=#state{monitors=Monitors}) ->
     Value = case lists:keyfind(Pid, 1, Monitors) of
                 false -> {erlang:monitor(process, Pid), Kind, SortedAddrs};
                 {Pid, {MonitorRef, Kind, StoredAddrs}} ->
-                    {MonitorRef, Kind, lists:merge(StoredAddrs, SortedAddrs)}
+                    {MonitorRef, Kind, lists:umerge(StoredAddrs, SortedAddrs)}
             end,
     State#state{monitors=lists:keystore(Pid, 1, Monitors, {Pid, Value})}.
 

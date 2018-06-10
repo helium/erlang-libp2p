@@ -52,7 +52,9 @@ dial(Path, SessionPid) ->
         {ok, Connection} ->
             Handlers = [{Path, undefined}],
             try libp2p_multistream_client:negotiate_handler(Handlers, "stream", Connection) of
-                {error, Error} -> {error, Error};
+                {error, Error} ->
+                    lager:error("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
+                    {error, Error};
                 {ok, _} -> {ok, Connection}
             catch
                 What:Why -> {error, {What, Why}}

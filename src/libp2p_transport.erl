@@ -86,11 +86,14 @@ start_client_session(TID, Addr, Connection) ->
                            type => worker },
             SessionSup = libp2p_swarm_session_sup:sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
-            libp2p_config:insert_session(TID, Addr, SessionPid),
-            libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
-                ok -> {ok, SessionPid};
+                ok ->
+                    lager:info("set controlling process of ~p to ~p", [Connection, SessionPid]),
+                    libp2p_config:insert_session(TID, Addr, SessionPid),
+                    libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
+                    {ok, SessionPid};
                 {error, Error} ->
+                    lager:error("setting the controlling process for ~p to ~p failed ~p", [Connection, SessionPid, Error]),
                     libp2p_connection:close(Connection),
                     {error, Error}
             end
@@ -110,6 +113,7 @@ start_server_session(Ref, TID, Connection) ->
             % to already be the target of a previous outbound
             % connection (using a 0 source port). We prefer the new
             % inbound connection, so close the other connection.
+            lager:notice("Duplicate session for ~p at ~p", [RemoteAddr, Pid]),
             libp2p_session:close(Pid);
         false -> ok
     end,

@@ -8,7 +8,7 @@ all() ->
     [
      open_close_test,
      ping_test,
-     sesions_test
+     sessions_test
     ].
 
 init_per_testcase(open_close_test, Config) ->

@@ -158,21 +158,31 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
     case libp2p_yamux_session:send_header(Session, Header) of
         ok -> {next_state, connecting, Data};
-        {error, _Reason} -> {stop, normal, Data}
+        {error, _Reason} ->
+            lager:warning("Failed to send yamux session header ~p", [_Reason]),
+            {stop, normal, Data}
     end;
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     %% Starting as a server, fire of an ACK right away
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
     case libp2p_yamux_session:send_header(Session, Header) of
-        {error, _Reason} -> {stop, normal, Data};
+        {error, _Reason} ->
+            lager:warning("Failed to send yamux session header ~p", [_Reason]),
+            {stop, normal, Data};
         ok ->
             %% Start a multistream server to negotiate the handler
             Handlers = libp2p_config:lookup_stream_handlers(TID),
             lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
             Connection = new_connection(self()),
-            AddrInfo = libp2p_session:addr_info(Session),
-            {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
-            {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}}
+            try libp2p_session:addr_info(Session) of
+                AddrInfo ->
+                    {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
+                    {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}}
+            catch
+                What:Why ->
+                    lager:warning("Failed to get addr info ~p:~p", [What, Why]),
+                    {stop, normal, Data}
+            end
     end;
 
 % Window Updates
@@ -190,8 +200,14 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     % Client side received an ACK. We have an established connection.
-    AddrInfo = libp2p_session:addr_info(Data#state.session),
-    {next_state, established, Data#state{addr_info=AddrInfo}};
+    try libp2p_session:addr_info(Data#state.session) of
+        AddrInfo ->
+            {next_state, established, Data#state{addr_info=AddrInfo}}
+    catch
+        What:Why ->
+            lager:warning("Failed to get addr info ~p:~p", [What, Why]),
+            {stop, normal, Data}
+    end;
 handle_event(cast, {update_window, _Flags, Header}, established, Data=#state{}) ->
     Data1 = data_send_timeout_cancel(window_receive_update(Header, Data)),
     {keep_state, Data1};

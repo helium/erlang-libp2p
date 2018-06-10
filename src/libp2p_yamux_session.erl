@@ -110,6 +110,7 @@ send_data(Pid, Header, Data, Timeout) ->
 init({TID, Connection, _Path, NextStreamId}) ->
     erlang:process_flag(trap_exit, true),
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
+    lager:info("Starting yamux session using connection ~p with next stream id ~p", [Connection, NextStreamId]),
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     State = #state{connection=Connection, tid=TID,
                    stream_sup=StreamSup,
@@ -120,6 +121,7 @@ init({TID, Connection, _Path, NextStreamId}) ->
 handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
     case read_header(Connection) of
         {error, closed} ->
+            lager:notice("session closed"),
             {stop, normal, State};
         {error, Reason} ->
             lager:error("Session header read failed: ~p ", [Reason]),
@@ -138,7 +140,7 @@ handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
         {{Timer, Info}, NewSends} ->
             erlang:cancel_timer(Timer),
             NewState = State#state{sends=NewSends},
-            {noreply, handle_send_result(Info, Result, NewState)}
+            handle_send_result(Info, Result, NewState)
     end;
 
 handle_info({timeout_ping, PingID}, State=#state{}) ->
@@ -193,6 +195,7 @@ handle_cast(Msg, State) ->
 
 
 terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
+    lager:info("Yamux session terminating"),
     fdclr(Connection),
     erlang:exit(SendPid, Reason),
     libp2p_connection:close(Connection).
@@ -257,13 +260,16 @@ session_cast(Data, State=#state{send_pid=SendPid}) when is_binary(Data) ->
 handle_send_result({ping, From, PingID}, ok, State=#state{pings=Pings}) ->
     TimerRef = erlang:send_after(?TIMEOUT, self(), {timeout_ping, PingID}),
     NewPings = maps:put(PingID, {From, TimerRef, erlang:system_time(millisecond)}, Pings),
-    State#state{pings=NewPings};
+    {noreply, State#state{pings=NewPings}};
 handle_send_result({ping, From, _}, Error, State=#state{}) ->
     gen_server:reply(From, Error),
-    State;
+    {noreply, State};
+handle_send_result({call, From}, Result = {error, closed}, State=#state{}) ->
+    gen_server:reply(From, Result),
+    {stop, normal, State};
 handle_send_result({call, From}, Result, State=#state{}) ->
     gen_server:reply(From, Result),
-    State.
+    {noreply, State}.
 
 %%
 %% Ping
