@@ -259,10 +259,12 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
     libp2p_connection:fdclr(Connection),
     libp2p_connection:close(Connection).
 
-
 call(Pid, Cmd) ->
+    call(Pid, Cmd, 5000).
+
+call(Pid, Cmd, Timeout) ->
     try
-        gen_server:call(Pid, Cmd)
+        gen_server:call(Pid, Cmd, Timeout)
     catch
         exit:{noproc, _} ->
             {error, closed};
@@ -285,7 +287,7 @@ send(Pid, Data) ->
     send(Pid, Data, ?SEND_TIMEOUT).
 
 send(Pid, Data, Timeout) ->
-    call(Pid, {send, Data, Timeout}).
+    call(Pid, {send, Data, Timeout}, infinity).
 
 addr_info(Pid) ->
     call(Pid, addr_info).
