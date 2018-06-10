@@ -1,22 +1,26 @@
 -module(libp2p_config).
 
 -export([get_opt/2, get_opt/3,
-         data_dir/0, data_dir/1, data_dir/2,
+         base_dir/1, swarm_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
-         lookup_stream_handlers/1, insert_stream_handler/2]).
+         lookup_stream_handlers/1, insert_stream_handler/2,
+         insert_group/3, lookup_group/2, remove_group/2]).
 
 -define(CONNECTION_HANDLER, connection_handler).
 -define(STREAM_HANDLER, stream_handler).
 -define(TRANSPORT, transport).
 -define(SESSION, session).
 -define(LISTENER, listener).
+-define(GROUP, group).
 
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
+
+-export_type([opts/0]).
 
 %%
 %% Global config
@@ -47,24 +51,15 @@ get_opt_l([H|T], [_|_] = L) ->
 get_opt_l(_, _) ->
     undefined.
 
+base_dir(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    get_opt(Opts, base_dir, "data").
 
--spec data_dir() -> string().
-data_dir() ->
-    "data".
-
--spec data_dir(ets:tab()) -> string().
-data_dir(Name) when is_atom(Name) ->
-    filename:join(data_dir(), Name);
-data_dir(TID) ->
-    data_dir(libp2p_swarm:name(TID)).
-
--spec data_dir(ets:tab() | string(), file:name_all()) -> string().
-data_dir(Dir, Name) when is_list(Dir) ->
-    FileName = filename:join(Dir, Name),
+-spec swarm_dir(ets:tab(), [file:name_all()]) -> file:filename_all().
+swarm_dir(TID, Names) ->
+    FileName = filename:join(base_dir(TID), [libp2p_swarm:name(TID) | Names]),
     ok = filelib:ensure_dir(FileName),
-    FileName;
-data_dir(TID, Name) ->
-    data_dir(data_dir(TID), Name).
+    FileName.
 
 %%
 %% Common pid CRUD
@@ -207,3 +202,19 @@ lookup_stream_handlers(TID) ->
 -spec insert_stream_handler(ets:tab(), {string(), libp2p_session:stream_handler()}) -> true.
 insert_stream_handler(TID, {Key, ServerMF}) ->
     ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}).
+
+%%
+%% Groups
+%%
+
+-spec insert_group(ets:tab(), string(), pid()) -> true.
+insert_group(TID, GroupID, Pid) ->
+    insert_pid(TID, ?GROUP, GroupID, Pid).
+
+-spec lookup_group(ets:tab(), string()) -> {ok, pid()} | false.
+lookup_group(TID, GroupID) ->
+    lookup_pid(TID, ?GROUP, GroupID).
+
+-spec remove_group(ets:tab(), string()) -> true.
+remove_group(TID, GroupID) ->
+    remove_pid(TID, ?GROUP, GroupID).

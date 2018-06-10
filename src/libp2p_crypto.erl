@@ -109,3 +109,53 @@ base58check_decode(B58) ->
     _ ->
       {error, bad_checksum}
   end.
+
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+generate_full_key() ->
+    PrivKey = #'ECPrivateKey'{parameters=Params, publicKey=PubKeyPoint} =
+        public_key:pem_entry_decode(lists:nth(2, public_key:pem_decode(list_to_binary(os:cmd("openssl ecparam -name prime256v1 -genkey -outform PEM"))))),
+    PubKey = {#'ECPoint'{point=PubKeyPoint}, Params},
+    case ecc_compact:is_compact(PubKey) of
+        {true, _} -> generate_full_key();
+        false -> {PrivKey, PubKey}
+    end.
+
+save_load_test() ->
+    FileName = lib:nonl(os:cmd("mktemp")),
+    Keys = {PrivKey, PubKey} = generate_keys(),
+    ok = libp2p_crypto:save_keys(Keys, FileName),
+    {ok, LPrivKey, LPubKey} = load_keys(FileName),
+    {PrivKey, PubKey} = {LPrivKey, LPubKey},
+    {error, _} = load_keys(FileName ++ "no"),
+    ok.
+
+address_test() ->
+    {_PrivKey, PubKey} = generate_keys(),
+
+    Address = pubkey_to_address(PubKey),
+    B58Address = address_to_b58(Address),
+
+    B58Address = pubkey_to_b58(PubKey),
+    PubKey = b58_to_pubkey(B58Address),
+
+    {'EXIT', {bad_checksum, _}} = (catch b58_to_address(B58Address ++ "bad")),
+
+    {_, FullKey} = generate_full_key(),
+    {'EXIT', {not_compact, _}} = (catch pubkey_to_address(FullKey)),
+    ok.
+
+verify_test() ->
+    {PrivKey, PubKey} = generate_keys(),
+
+    Bin = <<"sign me please">>,
+    Sign = mk_sig_fun(PrivKey),
+    Signature = Sign(Bin),
+
+    true = verify(Bin, Signature, PubKey),
+    false = verify(<<"failed...">>, Signature, PubKey).
+
+
+-endif.

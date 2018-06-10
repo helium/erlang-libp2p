@@ -20,7 +20,8 @@ start_link(Ref, Connection, Handlers, HandlerOpt) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [{Ref, Connection, Handlers, HandlerOpt}])}.
 
 init({Ref, Connection, Handlers, HandlerOpt}) ->
-    libp2p_connection:acknowledge(Connection, Ref),
+    ok = libp2p_connection:acknowledge(Connection, Ref),
+    lager:info("Acknowledged connection"),
     self() ! handshake,
     loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt}).
 

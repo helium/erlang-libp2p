@@ -1,13 +1,15 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
-         wait_until/1, wait_until/3, rm_rf/1, foreach/1, with/1, foreachx/1]).
+         connect_swarms/2,
+         wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5]).
 
 setup() ->
     application:ensure_all_started(ranch),
-    %% application:ensure_all_started(lager),
-    %% lager:set_loglevel(lager_console_backend, debug),
-    %% lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
+    %% application:set_env(lager, error_logger_flush_queue, false),
+    application:ensure_all_started(lager),
+    lager:set_loglevel(lager_console_backend, debug),
+    lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
     ok.
 
 setup_swarms(0, _Opts, Acc) ->
@@ -16,8 +18,10 @@ setup_swarms(N, Opts, Acc) ->
     setup_swarms(N - 1, Opts,
                  [begin
                       Name = list_to_atom("swarm" ++ integer_to_list(erlang:unique_integer([monotonic]))),
-
-                      {ok, Pid} = libp2p_swarm:start(Name, Opts),
+                      TmpDir = lib:nonl(os:cmd("mktemp -d")),
+                      BaseDir = libp2p_config:get_opt(Opts, base_dir, TmpDir),
+                      NewOpts = lists:keystore(base_dir, 1, Opts, {base_dir, BaseDir}),
+                      {ok, Pid} = libp2p_swarm:start(Name, NewOpts),
                       ok = libp2p_swarm:listen(Pid, "/ip4/0.0.0.0/tcp/0"),
                       Pid
                   end | Acc]).
@@ -30,12 +34,12 @@ setup_swarms() ->
     setup_swarms(2, []).
 
 teardown_swarms(Swarms) ->
-    Names =  lists:map(fun libp2p_swarm:name/1, Swarms),
-    lists:map(fun libp2p_swarm:stop/1, Swarms),
-    lists:foreach(fun(N) ->
-                          SwarmDir = filename:join(libp2p_config:data_dir(), N),
-                          rm_rf(SwarmDir)
-                  end, Names).
+    lists:map(fun libp2p_swarm:stop/1, Swarms).
+
+connect_swarms(Source, Target) ->
+    [TargetAddr | _] = libp2p_swarm:listen_addrs(Target),
+    {ok, Session} = libp2p_swarm:connect(Source, TargetAddr),
+    Session.
 
 wait_until(Fun) ->
     wait_until(Fun, 40, 100).
@@ -62,24 +66,12 @@ rm_rf(Dir) ->
     ok = lists:foreach(fun file:del_dir/1, Sorted),
     file:del_dir(Dir).
 
-with(Pairs) ->
-    [fun(Swarms) ->
-             {Name, fun() -> F(Swarms) end}
-     end || {Name, F} <- Pairs].
+dial(FromSwarm, ToSwarm, Name) ->
+    [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
+    {ok, Connection} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
+    Connection.
 
-withx(Tuples) ->
-    [{{N, Opts},
-      fun(_, Swarms) ->
-              {Name, fun() -> F(Swarms) end}
-      end}
-     || {Name, N, Opts, F} <- Tuples].
-
-foreach(Tuples) ->
-    {foreach, fun setup_swarms/0, fun teardown_swarms/1,
-     with(Tuples)}.
-
-foreachx(Tuples) ->
-    {foreachx,
-     fun({N, Opts}) -> setup_swarms(N, Opts) end,
-     fun (_, Swarms) -> teardown_swarms(Swarms) end,
-    withx(Tuples)}.
+dial_framed_stream(FromSwarm, ToSwarm, Name, Module, Args) ->
+    [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
+    {ok, Stream} = libp2p_swarm:dial_framed_stream(FromSwarm, ToAddr, Name, Module, Args),
+    Stream.

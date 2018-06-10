@@ -21,7 +21,11 @@ identify_test(Config) ->
 
     % identify S2
     {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
-    {ok, S2Addr, Identify} = libp2p_identify:identify(Session),
+    libp2p_identify:spawn_identify(Session, self(), ident),
+    Identify = receive
+                   {identify, ident, Session, Ident} -> Ident
+               after 1000 -> error(timeout)
+               end,
     % check some basic properties
     "identify/1.0.0" = libp2p_identify:protocol_version(Identify),
 

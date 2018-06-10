@@ -1,4 +1,4 @@
--module(libp2p_swarm_session_sup).
+-module(libp2p_swarm_group_sup).
 
 -behavior(supervisor).
 
@@ -7,7 +7,7 @@
 % api
 -export([sup/1]).
 
--define(SUP, connection_sup).
+-define(SUP, group_sup).
 
 start_link(TID) ->
     supervisor:start_link(?MODULE, [TID]).

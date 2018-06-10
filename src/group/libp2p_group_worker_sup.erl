@@ -9,5 +9,7 @@ start_link() ->
 
 
 init([]) ->
-    SupFlags = #{strategy => one_for_one},
+    SupFlags = #{strategy => one_for_one,
+                 intensity => 100
+                },
     {ok, {SupFlags, []}}.

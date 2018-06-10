@@ -8,11 +8,11 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
 
 -record(state,
-       { sup :: supervisor:sup_ref(),
+       { sup :: pid(),
          tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
          seed_nodes :: [string()],
-         client_specs :: [libp2p_group:stream_client_spec()],
+         client_spec :: libp2p_group:stream_client_spec(),
          workers=[] :: [worker()],
          drop_timeout :: pos_integer(),
          drop_timer :: reference()
@@ -32,14 +32,18 @@ start_link(Sup, TID) ->
 
 init([Sup, TID]) ->
     erlang:process_flag(trap_exit, true),
+    %% TODO: Remove the assumption that this is _the_ group agent for
+    %% the swarm. Perhaps by moving the creation into the swarm server
+    %% instead of directly in the swarm_sup?
     libp2p_swarm_sup:register_group_agent(TID),
-    Opts = libp2p_swarm:opts(TID, []),
+    Opts = libp2p_swarm:opts(TID),
     PeerBookCount = libp2p_group_gossip:get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
     DropTimeOut = libp2p_group_gossip:get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
-    ClientSpecs = libp2p_group_gossip:get_opt(Opts, stream_clients, []),
+    ClientSpec = libp2p_group_gossip:get_opt(Opts, stream_client, undefined),
     SeedNodes = libp2p_group_gossip:get_opt(Opts, seed_nodes, []),
     self() ! {start_workers, PeerBookCount, length(SeedNodes)},
-    {ok, #state{sup=Sup, tid=TID, seed_nodes=SeedNodes, client_specs=ClientSpecs, peerbook_connections=PeerBookCount,
+    {ok, #state{sup=Sup, tid=TID, client_spec=ClientSpec,
+                seed_nodes=SeedNodes, peerbook_connections=PeerBookCount,
                 drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)}}.
 
 handle_call(sessions, _From, State=#state{}) ->
@@ -49,13 +53,16 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) ->
-    PeerAddrs = libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)),
+    PeerAddrs = [ "/p2p/"++ libp2p_crypto:address_to_b58(Key)
+                  || Key <- libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)) ],
     %% Get currently connected addresses
     {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
+    LocalAddr = "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_swarm:address(TID)),
     %% Exclude the local swarm address from the available addresses
-    ExcludedAddrs = CurrentAddrs ++ [libp2p_swarm:address(TID)],
+    ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
     %% Remove the current addrs from all possible peer addresses
-    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(PeerAddrs), sets:from_list(ExcludedAddrs))),
+    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(PeerAddrs),
+                                             sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(Kind, WorkerPid, TargetAddrs, State)};
 handle_cast({request_target, Kind=seed, WorkerPid}, State=#state{seed_nodes=SeedAddrs}) ->
     {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
@@ -66,6 +73,8 @@ handle_cast({send, Bin}, State=#state{}) ->
     lists:foreach(fun(Pid) ->
                           libp2p_group_worker:send(Pid, ignore, Bin)
                   end, Pids),
+    {noreply, State};
+handle_cast({send_ready, _Ref, _Ready}, State=#state{}) ->
     {noreply, State};
 handle_cast({send_result, _Ref, _Reason}, State=#state{}) ->
     {noreply, State};
@@ -125,10 +134,10 @@ drop_target(Kind, WorkerPid, State=#state{workers=Workers}) ->
     State#state{workers=NewWorkers}.
 
 -spec start_child(atom(), #state{}) -> worker().
-start_child(Kind, #state{tid=TID, client_specs=ClientSpecs, sup=Sup}) ->
+start_child(Kind, #state{tid=TID, client_spec=ClientSpec, sup=Sup}) ->
     WorkerSup = libp2p_group_gossip_sup:workers(Sup),
     ChildSpec = #{ id => make_ref(),
-                   start => {libp2p_group_worker, start_link, [Kind, ClientSpecs, self(), TID]},
+                   start => {libp2p_group_worker, start_link, [Kind, ClientSpec, self(), TID]},
                    restart => permanent
                  },
     {ok, WorkerPid} = supervisor:start_child(WorkerSup, ChildSpec),

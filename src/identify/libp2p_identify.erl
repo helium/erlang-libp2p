@@ -5,33 +5,17 @@
 -opaque identify() :: #libp2p_identify_pb{}.
 
 -export_type([identify/0]).
--export([identify/1, spawn_identify/3, new/4, new/5, encode/1, decode/1,
+-export([spawn_identify/3, new/4, new/5, encode/1, decode/1,
          address/1, protocol_version/1, listen_addrs/1, observed_maddr/1, observed_addr/1,
          protocols/1, agent_version/1]).
 
 -define(VERSION, "identify/1.0.0").
 
--spec identify(pid()) -> {ok, string(), identify()} | {error, term()}.
-identify(Session) ->
-    case libp2p_session:start_client_stream(?VERSION, Session) of
-        {error, Error} -> {error, Error};
-        {ok, Stream} ->
-            Result = case libp2p_framed_stream:recv(Stream) of
-                         {error, Error} -> {error, Error};
-                         {ok, Bin} ->
-                             {_, RemoteAddr} = libp2p_session:addr_info(Session),
-                             {ok, RemoteAddr, decode(Bin)}
-                     end,
-            libp2p_connection:close(Stream),
-            Result
-    end.
-
-
--spec spawn_identify(ets:tab(), pid(), any()) -> pid().
-spawn_identify(TID, Session, UserData) ->
+-spec spawn_identify(Session::pid(), Handler::pid(), UserData::any()) -> pid().
+spawn_identify(Session, Handler, HandlerArgs) ->
     spawn(fun() ->
-                  Server = libp2p_swarm_sup:server(TID),
-                  Server ! {identify, identify(Session), UserData}
+                  libp2p_session:dial_framed_stream(?VERSION, Session,
+                                                    libp2p_stream_identify, [Session, Handler, HandlerArgs])
           end).
 
 -spec new(libp2p_crypto:address(), [string()], string(), [string()])

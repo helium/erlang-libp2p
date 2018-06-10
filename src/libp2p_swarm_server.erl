@@ -43,20 +43,12 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_info({identify, Result, Kind}, State=#state{tid=TID}) ->
+handle_info({identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
     %% Response from a connect_to or accept initiated
     %% spawn_identify. Register the connection in peerbook
-    case Result of
-       {ok, PeerAddr, Identify} ->
-            case libp2p_config:lookup_session(TID, PeerAddr) of
-                {ok, SessionPid} ->
-                    PeerBook = libp2p_swarm:peerbook(TID),
-                    libp2p_peerbook:register_session(PeerBook, SessionPid, Identify, Kind),
-                    {noreply, State};
-                false -> {noreply, State}
-            end;
-        {error, _} -> {noreply, State}
-    end;
+    PeerBook = libp2p_swarm:peerbook(TID),
+    libp2p_peerbook:register_session(PeerBook, Session, Identify, Kind),
+    {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
     PeerBook = libp2p_swarm:peerbook(TID),
@@ -86,10 +78,10 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
-terminate(_Reason, #state{tid=TID}) ->
+terminate(Reason, #state{tid=TID}) ->
     lists:foreach(fun({Addr, Pid}) ->
                           libp2p_config:remove_session(TID, Addr),
-                          catch libp2p_session:close(Pid, shutdown, infinity)
+                          catch libp2p_session:close(Pid, Reason, infinity)
                   end, libp2p_config:lookup_sessions(TID)).
 
 %% Internal
@@ -101,7 +93,7 @@ add_monitor(Kind, Addrs, Pid, State=#state{monitors=Monitors}) ->
     Value = case lists:keyfind(Pid, 1, Monitors) of
                 false -> {erlang:monitor(process, Pid), Kind, SortedAddrs};
                 {Pid, {MonitorRef, Kind, StoredAddrs}} ->
-                    {MonitorRef, Kind, lists:merge(StoredAddrs, SortedAddrs)}
+                    {MonitorRef, Kind, lists:umerge(StoredAddrs, SortedAddrs)}
             end,
     State#state{monitors=lists:keystore(Pid, 1, Monitors, {Pid, Value})}.
 
