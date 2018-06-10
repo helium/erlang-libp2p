@@ -4,7 +4,7 @@
 
 -callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
--callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, libp2p_session:pid()} | {error, term()}.
+-callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 -callback match_addr(string()) -> {ok, string()} | false.
 
 
@@ -29,28 +29,32 @@ for_addr(TID, Addr) ->
 %% or a `connect' call is made to transport service to perform the
 %% actual connect.
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+                -> {ok, string(), pid()} | {error, term()}.
 connect_to(Addr, Options, Timeout, TID) ->
-    case find_session([Addr], Options, TID) of
-        {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
-        {error, not_found} ->
-            case for_addr(TID, Addr) of
-                {ok, ConnAddr, {Transport, TransportPid}} ->
-                    lager:info("~p connecting to ~p", [Transport, ConnAddr]),
-                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
-                        {error, Error} -> {error, Error};
-                        {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
-                    catch
-                        What:Why -> {error, {What, Why}}
-                    end
-            end;
-        {error, Error} -> {error, Error}
+    case libp2p_swarm:is_stopping(TID) of
+        true -> {error, stopping};
+        false ->
+            case find_session([Addr], Options, TID) of
+                {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
+                {error, not_found} ->
+                    case for_addr(TID, Addr) of
+                        {ok, ConnAddr, {Transport, TransportPid}} ->
+                            lager:info("~p connecting to ~p", [Transport, ConnAddr]),
+                            try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
+                                {error, Error} -> {error, Error};
+                                {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
+                            catch
+                                What:Why -> {error, {What, Why}}
+                            end
+                    end;
+                {error, Error} -> {error, Error}
+            end
     end.
 
 %% @doc Find a existing session for one of a given list of
 %% multiaddrs. Returns `{error not_found}' if no session is found.
 -spec find_session([string()], libp2p_config:opts(), ets:tab())
-                  -> {ok, string(), libp2p_session:pid()} | {error, term()}.
+                  -> {ok, string(), pid()} | {error, term()}.
 find_session([], _Options, _TID) ->
     {error, not_found};
 find_session([Addr | Tail], Options, TID) ->
@@ -69,7 +73,7 @@ find_session([Addr | Tail], Options, TID) ->
 %%
 
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, libp2p_session:pid()} | {error, term()}.
+                          -> {ok, pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
@@ -82,11 +86,14 @@ start_client_session(TID, Addr, Connection) ->
                            type => worker },
             SessionSup = libp2p_swarm_session_sup:sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
-            libp2p_config:insert_session(TID, Addr, SessionPid),
-            libp2p_identify:spawn_identify(TID, SessionPid, client),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
-                ok -> {ok, SessionPid};
+                ok ->
+                    lager:info("set controlling process of ~p to ~p", [Connection, SessionPid]),
+                    libp2p_config:insert_session(TID, Addr, SessionPid),
+                    libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
+                    {ok, SessionPid};
                 {error, Error} ->
+                    lager:error("setting the controlling process for ~p to ~p failed ~p", [Connection, SessionPid, Error]),
                     libp2p_connection:close(Connection),
                     {error, Error}
             end
@@ -106,6 +113,7 @@ start_server_session(Ref, TID, Connection) ->
             % to already be the target of a previous outbound
             % connection (using a 0 source port). We prefer the new
             % inbound connection, so close the other connection.
+            lager:notice("Duplicate session for ~p at ~p", [RemoteAddr, Pid]),
             libp2p_session:close(Pid);
         false -> ok
     end,
@@ -116,5 +124,5 @@ start_server_session(Ref, TID, Connection) ->
     %% Since servers accept outside of the swarm server,
     %% notify it of this new session
     libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
-    libp2p_identify:spawn_identify(TID, SessionPid, server),
+    libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), server),
     {ok, SessionPid}.

@@ -6,7 +6,7 @@
 
 -export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1]).
 
--export([start_client_stream/2, start_client_framed_stream/4]).
+-export([dial/2, dial_framed_stream/4]).
 
 -spec ping(pid()) -> {ok, pos_integer()} | {error, term()}.
 ping(Pid) ->
@@ -45,15 +45,16 @@ addr_info(Pid) ->
 %% Stream negotiation
 %%
 
--spec start_client_stream(string(), libp2p_session:pid())
-                         -> {ok, libp2p_connection:connection()} | {error, term()}.
-start_client_stream(Path, SessionPid) ->
+-spec dial(string(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(Path, SessionPid) ->
     try libp2p_session:open(SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} ->
             Handlers = [{Path, undefined}],
             try libp2p_multistream_client:negotiate_handler(Handlers, "stream", Connection) of
-                {error, Error} -> {error, Error};
+                {error, Error} ->
+                    lager:error("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
+                    {error, Error};
                 {ok, _} -> {ok, Connection}
             catch
                 What:Why -> {error, {What, Why}}
@@ -63,10 +64,10 @@ start_client_stream(Path, SessionPid) ->
     end.
 
 
--spec start_client_framed_stream(string(), libp2p_session:pid(), atom(), [any()])
-                                -> {ok, pid()} | {error, term()} | ignore.
-start_client_framed_stream(Path, SessionPid, Module, Args) ->
-    case start_client_stream(Path, SessionPid) of
+-spec dial_framed_stream(Path::string(), Session::pid(), Module::atom(), Args::[any()]) ->
+                                {ok, Stream::pid()} | {error, term()} | ignore.
+dial_framed_stream(Path, SessionPid, Module, Args) ->
+    case dial(Path, SessionPid) of
         {error, Error} -> {error, Error};
-        {ok, Stream} -> libp2p_framed_stream:client(Module, Stream, Args)
+        {ok, Connection} -> Module:client(Connection, Args)
     end.

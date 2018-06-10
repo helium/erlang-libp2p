@@ -5,9 +5,11 @@
 -behavior(gen_statem).
 -behavior(libp2p_connection).
 
+
+
 -record(send_state,
         { window :: non_neg_integer(),
-          waiter = undefined :: {gen_statem:from(), binary()} | undefined,
+          waiter = undefined :: {from(), binary()} | undefined,
           timer = undefined :: timer() | undefined
          }).
 
@@ -17,24 +19,24 @@
           pending_window = 0 :: non_neg_integer(),
           data = <<>> :: binary(),
           waiter_data = <<>> :: binary(),
-          waiter = undefined :: {gen_statem:from(), non_neg_integer()} | undefined,
+          waiter = undefined :: {from(), non_neg_integer()} | undefined,
           timer = undefined :: timer() | undefined
          }).
 
 -record(state,
-        { session :: libp2p_yamux:session(),
+        { session :: pid(),
           addr_info :: undefined | {string(), string()},
           inert_pid=undefined :: undefined | pid(),
           handler=undefined :: undefined | pid(),
           tid :: ets:tab(),
-          stream_id :: libp2p_yamux:stream_id(),
+          stream_id :: libp2p_yamux_session:stream_id(),
           close_state=open :: open | pending,
           max_window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
           recv_state=#recv_state{} :: #recv_state{},
           send_state=#send_state{} :: #send_state{}
          }).
 
-
+-type from() :: {pid(), term()}.
 -type stream() :: reference().
 -type timer() :: undefined | reference().
 -type opt() :: {max_window, pos_integer()}.
@@ -68,11 +70,11 @@ receive_stream(Session, TID, StreamID) ->
 init({Session, TID, StreamID, Flags}) ->
     erlang:process_flag(trap_exit, true),
     gen_statem:cast(self(), {init, Flags}),
-    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, max_window],
+    MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, max_window],
                                       ?DEFAULT_MAX_WINDOW_SIZE),
     {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
-                           send_state=#send_state{window=MaxWindow},
-                           recv_state=#recv_state{window=MaxWindow}}}.
+                            send_state=#send_state{window=MaxWindow},
+                            recv_state=#recv_state{window=MaxWindow}}}.
 
 callback_mode() -> handle_event_function.
 
@@ -154,23 +156,33 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     % Client side "open", send out a SYN. The corresponding ACK is
     % received as a window update
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
-    case libp2p_yamux_session:send(Session, Header) of
+    case libp2p_yamux_session:send_header(Session, Header) of
         ok -> {next_state, connecting, Data};
-        {error, _Reason} -> {stop, normal, Data}
+        {error, _Reason} ->
+            lager:warning("Failed to send yamux session header ~p", [_Reason]),
+            {stop, normal, Data}
     end;
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     %% Starting as a server, fire of an ACK right away
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
-    case libp2p_yamux_session:send(Session, Header) of
-        {error, _Reason} -> {stop, normal, Data};
+    case libp2p_yamux_session:send_header(Session, Header) of
+        {error, _Reason} ->
+            lager:warning("Failed to send yamux session header ~p", [_Reason]),
+            {stop, normal, Data};
         ok ->
             %% Start a multistream server to negotiate the handler
             Handlers = libp2p_config:lookup_stream_handlers(TID),
             lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
             Connection = new_connection(self()),
-            AddrInfo = libp2p_session:addr_info(Session),
-            {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
-            {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}}
+            try libp2p_session:addr_info(Session) of
+                AddrInfo ->
+                    {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
+                    {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}}
+            catch
+                What:Why ->
+                    lager:warning("Failed to get addr info ~p:~p", [What, Why]),
+                    {stop, normal, Data}
+            end
     end;
 
 % Window Updates
@@ -188,8 +200,14 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     % Client side received an ACK. We have an established connection.
-    AddrInfo = libp2p_session:addr_info(Data#state.session),
-    {next_state, established, Data#state{addr_info=AddrInfo}};
+    try libp2p_session:addr_info(Data#state.session) of
+        AddrInfo ->
+            {next_state, established, Data#state{addr_info=AddrInfo}}
+    catch
+        What:Why ->
+            lager:warning("Failed to get addr info ~p:~p", [What, Why]),
+            {stop, normal, Data}
+    end;
 handle_event(cast, {update_window, _Flags, Header}, established, Data=#state{}) ->
     Data1 = data_send_timeout_cancel(window_receive_update(Header, Data)),
     {keep_state, Data1};
@@ -245,10 +263,10 @@ handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
 
 % Info
 %
-handle_event(info, _State, {'EXIT', From, Reason}, #state{}) when Reason /= normal ->
+handle_event(info, {'EXIT', From, Reason}, _State, #state{}) when Reason /= normal ->
     lager:warning("Multistream server ~p exited with reason ~p", [From, Reason]),
     keep_state_and_data;
-handle_event(info, _State, {'EXIT', _, _}, #state{})  ->
+handle_event(info, {'EXIT', _, _}, _State, #state{})  ->
     keep_state_and_data;
 handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, session=Session}) ->
     AddrInfo = libp2p_session:addr_info(Session),
@@ -273,7 +291,7 @@ terminate(_Reason, _State, Data=#state{}) ->
 
 close_send(#state{stream_id=StreamID, session=Session}) ->
     Header = libp2p_yamux_session:header_update(?RST, StreamID, 0),
-    libp2p_yamux_session:send(Session, Header).
+    libp2p_yamux_session:send_header(Session, Header).
 
 %%
 %% Windows
@@ -290,7 +308,7 @@ window_send_update(Delta, State=#state{session=Session, stream_id=StreamID, recv
     HeaderDelta = PendingWindow + Delta,
     Header = libp2p_yamux_session:header_update(0, StreamID, HeaderDelta),
     % lager:debug("Sending window update for ~p: ~p", [StreamID, HeaderDelta]),
-    libp2p_yamux_session:send(Session, Header),
+    libp2p_yamux_session:send_header(Session, Header),
     State#state{recv_state=State#state.recv_state#recv_state{pending_window=0}};
 window_send_update(Delta, State=#state{recv_state=#recv_state{pending_window=PendingWindow}}) ->
     State#state{recv_state=State#state.recv_state#recv_state{pending_window=PendingWindow + Delta}}.
@@ -342,7 +360,7 @@ data_recv_timeout(State=#state{recv_state=RecvState=#recv_state{waiter={From, _}
     State#state{recv_state=RecvState#recv_state{timer=undefined, waiter=undefined}}.
 
 
--spec data_recv(gen_statem:from(), non_neg_integer(), non_neg_integer() | infinity, #state{}) -> #state{}.
+-spec data_recv(from(), non_neg_integer(), non_neg_integer() | infinity, #state{}) -> #state{}.
 data_recv(From, Size, Timeout, State=#state{recv_state=#recv_state{data=Data, waiter_data=WaiterData, timer=undefined, waiter=undefined}})
   when byte_size(Data) + byte_size(WaiterData) < Size ->
     % lager:debug("Blocking receiver for ~p bytes, timeout ~p, data ~p", [Size, Timeout, byte_size(Data)]),
@@ -421,7 +439,7 @@ data_send_timeout(State=#state{send_state=SendState=#send_state{waiter={From, _}
     gen_statem:reply(From, {error, timeout}),
     State#state{send_state=SendState#send_state{timer=undefined, waiter=undefined}}.
 
--spec data_send(gen_statem:from(), binary(), non_neg_integer(), #state{}) -> #state{}.
+-spec data_send(from(), binary(), non_neg_integer(), #state{}) -> #state{}.
 data_send(From, <<>>, _Timeout, State=#state{}) ->
     % Empty data for sender, we're done
     gen_statem:reply(From, ok),
@@ -435,7 +453,7 @@ data_send(From, Data, Timeout, State=#state{session=Session, stream_id=StreamID,
     Window = min(byte_size(Data), SendWindow),
     <<SendData:Window/binary, Rest/binary>> = Data,
     Header = libp2p_yamux_session:header_data(StreamID, 0, Window),
-    case libp2p_yamux_session:send(Session, Header, SendData) of
+    case libp2p_yamux_session:send_data(Session, Header, SendData) of
         {error, Error} ->
             gen_statem:reply(From, {error, Error}),
             State;

@@ -51,8 +51,8 @@
 
 -record(state, {
           tid :: ets:tab(),
-          stun_sup ::supervisor:sup_ref(),
-          stun_txns=#{} :: maps:map(),
+          stun_sup ::pid(),
+          stun_txns=#{} :: #{},
           observed_addrs=sets:new() :: sets:set()
          }).
 
@@ -73,7 +73,7 @@ start_listener(Pid, Addr) ->
     gen_server:call(Pid, {start_listener, Addr}).
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-             -> {ok, libp2p_session:pid()} | {error, term()}.
+             -> {ok, pid()} | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     connect_to(MAddr, Options, Timeout, TID).
 
@@ -90,8 +90,7 @@ match_protocols(_) ->
 %% libp2p_connection
 %%
 -spec send(tcp_state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data, Timeout) ->
-    Transport:setopts(Socket, [{send_timeout, Timeout}]),
+send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
     Transport:send(Socket, Data).
 
 -spec recv(tcp_state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
@@ -171,14 +170,10 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info({identify, Result, _}, State=#state{}) ->
-    case Result of
-        {ok, PeerAddr, Identify} ->
-            ObservedAddr = libp2p_identify:observed_addr(Identify),
-            {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
-        {error, _} ->
-            {noreply, State}
-    end;
+handle_info({identify, _, Session, Identify}, State=#state{}) ->
+    {_, PeerAddr} = libp2p_session:addr_info(Session),
+    ObservedAddr = libp2p_identify:observed_addr(Identify),
+    {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
@@ -225,12 +220,17 @@ listen_options(IP, TID) ->
                       {send_timeout_close, true}
                      ],
     % Go get the tcp listen options
-    case libp2p_config:get_opt(libp2p_swarm:opts(TID, []), [?MODULE, listen]) of
+    case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, listen]) of
         undefined -> OptionDefaults;
         {ok, Values} ->
             sets:to_list(sets:union(sets:from_list(Values),
                                     sets:from_list(OptionDefaults)))
     end.
+
+
+-spec common_options() -> [term()].
+common_options() ->
+    [binary, {active, false}, {packet, raw}].
                                                 %
 -spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 listen_on(Addr, TID) ->
@@ -239,8 +239,7 @@ listen_on(Addr, TID) ->
         {IP, Port, Type, AddrOpts} ->
             ListenOpts0 = listen_options(IP, TID),
             % Non-overidable options, taken from ranch_tcp:listen
-            DefaultListenOpts = [binary, {active, false}, {packet, raw},
-                                 {reuseaddr, true}, reuseport()],
+            DefaultListenOpts = [{reuseaddr, true}, reuseport()] ++ common_options(),
             % filter out disallowed options and supply default ones
             ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
                                               DefaultListenOpts),
@@ -267,14 +266,14 @@ listen_on(Addr, TID) ->
 
 
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, libp2p_session:pid()} | {error, term()}.
+                -> {ok, pid()} | {error, term()}.
 connect_to(Addr, UserOptions, Timeout, TID) ->
     case tcp_addr(Addr) of
         {IP, Port, Type, AddrOpts} ->
             UniqueSession = proplists:get_value(unique_session, UserOptions, false),
             UniquePort = proplists:get_value(unique_port, UserOptions, false),
             ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, AddrOpts, Addr, ListenAddrs, UniqueSession, UniquePort),
+            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs, UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
                     libp2p_transport:start_client_session(TID, Addr, new_connection(Socket));
