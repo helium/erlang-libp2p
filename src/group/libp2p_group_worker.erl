@@ -3,7 +3,7 @@
 -behaviour(gen_statem).
 
 %% API
--export([start_link/4, assign_target/2, assign_stream/3, send/3]).
+-export([start_link/4, assign_target/2, assign_stream/3, send/3, ack/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -35,12 +35,15 @@ assign_target(Pid, MAddr) ->
     gen_statem:cast(Pid, {assign_target, MAddr}).
 
 assign_stream(Pid, MAddr, Connection) ->
-    gen_statem:call(Pid, {assign_stream, MAddr, Connection}).
+    gen_statem:cast(Pid, {assign_stream, MAddr, Connection}).
 
 -spec send(pid(), term(), binary()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
 
+-spec ack(pid()) -> ok.
+ack(Pid) ->
+    gen_statem:cast(Pid, ack).
 
 %% gen_statem
 %%
@@ -140,20 +143,19 @@ connect(info, {assign_session, _ConnAddr, SessionPid},
             {keep_state, connect_retry(Data#data{session_monitor=monitor_session(Monitor, undefined),
                                                  send_pid=update_send_pid(undefined, Data)})}
     end;
-connect({call, From}, {assign_stream, _MAddr, _StreamPid}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
+connect(cast, {assign_stream, _MAddr, _StreamPid}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
-    {keep_state_and_data, [{reply, From, {error, already_connected}}]};
-connect({call, From}, {assign_stream, MAddr, StreamPid},
+    keep_state_and_data;
+connect(cast, {assign_stream, MAddr, StreamPid},
         Data=#data{tid=TID, session_monitor=Monitor, send_pid=undefined}) ->
     %% Assign a stream. Monitor the session and remember the
     %% connection
     case libp2p_config:lookup_session(TID, MAddr) of
         {ok, SessionPid} ->
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
-                                   send_pid=update_send_pid(StreamPid, Data)},
-             [{reply, From, ok}]};
+                                   send_pid=update_send_pid(StreamPid, Data)}};
         false ->
-            {keep_state_and_data, [{reply, From, {error, unknown_session}}]}
+            keep_state_and_data
     end;
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
     %% Trying to send while not connected to a stream
@@ -162,6 +164,9 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
 connect(cast, {send, Ref, Bin}, #data{server=Server, send_pid=SendPid}) ->
     Result = libp2p_framed_stream:send(SendPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
+    keep_state_and_data;
+connect(cast, ack, #data{send_pid=SendPid}) ->
+    gen_server:cast(SendPid, ack),
     keep_state_and_data;
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).

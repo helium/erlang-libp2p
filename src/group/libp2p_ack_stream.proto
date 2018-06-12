@@ -1,7 +1,13 @@
 syntax = "proto3";
 
+enum status {
+  req = 0;
+  ack = 1;
+  defer = 2;
+}
+
 message data {
-  bool ack = 1;
+  status ack = 1;
   bytes data = 2;
   uint32 seq = 3;
 }

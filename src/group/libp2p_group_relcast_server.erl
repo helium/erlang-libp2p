@@ -4,7 +4,7 @@
 -behavior(libp2p_ack_stream).
 
 %% API
--export([start_link/4, handle_input/2]).
+-export([start_link/4, handle_input/2, handle_ack/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
@@ -32,6 +32,10 @@
 %% API
 handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
+
+handle_ack(Pid, Index) ->
+    gen_server:cast(Pid, {handle_ack, Index}).
+
 
 %% libp2p_ack_stream
 handle_data(Pid, Ref, Bin) ->
@@ -92,15 +96,15 @@ handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handl
     MsgKey = mk_message_key(),
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     store_message(?INBOUND, MsgKey, [], Msg, State),
-    %% Fast return since the message is stored
-    gen_server:reply(From, ok),
 
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
-        {NewHandlerState, ok} ->
+        {NewHandlerState, Action} when Action == ok; Action == defer ->
+            gen_server:reply(From, Action),
             delete_message(?INBOUND, MsgKey, Index, State),
             {noreply, State#state{handler_state=NewHandlerState}};
         {NewHandlerState, {send, Messages}} ->
+            gen_server:reply(From, ok),
             delete_message(?INBOUND, MsgKey, Index, State),
             %% Send messages
             NewState = send_messages(Messages, State),
@@ -154,6 +158,9 @@ handle_cast({send_result, {_Key, Index}, _Error}, State=#state{self_index=_SelfI
     %% be sent and dispatch it.
     %% lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key), Error]),
     {noreply, dispatch_next_message(Index, ready_worker(Index, true, State))};
+handle_cast({handle_ack, Index}, State=#state{}) ->
+    lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
+    {noreply, dispatch_ack(Index, State)};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
@@ -205,6 +212,15 @@ ready_worker(Index, Ready, State=#state{workers=Workers}) ->
 
 lookup_worker(Index, #state{workers=Workers}) ->
     lists:keyfind(Index, 2, Workers).
+
+-spec dispatch_ack(pos_integer(), #state{}) -> #state{}.
+dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
+    case lookup_worker(Index, State) of
+        {_, SelfIndex, self, _} -> ok;
+        {_, Index, Worker, _} ->
+            libp2p_group_worker:ack(Worker),
+            State
+    end.
 
 -spec dispatch_next_message(pos_integer(), #state{}) -> #state{}.
 dispatch_next_message(Index, State=#state{self_index=_SelfIndex}) ->
