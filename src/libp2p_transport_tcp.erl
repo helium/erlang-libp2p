@@ -155,7 +155,7 @@ init([TID]) ->
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
     Response = case listen_on(Addr, TID) of
                    {ok, ListenAddrs, Pid} ->
-                       spawn_nat_discovery(self(), ListenAddrs),
+                       maybe_spawn_nat_discovery(self(), ListenAddrs, TID),
                        {ok, ListenAddrs, Pid};
                    {error, Error} -> {error, Error}
                    end,
@@ -430,6 +430,15 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
 
 %% Internal: NAT discovery
 %%
+
+maybe_spawn_nat_discovery(Handler, MultiAddrs, TID) ->
+    case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, nat], true) of
+        true ->
+            spawn_nat_discovery(Handler, MultiAddrs);
+        _ ->
+            lager:warning("nat is disabled"),
+            ok
+    end.
 
 spawn_nat_discovery(Handler, MultiAddrs) ->
     case lists:filtermap(fun(M) -> case tcp_addr(M) of
