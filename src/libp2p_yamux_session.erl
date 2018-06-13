@@ -176,13 +176,22 @@ handle_call(goaway, _From, State=#state{goaway_state=local}) ->
     {reply, ok, State};
 handle_call(goaway, _From, State=#state{}) ->
     {reply, ok, goaway_cast(?GOAWAY_NORMAL, State)};
-handle_call(streams, _From, State=#state{stream_sup=StreamSup}) ->
-    {reply, [libp2p_yamux_stream:new_connection(Pid) ||
-                {_, Pid, _, _} <- supervisor:which_children(StreamSup)], State};
+handle_call(streams, _From, State=#state{}) ->
+    {reply, [libp2p_yamux_stream:new_connection(Pid) || Pid <- stream_pids(State)], State};
 handle_call(addr_info, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:addr_info(Connection), State};
 handle_call(close_state, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:close_state(Connection), State};
+
+%% Info
+handle_call(info, _From, State=#state{connection=Connection}) ->
+    Info = #{
+             pid => self(),
+             module => ?MODULE,
+             addr_info => libp2p_connection:addr_info(Connection),
+             stream_info => [libp2p_yamux_stream:info(StreamPid) || StreamPid <- stream_pids(State)]
+            },
+    {reply, Info, State};
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -320,6 +329,10 @@ goaway_receive(#header{length=Code}, State=#state{}) ->
 %%
 %% Stream
 %%
+
+-spec stream_pids(#state{}) -> [pid()].
+stream_pids(#state{stream_sup=StreamSup}) ->
+    [Pid || {_, Pid, _, _} <- supervisor:which_children(StreamSup)].
 
 -spec stream_open(stream_id(), #state{}) -> {ok, libp2p_connection:connection()}.
 stream_open(StreamID, #state{stream_sup=StreamSup, tid=TID}) ->

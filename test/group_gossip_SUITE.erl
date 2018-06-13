@@ -63,11 +63,11 @@ connection_test(Config) ->
 
     %% No initial sessions since peerbook is empty
     S1Agent = libp2p_swarm:group_agent(S1),
-    [] = libp2p_group:sessions(S1Agent),
+    [] = libp2p_group:workers(S1Agent),
 
     %% Fake a drop timer to see if sessions are attempted
     S1Agent ! drop_timeout,
-    [] = libp2p_group:sessions(S1Agent),
+    [] = libp2p_group:workers(S1Agent),
 
     %% Now tell S1 about S2
     libp2p_peerbook:put(S1PeerBook, [get_peer(S2)]),
@@ -75,14 +75,14 @@ connection_test(Config) ->
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1)) end),
-    1 = length(libp2p_group:sessions(S1Agent)),
+    1 = length(libp2p_group:workers(S1Agent)),
 
     %% Make S1 forget about S1
     libp2p_peerbook:remove(S1PeerBook, libp2p_swarm:address(S2)),
 
     %% And fake a timeout to ensure that the agent forgets about S2
     S1Agent ! drop_timeout,
-    [] = libp2p_group:sessions(S1Agent),
+    [] = libp2p_group:workers(S1Agent),
 
     %% Sending to a gossip group without a stream client config should fail silently
     libp2p_group:send(S1Agent, <<"no way">>),
@@ -128,7 +128,7 @@ seed_test(Config) ->
 
     %% And the S1 has a session to S2
     S1Agent = libp2p_swarm:group_agent(S1),
-    1 = length(libp2p_group:sessions(S1Agent)),
+    1 = length(libp2p_group:workers(S1Agent)),
 
     ok.
 

@@ -2,7 +2,7 @@
 
 -behavior(libp2p_group_relcast_handler).
 
--export([init/1, handle_message/3, handle_input/2]).
+-export([init/1, handle_message/3, handle_input/2, serialize_state/1, deserialize_state/1]).
 
 -record(state,
         { message_handler,
@@ -21,3 +21,9 @@ handle_input(_Msg, State=#state{input_handler=undefined}) ->
     {State, ok};
 handle_input(Msg, State=#state{input_handler=Handler}) ->
     {State, Handler(Msg)}.
+
+serialize_state(State) ->
+    term_to_binary(State).
+
+deserialize_state(State) ->
+    binary_to_term(State).
