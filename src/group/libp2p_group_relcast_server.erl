@@ -238,7 +238,7 @@ dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
             %% Dispatch a message to self directly
             Parent = self(),
             %% lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
-            spawn_link(fun() ->
+            spawn(fun() ->
                           Result = handle_data(Parent, Index, Msg),
                           libp2p_group_server:send_result(Parent, {Key, Index}, Result)
                   end),
