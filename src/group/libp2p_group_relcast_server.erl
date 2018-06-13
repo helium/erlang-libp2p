@@ -234,7 +234,7 @@ dispatch_next_message(Index, State=#state{self_index=SelfIndex}) ->
 -spec dispatch_message(pos_integer(), msg_key(), binary(), #state{}) -> #state{}.
 dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
     case lookup_worker(Index, State) of
-        {_, SelfIndex, self, true} ->
+        {_, SelfIndex, self, _true} ->
             %% Dispatch a message to self directly
             Parent = self(),
             lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
