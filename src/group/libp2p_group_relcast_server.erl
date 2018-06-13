@@ -4,7 +4,7 @@
 -behavior(libp2p_ack_stream).
 
 %% API
--export([start_link/4, handle_input/2]).
+-export([start_link/4, handle_input/2, handle_ack/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
@@ -32,6 +32,10 @@
 %% API
 handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
+
+handle_ack(Pid, Index) ->
+    erlang:send(Pid, {handle_ack, Index}).
+
 
 %% libp2p_ack_stream
 handle_data(Pid, Ref, Bin) ->
@@ -92,15 +96,15 @@ handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handl
     MsgKey = mk_message_key(),
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     store_message(?INBOUND, MsgKey, [], Msg, State),
-    %% Fast return since the message is stored
-    gen_server:reply(From, ok),
 
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
-        {NewHandlerState, ok} ->
+        {NewHandlerState, Action} when Action == ok; Action == defer ->
+            gen_server:reply(From, Action),
             delete_message(?INBOUND, MsgKey, Index, State),
             {noreply, State#state{handler_state=NewHandlerState}};
         {NewHandlerState, {send, Messages}} ->
+            gen_server:reply(From, ok),
             delete_message(?INBOUND, MsgKey, Index, State),
             %% Send messages
             NewState = send_messages(Messages, State),
@@ -163,8 +167,11 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
+handle_info({handle_ack, Index}, State=#state{}) ->
+    lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
+    {noreply, dispatch_ack(Index, State)};
 handle_info(Msg, State) ->
-    lager:warning("Unhandled cast: ~p", [Msg]),
+    lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 
@@ -206,6 +213,15 @@ ready_worker(Index, Ready, State=#state{workers=Workers}) ->
 lookup_worker(Index, #state{workers=Workers}) ->
     lists:keyfind(Index, 2, Workers).
 
+-spec dispatch_ack(pos_integer(), #state{}) -> #state{}.
+dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
+    case lookup_worker(Index, State) of
+        {_, SelfIndex, self, _} -> ok;
+        {_, Index, Worker, _} ->
+            libp2p_group_worker:ack(Worker),
+            State
+    end.
+
 -spec dispatch_next_message(pos_integer(), #state{}) -> #state{}.
 dispatch_next_message(Index, State=#state{self_index=_SelfIndex}) ->
     case lookup_messages(?OUTBOUND, Index, State) of
@@ -222,7 +238,7 @@ dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
             %% Dispatch a message to self directly
             Parent = self(),
             %% lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
-            spawn_link(fun() ->
+            spawn(fun() ->
                           Result = handle_data(Parent, Index, Msg),
                           libp2p_group_server:send_result(Parent, {Key, Index}, Result)
                   end),

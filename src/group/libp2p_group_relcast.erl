@@ -4,7 +4,7 @@
 
 -export_type([opt/0]).
 
--export([start_link/3, get_opt/3, handle_input/2]).
+-export([start_link/3, get_opt/3, handle_input/2, handle_ack/2]).
 
 -spec start_link(ets:tab(), GroupID::string(), Args::[any()])
                 -> {ok, pid()} | {error, term()}.
@@ -15,6 +15,10 @@ start_link(TID, GroupID, Args) ->
 handle_input(GroupPid, Msg) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
     libp2p_group_relcast_server:handle_input(Server, Msg).
+
+handle_ack(GroupPid, Index) ->
+    Server = libp2p_group_relcast_sup:server(GroupPid),
+    libp2p_group_relcast_server:handle_ack(Server, Index).
 
 -spec get_opt(libp2p_config:opts(), atom(), any()) -> any().
 get_opt(Opts, Key, Default) ->
