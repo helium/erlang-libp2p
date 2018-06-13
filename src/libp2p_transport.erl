@@ -88,12 +88,12 @@ start_client_session(TID, Addr, Connection) ->
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
                 ok ->
-                    lager:info("set controlling process of ~p to ~p", [Connection, SessionPid]),
                     libp2p_config:insert_session(TID, Addr, SessionPid),
                     libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
                     {ok, SessionPid};
                 {error, Error} ->
-                    lager:error("setting the controlling process for ~p to ~p failed ~p", [Connection, SessionPid, Error]),
+                    lager:error("Changing controlling process for ~p to ~p failed ~p",
+                                [Connection, SessionPid, Error]),
                     libp2p_connection:close(Connection),
                     {error, Error}
             end

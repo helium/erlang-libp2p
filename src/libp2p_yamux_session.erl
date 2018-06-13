@@ -110,7 +110,6 @@ send_data(Pid, Header, Data, Timeout) ->
 init({TID, Connection, _Path, NextStreamId}) ->
     erlang:process_flag(trap_exit, true),
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
-    lager:info("Starting yamux session using connection ~p with next stream id ~p", [Connection, NextStreamId]),
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     State = #state{connection=Connection, tid=TID,
                    stream_sup=StreamSup,
@@ -195,7 +194,6 @@ handle_cast(Msg, State) ->
 
 
 terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
-    lager:info("Yamux session terminating"),
     fdclr(Connection),
     erlang:exit(SendPid, Reason),
     libp2p_connection:close(Connection).

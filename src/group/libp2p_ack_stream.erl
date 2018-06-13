@@ -4,12 +4,12 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok  | {error, term()}.
+-callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok | defer | {error, term()}.
 -callback accept_stream(State::any(), MAddr::string(), Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
 
 %% libp2p_framed_stream
--export([server/4, client/2, init/3, handle_data/3, handle_send/5]).
+-export([server/4, client/2, init/3, handle_data/3, handle_send/5, handle_cast/3]).
 
 
 -record(state,
@@ -17,8 +17,7 @@
           ack_module :: atom(),
           ack_state :: any(),
           ack_ref :: any(),
-          send_from=undefined :: term() | undefined,
-          msg_seq=0 :: non_neg_integer()
+          send_from=undefined :: term() | undefined
         }).
 
 %% libp2p_framed_stream
@@ -43,20 +42,41 @@ init(client, Connection, [AckRef, AckModule, AckState]) ->
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
 handle_data(_Kind, Data, State=#state{send_from=From, ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
-    case libp2p_ack_stream_pb:decode_msg(Data, libp2p_data_pb) of
-        #libp2p_data_pb{ack=true, seq=_Seq, data=_} when From /= undefined ->
-            gen_server:reply(From, ok),
-            {noreply, State#state{send_from=undefined}};
-        #libp2p_data_pb{ack=false, data=Bin, seq=Seq} ->
+    case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
+        #libp2p_ack_frame_pb{frame={data, Bin}} ->
+            %% Inbound request to handle a message
             case AckModule:handle_data(AckState, AckRef, Bin) of
+                defer ->
+                    %% Send back a defer message to keep the sender
+                    %% waiting for the final ack.
+                    Ack = #libp2p_ack_frame_pb{frame={ack, defer}},
+                    {noreply, State, libp2p_ack_stream_pb:encode_msg(Ack)};
                 ok ->
-                    Ack = #libp2p_data_pb{ack=true, seq=Seq},
+                    %% Handler is ok with the message. Ack back to the
+                    %% sender.
+                    Ack = #libp2p_ack_frame_pb{frame={ack, ack}},
                     {noreply, State, libp2p_ack_stream_pb:encode_msg(Ack)};
                 {error, Reason} ->
                     {stop, {error, Reason}, State}
-            end
+            end;
+        #libp2p_ack_frame_pb{frame={ack, defer}} ->
+            %% When we receive a defer we do _not_ reply back to teh
+            %% original caller. This way we block the sender until the
+            %% actual ack is received
+            {noreply, State};
+        #libp2p_ack_frame_pb{frame={ack, ack}} when From /= undefined  ->
+            gen_server:reply(From, ok),
+            {noreply, State#state{send_from=undefined}};
+        Other ->
+            lager:notice("Unexpacted ack frame: ~p", [Other]),
+            {noreply, State}
     end.
 
-handle_send(_Kind, From, Data, Timeout, State=#state{msg_seq=Seq}) ->
-    Msg = #libp2p_data_pb{data=Data, seq=Seq},
-    {ok, noreply, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{msg_seq=Seq + 1, send_from=From}}.
+handle_send(_Kind, From, Data, Timeout, State=#state{}) ->
+    Msg = #libp2p_ack_frame_pb{frame={data, Data}},
+    {ok, noreply, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{send_from=From}}.
+
+
+handle_cast(_Kind, ack, State=#state{}) ->
+    Msg = #libp2p_ack_frame_pb{frame={ack, ack}},
+    {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.

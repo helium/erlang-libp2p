@@ -1,14 +1,18 @@
 -module(group_relcast_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([unicast_test/1, multicast_test/1, restart_test/1]).
+-export([unicast_test/1, multicast_test/1, defer_test/1, restart_test/1]).
 
 all() ->
     [ %% restart_test,
       unicast_test,
-      multicast_test
+      multicast_test,
+      defer_test
     ].
 
+init_per_testcase(defer_test, Config) ->
+    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]}]),
+    [{swarms, Swarms} | Config];
 init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]}]),
     [{swarms, Swarms} | Config].
@@ -112,15 +116,42 @@ multicast_test(Config) ->
 
     ok.
 
-receive_messages(Acc) ->
-    receive
-        Msg ->
-            io:format("MSG ~p", [Msg]),
-            receive_messages([Msg | Acc])
-    after 5000 ->
-            Acc
-    end.
 
+defer_test(Config) ->
+    Swarms = [S1, S2] = proplists:get_value(swarms, Config),
+
+    test_util:connect_swarms(S1, S2),
+
+    await_peerbooks(Swarms),
+
+    Members = [libp2p_swarm:address(S) || S <- Swarms],
+
+    %% G1 takes input and unicasts it to G2
+    G1Args = [relcast_handler, [Members, input_unicast(2), handle_msg(ok)]],
+    {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
+
+    %% G2 handles a message by deferring it
+    G2Args = [relcast_handler, [Members, input_unicast(1), handle_msg(defer)]],
+    {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
+
+    libp2p_group_relcast:handle_input(G1, <<"hello">>),
+
+    %% G2 should receive the message from G1 even though is defers it
+    [{handle_msg, 1, <<"hello">>}] = receive_messages([], 1000),
+
+    %% Then we ack it by telling G2 to ack for G1
+    libp2p_group_relcast:handle_ack(G2, 1),
+
+    %% Send a message from G2 to G1
+    libp2p_group_relcast:handle_input(G2, <<"hello2">>),
+
+    %% Which G1 should see as a message from G2
+    [{handle_msg, 2, <<"hello2">>}] = receive_messages([], 1000),
+
+    ok.
+
+
+    %% Then we ack
 
 restart_test(_Config) ->
     %% Restarting a relcast group should resend outbound messages that
@@ -147,4 +178,15 @@ handle_msg(Resp) ->
     fun(Index, Msg) ->
             Parent ! {handle_msg, Index, Msg},
             Resp
+    end.
+
+receive_messages(Acc) ->
+    receive_messages(Acc, 5000).
+
+receive_messages(Acc, Timeout) ->
+    receive
+        Msg ->
+            receive_messages([Msg | Acc])
+    after Timeout ->
+            Acc
     end.
