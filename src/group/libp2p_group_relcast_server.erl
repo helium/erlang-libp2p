@@ -34,7 +34,7 @@ handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
 
 handle_ack(Pid, Index) ->
-    gen_server:cast(Pid, {handle_ack, Index}).
+    erlang:send(Pid, {handle_ack, Index}).
 
 
 %% libp2p_ack_stream
@@ -158,9 +158,6 @@ handle_cast({send_result, {_Key, Index}, _Error}, State=#state{self_index=_SelfI
     %% be sent and dispatch it.
     %% lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key), Error]),
     {noreply, dispatch_next_message(Index, ready_worker(Index, true, State))};
-handle_cast({handle_ack, Index}, State=#state{}) ->
-    lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
-    {noreply, dispatch_ack(Index, State)};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
@@ -170,8 +167,11 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
+handle_info({handle_ack, Index}, State=#state{}) ->
+    lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
+    {noreply, dispatch_ack(Index, State)};
 handle_info(Msg, State) ->
-    lager:warning("Unhandled cast: ~p", [Msg]),
+    lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 
