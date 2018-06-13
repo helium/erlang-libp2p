@@ -135,15 +135,12 @@ defer_test(Config) ->
     {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     libp2p_group_relcast:handle_input(G1, <<"hello">>),
-    lager:debug("POST HANDLE INPUT"),
 
     %% G2 should receive the message from G1 even though is defers it
     [{handle_msg, 1, <<"hello">>}] = receive_messages([], 1000),
-    lager:debug("POST FIRST RECEIVE"),
 
     %% Then we ack it by telling G2 to ack for G1
     libp2p_group_relcast:handle_ack(G2, 1),
-    lager:debug("POST HANDLE_ACK"),
 
     %% Send a message from G2 to G1
     libp2p_group_relcast:handle_input(G2, <<"hello2">>),

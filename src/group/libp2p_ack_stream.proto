@@ -1,13 +1,13 @@
 syntax = "proto3";
 
 enum status {
-  req = 0;
-  ack = 1;
-  defer = 2;
+  ack = 0;
+  defer = 1;
 }
 
-message data {
-  status ack = 1;
-  bytes data = 2;
-  uint32 seq = 3;
+message ack_frame {
+  oneof frame {
+    status ack = 1;
+    bytes data = 2;
+  }
 }
