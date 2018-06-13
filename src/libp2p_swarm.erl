@@ -8,7 +8,7 @@
          add_transport_handler/2,
          add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1,
-         register_session/3, register_listener/3,
+         register_session/2, register_listener/2,
          add_group/4,
          group_agent/1]).
 
@@ -187,7 +187,7 @@ listen(TID, Addr) ->
                         {ok, TransportAddrs, ListenPid} ->
                             lager:info("Started Listener on ~p", [TransportAddrs]),
                             libp2p_config:insert_listener(TID, TransportAddrs, ListenPid),
-                            register_listener(swarm(TID), TransportAddrs, ListenPid);
+                            register_listener(swarm(TID), ListenPid);
                         {error, Error={{shutdown, _}, _}} ->
                             % We don't log shutdown errors to avoid cluttering the logs
                             % with confusing messages.
@@ -208,19 +208,19 @@ listen_addrs(TID) ->
 
 %% @private Register a session wih the swarm. This is used in
 %% start_server_session to get an accepted connection to be registered
-%% and monitored by the sware server.
--spec register_session(pid(), string(), pid()) -> ok.
-register_session(Sup, Addr, SessionPid) ->
+%% and monitored by the swarm server.
+-spec register_session(pid(), pid()) -> ok.
+register_session(Sup, SessionPid) ->
     Server = libp2p_swarm_sup:server(Sup),
-    gen_server:cast(Server, {register, libp2p_config:session(), [Addr], SessionPid}).
+    gen_server:cast(Server, {register, libp2p_config:session(), SessionPid}).
 
 %% @private Register a session wih the swarm. This is used in `listen' a
 %% started connection to be registered and monitored by the sware
 %% server.
--spec register_listener(pid(), [string()], pid()) -> ok.
-register_listener(Sup, ListenAddrs, SessionPid) ->
+-spec register_listener(pid(), pid()) -> ok.
+register_listener(Sup, SessionPid) ->
     Server = libp2p_swarm_sup:server(Sup),
-    gen_server:cast(Server, {register, libp2p_config:listener(), ListenAddrs, SessionPid}).
+    gen_server:cast(Server, {register, libp2p_config:listener(), SessionPid}).
 
 
 % Connect
@@ -243,12 +243,7 @@ connect(Sup, Addr) ->
 connect(Sup, Addr, Options, Timeout) when is_pid(Sup) ->
     connect(tid(Sup), Addr, Options, Timeout);
 connect(TID, Addr, Options, Timeout) ->
-    case libp2p_transport:connect_to(Addr, Options, Timeout, TID) of
-        {error, Reason} -> {error, Reason};
-        {ok, ConnAddr, SessionPid} ->
-            register_session(swarm(TID), ConnAddr, SessionPid),
-            {ok, SessionPid}
-    end.
+    libp2p_transport:connect_to(Addr, Options, Timeout, TID).
 
 
 % Stream

@@ -29,20 +29,20 @@ for_addr(TID, Addr) ->
 %% or a `connect' call is made to transport service to perform the
 %% actual connect.
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, string(), pid()} | {error, term()}.
+                -> {ok, pid()} | {error, term()}.
 connect_to(Addr, Options, Timeout, TID) ->
     case libp2p_swarm:is_stopping(TID) of
         true -> {error, stopping};
         false ->
             case find_session([Addr], Options, TID) of
-                {ok, ConnAddr, SessionPid} -> {ok, ConnAddr, SessionPid};
+                {ok, _, SessionPid} -> {ok, SessionPid};
                 {error, not_found} ->
                     case for_addr(TID, Addr) of
                         {ok, ConnAddr, {Transport, TransportPid}} ->
                             lager:info("~p connecting to ~p", [Transport, ConnAddr]),
                             try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
                                 {error, Error} -> {error, Error};
-                                {ok, SessionPid} -> {ok, ConnAddr, SessionPid}
+                                {ok, SessionPid} -> {ok, SessionPid}
                             catch
                                 What:Why -> {error, {What, Why}}
                             end
@@ -89,6 +89,7 @@ start_client_session(TID, Addr, Connection) ->
             case libp2p_connection:controlling_process(Connection, SessionPid) of
                 ok ->
                     libp2p_config:insert_session(TID, Addr, SessionPid),
+                    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
                     libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
                     {ok, SessionPid};
                 {error, Error} ->
@@ -121,8 +122,6 @@ start_server_session(Ref, TID, Connection) ->
                    {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
     {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
     libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
-    %% Since servers accept outside of the swarm server,
-    %% notify it of this new session
-    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
+    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
     libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), server),
     {ok, SessionPid}.

@@ -2,7 +2,7 @@
 [{<<"base32">>,{pkg,<<"base32">>,<<"0.1.0">>},1},
  {<<"bitcask">>,
   {git,"https://github.com/helium/bitcask",
-       {ref,"fc41011a5a81ba37bf7352a40fbf8ce07c196747"}},
+       {ref,"d08cc8eedafefe4659b3be0ff8a256e70b72a6ec"}},
   0},
  {<<"ecc_compact">>,{pkg,<<"ecc_compact">>,<<"1.0.2">>},0},
  {<<"erl_base58">>,{pkg,<<"erl_base58">>,<<"0.0.1">>},0},
@@ -20,7 +20,8 @@
  {<<"nat">>,{pkg,<<"nat">>,<<"0.2.0">>},0},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.5.0">>},0},
  {<<"rand_compat">>,{pkg,<<"rand_compat">>,<<"0.0.3">>},1},
- {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},1}]}.
+ {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},1},
+ {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.0">>},1}]}.
 [
 {pkg_hash,[
  {<<"base32">>, <<"044F6DC95709727CA2176F3E97A41DDAA76B5BC690D3536908618C0CB32616A2">>},
@@ -36,5 +37,6 @@
  {<<"nat">>, <<"D2E2A41E1073E207C9CE97D2F79946671CCC21611EF148201630EAC8A2E402E2">>},
  {<<"ranch">>, <<"F04166F456790FEE2AC1AA05A02745CC75783C2BFB26D39FAF6AEFC9A3D3A58A">>},
  {<<"rand_compat">>, <<"011646BC1F0B0C432FE101B816F25B9BBB74A085713CEE1DAFD2D62E9415EAD3">>},
- {<<"small_ints">>, <<"82A824C8794A2DDC73CB5CD00EAD11331DB296521AD16A619C13D668572B868A">>}]}
+ {<<"small_ints">>, <<"82A824C8794A2DDC73CB5CD00EAD11331DB296521AD16A619C13D668572B868A">>},
+ {<<"stacktrace_compat">>, <<"78E13E0747FABC71DC725A49A4CBDDE54CEC1E9ED13BD80C1D35AC37182E1FA0">>}]}
 ].

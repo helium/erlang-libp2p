@@ -2,7 +2,7 @@
 
 -export([get_opt/2, get_opt/3,
          base_dir/1, swarm_dir/2,
-         insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/3,
+         insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
@@ -84,6 +84,9 @@ lookup_pids(TID, Kind) ->
 remove_pid(TID, Kind, Ref) ->
     ets:delete(TID, {Kind, Ref}).
 
+-spec remove_pid(ets:tab(), pid()) -> true.
+remove_pid(TID, Pid) ->
+    ets:match_delete(TID, {'_', Pid}).
 
 -spec lookup_handlers(ets:tab(), atom()) -> [{term(), any()}].
 lookup_handlers(TID, TableKey) ->

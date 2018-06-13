@@ -4,7 +4,7 @@
 
 -behavior(gen_statem).
 -behavior(libp2p_connection).
-
+-behavior(libp2p_info).
 
 
 -record(send_state,
@@ -57,6 +57,8 @@
 % libp2p_connection
 -export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2]).
+%% libp2p_info
+-export([info/1]).
 
 open_stream(Session, TID, StreamID) ->
     % We're opening a stream (client)
@@ -135,6 +137,11 @@ addr_info(Pid) ->
 controlling_process(_Pid, _Owner) ->
     {error, unsupported}.
 
+%%
+%% libp2p_info
+
+info(Pid) ->
+    statem(Pid, info).
 
 %%
 %% State callbacks
@@ -148,6 +155,16 @@ handle_event({call, From={Pid, _}}, fdset, _State, Data=#state{}) ->
     {keep_state, notify_inert(Data#state{inert_pid=Pid}), {reply,From, ok}};
 handle_event({call, From}, fdclr, _State, Data=#state{}) ->
     {keep_state, Data#state{inert_pid=undefined}, {reply, From, ok}};
+
+%% libp2p_info
+handle_event({call, From}, info, _State, Data=#state{session=SessionPid, stream_id=StreamID}) ->
+    Info = #{
+             pid => self(),
+             module => ?MODULE,
+             session => SessionPid,
+             stream_id => StreamID
+            },
+    {keep_state, Data, [{reply, From, Info}]};
 
 
 % Connecting

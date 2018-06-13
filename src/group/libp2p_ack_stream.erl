@@ -67,12 +67,11 @@ handle_data(_Kind, Data, State=#state{send_from=From, ack_ref=AckRef, ack_module
         #libp2p_ack_frame_pb{frame={ack, ack}} when From /= undefined  ->
             gen_server:reply(From, ok),
             {noreply, State#state{send_from=undefined}};
-        Other ->
-            lager:notice("Unexpacted ack frame: ~p", [Other]),
+        _Other ->
             {noreply, State}
     end.
 
-handle_send(_Kind, From, Data, Timeout, State=#state{}) ->
+handle_send(_Kind, From, Data, Timeout, State=#state{send_from=undefined}) ->
     Msg = #libp2p_ack_frame_pb{frame={data, Data}},
     {ok, noreply, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{send_from=From}}.
 

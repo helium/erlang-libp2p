@@ -5,7 +5,7 @@
 -record(state,
         { tid :: ets:tab(),
           sig_fun :: libp2p_crypto:sig_fun(),
-          monitors=[] :: [{pid(), {reference(), atom(), [string()]}}]
+          monitors=[] :: [{pid(), {reference(), atom()}}]
          }).
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -61,16 +61,17 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 
-handle_cast({register, Kind, Addrs, SessionPid}, State=#state{}) ->
+handle_cast({register, Kind, SessionPid}, State=#state{}) ->
     %% Called with Kind == libp2p_config:session() from listeners
-    %% accepting their own connections. This is called through
+    %% accepting connections. This is called through
     %% libp2p_swarm:register_session, for example, from
-    %% start_server_session. The actual peerbook registration doesn't
-    %% happen until we receive an identify message.
+    %% start_server_session and start_client_session. The actual
+    %% peerbook registration doesn't happen until we receive an
+    %% identify message.
     %%
     %% Called from listeners getting started with Kind ==
     %% libp2p_config:listener()
-    NewState = add_monitor(Kind, Addrs, SessionPid, State),
+    NewState = add_monitor(Kind, SessionPid, State),
     {noreply, NewState};
 
 handle_cast(Msg, State) ->
@@ -87,13 +88,11 @@ terminate(Reason, #state{tid=TID}) ->
 %% Internal
 %%
 
--spec add_monitor(atom(), [string()], pid(), #state{}) -> #state{}.
-add_monitor(Kind, Addrs, Pid, State=#state{monitors=Monitors}) ->
-    SortedAddrs = lists:sort(Addrs),
+-spec add_monitor(atom(), pid(), #state{}) -> #state{}.
+add_monitor(Kind, Pid, State=#state{monitors=Monitors}) ->
     Value = case lists:keyfind(Pid, 1, Monitors) of
-                false -> {erlang:monitor(process, Pid), Kind, SortedAddrs};
-                {Pid, {MonitorRef, Kind, StoredAddrs}} ->
-                    {MonitorRef, Kind, lists:umerge(StoredAddrs, SortedAddrs)}
+                false -> {erlang:monitor(process, Pid), Kind};
+                {Pid, {MonitorRef, Kind}} -> {MonitorRef, Kind}
             end,
     State#state{monitors=lists:keystore(Pid, 1, Monitors, {Pid, Value})}.
 
@@ -101,7 +100,7 @@ add_monitor(Kind, Addrs, Pid, State=#state{monitors=Monitors}) ->
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
     case lists:keytake(Pid, 1, Monitors) of
         false -> State;
-        {value, {Pid, {MonitorRef, Kind, Addrs}}, NewMonitors} ->
-            lists:foreach(fun(Addr) -> libp2p_config:remove_pid(TID, Kind, Addr) end, Addrs),
+        {value, {Pid, {MonitorRef, _Kind}}, NewMonitors} ->
+            libp2p_config:remove_pid(TID, Pid),
             State#state{monitors=NewMonitors}
     end.

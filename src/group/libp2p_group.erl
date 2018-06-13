@@ -5,13 +5,13 @@
 -export_type([stream_client_spec/0]).
 
 % API
--export([sessions/1, send/2]).
+-export([workers/1, send/2]).
 
-%% @doc Get the active list of sessions and their associated
+%% @doc Get the active list of group workers and their associated
 %% multiaddress.
--spec sessions(pid()) -> [{string(), pid()}].
-sessions(Pid) ->
-    gen_server:call(Pid, sessions).
+-spec workers(pid()) -> [{string(), pid()}].
+workers(Pid) ->
+    gen_server:call(Pid, workers).
 
 %% @doc Send the given data to the member of the group. The
 %% implementation of the group determines the strategy used for
