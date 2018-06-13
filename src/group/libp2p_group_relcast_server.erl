@@ -91,10 +91,10 @@ handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
             {reply, {ok, Index}, State}
     end;
 handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState,
-                                                          self_index=_SelfIndex}) ->
+                                                          self_index=SelfIndex}) ->
     %% Incoming message, add to queue
     MsgKey = mk_message_key(),
-    %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
+    lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     store_message(?INBOUND, MsgKey, [], Msg, State),
 
     %% Pass on to handler
@@ -133,11 +133,11 @@ handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=Han
         {NewHandlerState, stop, Reason} ->
             {stop, Reason, NewHandlerState}
         end;
-handle_cast({send_ready, Index, Ready}, State0=#state{self_index=_SelfIndex}) ->
+handle_cast({send_ready, Index, Ready}, State0=#state{self_index=SelfIndex}) ->
     %% Sent by group worker after it gets a stream set up (send just
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
-    %% lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
+    lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
     State1 = ready_worker(Index, Ready, State0),
     case Ready of
         true ->
@@ -145,18 +145,18 @@ handle_cast({send_ready, Index, Ready}, State0=#state{self_index=_SelfIndex}) ->
         _ ->
             {noreply, State1}
     end;
-handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=SelfIndex}) ->
     %% Sent by group worker. Since we use an ack_stream the message
     %% was acknowledged. Delete the outbound message for the given
     %% index
-    %% lager:debug("~p SEND OK TO ~p: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key)]),
+    lager:debug("~p SEND OK TO ~p: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key)]),
     delete_message(?OUTBOUND, Key, Index, State),
     {noreply, dispatch_next_message(Index, ready_worker(Index, true, State))};
-handle_cast({send_result, {_Key, Index}, _Error}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_result, {Key, Index}, Error}, State=#state{self_index=SelfIndex}) ->
     %% Sent by group worker on error. Instead of looking up the
     %% message by key again we locate the first message that needs to
     %% be sent and dispatch it.
-    %% lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key), Error]),
+    lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key), Error]),
     {noreply, dispatch_next_message(Index, ready_worker(Index, true, State))};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
@@ -223,10 +223,10 @@ dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
     end.
 
 -spec dispatch_next_message(pos_integer(), #state{}) -> #state{}.
-dispatch_next_message(Index, State=#state{self_index=_SelfIndex}) ->
+dispatch_next_message(Index, State=#state{self_index=SelfIndex}) ->
     case lookup_messages(?OUTBOUND, Index, State) of
         [{Key, Msg} | _] ->
-            %% lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
+            lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
             dispatch_message(Index, Key, Msg, State);
         _ -> State
     end.
@@ -237,7 +237,7 @@ dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
         {_, SelfIndex, self, true} ->
             %% Dispatch a message to self directly
             Parent = self(),
-            %% lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
+            lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
             spawn(fun() ->
                           Result = handle_data(Parent, Index, Msg),
                           libp2p_group_server:send_result(Parent, {Key, Index}, Result)
@@ -245,10 +245,10 @@ dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
             ready_worker(Index, false, State);
         {_, Index, _Worker, false} ->
             %% Not ready to dispatch to the given worker
-            %% lager:debug("~p NOT READY TO DISPATCH TO ~p", [SelfIndex, Index]),
+            lager:debug("~p NOT READY TO DISPATCH TO ~p", [SelfIndex, Index]),
             State;
         {_, Index, Worker, true} ->
-            %% lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
+            lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
             libp2p_group_worker:send(Worker, {Key, Index}, Msg),
             ready_worker(Index, false, State)
     end.
