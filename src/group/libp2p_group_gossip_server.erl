@@ -46,7 +46,7 @@ init([Sup, TID]) ->
                 seed_nodes=SeedNodes, peerbook_connections=PeerBookCount,
                 drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)}}.
 
-handle_call(sessions, _From, State=#state{}) ->
+handle_call(workers, _From, State=#state{}) ->
     {reply, connections(all, State), State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),

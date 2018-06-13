@@ -224,7 +224,7 @@ handle_info(peer_timeout, State=#state{}) ->
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
 handle_info(Msg, State) ->
-    lager:warning("Unhandled info: ~p", [Msg]),
+    lager:warning("Unhandled peerbook info: ~p", [Msg]),
     {noreply, State}.
 
 terminate(_Reason, #state{store=Store}) ->
@@ -285,8 +285,6 @@ notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) 
     State;
 notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup}) ->
     PeerList = maps:values(NotifyPeers),
-    %% lager:info("NOTIFYING PEERS: ~p",
-    %%            [[libp2p_crypto:address_to_b58(libp2p_peer:address(P)) || P <- PeerList]]),
     [Pid ! {new_peers, PeerList} || Pid <- pg2:get_members(NotifyGroup)],
     State#state{notify_peers=#{}}.
 

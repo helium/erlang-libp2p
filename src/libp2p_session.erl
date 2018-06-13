@@ -1,5 +1,7 @@
 -module(libp2p_session).
 
+-behavior(libp2p_info).
+
 -type stream_handler() :: {atom(), atom(), [any()]}.
 
 -export_type([stream_handler/0]).
@@ -7,6 +9,9 @@
 -export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1]).
 
 -export([dial/2, dial_framed_stream/4]).
+
+%% libp2p_info
+-export([info/1]).
 
 -spec ping(pid()) -> {ok, pos_integer()} | {error, term()}.
 ping(Pid) ->
@@ -42,6 +47,12 @@ addr_info(Pid) ->
 
 
 %%
+%% libp2p_info
+%%
+info(Pid) ->
+    gen_server:call(Pid, info).
+
+%%
 %% Stream negotiation
 %%
 
@@ -53,7 +64,7 @@ dial(Path, SessionPid) ->
             Handlers = [{Path, undefined}],
             try libp2p_multistream_client:negotiate_handler(Handlers, "stream", Connection) of
                 {error, Error} ->
-                    lager:error("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
+                    lager:warning("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
                     {error, Error};
                 {ok, _} -> {ok, Connection}
             catch

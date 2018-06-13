@@ -6,6 +6,8 @@
         | {error, term()}.
 -callback handle_input(Msg::binary(), State::any()) -> handler_result().
 -callback handle_message(Index::pos_integer(), Msg::binary(), State::any()) -> handler_result().
+-callback serialize_state(State :: any()) -> handler_state().
+-callback deserialize_state(handler_state()) -> any().
 
 -type handler_state() :: binary().
 
