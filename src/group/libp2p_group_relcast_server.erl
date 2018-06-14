@@ -108,6 +108,7 @@ handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handl
             Reply = gen_server:reply(From, ok),
             lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, Reply]),
             delete_message(?INBOUND, MsgKey, Index, State),
+            lager:debug("MessageSize: ~p", [length(Messages)]),
             %% Send messages
             NewState = send_messages(Messages, State),
             %% TODO: Store HandlerState
