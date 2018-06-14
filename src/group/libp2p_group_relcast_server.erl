@@ -336,6 +336,7 @@ delete_message(Kind=?OUTBOUND, Key, Index, State=#state{store=Store}) ->
 -spec lookup_messages(msg_kind(), pos_integer(), #state{}) -> [{msg_key(), binary()}].
 lookup_messages(Kind, Index, State=#state{store=Store}) ->
     PrefixLength = workers_byte_length(State),
+    StartTime = os:timestamp(),
     Res = bitcask:fold(Store,
                  fun(Key, Bin, Acc) ->
                          <<Kind:8/integer-unsigned, Prefix:PrefixLength/binary, Msg/binary>> = Bin,
@@ -344,6 +345,7 @@ lookup_messages(Kind, Index, State=#state{store=Store}) ->
                              false -> Acc
                          end
                  end, []),
+    lager:debug("BitcaskFoldTime: ~p", [timer:now_diff(os:timestamp(), StartTime)]),
     %% sort by key age
     lists:sort(fun sort_message_keys/2, Res).
 

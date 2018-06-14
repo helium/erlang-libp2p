@@ -45,6 +45,7 @@ handle_data(_Kind, Data, State=#state{send_from=From, ack_ref=AckRef, ack_module
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{frame={data, Bin}} ->
             %% Inbound request to handle a message
+            lager:debug("AckModule: ~p, From: ~p, AckState: ~p", [AckModule, From, AckState]),
             case AckModule:handle_data(AckState, AckRef, Bin) of
                 defer ->
                     %% Send back a defer message to keep the sender
