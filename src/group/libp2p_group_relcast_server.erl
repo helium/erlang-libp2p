@@ -216,7 +216,7 @@ lookup_worker(Index, #state{workers=Workers}) ->
 -spec dispatch_ack(pos_integer(), #state{}) -> #state{}.
 dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
     case lookup_worker(Index, State) of
-        {_, SelfIndex, self, _} -> ok;
+        {_, SelfIndex, self, _} -> State;
         {_, Index, Worker, _} ->
             libp2p_group_worker:ack(Worker),
             State
@@ -234,7 +234,7 @@ dispatch_next_message(Index, State=#state{self_index=SelfIndex}) ->
 -spec dispatch_message(pos_integer(), msg_key(), binary(), #state{}) -> #state{}.
 dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
     case lookup_worker(Index, State) of
-        {_, SelfIndex, self, _true} ->
+        {_, SelfIndex, self, true} ->
             %% Dispatch a message to self directly
             Parent = self(),
             lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
@@ -355,7 +355,7 @@ send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers, self_inde
     Indexes = lists:seq(1, length(Workers)),
     %% lager:debug("~p STORED MULTICAST: ~p", [SelfIndex, base58:binary_to_base58(Key)]),
     store_message(?OUTBOUND, Key, Indexes, Msg, State),
-    NewState = lists:foldr(fun({_, Index, _Pid, _}, AccState) ->
+    NewState = lists:foldl(fun({_, Index, _Pid, _}, AccState) ->
                                    dispatch_next_message(Index, AccState)
                            end, State, Workers),
     send_messages(Tail, NewState).
