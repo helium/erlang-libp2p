@@ -39,7 +39,8 @@ handle_ack(Pid, Index) ->
 
 %% libp2p_ack_stream
 handle_data(Pid, Ref, Bin) ->
-    gen_server:call(Pid, {handle_data, Ref, Bin}).
+    %% wait 10 seconds for the reply
+    gen_server:call(Pid, {handle_data, Ref, Bin}, timer:seconds(10)).
 
 accept_stream(Pid, MAddr, StreamPid, Path) ->
     gen_server:call(Pid, {accept_stream, MAddr, StreamPid, Path}).
