@@ -1,6 +1,6 @@
 -module(libp2p_group_relcast_server).
 
--behavio(gen_server).
+-behavior(gen_server).
 -behavior(libp2p_ack_stream).
 
 %% API
@@ -100,11 +100,13 @@ handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handl
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
         {NewHandlerState, Action} when Action == ok; Action == defer ->
-            gen_server:reply(From, Action),
+            Reply = gen_server:reply(From, Action),
+            lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, Reply]),
             delete_message(?INBOUND, MsgKey, Index, State),
             {noreply, State#state{handler_state=NewHandlerState}};
-        {NewHandlerState, {send, Messages}} ->
-            gen_server:reply(From, ok),
+        {NewHandlerState, {send, Messages}=Action} ->
+            Reply = gen_server:reply(From, ok),
+            lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, Reply]),
             delete_message(?INBOUND, MsgKey, Index, State),
             %% Send messages
             NewState = send_messages(Messages, State),
