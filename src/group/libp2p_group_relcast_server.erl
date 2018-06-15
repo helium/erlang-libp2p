@@ -347,7 +347,9 @@ lookup_messages(Kind, Indices, State=#state{store=Store}) ->
                                                                         false -> [];
                                                                         L -> L
                                                                     end,
-                                                             NewMsgs = lists:merge(fun sort_message_keys/2, [{Key, Msg}], Msgs),
+                                                             %% XXX: Can't we do this instead?
+                                                             NewMsgs = lists:sort(fun sort_message_keys/2, [{Key, Msg} | Msgs]),
+                                                             %% NewMsgs = lists:merge(fun sort_message_keys/2, [{Key, Msg}], Msgs),
                                                              lists:keystore(Index, 1, Occ, {Index, NewMsgs})
                                                      end
                                              end, Acc, Indices);
