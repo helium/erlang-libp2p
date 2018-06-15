@@ -227,31 +227,35 @@ dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
 
 -spec dispatch_next_messages([pos_integer()], #state{}) -> #state{}.
 dispatch_next_messages(Indices, State=#state{self_index=SelfIndex}) ->
+    FilteredIndices = filter_ready_workers(Indices, State, []),
     lists:foldl(fun({Index, [{Key, Msg} | _]}, Acc) ->
                         lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
-                        dispatch_message(Index, Key, Msg, Acc)
-                end, State, lookup_messages(?OUTBOUND, Indices, State)).
+                        case lookup_worker(Index, Acc) of
+                            {_, SelfIndex, self, true} ->
+                                %% Dispatch a message to self directly
+                                Parent = self(),
+                                lager:debug("~p DISPATCHING TO SELF: ~p",
+                                            [SelfIndex, Index, base58:binary_to_base58(Key)]),
+                                spawn(fun() ->
+                                              Result = handle_data(Parent, Index, Msg),
+                                              libp2p_group_server:send_result(Parent, {Key, Index}, Result)
+                                      end),
+                                ready_worker(Index, false, Acc);
+                            {_, Index, Worker, true} ->
+                                lager:debug("~p DISPATCHING TO ~p: ~p",
+                                            [SelfIndex, Index, base58:binary_to_base58(Key)]),
+                                libp2p_group_worker:send(Worker, {Key, Index}, Msg),
+                                ready_worker(Index, false, Acc)
+                        end
+                end, State, lookup_messages(?OUTBOUND, FilteredIndices, State)).
 
--spec dispatch_message(pos_integer(), msg_key(), binary(), #state{}) -> #state{}.
-dispatch_message(Index, Key, Msg, State=#state{self_index=SelfIndex}) ->
+-spec filter_ready_workers([pos_integer()], #state{}, [pos_integer()]) -> [pos_integer()].
+filter_ready_workers([], #state{}, Acc) ->
+    Acc;
+filter_ready_workers([Index | Tail], State=#state{}, Acc) ->
     case lookup_worker(Index, State) of
-        {_, SelfIndex, self, true} ->
-            %% Dispatch a message to self directly
-            Parent = self(),
-            lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
-            spawn(fun() ->
-                          Result = handle_data(Parent, Index, Msg),
-                          libp2p_group_server:send_result(Parent, {Key, Index}, Result)
-                  end),
-            ready_worker(Index, false, State);
-        {_, Index, _Worker, false} ->
-            %% Not ready to dispatch to the given worker
-            lager:debug("~p NOT READY TO DISPATCH TO ~p", [SelfIndex, Index]),
-            State;
-        {_, Index, Worker, true} ->
-            lager:debug("~p DISPATCHING TO ~p: ~p", [SelfIndex, Index, base58:binary_to_base58(Key)]),
-            libp2p_group_worker:send(Worker, {Key, Index}, Msg),
-            ready_worker(Index, false, State)
+        {_, _, _, true} -> filter_ready_workers(Tail, State, [Index | Acc]);
+        _ -> filter_ready_workers(Tail, State, Acc)
     end.
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
