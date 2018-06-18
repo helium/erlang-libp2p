@@ -271,7 +271,7 @@ mk_message_key(Kind, Index) ->
     {Time, Offset} = {erlang:monotonic_time(nanosecond), erlang:unique_integer([monotonic])},
     <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>>.
 
-sort_message_keys({A, _}, {B, _}) ->
+sort_message_keys(A, B) ->
     <<TimeA:19/integer-signed-unit:8, OffsetA:19/integer-signed-unit:8,
       _Kind:8/integer-unsigned, _Index:16/integer-unsigned>> = A,
     <<TimeB:19/integer-signed-unit:8, OffsetB:19/integer-signed-unit:8,
