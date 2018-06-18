@@ -295,7 +295,7 @@ delete_message(Key, #state{store=Store}) ->
 -spec lookup_messages(msg_kind(), [pos_integer()], #state{}) -> [{pos_integer(), [msg_key()]}].
 lookup_messages(Kind, Indices, #state{store=Store}) ->
     IndexSet = sets:from_list(Indices),
-    lager:debug("BitcaskSummaryInfo: ~p", [bitcask:summary_info(Store)]),
+    lager:debug("BitcaskStatus: ~p", [bitcask:status(Store)]),
     StartTime = os:timestamp(),
     Res = bitcask:fold_keys(Store,
                             fun(#bitcask_entry{key=Key}, Acc) ->
