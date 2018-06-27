@@ -101,10 +101,13 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
                  end),
     {next_state, connect, Data#data{connect_pid=Pid}};
 connect(enter, _, Data=#data{connect_pid=ConnectPid})  ->
-    kill_pid(ConnectPid),
-    {repeat_state, Data#data{connect_pid=undefined}};
+    {repeat_state, Data#data{connect_pid=kill_pid(ConnectPid)}};
 connect(info, connect_retry, Data=#data{}) ->
     {repeat_state, Data#data{connect_retry_timer=undefined}};
+connect(cast, {assign_target, undefined}, Data=#data{connect_pid=ConnectPid, session_monitor=Monitor}) ->
+    {next_state, request_target, Data#data{connect_pid=kill_pid(ConnectPid),
+                                           session_monitor=monitor_session(Monitor, undefined),
+                                           send_pid=update_send_pid(undefined, Data)}};
 connect(info, {error, _Reason}, Data=#data{}) ->
     {keep_state, connect_retry(Data)};
 connect(info, {'DOWN', Monitor, process, _Pid, _Reason}, Data=#data{session_monitor=Monitor}) ->
