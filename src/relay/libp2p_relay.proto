@@ -1,0 +1,15 @@
+message RelayReq {
+    required bytes address = 1;
+}
+
+message RelayResp {
+    optional bytes address = 1;
+}
+
+message RelayEnvelope {
+    required bytes id = 1;
+    oneof data {
+        RelayReq relayReq = 2;
+        RelayResp relayResp = 3;
+    }
+}
