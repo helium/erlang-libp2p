@@ -148,6 +148,7 @@ init([TID]) ->
 
     libp2p_swarm:add_stream_handler(TID, "stungun/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
+    libp2p_relay:add_stream_handler(TID),
     {ok, #state{tid=TID, stun_sup=StunSup}}.
 
 %% libp2p_transport
