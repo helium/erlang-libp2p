@@ -93,23 +93,23 @@ handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
             {reply, {ok, Index}, State}
     end;
 handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState,
-                                                          self_index=SelfIndex}) ->
+                                                          self_index=_SelfIndex}) ->
     %% Incoming message, add to queue
-    lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
+    %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     [MsgKey] = store_message(?INBOUND, [Index], Msg, State),
 
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
         {NewHandlerState, Action} when Action == ok; Action == defer ->
-            Reply = gen_server:reply(From, Action),
-            lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, Reply]),
+            _Reply = gen_server:reply(From, Action),
+            %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, _Reply]),
             delete_message(MsgKey, State),
             {noreply, State#state{handler_state=NewHandlerState}};
-        {NewHandlerState, {send, Messages}=Action} ->
-            Reply = gen_server:reply(From, ok),
-            lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, Reply]),
+        {NewHandlerState, {send, Messages}=_Action} ->
+            _Reply = gen_server:reply(From, ok),
+            %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, _Action, _Reply]),
             delete_message(MsgKey, State),
-            lager:debug("MessageSize: ~p", [length(Messages)]),
+            %% lager:debug("MessageSize: ~p", [length(Messages)]),
             %% Send messages
             NewState = send_messages(Messages, State),
             %% TODO: Store HandlerState
@@ -137,11 +137,11 @@ handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=Han
         {NewHandlerState, stop, Reason} ->
             {stop, Reason, NewHandlerState}
         end;
-handle_cast({send_ready, Index, Ready}, State0=#state{self_index=SelfIndex}) ->
+handle_cast({send_ready, Index, Ready}, State0=#state{self_index=_SelfIndex}) ->
     %% Sent by group worker after it gets a stream set up (send just
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
-    lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
+    %% lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
     State1 = ready_worker(Index, Ready, State0),
     case Ready of
         true ->
@@ -149,18 +149,18 @@ handle_cast({send_ready, Index, Ready}, State0=#state{self_index=SelfIndex}) ->
         _ ->
             {noreply, State1}
     end;
-handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=SelfIndex}) ->
+handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}) ->
     %% Sent by group worker. Since we use an ack_stream the message
     %% was acknowledged. Delete the outbound message for the given
     %% index
-    lager:debug("~p SEND OK TO ~p: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key)]),
+    %% lager:debug("~p SEND OK TO ~p: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key)]),
     delete_message(Key, State),
     {noreply, dispatch_next_messages([Index], ready_worker(Index, true, State))};
-handle_cast({send_result, {Key, Index}, Error}, State=#state{self_index=SelfIndex}) ->
+handle_cast({send_result, {_Key, Index}, _Error}, State=#state{self_index=_SelfIndex}) ->
     %% Sent by group worker on error. Instead of looking up the
     %% message by key again we locate the first message that needs to
     %% be sent and dispatch it.
-    lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key), Error]),
+    %% lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [_SelfIndex, Index, base58:binary_to_base58(_Key), _Error]),
     {noreply, dispatch_next_messages([Index], ready_worker(Index, true, State))};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
@@ -172,7 +172,7 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info({handle_ack, Index}, State=#state{}) ->
-    lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
+    %% lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
     {noreply, dispatch_ack(Index, State)};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
@@ -230,13 +230,13 @@ dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
 dispatch_next_messages(Indices, State=#state{self_index=SelfIndex, store=Store}) ->
     FilteredIndices = filter_ready_workers(Indices, State, []),
     lists:foldl(fun({Index, [Key | _]}, Acc) ->
-                        lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
+                        %% lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
                         case lookup_worker(Index, Acc) of
                             {_, SelfIndex, self, true} ->
                                 %% Dispatch a message to self directly
                                 Parent = self(),
-                                lager:debug("~p DISPATCHING TO SELF: ~p",
-                                            [SelfIndex, Index, base58:binary_to_base58(Key)]),
+                                %% lager:debug("~p DISPATCHING TO SELF: ~p",
+                                %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
                                 {ok, Msg} = bitcask:get(Store, Key),
                                 spawn(fun() ->
                                               Result = handle_data(Parent, Index, Msg),
@@ -244,8 +244,8 @@ dispatch_next_messages(Indices, State=#state{self_index=SelfIndex, store=Store})
                                       end),
                                 ready_worker(Index, false, Acc);
                             {_, Index, Worker, true} ->
-                                lager:debug("~p DISPATCHING TO ~p: ~p",
-                                            [SelfIndex, Index, base58:binary_to_base58(Key)]),
+                                %% lager:debug("~p DISPATCHING TO ~p: ~p",
+                                %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
                                 {ok, Msg} = bitcask:get(Store, Key),
                                 libp2p_group_worker:send(Worker, {Key, Index}, Msg),
                                 ready_worker(Index, false, Acc)
@@ -295,8 +295,8 @@ delete_message(Key, #state{store=Store}) ->
 -spec lookup_messages(msg_kind(), [pos_integer()], #state{}) -> [{pos_integer(), [msg_key()]}].
 lookup_messages(Kind, Indices, #state{store=Store}) ->
     IndexSet = sets:from_list(Indices),
-    lager:debug("BitcaskStatus: ~p", [bitcask:status(Store)]),
-    StartTime = os:timestamp(),
+    %% lager:debug("BitcaskStatus: ~p", [bitcask:status(Store)]),
+    %% StartTime = os:timestamp(),
     Res = bitcask:fold_keys(Store,
                             fun(#bitcask_entry{key=Key}, Acc) ->
                                     case Key of
@@ -316,7 +316,7 @@ lookup_messages(Kind, Indices, #state{store=Store}) ->
                                     end
                             end,
                             []),
-    lager:debug("BitcaskFoldTime: ~p", [timer:now_diff(os:timestamp(), StartTime)]),
+    %% lager:debug("BitcaskFoldTime: ~p", [timer:now_diff(os:timestamp(), StartTime)]),
     Res.
 
 send_messages([], State=#state{}) ->

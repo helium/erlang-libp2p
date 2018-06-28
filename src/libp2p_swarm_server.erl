@@ -71,7 +71,6 @@ handle_cast({register, Kind, SessionPid}, State=#state{}) ->
     %%
     %% Called from listeners getting started with Kind ==
     %% libp2p_config:listener()
-    lager:info("MONITORING ~p PID ~p", [Kind, SessionPid]),
     NewState = add_monitor(Kind, SessionPid, State),
     {noreply, NewState};
 
