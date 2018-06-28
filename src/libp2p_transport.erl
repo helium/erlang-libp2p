@@ -89,7 +89,7 @@ start_client_session(TID, Addr, Connection) ->
             case libp2p_connection:controlling_process(Connection, SessionPid) of
                 ok ->
                     libp2p_config:insert_session(TID, Addr, SessionPid),
-                    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), Addr, SessionPid),
+                    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
                     libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), client),
                     {ok, SessionPid};
                 {error, Error} ->
@@ -122,6 +122,6 @@ start_server_session(Ref, TID, Connection) ->
                    {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
     {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
     libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
-    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), RemoteAddr, SessionPid),
+    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
     libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), server),
     {ok, SessionPid}.
