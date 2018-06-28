@@ -71,6 +71,7 @@ handle_cast({register, Kind, Addrs, SessionPid}, State=#state{}) ->
     %%
     %% Called from listeners getting started with Kind ==
     %% libp2p_config:listener()
+    lager:info("MONITORING ~p ADDRS ~p PID ~p", [Kind, Addrs, SessionPid]),
     NewState = add_monitor(Kind, Addrs, SessionPid, State),
     {noreply, NewState};
 
@@ -103,6 +104,7 @@ remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
     case lists:keytake(Pid, 1, Monitors) of
         false -> State;
         {value, {Pid, {MonitorRef, Kind, Addrs}}, NewMonitors} ->
+            lager:info("REMOVING ~p MONITOR ADDRS ~p PID ~p", [Kind, Addrs, Pid]),
             lists:foreach(fun(Addr) -> libp2p_config:remove_pid(TID, Kind, Addr) end, Addrs),
             State#state{monitors=NewMonitors}
     end.
