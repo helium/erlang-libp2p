@@ -63,10 +63,11 @@ handle_info(Msg, State) ->
 
 handle_cast({register, Kind, Addrs, SessionPid}, State=#state{}) ->
     %% Called with Kind == libp2p_config:session() from listeners
-    %% accepting their own connections. This is called through
+    %% accepting connections. This is called through
     %% libp2p_swarm:register_session, for example, from
-    %% start_server_session. The actual peerbook registration doesn't
-    %% happen until we receive an identify message.
+    %% start_server_session and start_client_session. The actual
+    %% peerbook registration doesn't happen until we receive an
+    %% identify message.
     %%
     %% Called from listeners getting started with Kind ==
     %% libp2p_config:listener()

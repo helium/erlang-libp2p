@@ -94,9 +94,8 @@ connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
                          case libp2p_transport:connect_to(Target, [], 5000, TID) of
                              {error, Reason} ->
                                  Parent ! {error, Reason};
-                             {ok, _Addr, SessionPid} ->
-                                 {_, RemoteAddr} = libp2p_session:addr_info(SessionPid),
-                                 Parent ! {assign_session, RemoteAddr, SessionPid}
+                             {ok, SessionPid} ->
+                                 Parent ! {assign_session, SessionPid}
                          end
                  end),
     {next_state, connect, Data#data{connect_pid=Pid}};
@@ -123,18 +122,18 @@ connect(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
     %% The connect process wend down for a non-normal reason. Set a
     %% timeout to try again.
     {keep_state, connect_retry(Data#data{connect_pid=undefined})};
-connect(info, {assign_session, _ConnAddr, _SessionPid},
+connect(info, {assign_session, _SessionPid},
         #data{session_monitor=Monitor}) when Monitor /= undefined ->
     %% Attempting to assign a session when we already have one
     lager:notice("Trying to assign a session while one is being monitored"),
     keep_state_and_data;
-connect(info, {assign_session, _ConnAddr, SessionPid},
+connect(info, {assign_session, SessionPid},
         Data=#data{session_monitor=Monitor=undefined, client_spec=undefined}) ->
     %% Assign a session without a client spec. Just monitor the
     %% session. Success, no timeout needed
     {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
                            send_pid=update_send_pid(undefined, Data)}};
-connect(info, {assign_session, _ConnAddr, SessionPid},
+connect(info, {assign_session, SessionPid},
         Data=#data{session_monitor=Monitor, client_spec={Path, {M, A}}}) ->
     %% Assign session with a client spec. Start client
     case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of

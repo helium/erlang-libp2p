@@ -46,7 +46,9 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
                         {ok, _, SessionPid} -> {ok, SessionPid};
                         {error, not_found} ->
                             case connect_to_listen_addr(ListenAddrs, UserOptions, Timeout, TID) of
-                                {ok, SessionPid}-> {ok, SessionPid};
+                                {ok, SessionPid}->
+                                    libp2p_config:insert_session(TID, MAddr, SessionPid),
+                                    {ok, SessionPid};
                                 {error, Error} -> {error, Error}
                             end;
                         {error, Error} -> {error, Error}
@@ -62,8 +64,7 @@ connect_to_listen_addr([], _UserOptions, _Timeout, _TID) ->
     {error, no_listen_addr};
 connect_to_listen_addr([ListenAddr | Tail], UserOptions, Timeout, TID) ->
     case libp2p_transport:connect_to(ListenAddr, UserOptions, Timeout, TID) of
-        {_, _, SessionPid} ->
-            {ok, SessionPid};
+        {ok, SessionPid} -> {ok, SessionPid};
         {error, Error} ->
             case Tail of
                 [] -> {error, Error};

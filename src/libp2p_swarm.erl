@@ -208,7 +208,7 @@ listen_addrs(TID) ->
 
 %% @private Register a session wih the swarm. This is used in
 %% start_server_session to get an accepted connection to be registered
-%% and monitored by the sware server.
+%% and monitored by the swarm server.
 -spec register_session(pid(), string(), pid()) -> ok.
 register_session(Sup, Addr, SessionPid) ->
     Server = libp2p_swarm_sup:server(Sup),
@@ -243,12 +243,7 @@ connect(Sup, Addr) ->
 connect(Sup, Addr, Options, Timeout) when is_pid(Sup) ->
     connect(tid(Sup), Addr, Options, Timeout);
 connect(TID, Addr, Options, Timeout) ->
-    case libp2p_transport:connect_to(Addr, Options, Timeout, TID) of
-        {error, Reason} -> {error, Reason};
-        {ok, ConnAddr, SessionPid} ->
-            register_session(swarm(TID), ConnAddr, SessionPid),
-            {ok, SessionPid}
-    end.
+    libp2p_transport:connect_to(Addr, Options, Timeout, TID).
 
 
 % Stream

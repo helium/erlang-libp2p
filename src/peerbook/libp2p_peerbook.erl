@@ -224,7 +224,7 @@ handle_info(peer_timeout, State=#state{}) ->
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
 handle_info(Msg, State) ->
-    lager:warning("Unhandled info: ~p", [Msg]),
+    lager:warning("Unhandled peerbook info: ~p", [Msg]),
     {noreply, State}.
 
 terminate(_Reason, #state{store=Store}) ->
