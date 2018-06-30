@@ -19,6 +19,8 @@
          self_index :: pos_integer(),
          workers=[] :: [worker_info()],
          store :: reference(),
+         out_keys=[] :: [msg_cache_entry()],
+         in_keys=[] :: [msg_cache_entry()],
          handler :: atom(),
          handler_state :: any()
        }).
@@ -30,6 +32,7 @@
 -type worker_info() :: {MAddr::string(), Index::pos_integer(), pid() | self, Ready::boolean()}.
 -type msg_kind() :: ?OUTBOUND | ?INBOUND.
 -type msg_key() :: binary().
+-type msg_cache_entry() :: {pos_integer(), [msg_key()]}.
 
 %% API
 handle_input(Pid, Msg) ->
@@ -92,26 +95,24 @@ handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
             libp2p_group_worker:assign_stream(Worker, MAddr, StreamPid),
             {reply, {ok, Index}, State}
     end;
-handle_call({handle_data, Index, Msg}, From, State=#state{handler=Handler, handler_state=HandlerState,
+handle_call({handle_data, Index, Msg}, From, State0=#state{handler=Handler, handler_state=HandlerState,
                                                           self_index=_SelfIndex}) ->
     %% Incoming message, add to queue
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
-    [MsgKey] = store_message(?INBOUND, [Index], Msg, State),
+    {[MsgKey], State} = store_message(?INBOUND, [Index], Msg, State0),
 
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
         {NewHandlerState, Action} when Action == ok; Action == defer ->
             _Reply = gen_server:reply(From, Action),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, _Reply]),
-            delete_message(MsgKey, State),
-            {noreply, State#state{handler_state=NewHandlerState}};
+            {noreply, delete_message(MsgKey, State#state{handler_state=NewHandlerState})};
         {NewHandlerState, {send, Messages}=_Action} ->
             _Reply = gen_server:reply(From, ok),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, _Action, _Reply]),
-            delete_message(MsgKey, State),
             %% lager:debug("MessageSize: ~p", [length(Messages)]),
             %% Send messages
-            NewState = send_messages(Messages, State),
+            NewState = send_messages(Messages, delete_message(MsgKey, State)),
             %% TODO: Store HandlerState
             {noreply, NewState#state{handler_state=NewHandlerState}};
         {NewHandlerState, stop, Reason} ->
@@ -154,8 +155,8 @@ handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}
     %% was acknowledged. Delete the outbound message for the given
     %% index
     %% lager:debug("~p SEND OK TO ~p: ~p ", [SelfIndex, Index, base58:binary_to_base58(Key)]),
-    delete_message(Key, State),
-    {noreply, dispatch_next_messages([Index], ready_worker(Index, true, State))};
+    NewState = delete_message(Key, State),
+    {noreply, dispatch_next_messages([Index], ready_worker(Index, true, NewState))};
 handle_cast({send_result, {_Key, Index}, _Error}, State=#state{self_index=_SelfIndex}) ->
     %% Sent by group worker on error. Instead of looking up the
     %% message by key again we locate the first message that needs to
@@ -231,13 +232,13 @@ dispatch_next_messages(Indices, State=#state{self_index=SelfIndex, store=Store})
     FilteredIndices = filter_ready_workers(Indices, State, []),
     lists:foldl(fun({Index, [Key | _]}, Acc) ->
                         %% lager:debug("~p DISPATCHING NEXT TO ~p", [SelfIndex, Index]),
+                        {ok, Msg} = bitcask:get(Store, Key),
                         case lookup_worker(Index, Acc) of
                             {_, SelfIndex, self, true} ->
                                 %% Dispatch a message to self directly
                                 Parent = self(),
                                 %% lager:debug("~p DISPATCHING TO SELF: ~p",
                                 %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
-                                {ok, Msg} = bitcask:get(Store, Key),
                                 spawn(fun() ->
                                               Result = handle_data(Parent, Index, Msg),
                                               libp2p_group_server:send_result(Parent, {Key, Index}, Result)
@@ -246,10 +247,10 @@ dispatch_next_messages(Indices, State=#state{self_index=SelfIndex, store=Store})
                             {_, Index, Worker, true} ->
                                 %% lager:debug("~p DISPATCHING TO ~p: ~p",
                                 %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
-                                {ok, Msg} = bitcask:get(Store, Key),
                                 libp2p_group_worker:send(Worker, {Key, Index}, Msg),
                                 ready_worker(Index, false, Acc)
-                        end
+                        end;
+                   ({_Index, []}, Acc) -> Acc
                 end, State, lookup_messages(?OUTBOUND, FilteredIndices, State)).
 
 -spec filter_ready_workers([pos_integer()], #state{}, [pos_integer()]) -> [pos_integer()].
@@ -271,65 +272,75 @@ mk_message_key(Kind, Index) ->
     {Time, Offset} = {erlang:monotonic_time(nanosecond), erlang:unique_integer([monotonic])},
     <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>>.
 
-sort_message_keys(A, B) ->
-    <<TimeA:19/integer-signed-unit:8, OffsetA:19/integer-signed-unit:8,
-      _Kind:8/integer-unsigned, _Index:16/integer-unsigned>> = A,
-    <<TimeB:19/integer-signed-unit:8, OffsetB:19/integer-signed-unit:8,
-      _Kind:8/integer-unsigned, _Index:16/integer-unsigned>> = B,
-    {TimeA, OffsetA} =< {TimeB, OffsetB}.
+-spec store_message(msg_kind(), Targets::[pos_integer()], Msg::binary(), #state{}) -> {[msg_key()], #state{}}.
+store_message(Kind, Indexes, Msg, State=#state{store=Store}) ->
+    NewKeys = lists:map(fun(I) -> mk_message_key(Kind, I) end, Indexes),
+    StateEntry = case Kind of
+                   ?INBOUND -> #state.in_keys;
+                   ?OUTBOUND -> #state.out_keys
+               end,
+    NewStateKeys = lists:foldl(fun({Index, NewKey}, Acc) ->
+                                       bitcask:put(Store, NewKey, Msg),
+                                       case lists:keyfind(Index, 1, Acc) of
+                                           {Index, Keys} ->
+                                               lists:keyreplace(Index, 1, Acc,
+                                                               {Index, lists:append(Keys, [NewKey])});
+                                           false ->
+                                               lists:keystore(Index, 1, Acc,
+                                                             {Index, [NewKey]})
+                                       end
+                               end,
+                               element(StateEntry, State),
+                               lists:zip(Indexes, NewKeys)),
+    {NewKeys, setelement(StateEntry, State, NewStateKeys)}.
 
 
--spec store_message(msg_kind(), Targets::[pos_integer()], Msg::binary(), #state{}) -> [msg_key()].
-store_message(_Kind, [], _Msg, #state{}) ->
-    [];
-store_message(Kind, [Index | Tail], Msg, State=#state{store=Store}) ->
-    MsgKey = mk_message_key(Kind, Index),
-    bitcask:put(Store, MsgKey, Msg),
-    [MsgKey | store_message(Kind, Tail, Msg, State)].
 
 
--spec delete_message(msg_key(), #state{}) -> ok.
-delete_message(Key, #state{store=Store}) ->
-    bitcask:delete(Store, Key).
+-spec delete_message(msg_key(), #state{}) -> #state{}.
+delete_message(Key, State=#state{store=Store}) ->
+    bitcask:delete(Store, Key),
+    <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8,
+      Kind:8/integer-unsigned, Index:16/integer-unsigned>> = Key,
+    StateEntry = case Kind of
+                   ?INBOUND -> #state.in_keys;
+                   ?OUTBOUND -> #state.out_keys
+               end,
+    StateKeys = element(StateEntry, State),
+    NewStateKeys = case lists:keyfind(Index, 1, StateKeys) of
+                       false -> StateKeys;
+                       {Index, Keys} ->
+                           lists:keyreplace(Index, 1, StateKeys,
+                                           {Index, lists:delete(Key, Keys)})
+                   end,
+    setelement(StateEntry, State, NewStateKeys).
 
 -spec lookup_messages(msg_kind(), [pos_integer()], #state{}) -> [{pos_integer(), [msg_key()]}].
-lookup_messages(Kind, Indices, #state{store=Store}) ->
+lookup_messages(Kind, Indices, State=#state{}) ->
     IndexSet = sets:from_list(Indices),
     %% lager:debug("BitcaskStatus: ~p", [bitcask:status(Store)]),
     %% StartTime = os:timestamp(),
-    Res = bitcask:fold_keys(Store,
-                            fun(#bitcask_entry{key=Key}, Acc) ->
-                                    case Key of
-                                        <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8,
-                                          Kind:8/integer-unsigned, Index:16/integer-unsigned>> ->
-                                            case sets:is_element(Index, IndexSet) of
-                                                false -> Acc;
-                                                true ->
-                                                    Keys = case lists:keyfind(Index, 1, Acc) of
-                                                               false -> [];
-                                                               {Index, L} -> L
-                                                           end,
-                                                    NewKeys = lists:sort(fun sort_message_keys/2, [Key | Keys]),
-                                                    lists:keystore(Index, 1, Acc, {Index, NewKeys})
-                                            end;
-                                        _ -> Acc
-                                    end
-                            end,
-                            []),
+    StateEntry = case Kind of
+                   %% ?INBOUND -> #state.in_keys;
+                   ?OUTBOUND -> #state.out_keys
+               end,
+    Res = lists:filter(fun({_Index, []}) -> false;
+                          ({Index, _}) -> sets:is_element(Index, IndexSet)
+                       end,
+                       element(StateEntry, State)),
     %% lager:debug("BitcaskFoldTime: ~p", [timer:now_diff(os:timestamp(), StartTime)]),
     Res.
 
 send_messages([], State=#state{}) ->
     State;
 send_messages([{unicast, Index, Msg} | Tail], State=#state{}) ->
-    store_message(?OUTBOUND, [Index], Msg, State),
-    send_messages(Tail, dispatch_next_messages([Index], State));
+    {_, NewState} = store_message(?OUTBOUND, [Index], Msg, State),
+    send_messages(Tail, dispatch_next_messages([Index], NewState));
 send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers, self_index=_SelfIndex}) ->
     Indexes = lists:seq(1, length(Workers)),
     %% lager:debug("~p STORED MULTICAST: ~p", [SelfIndex, base58:binary_to_base58(Key)]),
-    store_message(?OUTBOUND, Indexes, Msg, State),
-    NewState = dispatch_next_messages(Indexes, State),
-    send_messages(Tail, NewState).
+    {_, NewState} = store_message(?OUTBOUND, Indexes, Msg, State),
+    send_messages(Tail, dispatch_next_messages(Indexes, NewState)).
 
 %% Tests
 %%
@@ -339,22 +350,23 @@ send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers, self_inde
 
 store_delete_test() ->
     Store = bitcask:open(lib:nonl(os:cmd("mktemp -d")), [read_write]),
-    State = #state{workers=lists:seq(1, 5), store=Store},
-    [InKey] = store_message(?INBOUND, [0], <<"hello">>, State),
-    ok = delete_message(InKey, State),
+    State0 = #state{workers=lists:seq(1, 5), store=Store},
+    {[InKey], State1} = store_message(?INBOUND, [0], <<"hello">>, State0),
+    State2 = delete_message(InKey, State1),
 
-    [OutKey1, OutKey3] = store_message(?OUTBOUND, [1, 3], <<"outbound">>, State),
-    ?assertEqual([{1, [OutKey1]}], lookup_messages(?OUTBOUND, [1], State)),
-    ?assertEqual([{3, [OutKey3]}], lookup_messages(?OUTBOUND, [3], State)),
+    {[OutKey1, OutKey3], State3} = store_message(?OUTBOUND, [1, 3], <<"outbound">>, State2),
+    {[OutKey12, OutKey32], State4} = store_message(?OUTBOUND, [1, 3], <<"outbound2">>, State3),
+    ?assertEqual([{1, [OutKey1, OutKey12]}], lookup_messages(?OUTBOUND, [1], State4)),
+    ?assertEqual([{3, [OutKey3, OutKey32]}], lookup_messages(?OUTBOUND, [3], State4)),
 
-    ok = delete_message(OutKey1, State),
+    State5 = delete_message(OutKey1, State4),
     not_found = bitcask:get(Store, OutKey1),
     {ok, _} = bitcask:get(Store, OutKey3),
-    ?assertEqual([], lookup_messages(?OUTBOUND, [1], State)),
+    ?assertEqual([{1, [OutKey12]}], lookup_messages(?OUTBOUND, [1], State5)),
 
-    ok = delete_message(OutKey3, State),
+    State6 = delete_message(OutKey3, State5),
     not_found = bitcask:get(Store, OutKey3),
-    ?assertEqual([], lookup_messages(?OUTBOUND, [3], State)),
+    ?assertEqual([{3, [OutKey32]}], lookup_messages(?OUTBOUND, [3], State6)),
     ok.
 
 -endif.
