@@ -65,7 +65,7 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
     case Handler:init(HandlerArgs) of
         {ok, Addrs, HandlerState} ->
             DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
-            case bitcask:open(DataDir, [read_write]) of
+            case bitcask:open(DataDir, [read_write, {max_file_size, 10*1024*1024}]) of
                 {error, Reason} -> {stop, {error, Reason}};
                 Ref ->
                     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
@@ -92,7 +92,7 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
     end.
 
 recover_msg_cache(Ref) ->
-    {A, B} = bitcask:fold(Ref, fun(Key, _Value, {OutKeys, InKeys}=Acc) ->
+    {A, B} = bitcask:fold_keys(Ref, fun(#bitcask_entry{key = Key}, {OutKeys, InKeys}=Acc) ->
                                        case Key of
                                            <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>> when
                                                  Kind == ?INBOUND ->
@@ -140,12 +140,12 @@ handle_call({handle_data, Index, Msg}, From, State0=#state{handler=Handler, hand
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
         {NewHandlerState, Action} when Action == ok; Action == defer ->
-            ok = bitcask:put(State0#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
+            save_state(State0#state.store, Handler, HandlerState, NewHandlerState),
             _Reply = gen_server:reply(From, Action),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, _Reply]),
             {noreply, delete_message(MsgKey, State#state{handler_state=NewHandlerState})};
         {NewHandlerState, {send, Messages}=_Action} ->
-            ok = bitcask:put(State0#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
+            save_state(State0#state.store, Handler, HandlerState, NewHandlerState),
             _Reply = gen_server:reply(From, ok),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, _Action, _Reply]),
             %% lager:debug("MessageSize: ~p", [length(Messages)]),
@@ -167,10 +167,10 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{workers=Workers}) -
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
     case Handler:handle_input(Msg, HandlerState) of
         {NewHandlerState, ok} ->
-            ok = bitcask:put(State#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
+            save_state(State#state.store, Handler, HandlerState, NewHandlerState),
             {noreply, State#state{handler_state=NewHandlerState}};
         {NewHandlerState, {send, Messages}} ->
-            ok = bitcask:put(State#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
+            save_state(State#state.store, Handler, HandlerState, NewHandlerState),
             %% Send messages
             NewState = send_messages(Messages, State),
             %% TODO: Store HandlerState
@@ -225,6 +225,26 @@ terminate(_Reason, #state{store=Store}) ->
 
 %% Internal
 %%
+
+save_state(_Store, _Handler, HandlerState, HandlerState) ->
+    ok;
+save_state(Store, Handler, _OldHandlerState, NewHandlerState) ->
+    {KeyCount, Summary} = bitcask:status(Store),
+    FragPer = lists:sum([ Frag || {_, Frag, _, _} <- Summary ]) / max(1, length(Summary)),
+    lager:info("bitcask status ~p keys, ~p files ~p fragmented ~p delete queue", [KeyCount, length(Summary), FragPer, bitcask_merge_delete:queue_length()]), 
+    Empty =  [ Frag || {_, Frag, _, _} <- Summary, Frag == 100],
+    case length(Empty) > 10 of
+        true ->
+            CaskDir = filename:dirname(element(1, hd(Summary))),
+            Res = bitcask:merge(CaskDir),
+            bitcask_merge_delete:testonly__delete_trigger(),
+            lager:info("forcing a bitcask merge on ~p ~p", [CaskDir, Res]);
+        false ->
+            ok
+    end,
+    case bitcask:put(Store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)) of
+        ok -> ok
+    end.
 
 -spec start_workers([string()], #state{}) -> [worker_info()].
 start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
