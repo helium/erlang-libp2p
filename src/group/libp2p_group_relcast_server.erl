@@ -72,15 +72,51 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
                     SelfAddr = libp2p_swarm:address(TID),
                     case lists:keyfind(SelfAddr, 2, lists:zip(lists:seq(1, length(Addrs)), Addrs)) of
                         {SelfIndex, SelfAddr} ->
+                            {OutKeys, InKeys} = recover_msg_cache(Ref),
+                            RecoveredHandlerState = case bitcask:get(Ref, <<"handler_state">>) of
+                                                        {ok, Value} ->
+                                                            Handler:deserialize_state(Value);
+                                                        _ ->
+                                                            HandlerState
+                                                    end,
                             {ok, #state{sup=Sup, tid=TID, group_id=GroupID,
                                         self_index=SelfIndex,
-                                        handler=Handler, handler_state=HandlerState, store=Ref}};
+                                        out_keys=OutKeys,
+                                        in_keys=InKeys,
+                                        handler=Handler, handler_state=RecoveredHandlerState, store=Ref}};
                         false ->
                             {stop, {error, {not_found, SelfAddr}}}
                     end
             end;
         {error, Reason} -> {stop, {error, Reason}}
     end.
+
+recover_msg_cache(Ref) ->
+    {A, B} = bitcask:fold(Ref, fun(Key, _Value, {OutKeys, InKeys}=Acc) ->
+                                       case Key of
+                                           <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>> when
+                                                 Kind == ?INBOUND ->
+                                               {OutKeys, [{{Time, Offset}, {Index, Key}}|InKeys]};
+                                           <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>> when
+                                                 Kind == ?OUTBOUND ->
+                                               {[{{Time, Offset}, {Index, Key}}|OutKeys], InKeys};
+                                           _ ->
+                                               Acc
+                                       end
+                               end, {[], []}),
+    {sort_and_group_keys(A), sort_and_group_keys(B)}.
+
+sort_and_group_keys(Input) ->
+    lists:foldl(fun({_Order, {Index, Key}}, Acc) ->
+                        case lists:keyfind(Index, 1, Acc) of
+                            {Index, Keys} ->
+                                lists:keyreplace(Index, 1, Acc,
+                                                 {Index, lists:append(Keys, [Key])});
+                            false ->
+                                lists:keystore(Index, 1, Acc,
+                                               {Index, [Key]})
+                        end
+                end, [], lists:keysort(1, Input)).
 
 handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
@@ -104,10 +140,12 @@ handle_call({handle_data, Index, Msg}, From, State0=#state{handler=Handler, hand
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
         {NewHandlerState, Action} when Action == ok; Action == defer ->
+            ok = bitcask:put(State0#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
             _Reply = gen_server:reply(From, Action),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, _Reply]),
             {noreply, delete_message(MsgKey, State#state{handler_state=NewHandlerState})};
         {NewHandlerState, {send, Messages}=_Action} ->
+            ok = bitcask:put(State0#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
             _Reply = gen_server:reply(From, ok),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, _Action, _Reply]),
             %% lager:debug("MessageSize: ~p", [length(Messages)]),
@@ -129,8 +167,10 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{workers=Workers}) -
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
     case Handler:handle_input(Msg, HandlerState) of
         {NewHandlerState, ok} ->
+            ok = bitcask:put(State#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
             {noreply, State#state{handler_state=NewHandlerState}};
         {NewHandlerState, {send, Messages}} ->
+            ok = bitcask:put(State#state.store, <<"handler_state">>, Handler:serialize_state(NewHandlerState)),
             %% Send messages
             NewState = send_messages(Messages, State),
             %% TODO: Store HandlerState
@@ -367,6 +407,40 @@ store_delete_test() ->
     State6 = delete_message(OutKey3, State5),
     not_found = bitcask:get(Store, OutKey3),
     ?assertEqual([{3, [OutKey32]}], lookup_messages(?OUTBOUND, [3], State6)),
+    ok.
+
+store_recover_test() ->
+    Store = bitcask:open(lib:nonl(os:cmd("mktemp -d")), [read_write]),
+    State0 = #state{workers=lists:seq(1, 5), store=Store},
+    {[InKey], State1} = store_message(?INBOUND, [0], <<"hello">>, State0),
+    {OutKeys0, InKeys0} = recover_msg_cache(Store),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State1#state.in_keys), Y /= []], lists:keysort(1, InKeys0)),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State1#state.out_keys), Y /= []], lists:keysort(1, OutKeys0)),
+    State2 = delete_message(InKey, State1),
+
+    {[OutKey1, OutKey3], State3} = store_message(?OUTBOUND, [1, 3], <<"outbound">>, State2),
+    {[_OutKey12, OutKey32], State4} = store_message(?OUTBOUND, [1, 3], <<"outbound2">>, State3),
+
+    {OutKeys, InKeys} = recover_msg_cache(Store),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State4#state.in_keys), Y /= []], lists:keysort(1, InKeys)),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State4#state.out_keys), Y /= []], lists:keysort(1, OutKeys)),
+
+    State5 = delete_message(OutKey1, State4),
+    not_found = bitcask:get(Store, OutKey1),
+    {ok, _} = bitcask:get(Store, OutKey3),
+
+    {OutKeys2, InKeys2} = recover_msg_cache(Store),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State5#state.in_keys), Y /= []], lists:keysort(1, InKeys2)),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State5#state.out_keys), Y /= []], lists:keysort(1, OutKeys2)),
+
+
+    State6 = delete_message(OutKey3, State5),
+    not_found = bitcask:get(Store, OutKey3),
+    ?assertEqual([{3, [OutKey32]}], lookup_messages(?OUTBOUND, [3], State6)),
+
+    {OutKeys3, InKeys3} = recover_msg_cache(Store),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State6#state.in_keys), Y /= []], lists:keysort(1, InKeys3)),
+    ?assertEqual([ {X, Y} || {X, Y} <- lists:keysort(1, State6#state.out_keys), Y /= []], lists:keysort(1, OutKeys3)),
     ok.
 
 -endif.
