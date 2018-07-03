@@ -35,10 +35,7 @@ all() ->
 init_per_testcase(_, Config) ->
     test_util:setup(),
     lager:set_loglevel(lager_console_backend, info),
-    {ok, Swarm} = libp2p_swarm:start(?MODULE, [{libp2p_transport_tcp, [{nat, false}]}]),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
-    [Addr] = libp2p_swarm:listen_addrs(Swarm),
-    [{swarm, Swarm}, {addr, Addr} | Config].
+    Config.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -46,9 +43,8 @@ init_per_testcase(_, Config) ->
 %%   Special end config for test case
 %% @end
 %%--------------------------------------------------------------------
-end_per_testcase(_, Config) ->
-    Swarm = proplists:get_value(swarm, Config),
-    test_util:teardown_swarms([Swarm]).
+end_per_testcase(_, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -59,24 +55,35 @@ end_per_testcase(_, Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic(Config) ->
-    Addr = proplists:get_value(addr, Config),
-    lager:notice("address ~p", [Addr]),
+basic(_Config) ->
+    SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
+    {ok, ASwarm} = libp2p_swarm:start(a, SwarmOpts),
+    {ok, BSwarm} = libp2p_swarm:start(b, SwarmOpts),
+    {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
 
-    {ok, Swarm} = libp2p_swarm:start(basic, [{libp2p_transport_tcp, [{nat, false}]}]),
-    % erlang:spawn(fun() ->
-    %     _ = erlang:monitor(process, Swarm),
-    %     receive
-    %         Msg ->
-    %             lager:warning("[~p:~p:~p] MARKER ~p", [?MODULE_STRING, ?FUNCTION_NAME, ?LINE, Msg])
-    %     end
-    % end),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/0"),
 
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
-    libp2p_relay:dial(Swarm, Addr, []),
+    [RAddress] = libp2p_swarm:listen_addrs(RSwarm),
+
+    % A dials R
+    libp2p_relay:dial(ASwarm, RAddress, []),
+    % Waiting for connection
     timer:sleep(2000),
-    lager:warning("[~p:~p:~p] MARKER ~p", [?MODULE, ?FUNCTION_NAME, ?LINE, libp2p_swarm:listen_addrs(Swarm)]),
+
+    % Once relay is established get relay address from A's peerbook
+    [_, ARelayAddress|_] = libp2p_swarm:listen_addrs(ASwarm),
+    [A, _B] = string:split(ARelayAddress, "/p2p-circuit"),
+    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, 1]),
+    % B dials A via the relay address (so dialing R realy)
+    {ok, Conn} = libp2p_relay:dial(BSwarm, A, [{relay, ARelayAddress}]),
+    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, Conn]),
+    % libp2p_framed_stream:client(libp2p_stream_relay, Conn, [{swarm, BSwarm}]),
+    timer:sleep(2000),
+
     ok.
+
 
 
 
