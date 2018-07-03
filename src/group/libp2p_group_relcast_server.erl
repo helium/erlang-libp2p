@@ -65,7 +65,9 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
     case Handler:init(HandlerArgs) of
         {ok, Addrs, HandlerState} ->
             DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
-            case bitcask:open(DataDir, [read_write, {max_file_size, 10*1024*1024}]) of
+            case bitcask:open(DataDir, [read_write, {max_file_size, 100*1024*1024},
+                                        {dead_bytes_merge_trigger, 25*1024*1024},
+                                        {dead_bytes_threshold, 12*1024*1024}]) of
                 {error, Reason} -> {stop, {error, Reason}};
                 Ref ->
                     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
@@ -140,12 +142,12 @@ handle_call({handle_data, Index, Msg}, From, State0=#state{handler=Handler, hand
     %% Pass on to handler
     case Handler:handle_message(Index, Msg, HandlerState) of
         {NewHandlerState, Action} when Action == ok; Action == defer ->
-            save_state(State0#state.store, Handler, HandlerState, NewHandlerState),
+            save_state(State0, Handler, HandlerState, NewHandlerState),
             _Reply = gen_server:reply(From, Action),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, Action, _Reply]),
             {noreply, delete_message(MsgKey, State#state{handler_state=NewHandlerState})};
         {NewHandlerState, {send, Messages}=_Action} ->
-            save_state(State0#state.store, Handler, HandlerState, NewHandlerState),
+            save_state(State0, Handler, HandlerState, NewHandlerState),
             _Reply = gen_server:reply(From, ok),
             %% lager:debug("From: ~p, Action: ~p, Reply: ~p", [From, _Action, _Reply]),
             %% lager:debug("MessageSize: ~p", [length(Messages)]),
@@ -167,10 +169,10 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{workers=Workers}) -
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
     case Handler:handle_input(Msg, HandlerState) of
         {NewHandlerState, ok} ->
-            save_state(State#state.store, Handler, HandlerState, NewHandlerState),
+            save_state(State, Handler, HandlerState, NewHandlerState),
             {noreply, State#state{handler_state=NewHandlerState}};
         {NewHandlerState, {send, Messages}} ->
-            save_state(State#state.store, Handler, HandlerState, NewHandlerState),
+            save_state(State, Handler, HandlerState, NewHandlerState),
             %% Send messages
             NewState = send_messages(Messages, State),
             %% TODO: Store HandlerState
@@ -226,14 +228,31 @@ terminate(_Reason, #state{store=Store}) ->
 %% Internal
 %%
 
-save_state(_Store, _Handler, HandlerState, HandlerState) ->
+save_state(_State, _Handler, HandlerState, HandlerState) ->
     ok;
-save_state(Store, Handler, _OldHandlerState, NewHandlerState) ->
+save_state(State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerState) ->
     {KeyCount, Summary} = bitcask:status(Store),
     FragPer = lists:sum([ Frag || {_, Frag, _, _} <- Summary ]) / max(1, length(Summary)),
-    lager:info("bitcask status ~p keys, ~p files ~p fragmented ~p delete queue", [KeyCount, length(Summary), FragPer, bitcask_merge_delete:queue_length()]), 
     Empty =  [ Frag || {_, Frag, _, _} <- Summary, Frag == 100],
-    case length(Empty) > 10 of
+
+    {_, IKs} = lists:unzip(State#state.in_keys),
+    {_, OKs} = lists:unzip(State#state.out_keys),
+
+
+    {O, I} = bitcask:fold_keys(Store, fun(#bitcask_entry{key = Key}, {OutKeys, InKeys}=Acc) ->
+                                       case Key of
+                                           <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
+                                                 Kind == ?INBOUND ->
+                                               {OutKeys, InKeys+1};
+                                           <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
+                                                 Kind == ?OUTBOUND ->
+                                               {OutKeys+1, InKeys};
+                                           _ ->
+                                               Acc
+                                       end
+                               end, {0, 0}),
+    lager:info("bitcask status ~p keys (~p outbound (~p in state), ~p inbound (~p in state)), ~p files (~p empty), ~p fragmented, ~p delete queue", [KeyCount, O, length(lists:flatten(OKs)), I, length(lists:flatten(IKs)), length(Summary), length(Empty), FragPer, bitcask_merge_delete:queue_length()]), 
+    case length(Empty) > 0 of
         true ->
             CaskDir = filename:dirname(element(1, hd(Summary))),
             Res = bitcask:merge(CaskDir),
@@ -381,7 +400,7 @@ lookup_messages(Kind, Indices, State=#state{}) ->
     %% lager:debug("BitcaskStatus: ~p", [bitcask:status(Store)]),
     %% StartTime = os:timestamp(),
     StateEntry = case Kind of
-                   %% ?INBOUND -> #state.in_keys;
+                   ?INBOUND -> #state.in_keys;
                    ?OUTBOUND -> #state.out_keys
                end,
     Res = lists:filter(fun({_Index, []}) -> false;
