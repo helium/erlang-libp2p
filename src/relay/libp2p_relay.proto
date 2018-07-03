@@ -6,10 +6,16 @@ message RelayResp {
     optional bytes address = 1;
 }
 
+message RelayBridge {
+    required bytes from = 1;
+    required bytes to = 2;
+}
+
 message RelayEnvelope {
     required bytes id = 1;
     oneof data {
         RelayReq relayReq = 2;
         RelayResp relayResp = 3;
+        RelayBridge relayBridge = 4;
     }
 }
