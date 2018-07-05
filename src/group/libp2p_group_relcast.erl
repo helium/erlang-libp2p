@@ -31,4 +31,4 @@ get_opt(Opts, Key, Default) ->
 -spec info(pid()) -> map().
 info(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
-    gen_server:call(Server, info).
+    gen_server:call(Server, info, infinity).

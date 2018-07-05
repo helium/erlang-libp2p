@@ -51,7 +51,7 @@ ack(Pid) ->
 
 %% libp2p_info
 info(Pid) ->
-    gen_statem:call(Pid, info).
+    gen_statem:call(Pid, info, infinity).
 
 %% gen_statem
 %%

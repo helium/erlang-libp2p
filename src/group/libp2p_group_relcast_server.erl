@@ -43,7 +43,7 @@ handle_ack(Pid, Index) ->
     erlang:send(Pid, {handle_ack, Index}).
 
 info(Pid) ->
-    gen_server:call(Pid, info).
+    gen_server:call(Pid, info, infinity).
 
 
 %% libp2p_ack_stream
