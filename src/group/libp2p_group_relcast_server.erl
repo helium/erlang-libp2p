@@ -166,7 +166,7 @@ handle_call(workers, _From, State=#state{}) ->
     {reply, workers(State), State};
 handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler}) ->
     WorkerInfo = lists:foldl(fun({_, self}, Acc) -> Acc;
-                                (Other, Acc) -> [Other | Acc]
+                                ({Addr, Pid}, Acc) -> [{Addr, libp2p_group_worker:info(Pid)} | Acc]
                              end, [], workers(State)),
     GroupInfo = #{
                   module => ?MODULE,
