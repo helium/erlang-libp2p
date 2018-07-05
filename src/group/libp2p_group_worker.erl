@@ -191,8 +191,8 @@ terminate(_Reason, _State, #data{session_monitor=Monitor, send_pid=SendPid, conn
 
 handle_event(info, {'EXIT', _, normal}, #data{}) ->
     keep_state_and_data;
-handle_event(call, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
-                                    send_pid=SendPid, session_monitor=SessionMonitor}) ->
+handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
+                                            send_pid=SendPid, session_monitor=SessionMonitor}) ->
     Info = #{
              module => ?MODULE,
              pid => self(),
@@ -210,7 +210,7 @@ handle_event(call, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
                      SendPid -> libp2p_framed_stream:info(SendPid)
                  end
             },
-    {keep_state, Data, [{reply, Info}]};
+    {keep_state, Data, [{reply, From, Info}]};
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.

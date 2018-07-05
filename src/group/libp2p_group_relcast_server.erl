@@ -166,14 +166,14 @@ handle_call(workers, _From, State=#state{}) ->
     {reply, workers(State), State};
 handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler}) ->
     WorkerInfo = lists:foldl(fun({_, self}, Acc) -> Acc;
-                                ({Addr, Pid}, Acc) -> [{Addr, libp2p_group_worker:info(Pid)} | Acc]
+                                ({_, Pid}, Acc) -> [ibp2p_group_worker:info(Pid) | Acc]
                              end, [], workers(State)),
     GroupInfo = #{
                   module => ?MODULE,
                   pid => self(),
                   group_id => GroupID,
                   handler => Handler,
-                  worker_info => maps:from_list(WorkerInfo)
+                  worker_info => WorkerInfo
                  },
     {reply, GroupInfo, State};
 handle_call(Msg, _From, State) ->
