@@ -230,28 +230,28 @@ terminate(_Reason, #state{store=Store}) ->
 
 save_state(_State, _Handler, HandlerState, HandlerState) ->
     ok;
-save_state(State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerState) ->
-    {KeyCount, Summary} = bitcask:status(Store),
-    FragPer = lists:sum([ Frag || {_, Frag, _, _} <- Summary ]) / max(1, length(Summary)),
+save_state(_State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerState) ->
+    {_KeyCount, Summary} = bitcask:status(Store),
+    %FragPer = lists:sum([ Frag || {_, Frag, _, _} <- Summary ]) / max(1, length(Summary)),
     Empty =  [ Frag || {_, Frag, _, _} <- Summary, Frag == 100],
 
-    {_, IKs} = lists:unzip(State#state.in_keys),
-    {_, OKs} = lists:unzip(State#state.out_keys),
+    %{_, IKs} = lists:unzip(State#state.in_keys),
+    %{_, OKs} = lists:unzip(State#state.out_keys),
 
 
-    {O, I} = bitcask:fold_keys(Store, fun(#bitcask_entry{key = Key}, {OutKeys, InKeys}=Acc) ->
-                                       case Key of
-                                           <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
-                                                 Kind == ?INBOUND ->
-                                               {OutKeys, InKeys+1};
-                                           <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
-                                                 Kind == ?OUTBOUND ->
-                                               {OutKeys+1, InKeys};
-                                           _ ->
-                                               Acc
-                                       end
-                               end, {0, 0}),
-    lager:info("bitcask status ~p keys (~p outbound (~p in state), ~p inbound (~p in state)), ~p files (~p empty), ~p fragmented, ~p delete queue", [KeyCount, O, length(lists:flatten(OKs)), I, length(lists:flatten(IKs)), length(Summary), length(Empty), FragPer, bitcask_merge_delete:queue_length()]), 
+    %{O, I} = bitcask:fold_keys(Store, fun(#bitcask_entry{key = Key}, {OutKeys, InKeys}=Acc) ->
+                                       %case Key of
+                                           %<<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
+                                                 %Kind == ?INBOUND ->
+                                               %{OutKeys, InKeys+1};
+                                           %<<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
+                                                 %Kind == ?OUTBOUND ->
+                                               %{OutKeys+1, InKeys};
+                                           %_ ->
+                                               %Acc
+                                       %end
+                               %end, {0, 0}),
+    %lager:info("bitcask status ~p keys (~p outbound (~p in state), ~p inbound (~p in state)), ~p files (~p empty), ~p fragmented, ~p delete queue", [KeyCount, O, length(lists:flatten(OKs)), I, length(lists:flatten(IKs)), length(Summary), length(Empty), FragPer, bitcask_merge_delete:queue_length()]), 
     case length(Empty) > 0 of
         true ->
             CaskDir = filename:dirname(element(1, hd(Summary))),
