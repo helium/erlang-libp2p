@@ -1,6 +1,7 @@
 -module(libp2p_group_worker).
 
 -behaviour(gen_statem).
+-behavior(libp2p_info).
 
 %% API
 -export([start_link/4, assign_target/2, assign_stream/3, send/3, ack/1]).
@@ -8,6 +9,9 @@
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
 -export([request_target/3, connect/3]).
+
+%% libp2p_info
+-export([info/1]).
 
 -define(SERVER, ?MODULE).
 
@@ -44,6 +48,10 @@ send(Pid, Ref, Data) ->
 -spec ack(pid()) -> ok.
 ack(Pid) ->
     gen_statem:cast(Pid, ack).
+
+%% libp2p_info
+info(Pid) ->
+    gen_statem:call(Pid, info).
 
 %% gen_statem
 %%
@@ -183,6 +191,26 @@ terminate(_Reason, _State, #data{session_monitor=Monitor, send_pid=SendPid, conn
 
 handle_event(info, {'EXIT', _, normal}, #data{}) ->
     keep_state_and_data;
+handle_event(call, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
+                                    send_pid=SendPid, session_monitor=SessionMonitor}) ->
+    Info = #{
+             module => ?MODULE,
+             pid => self(),
+             kind => Kind,
+             server => ServerPid,
+             target => Target,
+             session =>
+                 case SessionMonitor of
+                     {_, SessPid} -> SessPid;
+                     Other -> Other
+                 end,
+             stream_info =>
+                 case SendPid of
+                     undefined -> undefined;
+                     SendPid -> libp2p_framed_stream:info(SendPid)
+                 end
+            },
+    {keep_state, Data, [{reply, Info}]};
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.

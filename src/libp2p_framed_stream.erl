@@ -1,6 +1,7 @@
 -module(libp2p_framed_stream).
 
 -behavior(gen_server).
+-behavior(libp2p_info).
 
 
 % gen_server
@@ -8,6 +9,8 @@
 % API
 -export([client/3, server/3, server/4, send/2, send/3,
          close/1, close_state/1, addr_info/1]).
+%% libp2p_info
+-export([info/1]).
 
 -define(RECV_TIMEOUT, 5000).
 -define(SEND_TIMEOUT, 5000).
@@ -119,6 +122,14 @@ server(Connection, Path, _TID, [Module | Args]) ->
     server(Module, Connection, [Path | Args]).
 
 %%
+%% libp2p_info
+%%
+
+-spec info(pid()) -> map().
+info(Pid) ->
+    gen_server:call(Pid, info).
+
+%%
 %% Common
 %%
 
@@ -211,6 +222,14 @@ handle_call({send, Data, Timeout}, From, State=#state{kind=Kind, module=Module, 
         false ->
             {noreply, handle_resp_send({reply, From}, Data, Timeout, State)}
     end;
+handle_call(info, _From, State=#state{kind=Kind, module=Module}) ->
+    Info = #{
+             pid => self(),
+             module => ?MODULE,
+             kind => Kind,
+             handler => Module
+            },
+    {reply, Info, State};
 handle_call(Msg, From, State=#state{kind=Kind, module=Module, state=ModuleState0}) ->
     case erlang:function_exported(Module, handle_call, 4) of
         true -> case Module:handle_call(Kind, Msg, From, ModuleState0) of

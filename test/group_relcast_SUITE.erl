@@ -114,6 +114,8 @@ multicast_test(Config) ->
     Messages = receive_messages([]),
     2 = length(Messages),
 
+    true = is_map(libp2p_group_relcast:info(G1)),
+
     ok.
 
 
@@ -148,6 +150,7 @@ defer_test(Config) ->
     %% Which G1 should see as a message from G2
     [{handle_msg, 2, <<"hello2">>}] = receive_messages([], 1000),
 
+    true = is_map(libp2p_group_relcast:info(G1)),
     ok.
 
 

@@ -4,9 +4,10 @@
 
 -behavior(gen_server).
 -behavior(libp2p_ack_stream).
+-behavior(libp2p_info).
 
 %% API
--export([start_link/4, handle_input/2, handle_ack/2]).
+-export([start_link/4, handle_input/2, handle_ack/2, info/1]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
@@ -40,6 +41,9 @@ handle_input(Pid, Msg) ->
 
 handle_ack(Pid, Index) ->
     erlang:send(Pid, {handle_ack, Index}).
+
+info(Pid) ->
+    gen_server:call(Pid, info).
 
 
 %% libp2p_ack_stream
@@ -158,6 +162,20 @@ handle_call({handle_data, Index, Msg}, From, State0=#state{handler=Handler, hand
         {NewHandlerState, stop, Reason} ->
             {stop, Reason, NewHandlerState}
     end;
+handle_call(workers, _From, State=#state{}) ->
+    {reply, workers(State), State};
+handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler}) ->
+    WorkerInfo = lists:foldl(fun({_, self}, Acc) -> Acc;
+                                (Other, Acc) -> [Other | Acc]
+                             end, [], workers(State)),
+    GroupInfo = #{
+                  module => ?MODULE,
+                  pid => self(),
+                  group_id => GroupID,
+                  handler => Handler,
+                  worker_info => maps:from_list(WorkerInfo)
+                 },
+    {reply, GroupInfo, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
@@ -251,7 +269,7 @@ save_state(State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerSta
                                                Acc
                                        end
                                end, {0, 0}),
-    lager:info("bitcask status ~p keys (~p outbound (~p in state), ~p inbound (~p in state)), ~p files (~p empty), ~p fragmented, ~p delete queue", [KeyCount, O, length(lists:flatten(OKs)), I, length(lists:flatten(IKs)), length(Summary), length(Empty), FragPer, bitcask_merge_delete:queue_length()]), 
+    lager:info("bitcask status ~p keys (~p outbound (~p in state), ~p inbound (~p in state)), ~p files (~p empty), ~p fragmented, ~p delete queue", [KeyCount, O, length(lists:flatten(OKs)), I, length(lists:flatten(IKs)), length(Summary), length(Empty), FragPer, bitcask_merge_delete:queue_length()]),
     case length(Empty) > 0 of
         true ->
             CaskDir = filename:dirname(element(1, hd(Summary))),
@@ -296,6 +314,12 @@ ready_worker(Index, Ready, State=#state{workers=Workers}) ->
 
 lookup_worker(Index, #state{workers=Workers}) ->
     lists:keyfind(Index, 2, Workers).
+
+-spec workers(#state{}) -> [{string(), pid()}].
+workers(#state{workers=Workers}) ->
+    lists:map(fun({Addr, _, Worker, _}) ->
+                      {Addr, Worker}
+              end, Workers).
 
 -spec dispatch_ack(pos_integer(), #state{}) -> #state{}.
 dispatch_ack(Index, State=#state{self_index=SelfIndex}) ->
