@@ -132,7 +132,7 @@ handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
         false ->
             {reply, {error, not_found}, State};
         {_, SelfIndex, self, _} ->
-            {reply, {errror, bad_arg}, State};
+            {reply, {error, bad_arg}, State};
         {_, Index, Worker, _} ->
             libp2p_group_worker:assign_stream(Worker, MAddr, StreamPid),
             {reply, {ok, Index}, State}
@@ -166,7 +166,7 @@ handle_call(workers, _From, State=#state{}) ->
     {reply, workers(State), State};
 handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler}) ->
     WorkerInfo = lists:foldl(fun({_, self}, Acc) -> Acc;
-                                ({_, Pid}, Acc) -> [ibp2p_group_worker:info(Pid) | Acc]
+                                ({_, Pid}, Acc) -> [libp2p_group_worker:info(Pid) | Acc]
                              end, [], workers(State)),
     GroupInfo = #{
                   module => ?MODULE,

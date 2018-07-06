@@ -130,11 +130,18 @@ connect(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
     %% The connect process wend down for a non-normal reason. Set a
     %% timeout to try again.
     {keep_state, connect_retry(Data#data{connect_pid=undefined})};
-connect(info, {assign_session, _SessionPid},
-        #data{session_monitor=Monitor}) when Monitor /= undefined ->
+connect(info, {assign_session, SessionPid},
+        Data=#data{session_monitor=Monitor, send_pid=SendPid}) when Monitor /= undefined ->
     %% Attempting to assign a session when we already have one
-    lager:notice("Trying to assign a session while one is being monitored"),
-    keep_state_and_data;
+    case rand:uniform(2) of
+        1 ->
+            lager:notice("Trying to assign a session while one is being monitored with send_pid ~p", [SendPid]),
+            keep_state_and_data;
+        _ ->
+            connect(info, {assign_session, SessionPid},
+                    Data#data{session_monitor=monitor_session(Monitor, undefined),
+                              send_pid=update_send_pid(undefined, Data)})
+    end;
 connect(info, {assign_session, SessionPid},
         Data=#data{session_monitor=Monitor=undefined, client_spec=undefined}) ->
     %% Assign a session without a client spec. Just monitor the
@@ -146,6 +153,8 @@ connect(info, {assign_session, SessionPid},
     %% Assign session with a client spec. Start client
     case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of
         {ok, StreamPid} ->
+            lager:info("Created stream ~p in session ~p addr_info ~p",
+                       [StreamPid, SessionPid, libp2p_framed_stream:addr_info(StreamPid)]),
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
                                    send_pid=update_send_pid(StreamPid, Data)}};
         {error, Error} ->
@@ -153,18 +162,33 @@ connect(info, {assign_session, SessionPid},
             {keep_state, connect_retry(Data#data{session_monitor=monitor_session(Monitor, undefined),
                                                  send_pid=update_send_pid(undefined, Data)})}
     end;
-connect(cast, {assign_stream, _MAddr, _StreamPid}, #data{send_pid=SendPid}) when SendPid /= undefined  ->
+connect(cast, {assign_stream, MAddr, StreamPid},
+        Data=#data{session_monitor=Monitor, send_pid=SendPid}) when SendPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
-    keep_state_and_data;
+    case rand:uniform(2) of
+        1 ->
+            lager:notice("Declining already assigned stream from ~p pid ~p addr_info ~p",
+                         [MAddr, StreamPid, libp2p_framed_stream:addr_info(StreamPid)]),
+            libp2p_framed_stream:close(StreamPid),
+            keep_state_and_data;
+        _ ->
+            connect(cast, {assign_stream, MAddr, StreamPid},
+                    Data#data{session_monitor=monitor_session(Monitor, undefined),
+                              send_pid=update_send_pid(undefined, Data)})
+    end;
 connect(cast, {assign_stream, MAddr, StreamPid},
         Data=#data{tid=TID, session_monitor=Monitor, send_pid=undefined}) ->
     %% Assign a stream. Monitor the session and remember the
-    %% connection
+    %% stream
     case libp2p_config:lookup_session(TID, MAddr) of
         {ok, SessionPid} ->
+            lager:info("Accepting assigned stream from ~p pid ~p addr_info ~p",
+                         [MAddr, StreamPid, libp2p_framed_stream:addr_info(StreamPid)]),
             {keep_state, Data#data{session_monitor=monitor_session(Monitor, SessionPid),
                                    send_pid=update_send_pid(StreamPid, Data)}};
         false ->
+            lager:notice("Declining stream from no session from ~p pid ~p", [MAddr, StreamPid]),
+            libp2p_framed_stream:close(StreamPid),
             keep_state_and_data
     end;
 connect(cast, {send, Ref, _Bin}, #data{server=Server, send_pid=undefined}) ->
