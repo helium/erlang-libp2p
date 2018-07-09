@@ -178,7 +178,7 @@ connect(cast, {assign_stream, MAddr, StreamPid},
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
-            lager:notice("Loser stream ~p (addr_info ~p) to assigned stream ~p pid ~p (addr_info ~p)",
+            lager:notice("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
                          [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
                           CurrentStreamPid, libp2p_framed_stream:addr_info(CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
