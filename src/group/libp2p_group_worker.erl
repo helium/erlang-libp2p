@@ -174,7 +174,7 @@ connect(info, {assign_session, SessionPid}, Data=#data{client_spec={Path, {M, A}
                                                  stream_monitor=monitor_stream(undefined, Data)})}
     end;
 connect(cast, {assign_stream, MAddr, StreamPid},
-        Data=#data{stream_monitor=StreamMonitor={_,CurrentStreamPid}}) when StreamMonitor /= undefined  ->
+        Data=#data{tid=TID, stream_monitor=StreamMonitor={_,CurrentStreamPid}}) when StreamMonitor /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
@@ -187,25 +187,18 @@ connect(cast, {assign_stream, MAddr, StreamPid},
             lager:info("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
                          [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
                           CurrentStreamPid, libp2p_framed_stream:addr_info(CurrentStreamPid)]),
-            libp2p_framed_stream:close(CurrentStreamPid),
-            connect(cast, {assign_stream, MAddr, StreamPid},
-                    Data#data{session_monitor=monitor_session(undefined, Data),
-                              stream_monitor=monitor_stream(undefined, Data)})
+            {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
+            {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
+                                   stream_monitor=monitor_stream(StreamPid, Data)}}
     end;
 connect(cast, {assign_stream, MAddr, StreamPid}, Data=#data{tid=TID}) ->
     %% Assign a stream. Monitor the session and remember the
     %% stream
-    case libp2p_config:lookup_session(TID, MAddr) of
-        {ok, SessionPid} ->
-            lager:info("Accepting assigned stream from ~p pid ~p addr_info ~p",
-                         [MAddr, StreamPid, libp2p_framed_stream:addr_info(StreamPid)]),
-            {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                                   stream_monitor=monitor_stream(StreamPid, Data)}};
-        false ->
-            lager:notice("Declining stream from no session from ~p pid ~p", [MAddr, StreamPid]),
-            libp2p_framed_stream:close(StreamPid),
-            keep_state_and_data
-    end;
+    {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
+    lager:info("Accepting assigned stream from ~p pid ~p addr_info ~p",
+               [MAddr, StreamPid, libp2p_framed_stream:addr_info(StreamPid)]),
+    {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
+                           stream_monitor=monitor_stream(StreamPid, Data)}};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_monitor=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
