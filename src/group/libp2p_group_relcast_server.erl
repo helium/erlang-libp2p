@@ -43,7 +43,7 @@ handle_ack(Pid, Index) ->
     erlang:send(Pid, {handle_ack, Index}).
 
 info(Pid) ->
-    gen_server:call(Pid, info, infinity).
+    gen_server:call(Pid, info).
 
 
 %% libp2p_ack_stream
@@ -203,12 +203,17 @@ handle_cast({send_ready, Index, Ready}, State0=#state{self_index=_SelfIndex}) ->
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
     %% lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
-    State1 = ready_worker(Index, Ready, State0),
-    case Ready of
-        true ->
-            {noreply, dispatch_next_messages([Index], State1)};
+    case is_ready_worker(Index, Ready, State0) of
+        false ->
+            State1 = ready_worker(Index, Ready, State0),
+            case Ready of
+                true ->
+                    {noreply, dispatch_next_messages([Index], State1)};
+                _ ->
+                    {noreply, State1}
+            end;
         _ ->
-            {noreply, State1}
+            {noreply, State0}
     end;
 handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}) ->
     %% Sent by group worker. Since we use an ack_stream the message
@@ -303,6 +308,12 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
                       sys:get_status(WorkerPid),
                       {Addr, Index, WorkerPid, false}
               end, lists:zip(lists:seq(1, length(TargetAddrs)), TargetAddrs)).
+
+is_ready_worker(Index, Ready, State=#state{}) ->
+    case lookup_worker(Index, State) of
+        {_, Index, _, Ready} -> Ready;
+        _ -> false
+    end.
 
 ready_worker(Index, Ready, State=#state{workers=Workers}) ->
     NewWorkers = case lists:keyfind(Index, 2, Workers) of

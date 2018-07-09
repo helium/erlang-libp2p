@@ -51,7 +51,7 @@ ack(Pid) ->
 
 %% libp2p_info
 info(Pid) ->
-    gen_statem:call(Pid, info, infinity).
+    gen_statem:call(Pid, info).
 
 %% gen_statem
 %%
@@ -144,12 +144,12 @@ connect(info, {assign_session, SessionPid},
     %% Attempting to assign a session when we already have one
     case rand:uniform(2) of
         1 ->
-            lager:notice("Trying to assign a session while one is being monitored with stream ~p",
-                         [StreamMonitor]),
+            lager:notice("Trying to assign a session ~p while one is being monitored with stream ~p",
+                         [SessionPid, StreamMonitor]),
             keep_state_and_data;
         _ ->
-            lager:info("Lucky winner overriding an assigned session with existing stream ~p",
-                       [StreamMonitor]),
+            lager:info("Lucky winner session ~p overriding an assigned session with existing stream ~p",
+                       [SessionPid, StreamMonitor]),
             connect(info, {assign_session, SessionPid},
                     Data#data{session_monitor=monitor_session(undefined, Data),
                               stream_monitor=monitor_stream(undefined, Data)})
@@ -178,12 +178,15 @@ connect(cast, {assign_stream, MAddr, StreamPid},
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
-            lager:notice("Declining already assigned stream from ~p pid ~p addr_info ~p",
-                         [MAddr, StreamPid, libp2p_framed_stream:addr_info(StreamPid)]),
+            lager:notice("Loser stream ~p (addr_info ~p) to assigned stream ~p pid ~p (addr_info ~p)",
+                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                          CurrentStreamPid, libp2p_framed_stream:addr_info(CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
             keep_state_and_data;
         _ ->
-            lager:info("Lucky winner overriding an assigned stream with existing ~p", [StreamMonitor]),
+            lager:info("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
+                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                          CurrentStreamPid, libp2p_framed_stream:addr_info(CurrentStreamPid)]),
             libp2p_framed_stream:close(CurrentStreamPid),
             connect(cast, {assign_stream, MAddr, StreamPid},
                     Data#data{session_monitor=monitor_session(undefined, Data),
