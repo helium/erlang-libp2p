@@ -258,7 +258,7 @@ dial(Sup, Addr, Path, Options, Timeout) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     case connect(Sup, Addr, Options, Timeout) of
         {error, Error} -> {error, Error};
-        {ok, SessionPid} ->libp2p_session:dial(Path, SessionPid)
+        {ok, SessionPid} -> libp2p_session:dial(Path, SessionPid)
     end.
 
 %% @doc Dial a remote swarm, negotiate a path and start a framed
