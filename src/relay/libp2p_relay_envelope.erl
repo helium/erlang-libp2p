@@ -47,7 +47,8 @@ encode(#libp2p_RelayEnvelope_pb{}=Env) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec create(binary(), libp2p_relay_req:relay_req()
-                       | libp2p_relay_resp:relay_resp()) -> relay_envelope().
+                       | libp2p_relay_resp:relay_resp()
+                       | libp2p_relay_bridge:relay_bridge()) -> relay_envelope().
 create(Id, #libp2p_RelayReq_pb{}=Data) ->
     #libp2p_RelayEnvelope_pb{
         id=Id
@@ -57,6 +58,11 @@ create(Id, #libp2p_RelayResp_pb{}=Data) ->
     #libp2p_RelayEnvelope_pb{
         id=Id
         ,data={relayResp, Data}
+    };
+create(Id, #libp2p_RelayBridge_pb{}=Data) ->
+    #libp2p_RelayEnvelope_pb{
+        id=Id
+        ,data={relayBridge, Data}
     }.
 
 %%--------------------------------------------------------------------
@@ -66,7 +72,8 @@ create(Id, #libp2p_RelayResp_pb{}=Data) ->
 %%--------------------------------------------------------------------
 -spec get(id | data, relay_envelope()) -> binary()
                                          | {relayReq, libp2p_relay_req:relay_req()}
-                                         | {relayResp, libp2p_relay_resp:relay_resp()}.
+                                         | {relayResp, libp2p_relay_resp:relay_resp()}
+                                         | {relayBridge, libp2p_relay_bridge:relay_bridge()}.
 get(id, Env) ->
     Env#libp2p_RelayEnvelope_pb.id;
 get(data, Env) ->
