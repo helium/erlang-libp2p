@@ -22,6 +22,7 @@ init([TID, SigFun]) ->
     % Add tcp and p2p as a default transports
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_tcp),
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_p2p),
+    libp2p_swarm:add_transport_handler(TID, libp2p_transport_relay),
     % Register the default connection handler
     libp2p_swarm:add_connection_handler(TID, "yamux/1.0.0",
                                         {{libp2p_yamux_session, start_server},
