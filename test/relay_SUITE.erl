@@ -99,9 +99,7 @@ basic(_Config) ->
             ct:fail(Error)
     end,
 
-    % libp2p_framed_stream:client(libp2p_stream_relay, Conn, [{swarm, BSwarm}]),
     timer:sleep(2000),
-
     ok.
 
 
