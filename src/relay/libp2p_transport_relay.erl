@@ -30,7 +30,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
     % TODO: This should not be forced to tcp will have to find a fix for that
     case libp2p_transport_tcp:connect(Pid, MAddr, Options, Timeout, TID) of
         {error, _Reason}=Error -> Error;
-        {ok, SessionPid}=OK ->
+        {ok, _SessionPid}=OK ->
             % TODO: create relay frame stream (B -> R) before doing anything else
             % then wait for A to connect to B
             OK
