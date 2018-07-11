@@ -43,7 +43,7 @@ handle_ack(Pid, Index) ->
     erlang:send(Pid, {handle_ack, Index}).
 
 info(Pid) ->
-    gen_server:call(Pid, info).
+    catch gen_server:call(Pid, info).
 
 %% libp2p_ack_stream
 handle_data(Pid, Ref, Bin) ->
@@ -97,18 +97,19 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
     end.
 
 recover_msg_cache(Ref) ->
-    {A, B} = bitcask:fold_keys(Ref, fun(#bitcask_entry{key = Key}, {OutKeys, InKeys}=Acc) ->
-                                       case Key of
-                                           <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>> when
-                                                 Kind == ?INBOUND ->
+    {A, B} = bitcask:fold_keys(Ref,
+                               fun(#bitcask_entry{key=Key}, {OutKeys, InKeys}=Acc) ->
+                                       <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>> = Key,
+                                       case Kind of
+                                           ?INBOUND ->
                                                {OutKeys, [{{Time, Offset}, {Index, Key}}|InKeys]};
-                                           <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>> when
-                                                 Kind == ?OUTBOUND ->
+                                           ?OUTBOUND ->
                                                {[{{Time, Offset}, {Index, Key}}|OutKeys], InKeys};
                                            _ ->
                                                Acc
                                        end
-                               end, {[], []}),
+                               end,
+                               {[], []}),
     {sort_and_group_keys(A), sort_and_group_keys(B)}.
 
 sort_and_group_keys(Input) ->
@@ -127,8 +128,8 @@ handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{work
     {reply, {error, not_ready}, State};
 handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys=OK}) ->
     Map = #{
-      in => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- IK ],
-      out => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- OK ]
+      in => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- IK ],
+      out => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- OK ]
      },
     {reply, Map, State};
 handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
@@ -169,16 +170,27 @@ handle_call({handle_data, Index, Msg}, From, State0=#state{handler=Handler, hand
     end;
 handle_call(workers, _From, State=#state{}) ->
     {reply, workers(State), State};
-handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler}) ->
-    WorkerInfo = lists:foldl(fun({_, self}, Acc) -> Acc;
-                                ({_, Pid}, Acc) -> [libp2p_group_worker:info(Pid) | Acc]
-                             end, [], workers(State)),
+handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler, workers=Workers}) ->
+    AddWorkerInfo = fun({_, _, self, _}, Map) ->
+                            maps:put(info, self, Map);
+                       ({_, _, Pid, true}, Map) ->
+                            maps:put(info, libp2p_group_worker:info(Pid), Map);
+                       ({_, _, _, false}, Map)->
+                            Map
+                    end,
+    WorkerInfos = lists:foldl(fun(WorkerInfo={_, Index, _, Ready}, Acc) ->
+                                      maps:put(Index,
+                                               AddWorkerInfo(WorkerInfo,
+                                                             #{ index => Index,
+                                                                ready => Ready}),
+                                               Acc)
+                              end, #{}, Workers),
     GroupInfo = #{
                   module => ?MODULE,
                   pid => self(),
                   group_id => GroupID,
                   handler => Handler,
-                  worker_info => WorkerInfo
+                  worker_info => WorkerInfos
                  },
     {reply, GroupInfo, State};
 handle_call(Msg, _From, State) ->

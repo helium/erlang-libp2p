@@ -121,14 +121,12 @@ connect(info, {'DOWN', SessionMonitor, process, _Pid, _Reason},
         Data=#data{session_monitor={SessionMonitor, _}}) ->
     %% The _session_ that this worker is monitoring went away. Set a
     %% timer to try again.
-    lager:info("Session ~p down, re-trying", [_Pid]),
     {keep_state, connect_retry(Data#data{session_monitor=undefined,
                                          stream_monitor=monitor_stream(undefined, Data)})};
 connect(info, {'DOWN', StreamMonitor, process, _Pid, _Reason},
         Data=#data{stream_monitor={StreamMonitor, _}}) ->
     %% The _stream_ that this worker is monitoring went away.
     %% Try creating the stream again
-    lager:info("Stream ~p down, re-trying", [_Pid]),
     {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
                                          stream_monitor=monitor_stream(undefined, Data)})};
 connect(info, {'DOWN', _, process, _, normal}, Data=#data{}) ->
@@ -148,8 +146,6 @@ connect(info, {assign_session, SessionPid},
                          [SessionPid, StreamMonitor]),
             keep_state_and_data;
         _ ->
-            lager:info("Lucky winner session ~p overriding an assigned session with existing stream ~p",
-                       [SessionPid, StreamMonitor]),
             connect(info, {assign_session, SessionPid},
                     Data#data{session_monitor=monitor_session(undefined, Data),
                               stream_monitor=monitor_stream(undefined, Data)})
@@ -164,8 +160,6 @@ connect(info, {assign_session, SessionPid}, Data=#data{client_spec={Path, {M, A}
     %% Assign session with a client spec. Start client
     case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of
         {ok, StreamPid} ->
-            lager:info("Created stream ~p in session ~p addr_info ~p",
-                       [StreamPid, SessionPid, libp2p_framed_stream:addr_info(StreamPid)]),
             {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                                    stream_monitor=monitor_stream(StreamPid, Data)}};
         {error, Error} ->
@@ -195,8 +189,6 @@ connect(cast, {assign_stream, MAddr, StreamPid}, Data=#data{tid=TID}) ->
     %% Assign a stream. Monitor the session and remember the
     %% stream
     {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
-    lager:info("Accepting assigned stream from ~p pid ~p addr_info ~p",
-               [MAddr, StreamPid, libp2p_framed_stream:addr_info(StreamPid)]),
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                            stream_monitor=monitor_stream(StreamPid, Data)}};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_monitor=undefined}) ->

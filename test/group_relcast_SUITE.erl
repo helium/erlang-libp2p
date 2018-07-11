@@ -112,7 +112,6 @@ multicast_test(Config) ->
     libp2p_group_relcast:handle_input(G1, <<"multicast">>),
 
     Messages = receive_messages([]),
-    lager:info("MESSAGES: ~p", [Messages]),
     2 = length(Messages),
 
     true = is_map(libp2p_group_relcast:info(G1)),

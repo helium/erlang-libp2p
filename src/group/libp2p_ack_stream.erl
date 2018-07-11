@@ -45,7 +45,6 @@ handle_data(_Kind, Data, State=#state{send_from=From, ack_ref=AckRef, ack_module
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{frame={data, Bin}} ->
             %% Inbound request to handle a message
-            lager:info("AckModule: ~p, From: ~p, AckState: ~p", [AckModule, From, AckState]),
             case AckModule:handle_data(AckState, AckRef, Bin) of
                 defer ->
                     %% Send back a defer message to keep the sender
@@ -64,24 +63,19 @@ handle_data(_Kind, Data, State=#state{send_from=From, ack_ref=AckRef, ack_module
             %% When we receive a defer we do _not_ reply back to teh
             %% original caller. This way we block the sender until the
             %% actual ack is received
-            lager:info("now in defer state"),
             {noreply, State};
         #libp2p_ack_frame_pb{frame={ack, ack}} when From /= undefined  ->
-            lager:info("acked message"),
             gen_server:reply(From, ok),
             {noreply, State#state{send_from=undefined}};
-        Other ->
-            lager:notice("Unexpacted ack frame: ~p", [Other]),
+        _Other ->
             {noreply, State}
     end.
 
 handle_send(_Kind, From, Data, Timeout, State=#state{send_from=undefined}) ->
     Msg = #libp2p_ack_frame_pb{frame={data, Data}},
-    lager:info("sending message"),
     {ok, noreply, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{send_from=From}}.
 
 
 handle_cast(_Kind, ack, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{frame={ack, ack}},
-    lager:info("sending ack"),
     {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.
