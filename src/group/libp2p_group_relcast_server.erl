@@ -125,10 +125,10 @@ sort_and_group_keys(Input) ->
 
 handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
-handle_call(dump_queues, _From, State) ->
+handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys=OK}) ->
     Map = #{
-      in => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(State#state.store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- State#state.in_keys ],
-      out => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(State#state.store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- State#state.out_keys ]
+      in => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- IK ],
+      out => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- OK ]
      },
     {reply, Map, State};
 handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
