@@ -45,7 +45,6 @@ handle_ack(Pid, Index) ->
 info(Pid) ->
     gen_server:call(Pid, info).
 
-
 %% libp2p_ack_stream
 handle_data(Pid, Ref, Bin) ->
     gen_server:call(Pid, {handle_data, Ref, Bin}, timer:seconds(30)).
@@ -126,6 +125,12 @@ sort_and_group_keys(Input) ->
 
 handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
+handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys=OK}) ->
+    Map = #{
+      in => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- IK ],
+      out => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), binary_to_term(Value) end, Keys)} || {Index, Keys} <- OK ]
+     },
+    {reply, Map, State};
 handle_call({accept_stream, MAddr, StreamPid, Path}, _From,
             State=#state{self_index=SelfIndex, workers=Workers}) ->
     case lists:keyfind(mk_multiaddr(Path), 1, Workers) of
