@@ -112,7 +112,8 @@ multicast_test(Config) ->
     libp2p_group_relcast:handle_input(G1, <<"multicast">>),
 
     Messages = receive_messages([]),
-    2 = length(Messages),
+    %% Messages are delivered at least once
+    true = length(Messages) >= 2,
 
     true = is_map(libp2p_group_relcast:info(G1)),
 
@@ -138,8 +139,8 @@ defer_test(Config) ->
 
     libp2p_group_relcast:handle_input(G1, <<"defer">>),
 
-    %% G2 should receive the message from G1 even though is defers it
-    [{handle_msg, 1, <<"defer">>}] = receive_messages([]),
+    %% G2 should receive the message at least once from G1 even though it defers it
+    [{handle_msg, 1, <<"defer">>} | _] = receive_messages([]),
 
     %% Then we ack it by telling G2 to ack for G1
     libp2p_group_relcast:handle_ack(G2, 1),
@@ -148,7 +149,7 @@ defer_test(Config) ->
     libp2p_group_relcast:handle_input(G2, <<"defer2">>),
 
     %% Which G1 should see as a message from G2
-    [{handle_msg, 2, <<"defer2">>}] = receive_messages([]),
+    [{handle_msg, 2, <<"defer2">>} | _] = receive_messages([]),
 
     true = is_map(libp2p_group_relcast:info(G1)),
     ok.
