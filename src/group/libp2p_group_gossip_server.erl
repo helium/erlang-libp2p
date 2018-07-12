@@ -92,7 +92,7 @@ handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=Drop
         [] ->  {noreply, State#state{drop_timer=schedule_drop_timer(DropTimeOut)}};
         ConnectedWorkers ->
             {Kind, WorkerPid, MAddr} = lists:nth(rand:uniform(length(ConnectedWorkers)), ConnectedWorkers),
-            lager:info("Timeout dropping 1 connection: ~p]", [MAddr]),
+            lager:debug("Timeout dropping 1 connection: ~p]", [MAddr]),
             {noreply, drop_target(Kind, WorkerPid, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
     end;
 handle_info(Msg, State) ->

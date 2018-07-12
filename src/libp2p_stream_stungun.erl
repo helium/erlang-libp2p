@@ -77,8 +77,7 @@ init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
 
 handle_data(client, Code, State=#client_state{txn_id=TxnID, handler=Handler, timeout=Ref}) ->
     erlang:cancel_timer(Ref),
-    {NatType, Info} = to_nat_type(Code),
-    lager:info(Info),
+    {NatType, _Info} = to_nat_type(Code),
     Handler ! {stungun_nat, TxnID, NatType},
     {stop, normal, State};
 
