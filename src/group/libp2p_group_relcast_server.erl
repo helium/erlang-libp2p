@@ -296,9 +296,9 @@ save_state(_State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerSt
     case length(Empty) > 0 of
         true ->
             CaskDir = filename:dirname(element(1, hd(Summary))),
-            Res = bitcask:merge(CaskDir),
-            bitcask_merge_delete:testonly__delete_trigger(),
-            lager:info("forcing a bitcask merge on ~p ~p", [CaskDir, Res]);
+            _Res = bitcask:merge(CaskDir),
+            bitcask_merge_delete:testonly__delete_trigger();
+            %% lager:debug("forcing a bitcask merge on ~p ~p", [CaskDir, Res]);
         false ->
             ok
     end,

@@ -10,7 +10,7 @@ negotiate_handler(Handlers, Path, Connection) ->
             lager:notice("Client handshake failed for ~p: ~p", [Path, Error]),
             {error, Error};
         ok ->
-            lager:info("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
+            lager:debug("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
             case libp2p_multistream_client:select_one(Handlers, 1, Connection) of
                 {error, Error} ->
                     lager:notice("Failed to negotiate handler for ~p: ~p", [Path, Error]),

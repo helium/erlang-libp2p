@@ -183,19 +183,19 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
     case take_stun_txn(TxnID, StunTxns) of
         error -> {noreply, State};
         {ObservedAddr, NewStunTxns} ->
-            lager:info("Got dial back confirmation of observed address ~p", [ObservedAddr]),
+            lager:debug("Got dial back confirmation of observed address ~p", [ObservedAddr]),
             case libp2p_config:lookup_listener(TID, LocalAddr) of
                 {ok, ListenerPid} ->
                     libp2p_config:insert_listener(TID, [ObservedAddr], ListenerPid);
                 false ->
-                    lager:warning("unable to determine listener pid for ~p", [LocalAddr])
+                    lager:notice("unable to determine listener pid for ~p", [LocalAddr])
             end,
             {noreply, State#state{stun_txns=NewStunTxns}}
     end;
 handle_info({record_listen_addr, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
-            lager:info("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
+            lager:debug("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
             libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
             {noreply, State};
         _ ->
@@ -408,7 +408,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     case is_observed_addr(ObservedAddr, ObservedAddrs) of
                         true ->
                             %% ok, we have independant confirmation of an observed address
-                            lager:info("received confirmation of observed address ~s", [ObservedAddr]),
+                            lager:debug("received confirmation of observed address ~s", [ObservedAddr]),
                             <<TxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
                             %% Record the TxnID , then convince a peer to dial us back with that TxnID
                             %% then that handler needs to forward the response back here, so we can add the external address
@@ -421,7 +421,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
                                         stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
                         false ->
-                            lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
+                            lager:debug("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
                     end
             end
@@ -436,7 +436,7 @@ maybe_spawn_nat_discovery(Handler, MultiAddrs, TID) ->
         true ->
             spawn_nat_discovery(Handler, MultiAddrs);
         _ ->
-            lager:warning("nat is disabled"),
+            lager:notice("nat is disabled"),
             ok
     end.
 
@@ -467,11 +467,11 @@ try_nat(Handler, {MultiAddr, _IP, Port}) ->
                     ExternalAddress = nat_external_address(Context),
                     Handler ! {record_listen_addr, MultiAddr, to_multiaddr({ExternalAddress, Port})};
                 {error, _Reason} ->
-                    lager:warning("unable to add nat mapping: ~p", [_Reason]),
+                    lager:notice("unable to add nat mapping: ~p", [_Reason]),
                     ok
             end;
         _ ->
-            lager:info("no nat discovered"),
+            lager:debug("no nat discovered"),
             ok
     end.
 

@@ -81,7 +81,7 @@ p2p_addr(MAddr, [{"p2p", Addr}]) ->
         {ok, libp2p_crypto:b58_to_address(Addr)}
     catch
         _What:Why ->
-            lager:warning("Invalid p2p address ~p: ~p", [MAddr, Why]),
+            lager:notice("Invalid p2p address ~p: ~p", [MAddr, Why]),
             {error, {invalid_address, MAddr}}
     end;
 p2p_addr(MAddr, _Protocols) ->
