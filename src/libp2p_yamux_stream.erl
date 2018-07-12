@@ -176,7 +176,7 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     case libp2p_yamux_session:send_header(Session, Header) of
         ok -> {next_state, connecting, Data};
         {error, _Reason} ->
-            lager:warning("Failed to send yamux session header ~p", [_Reason]),
+            lager:notice("Failed to send yamux session header ~p", [_Reason]),
             {stop, normal, Data}
     end;
 handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, stream_id=StreamID, tid=TID}) when ?FLAG_IS_SET(Flags, ?ACK) ->
@@ -184,7 +184,7 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
     Header=libp2p_yamux_session:header_update(Flags, StreamID, 0),
     case libp2p_yamux_session:send_header(Session, Header) of
         {error, _Reason} ->
-            lager:warning("Failed to send yamux session header ~p", [_Reason]),
+            lager:notice("Failed to send yamux session header ~p", [_Reason]),
             {stop, normal, Data};
         ok ->
             %% Start a multistream server to negotiate the handler
@@ -244,7 +244,7 @@ handle_event(info, send_timeout, established, Data=#state{}) ->
 handle_event(cast, {incoming_data, Bin}, _State, Data=#state{stream_id=StreamID}) ->
     case data_incoming(Bin, Data) of
         {error, Error} ->
-            lager:error("Failure to handle data for ~p: ~p", [StreamID, Error]),
+            lager:warning("Failure to handle data for ~p: ~p", [StreamID, Error]),
             {stop, {error, Error}, notify_inert(Data)};
          {ok, D} ->
             {keep_state, (data_recv_timeout_cancel(notify_inert(D)))}
@@ -294,7 +294,7 @@ handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
 % Catch all
 %
 handle_event(EventType, Event, State, #state{stream_id=StreamID}) ->
-    lager:error("Unhandled event for ~p (~p) ~p: ~p", [StreamID, State, Event, EventType]),
+    lager:warning("Unhandled event for ~p (~p) ~p: ~p", [StreamID, State, Event, EventType]),
     keep_state_and_data.
 
 

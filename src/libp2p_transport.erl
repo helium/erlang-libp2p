@@ -39,7 +39,7 @@ connect_to(Addr, Options, Timeout, TID) ->
                 {error, not_found} ->
                     case for_addr(TID, Addr) of
                         {ok, ConnAddr, {Transport, TransportPid}} ->
-                            lager:info("~p connecting to ~p", [Transport, ConnAddr]),
+                            lager:debug("~p connecting to ~p", [Transport, ConnAddr]),
                             try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
                                 {error, Error} -> {error, Error};
                                 {ok, SessionPid} -> {ok, SessionPid}

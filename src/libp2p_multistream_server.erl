@@ -76,12 +76,11 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
     end;
 handle_info(handshake, State=#state{connection=Conn}) ->
     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
-    lager:debug("Starting handshake with client ~p", [RemoteAddr]),
     case handshake(Conn) of
         ok ->
             fdset_return(Conn, State);
         {error, Error} ->
-            lager:error("Failed to handshake client ~p: ~p", [RemoteAddr, Error]),
+            lager:notice("Failed to handshake client ~p: ~p", [RemoteAddr, Error]),
             {stop, {error, Error}, State}
     end;
 handle_info(timeout, State) ->

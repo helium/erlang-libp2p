@@ -127,7 +127,7 @@ server(Connection, Path, _TID, [Module | Args]) ->
 
 -spec info(pid()) -> map().
 info(Pid) ->
-    gen_server:call(Pid, info).
+    catch gen_server:call(Pid, info).
 
 %%
 %% Common
@@ -168,7 +168,7 @@ handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
             %% in most cases.
             {stop, normal, State};
         {error, Error}  ->
-            lager:info("framed inert RECV ~p, ~p", [Error, Connection]),
+            lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State};
         {ok, Bin} ->
             case Module:handle_data(Kind, Bin, ModuleState0) of
