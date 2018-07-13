@@ -140,7 +140,7 @@ defer_test(Config) ->
     libp2p_group_relcast:handle_input(G1, <<"defer">>),
 
     %% G2 should receive the message at least once from G1 even though it defers it
-    [{handle_msg, 1, <<"defer">>} | _] = receive_messages([]),
+    true = lists:member({handle_msg, 1, <<"defer">>}, receive_messages([])),
 
     %% Then we ack it by telling G2 to ack for G1
     libp2p_group_relcast:handle_ack(G2, 1),
@@ -149,7 +149,7 @@ defer_test(Config) ->
     libp2p_group_relcast:handle_input(G2, <<"defer2">>),
 
     %% Which G1 should see as a message from G2
-    [{handle_msg, 2, <<"defer2">>} | _] = receive_messages([]),
+    true = lists:member({handle_msg, 2, <<"defer2">>}, receive_messages([])),
 
     true = is_map(libp2p_group_relcast:info(G1)),
     ok.
