@@ -209,9 +209,7 @@ handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=Han
             {noreply, State#state{handler_state=NewHandlerState}};
         {NewHandlerState, {send, Messages}} ->
             save_state(State, Handler, HandlerState, NewHandlerState),
-            %% Send messages
             NewState = send_messages(Messages, State),
-            %% TODO: Store HandlerState
             {noreply, NewState#state{handler_state=NewHandlerState}};
         {NewHandlerState, stop, Reason} ->
             {stop, Reason, NewHandlerState}
@@ -313,7 +311,10 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
     Path = lists:flatten([?GROUP_PATH_BASE, GroupID, "/",
                           libp2p_crypto:address_to_b58(libp2p_swarm:address(TID))]),
     lists:map(fun({Index, Addr}) when Index == SelfIndex ->
-                      #worker{target=Addr, index=Index, pid=self, ready=true};
+                      %% Dispatch a send_ready since there is no group
+                      %% worker for self to do so
+                      libp2p_group_server:send_ready(self(), SelfIndex, true),
+                      #worker{target=Addr, index=Index, pid=self, ready=false};
                   ({Index, Addr}) ->
                       ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self()]}},
                       {ok, WorkerPid} = supervisor:start_child(
