@@ -124,7 +124,7 @@ generate_full_key() ->
     end.
 
 save_load_test() ->
-    FileName = lib:nonl(os:cmd("mktemp")),
+    FileName = test_util:nonl(os:cmd("mktemp")),
     Keys = {PrivKey, PubKey} = generate_keys(),
     ok = libp2p_crypto:save_keys(Keys, FileName),
     {ok, LPrivKey, LPubKey} = load_keys(FileName),

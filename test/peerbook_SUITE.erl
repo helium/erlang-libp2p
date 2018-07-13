@@ -250,7 +250,7 @@ setup_peerbook(Config, Opts) ->
     ets:insert(TID, {swarm_name, Name}),
     {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
     ets:insert(TID, {swarm_address, CompactKey}),
-    TmpDir = lib:nonl(os:cmd("mktemp -d")),
+    TmpDir = test_util:nonl(os:cmd("mktemp -d")),
     ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, TmpDir})}),
     {ok, Pid} = libp2p_peerbook:start_link(TID, libp2p_crypto:mk_sig_fun(PrivKey)),
     [{peerbook, {Pid, CompactKey}} | Config].
