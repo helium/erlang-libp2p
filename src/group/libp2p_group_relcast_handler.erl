@@ -11,10 +11,7 @@
 
 -type handler_state() :: binary().
 
--type handler_result() ::
-        {State::handler_state(), ok} |
-        {State, {send, [message()]}} |
-        {State, stop, Reason::any()}.
+-type handler_result() :: {State::handler_state(), ok | defer | {send, [message()]}}.
 
 -type message() ::
         {unicast, Index::pos_integer(), Msg::binary()} |
