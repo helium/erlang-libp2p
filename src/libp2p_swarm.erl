@@ -274,7 +274,7 @@ dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     case connect(Sup, Addr, Options, Timeout) of
         {error, Error} -> {error, Error};
-        {ok, SessionPid} ->libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args)
+        {ok, SessionPid} -> libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args)
     end.
 
 -spec add_stream_handler(pid() | ets:tab(), string(), libp2p_session:stream_handler()) -> ok.
