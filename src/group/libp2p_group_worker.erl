@@ -75,13 +75,13 @@ init([Kind, ClientSpec, Server, TID]) ->
                             gen_statem:state_enter_result(request_target);
                     (gen_statem:event_type(), Msg :: term(), Data :: term()) ->
                             gen_statem:event_handler_result(atom()).
-request_target(enter, _, Data=#data{kind=Kind, server=Server}) ->
+request_target(enter, _, #data{kind=Kind, server=Server}) ->
     libp2p_group_server:request_target(Server, Kind, self()),
-    {next_state, request_target, Data, ?ASSIGN_RETRY};
+    {keep_state_and_data, ?ASSIGN_RETRY};
 request_target(timeout, _, #data{}) ->
     repeat_state_and_data;
 request_target(cast, {assign_target, undefined}, #data{}) ->
-    repeat_state_and_data;
+    {keep_state_and_data, ?ASSIGN_RETRY};
 request_target(cast, {assign_target, MAddr}, Data=#data{}) ->
     {next_state, connect, Data#data{target=MAddr}};
 request_target(cast, {send, Ref, _Bin}, #data{server=Server}) ->
