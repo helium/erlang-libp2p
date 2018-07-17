@@ -62,8 +62,8 @@ basic(_Config) ->
     {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
 
     ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/6600"),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6601"),
-    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/6602"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6602"),
+    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/6601"),
 
     Version = "relaytest/1.0.0",
     libp2p_swarm:add_stream_handler(
