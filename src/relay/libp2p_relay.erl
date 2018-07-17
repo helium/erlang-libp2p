@@ -8,6 +8,7 @@
 -export([
     add_stream_handler/1
     ,dial/3
+    ,stream/3
 ]).
 
 -define(RELAY_VERSION, "relay/1.0.0").
@@ -40,6 +41,21 @@ dial(Swarm, Address, Args) ->
         Error ->
             Error
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Dial relay stream
+%% @end
+%%--------------------------------------------------------------------
+-spec stream(pid(), string(), pid()) -> {ok, pid()} | {error, term()} | ignore.
+stream(SessionPid, Addr, TID) ->
+    Swarm = libp2p_swarm:swarm(TID),
+    libp2p_session:dial_framed_stream(
+        ?RELAY_VERSION
+        ,SessionPid
+        ,libp2p_stream_relay
+        ,[{swarm, Swarm}, {relay, Addr}]
+    ).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
