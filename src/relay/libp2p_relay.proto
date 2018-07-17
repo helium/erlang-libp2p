@@ -1,21 +1,26 @@
-message RelayReq {
+message relay_req {
     required bytes address = 1;
 }
 
-message RelayResp {
+message relay_resp {
     optional bytes address = 1;
 }
 
-message RelayBridge {
-    required bytes from = 1;
-    required bytes to = 2;
+message relay_bridge_br {
+    required bytes b = 1;
+    required bytes a = 2;
 }
 
-message RelayEnvelope {
-    required bytes id = 1;
+message relay_bridge_ra {
+    required bytes b = 1;
+    required bytes a = 2;
+}
+
+message relay_envelope {
     oneof data {
-        RelayReq relayReq = 2;
-        RelayResp relayResp = 3;
-        RelayBridge relayBridge = 4;
+        relay_req req = 1;
+        relay_resp resp = 2;
+        relay_bridge_br bridge_br = 3;
+        relay_bridge_ra bridge_ra = 4;
     }
 }

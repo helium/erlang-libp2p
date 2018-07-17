@@ -9,8 +9,8 @@
 -export([
     decode/1
     ,encode/1
-    ,create/2
-    ,get/2
+    ,create/1
+    ,data/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -19,7 +19,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_envelope() :: #libp2p_RelayEnvelope_pb{}.
+-type relay_envelope() :: #libp2p_relay_envelope_pb{}.
 
 -export_type([relay_envelope/0]).
 
@@ -30,7 +30,7 @@
 %%--------------------------------------------------------------------
 -spec decode(binary()) -> relay_envelope().
 decode(Bin) when is_binary(Bin) ->
-    libp2p_relay_pb:decode_msg(Bin, libp2p_RelayEnvelope_pb).
+    libp2p_relay_pb:decode_msg(Bin, libp2p_relay_envelope_pb).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -38,7 +38,7 @@ decode(Bin) when is_binary(Bin) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec encode(relay_envelope()) -> binary().
-encode(#libp2p_RelayEnvelope_pb{}=Env) ->
+encode(#libp2p_relay_envelope_pb{}=Env) ->
     libp2p_relay_pb:encode_msg(Env).
 
 %%--------------------------------------------------------------------
@@ -46,23 +46,25 @@ encode(#libp2p_RelayEnvelope_pb{}=Env) ->
 %% Create an envelope
 %% @end
 %%--------------------------------------------------------------------
--spec create(binary(), libp2p_relay_req:relay_req()
-                       | libp2p_relay_resp:relay_resp()
-                       | libp2p_relay_bridge:relay_bridge()) -> relay_envelope().
-create(Id, #libp2p_RelayReq_pb{}=Data) ->
-    #libp2p_RelayEnvelope_pb{
-        id=Id
-        ,data={relayReq, Data}
+-spec create(libp2p_relay_req:relay_req()
+             | libp2p_relay_resp:relay_resp()
+             | libp2p_relay_bridge:relay_bridge_br()
+             | libp2p_relay_bridge:relay_bridge_ra()) -> relay_envelope().
+create(#libp2p_relay_req_pb{}=Data) ->
+    #libp2p_relay_envelope_pb{
+        data={req, Data}
     };
-create(Id, #libp2p_RelayResp_pb{}=Data) ->
-    #libp2p_RelayEnvelope_pb{
-        id=Id
-        ,data={relayResp, Data}
+create(#libp2p_relay_resp_pb{}=Data) ->
+    #libp2p_relay_envelope_pb{
+        data={resp, Data}
     };
-create(Id, #libp2p_RelayBridge_pb{}=Data) ->
-    #libp2p_RelayEnvelope_pb{
-        id=Id
-        ,data={relayBridge, Data}
+create(#libp2p_relay_bridge_br_pb{}=Data) ->
+    #libp2p_relay_envelope_pb{
+        data={bridge_br, Data}
+    };
+create(#libp2p_relay_bridge_ra_pb{}=Data) ->
+    #libp2p_relay_envelope_pb{
+        data={bridge_ra, Data}
     }.
 
 %%--------------------------------------------------------------------
@@ -70,14 +72,12 @@ create(Id, #libp2p_RelayBridge_pb{}=Data) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec get(id | data, relay_envelope()) -> binary()
-                                         | {relayReq, libp2p_relay_req:relay_req()}
-                                         | {relayResp, libp2p_relay_resp:relay_resp()}
-                                         | {relayBridge, libp2p_relay_bridge:relay_bridge()}.
-get(id, Env) ->
-    Env#libp2p_RelayEnvelope_pb.id;
-get(data, Env) ->
-    Env#libp2p_RelayEnvelope_pb.data.
+-spec data(relay_envelope()) -> {req, libp2p_relay_req:relay_req()}
+                                | {resp, libp2p_relay_resp:relay_resp()}
+                                | {bridge_br, libp2p_relay_bridge:relay_bridge_br()}
+                                | {bridge_ra, libp2p_relay_bridge:relay_bridge_ra()}.
+data(Env) ->
+    Env#libp2p_relay_envelope_pb.data.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -89,22 +89,17 @@ get(data, Env) ->
 -ifdef(TEST).
 
 decode_encode_test() ->
-    EnvId = <<"123">>,
     Req = libp2p_relay_req:create(<<"456">>),
-    EnvEncoded = encode(create(EnvId, Req)),
+    EnvEncoded = encode(create(Req)),
     EnvDecoded = decode(EnvEncoded),
 
-    ?assertEqual(EnvId, get(id, EnvDecoded)),
-    ?assertEqual({relayReq, Req}, get(data, EnvDecoded)).
+    ?assertEqual({req, Req}, data(EnvDecoded)).
 
 get_test() ->
-    EnvId = <<"123">>,
     Req = libp2p_relay_req:create(<<"456">>),
-    Env =create(EnvId, Req),
+    Env = create(Req),
 
-    ?assertEqual(EnvId, get(id, Env)),
-    ?assertEqual({relayReq, Req}, get(data, Env)),
-    ?assertException(error, function_clause, get(undefined, Env)).
+    ?assertEqual({req, Req}, data(Env)).
 
 
 -endif.
