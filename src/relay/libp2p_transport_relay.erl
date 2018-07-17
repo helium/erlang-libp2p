@@ -46,7 +46,7 @@ match_protocols(Protocols) ->
 -spec match_protocols(list(), list()) -> {ok, string()} | false.
 match_protocols([], _Acc) ->
     false;
-match_protocols([{"p2p-circuit", _} | _], Acc) ->
-    {ok, multiaddr:to_string(lists:reverse(Acc))};
+match_protocols([{"p2p-circuit", _} | _]=A, Acc) ->
+    {ok, multiaddr:to_string(lists:reverse(Acc) ++ A)};
 match_protocols([{_, _}=Head | Tail], Acc) ->
     match_protocols(Tail, [Head|Acc]).
