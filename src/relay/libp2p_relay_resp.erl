@@ -8,7 +8,7 @@
 
 -export([
     create/1
-    ,get/2
+    ,address/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -17,7 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_resp() :: #libp2p_RelayResp_pb{}.
+-type relay_resp() :: #libp2p_relay_resp_pb{}.
 
 -export_type([relay_resp/0]).
 
@@ -28,16 +28,16 @@
 %%--------------------------------------------------------------------
 -spec create(binary()) -> relay_resp().
 create(Address) ->
-    #libp2p_RelayResp_pb{address=Address}.
+    #libp2p_relay_resp_pb{address=Address}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec get(address, relay_resp()) -> binary().
-get(address, Req) ->
-    Req#libp2p_RelayResp_pb.address.
+-spec address(relay_resp()) -> binary().
+address(Req) ->
+    Req#libp2p_relay_resp_pb.address.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -49,11 +49,10 @@ get(address, Req) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_RelayResp_pb{address = <<"123">>}, create(<<"123">>)).
+    ?assertEqual(#libp2p_relay_resp_pb{address = <<"123">>}, create(<<"123">>)).
 
 get_test() ->
     Resp = create(<<"123">>),
-    ?assertEqual(<<"123">>, get(address, Resp)),
-    ?assertException(error, function_clause, get(undefined, Resp)).
+    ?assertEqual(<<"123">>, address(Resp)).
 
 -endif.
