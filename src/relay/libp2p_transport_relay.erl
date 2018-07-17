@@ -27,12 +27,15 @@ match_addr(Addr) when is_list(Addr) ->
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->
+    % TODO: Should make this a fun
+    [To|_] = string:split(MAddr, "/p2p-circuit"),
     % TODO: This should not be forced to tcp will have to find a fix for that
-    case libp2p_transport_tcp:connect(Pid, MAddr, Options, Timeout, TID) of
+    case libp2p_transport_tcp:connect(Pid, To, Options, Timeout, TID) of
         {error, _Reason}=Error -> Error;
-        {ok, _SessionPid}=OK ->
+        {ok, SessionPid}=OK ->
             % TODO: create relay frame stream (B -> R) before doing anything else
             % then wait for A to connect to B
+            _R = libp2p_relay:stream(SessionPid, MAddr, TID),
             OK
     end.
 
