@@ -99,11 +99,12 @@ handle_info(client, {init_bridge, Address}, #state{swarm=Swarm}=State) ->
             EnvBridge = libp2p_relay_envelope:create(EnvId, Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
     end;
-handle_info(client, {bridgeReq, Bridge}, #state{swarm=Swarm}=State) ->
-    From = erlang:binary_to_list(libp2p_relay_bridge:get(from, Bridge)),
-    lager:notice("client got bridge request from ~p", [From]),
-    {ok, _} = libp2p_relay:dial(Swarm, From, []),
-    {noreply, State};
+% Bridge Step 3: The relay server R (stream to A) receives a bridge request
+% and transfers it to A.
+handle_info(client, {bridgeReq, Bridge}, State) ->
+    lager:notice("client got bridge request ~p", [Bridge]),
+    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, 1]),
+    {noreply, State, <<>>};
 handle_info(client, _Msg, State) ->
     lager:notice("client got ~p", [_Msg]),
     {noreply, State}.
