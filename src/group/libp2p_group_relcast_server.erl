@@ -38,7 +38,8 @@
 -define(GROUP_PATH_BASE, "relcast/").
 
 -type msg_kind() :: ?OUTBOUND | ?INBOUND.
--type msg_key() :: binary().
+-type msg_key() :: <<_:152>>.
+-type msg_key_prefix() :: <<_:128>>.
 -type msg_cache_entry() :: {pos_integer(), [msg_key()]}.
 
 %% API
@@ -100,12 +101,12 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
 
 recover_msg_cache(Ref) ->
     {A, B} = bitcask:fold_keys(Ref,
-                               fun(#bitcask_entry{key = Key = <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>>}, {OutKeys, InKeys}) ->
+                               fun(#bitcask_entry{key = Key = <<Prefix:128/integer-unsigned-big, Kind:8/integer-unsigned, Index:16/integer-unsigned>>}, {OutKeys, InKeys}) ->
                                        case Kind of
                                            ?INBOUND ->
-                                               {OutKeys, [{{Time, Offset}, {Index, Key}}|InKeys]};
+                                               {OutKeys, [{Prefix, {Index, Key}}|InKeys]};
                                            ?OUTBOUND ->
-                                               {[{{Time, Offset}, {Index, Key}}|OutKeys], InKeys}
+                                               {[{Prefix, {Index, Key}}|OutKeys], InKeys}
                                        end;
                                   (_, Acc)  ->
                                        Acc
@@ -255,26 +256,8 @@ save_state(_State, _Handler, HandlerState, HandlerState) ->
     ok;
 save_state(_State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerState) ->
     {_KeyCount, Summary} = bitcask:status(Store),
-    %FragPer = lists:sum([ Frag || {_, Frag, _, _} <- Summary ]) / max(1, length(Summary)),
     Empty =  [ Frag || {_, Frag, _, _} <- Summary, Frag == 100],
 
-    %{_, IKs} = lists:unzip(State#state.in_keys),
-    %{_, OKs} = lists:unzip(State#state.out_keys),
-
-
-    %{O, I} = bitcask:fold_keys(Store, fun(#bitcask_entry{key = Key}, {OutKeys, InKeys}=Acc) ->
-                                       %case Key of
-                                           %<<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
-                                                 %Kind == ?INBOUND ->
-                                               %{OutKeys, InKeys+1};
-                                           %<<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, _Index:16/integer-unsigned>> when
-                                                 %Kind == ?OUTBOUND ->
-                                               %{OutKeys+1, InKeys};
-                                           %_ ->
-                                               %Acc
-                                       %end
-                               %end, {0, 0}),
-    %lager:info("bitcask status ~p keys (~p outbound (~p in state), ~p inbound (~p in state)), ~p files (~p empty), ~p fragmented, ~p delete queue", [KeyCount, O, length(lists:flatten(OKs)), I, length(lists:flatten(IKs)), length(Summary), length(Empty), FragPer, bitcask_merge_delete:queue_length()]),
     case length(Empty) > 0 of
         true ->
             CaskDir = filename:dirname(element(1, hd(Summary))),
@@ -405,14 +388,20 @@ mk_multiaddr(Addr) when is_binary(Addr) ->
 mk_multiaddr(Path) when is_list(Path) ->
     lists:flatten(["/p2p", Path]).
 
--spec mk_message_key(msg_kind(), pos_integer()) -> binary().
-mk_message_key(Kind, Index) ->
-    {Time, Offset} = {erlang:monotonic_time(nanosecond), erlang:unique_integer([monotonic])},
-    <<Time:19/integer-signed-unit:8, Offset:19/integer-signed-unit:8, Kind:8/integer-unsigned, Index:16/integer-unsigned>>.
 
--spec store_message(msg_kind(), Targets::[pos_integer()], Msg::binary(), #state{}) -> {[msg_key()], #state{}}.
-store_message(Kind, Indexes, Msg, State=#state{store=Store}) ->
-    NewKeys = lists:map(fun(I) -> mk_message_key(Kind, I) end, Indexes),
+-spec mk_message_key_prefix() -> msg_key_prefix().
+mk_message_key_prefix() ->
+    {Time, Offset} = {erlang:monotonic_time(nanosecond), erlang:unique_integer([monotonic])},
+    <<Time:64/integer-unsigned-big, Offset:64/integer-unsigned-big>>.
+
+-spec mk_message_key(msg_key_prefix(), msg_kind(), pos_integer()) -> msg_key().
+mk_message_key(Prefix, Kind, Index) ->
+    <<Prefix/binary, Kind:8/integer-unsigned, Index:16/integer-unsigned>>.
+
+-spec store_message(msg_kind(), Targets::[pos_integer()],
+                    Msg::binary() | {Prefix::msg_key_prefix(), Msg::binary()}, #state{}) -> {[msg_key()], #state{}}.
+store_message(Kind, Indexes, {Prefix, Msg}, State=#state{store=Store}) ->
+    NewKeys = lists:map(fun(I) -> mk_message_key(Prefix, Kind, I) end, Indexes),
     StateEntry = case Kind of
                    ?INBOUND -> #state.in_keys;
                    ?OUTBOUND -> #state.out_keys
@@ -430,16 +419,16 @@ store_message(Kind, Indexes, Msg, State=#state{store=Store}) ->
                                end,
                                element(StateEntry, State),
                                lists:zip(Indexes, NewKeys)),
-    {NewKeys, setelement(StateEntry, State, NewStateKeys)}.
-
+    {NewKeys, setelement(StateEntry, State, NewStateKeys)};
+store_message(Kind, Indexes, Msg, State=#state{}) when is_binary(Msg) ->
+    store_message(Kind, Indexes, {mk_message_key_prefix(), Msg}, State).
 
 
 
 -spec delete_message(msg_key(), #state{}) -> #state{}.
 delete_message(Key, State=#state{store=Store}) ->
     bitcask:delete(Store, Key),
-    <<_Time:19/integer-signed-unit:8, _Offset:19/integer-signed-unit:8,
-      Kind:8/integer-unsigned, Index:16/integer-unsigned>> = Key,
+    <<_Prefix:128/integer-unsigned-big, Kind:8/integer-unsigned, Index:16/integer-unsigned>> = Key,
     StateEntry = case Kind of
                    ?INBOUND -> #state.in_keys;
                    ?OUTBOUND -> #state.out_keys
