@@ -7,18 +7,18 @@ message relay_resp {
 }
 
 message relay_bridge_br {
-    required bytes b = 1;
-    required bytes a = 2;
+    required bytes a = 1;
+    required bytes b = 2;
 }
 
 message relay_bridge_ra {
-    required bytes b = 1;
-    required bytes a = 2;
+    required bytes a = 1;
+    required bytes b = 2;
 }
 
 message relay_bridge_ab {
-    required bytes b = 1;
-    required bytes a = 2;
+    required bytes a = 1;
+    required bytes b = 2;
 }
 
 message relay_envelope {
