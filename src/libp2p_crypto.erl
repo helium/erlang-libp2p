@@ -10,9 +10,9 @@
 -export_type([private_key/0, public_key/0, address/0, sig_fun/0]).
 
 -export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
-         pubkey_to_address/1, address_to_pubkey/1,
-         address_to_b58/1, b58_to_address/1,
-         pubkey_to_b58/1, b58_to_pubkey/1, verify/3
+         to_pem/1, from_pem/1, pubkey_to_address/1, address_to_pubkey/1,
+         address_to_b58/1, b58_to_address/1, pubkey_to_b58/1,
+         b58_to_pubkey/1, verify/3
         ]).
 
 -spec make_public_key(private_key()) -> public_key().
