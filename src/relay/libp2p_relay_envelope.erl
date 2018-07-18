@@ -49,7 +49,8 @@ encode(#libp2p_relay_envelope_pb{}=Env) ->
 -spec create(libp2p_relay_req:relay_req()
              | libp2p_relay_resp:relay_resp()
              | libp2p_relay_bridge:relay_bridge_br()
-             | libp2p_relay_bridge:relay_bridge_ra()) -> relay_envelope().
+             | libp2p_relay_bridge:relay_bridge_ra()
+             | libp2p_relay_bridge:relay_bridge_ab()) -> relay_envelope().
 create(#libp2p_relay_req_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={req, Data}
@@ -65,7 +66,12 @@ create(#libp2p_relay_bridge_br_pb{}=Data) ->
 create(#libp2p_relay_bridge_ra_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={bridge_ra, Data}
+    };
+create(#libp2p_relay_bridge_ab_pb{}=Data) ->
+    #libp2p_relay_envelope_pb{
+        data={bridge_ab, Data}
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -75,7 +81,8 @@ create(#libp2p_relay_bridge_ra_pb{}=Data) ->
 -spec data(relay_envelope()) -> {req, libp2p_relay_req:relay_req()}
                                 | {resp, libp2p_relay_resp:relay_resp()}
                                 | {bridge_br, libp2p_relay_bridge:relay_bridge_br()}
-                                | {bridge_ra, libp2p_relay_bridge:relay_bridge_ra()}.
+                                | {bridge_ra, libp2p_relay_bridge:relay_bridge_ra()}
+                                | {bridge_ab, libp2p_relay_bridge:relay_bridge_ab()}.
 data(Env) ->
     Env#libp2p_relay_envelope_pb.data.
 
