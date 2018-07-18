@@ -6,12 +6,20 @@
 -module(libp2p_relay).
 
 -export([
-    add_stream_handler/1
-    ,dial/3
-    ,stream/3
+    version/0
+    ,add_stream_handler/1
+    ,dial_framed_stream/3
 ]).
 
 -define(RELAY_VERSION, "relay/1.0.0").
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec version() -> string().
+version() ->
+    ?RELAY_VERSION.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -30,8 +38,8 @@ add_stream_handler(TID) ->
 %% Dial relay stream
 %% @end
 %%--------------------------------------------------------------------
--spec dial(pid(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
-dial(Swarm, Address, Args) ->
+-spec dial_framed_stream(pid(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
+dial_framed_stream(Swarm, Address, Args) ->
     case libp2p_swarm:dial(Swarm, Address, ?RELAY_VERSION) of
         {ok, Conn} ->
             Args1 = [
@@ -41,21 +49,6 @@ dial(Swarm, Address, Args) ->
         Error ->
             Error
     end.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Dial relay stream
-%% @end
-%%--------------------------------------------------------------------
--spec stream(pid(), string(), pid()) -> {ok, pid()} | {error, term()} | ignore.
-stream(SessionPid, Addr, TID) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    libp2p_session:dial_framed_stream(
-        ?RELAY_VERSION
-        ,SessionPid
-        ,libp2p_stream_relay
-        ,[{swarm, Swarm}, {relay, Addr}]
-    ).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
