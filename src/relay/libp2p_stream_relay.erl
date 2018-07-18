@@ -51,12 +51,14 @@ init(server, _Conn, [_, _Pid, TID]=Args) ->
 init(client, Conn, Args) ->
     lager:info("init relay client with ~p", [{Conn, Args}]),
     Swarm = proplists:get_value(swarm, Args),
-    case proplists:get_value(type, Args) of
+    case proplists:get_value(type, Args, undefined) of
         undefined ->
             self() ! init_relay;
-        {bridge_ar, RelayAddress} ->
+        {bridge_ab, Bridge} ->
+            self() ! {init_bridge_ab, Bridge};
+        {bridge_br, RelayAddress} ->
             [_Self, DestinationAddress] = string:split(RelayAddress, "/p2p-circuit"),
-            self() ! {init_bridge, DestinationAddress}
+            self() ! {init_bridge_br, DestinationAddress}
     end,
     TID = libp2p_swarm:tid(Swarm),
     {_Local, Remote} = libp2p_connection:addr_info(Conn),
@@ -68,6 +70,17 @@ handle_data(server, Bin, State) ->
 handle_data(client, Bin, State) ->
     handle_client_data(Bin, State).
 
+% Bridge Step 3: The relay server R (stream to A) receives a bridge request
+% and transfers it to A.
+handle_info(server, {bridge_br, BridgeBR}, State) ->
+    lager:notice("client got bridge request ~p", [BridgeBR]),
+    [Name|_] = erlang:registered(),
+    true = erlang:unregister(Name),
+    A = libp2p_relay_bridge:a(BridgeBR),
+    B = libp2p_relay_bridge:b(BridgeBR),
+    BridgeRA = libp2p_relay_bridge:create_ra(A, B),
+    EnvBridge = libp2p_relay_envelope:create(BridgeRA),
+    {noreply, State, libp2p_relay_envelope:encode(EnvBridge)};
 handle_info(server, _Msg, State) ->
     lager:notice("server got ~p", [_Msg]),
     {noreply, State};
@@ -79,14 +92,13 @@ handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
             lager:info("no listen addresses for ~p, relay disabled", [Swarm]),
             {noreply, State};
         [Address|_] ->
-            true = erlang:register(erlang:list_to_atom(Address), self()),
             Req = libp2p_relay_req:create(erlang:list_to_binary(Address)),
             EnvReq = libp2p_relay_envelope:create(Req),
             {noreply, State, libp2p_relay_envelope:encode(EnvReq)}
     end;
 % Bridge Step 1: Init bridge, if listen_addrs, the client B create a relay bridge
 % to be sent to the relay server R
-handle_info(client, {init_bridge, Address}, #state{swarm=Swarm}=State) ->
+handle_info(client, {init_bridge_br, Address}, #state{swarm=Swarm}=State) ->
     case libp2p_swarm:listen_addrs(Swarm) of
         [] ->
             lager:warning("no listen addresses for ~p, bridge failed", [Swarm]),
@@ -97,14 +109,13 @@ handle_info(client, {init_bridge, Address}, #state{swarm=Swarm}=State) ->
             EnvBridge = libp2p_relay_envelope:create(Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
     end;
-% Bridge Step 3: The relay server R (stream to A) receives a bridge request
-% and transfers it to A.
-handle_info(client, {bridge_br, BridgeBR}, State) ->
-    lager:notice("client got bridge request ~p", [BridgeBR]),
-    A = libp2p_relay_bridge:a(BridgeBR),
-    B = libp2p_relay_bridge:b(BridgeBR),
-    BridgeRA = libp2p_relay_bridge:create_ra(A, B),
-    EnvBridge = libp2p_relay_envelope:create(BridgeRA),
+% Bridge Step 5: Sending bridge A to B request to B
+handle_info(client, {init_bridge_ab, BridgeAB}, State) ->
+    lager:notice("client init bridge A to B ~p", [BridgeAB]),
+    A = libp2p_relay_bridge:a(BridgeAB),
+    B = libp2p_relay_bridge:b(BridgeAB),
+    Bridge = libp2p_relay_bridge:create_ab(A, B),
+    EnvBridge = libp2p_relay_envelope:create(Bridge),
     {noreply, State, libp2p_relay_envelope:encode(EnvBridge)};
 handle_info(client, _Msg, State) ->
     lager:notice("client got ~p", [_Msg]),
@@ -124,6 +135,7 @@ handle_server_data(Bin, State) ->
 % and sends it back to the client A
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
+    true = erlang:register(erlang:list_to_atom(erlang:binary_to_list(Address)), self()),
     [LocalAddress|_] = libp2p_swarm:listen_addrs(Swarm),
     Resp = libp2p_relay_resp:create(<<(erlang:list_to_binary(LocalAddress))/binary, "/p2p-circuit", Address/binary>>),
     EnvResp = libp2p_relay_envelope:create(Resp),
@@ -135,17 +147,15 @@ handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     lager:info("R got a relay request passing to A's relay stream ~s", [A]),
     erlang:list_to_atom(A) ! {bridge_br, Bridge},
     {noreply, State};
-% Bridge Step 4: A got a bridge req, dialing B
-handle_server_data({bridge_ra, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
+handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     B = erlang:binary_to_list(libp2p_relay_bridge:b(Bridge)),
-    lager:info("A got a bridge request dialing B ~s", [B]),
-    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, 1]),
-    % {ok, _} = libp2p_relay:dial_framed_stream(Swarm, B, [{type, bridge_ab}]),
+    A = erlang:binary_to_list(libp2p_relay_bridge:a(Bridge)),
+    lager:info("B (~s) got A (~s) dialing back", [B, A]),
+    erlang:list_to_atom(A ++ "/A") ! {sessions, libp2p_swarm:sessions(Swarm)},
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
-
 
 handle_client_data(Bin, State) ->
     Env = libp2p_relay_envelope:decode(Bin),
@@ -160,6 +170,12 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
     TID = libp2p_swarm:tid(Swarm),
     lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
     true = libp2p_config:insert_listener(TID, [Address], SessionPid),
+    {noreply, State};
+% Bridge Step 4: A got a bridge req, dialing B
+handle_client_data({bridge_ra, Bridge}, _Env, #state{swarm=Swarm}=State) ->
+    B = erlang:binary_to_list(libp2p_relay_bridge:b(Bridge)),
+    lager:info("A got a bridge request dialing B ~s", [B]),
+    {ok, _} = libp2p_relay:dial_framed_stream(Swarm, B, [{type, {bridge_ab, Bridge}}]),
     {noreply, State};
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),

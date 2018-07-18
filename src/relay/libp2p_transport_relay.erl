@@ -28,20 +28,29 @@ match_addr(Addr) when is_list(Addr) ->
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     % TODO: Should make this a fun
-    [To|_] = string:split(MAddr, "/p2p-circuit"),
+    [To, A] = string:split(MAddr, "/p2p-circuit"),
+    true = erlang:register(erlang:list_to_atom(A ++ "/A"), self()),
     % TODO: This should not be forced to tcp will have to find a fix for that
     case libp2p_transport_tcp:connect(Pid, To, Options, Timeout, TID) of
         {error, _Reason}=Error -> Error;
-        {ok, _SessionPid}=OK ->
+        {ok, _SessionPid} ->
             Swarm = libp2p_swarm:swarm(TID),
-            % TODO: create relay frame stream (B -> R) before doing anything else
-            % then wait for A to connect to B
-            _R = libp2p_relay:dial_framed_stream(
+            {ok, _} = libp2p_relay:dial_framed_stream(
                 Swarm
                 ,To
-                ,[{type, {bridge_ar, MAddr}}]
+                ,[{type, {bridge_br, MAddr}}]
             ),
-            OK
+            receive
+                {sessions, [SessionPid|_]=Sessions} ->
+                    lager:info("using sessions: ~p instead of ~p", [Sessions, _SessionPid]),
+                    true  = erlang:unregister(erlang:list_to_atom(A ++ "/A")),
+                    {ok, SessionPid};
+                _Error ->
+                    lager:error("no relay sessions ~p", [_Error]),
+                    {error, no_relay_session}
+            after 8000 ->
+                {error, timeout_relay_session}
+            end
     end.
 
 %% ------------------------------------------------------------------
