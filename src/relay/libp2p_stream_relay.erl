@@ -45,16 +45,16 @@ client(Connection, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(server, _Conn, [_, _Pid, TID]=Args) ->
-    lager:info("init server with ~p", [{_Conn, Args}]),
+    lager:info("init relay server with ~p", [{_Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
     {ok, #state{swarm=Swarm}};
 init(client, Conn, Args) ->
-    lager:info("init client with ~p", [{Conn, Args}]),
+    lager:info("init relay client with ~p", [{Conn, Args}]),
     Swarm = proplists:get_value(swarm, Args),
-    case proplists:get_value(relay, Args) of
+    case proplists:get_value(type, Args) of
         undefined ->
             self() ! init_relay;
-        RelayAddress ->
+        {bridge_ar, RelayAddress} ->
             [_Self, DestinationAddress] = string:split(RelayAddress, "/p2p-circuit"),
             self() ! {init_bridge, DestinationAddress}
     end,
@@ -92,17 +92,20 @@ handle_info(client, {init_bridge, Address}, #state{swarm=Swarm}=State) ->
             lager:warning("no listen addresses for ~p, bridge failed", [Swarm]),
             {noreply, State};
         [ListenAddress|_] ->
-            Bridge = libp2p_relay_bridge:create_br(erlang:list_to_binary(ListenAddress)
-                                                   ,erlang:list_to_binary(Address)),
+            Bridge = libp2p_relay_bridge:create_br(erlang:list_to_binary(Address)
+                                                   ,erlang:list_to_binary(ListenAddress)),
             EnvBridge = libp2p_relay_envelope:create(Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
     end;
 % Bridge Step 3: The relay server R (stream to A) receives a bridge request
 % and transfers it to A.
-handle_info(client, {bridge_br, Bridge}, State) ->
-    lager:notice("client got bridge request ~p", [Bridge]),
-    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, 1]),
-    {noreply, State, <<>>};
+handle_info(client, {bridge_br, BridgeBR}, State) ->
+    lager:notice("client got bridge request ~p", [BridgeBR]),
+    A = libp2p_relay_bridge:a(BridgeBR),
+    B = libp2p_relay_bridge:b(BridgeBR),
+    BridgeRA = libp2p_relay_bridge:create_ra(A, B),
+    EnvBridge = libp2p_relay_envelope:create(BridgeRA),
+    {noreply, State, libp2p_relay_envelope:encode(EnvBridge)};
 handle_info(client, _Msg, State) ->
     lager:notice("client got ~p", [_Msg]),
     {noreply, State}.
@@ -128,12 +131,19 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
 % stream to A and sends it a message with bridge request
 handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
+    A = erlang:binary_to_list(libp2p_relay_bridge:a(Bridge)),
+    lager:info("R got a relay request passing to A's relay stream ~s", [A]),
+    erlang:list_to_atom(A) ! {bridge_br, Bridge},
+    {noreply, State};
+% Bridge Step 4: A got a bridge req, dialing B
+handle_server_data({bridge_ra, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     B = erlang:binary_to_list(libp2p_relay_bridge:b(Bridge)),
-    lager:info("R got relay request passing to A's relay stream ~s", [B]),
-    erlang:list_to_atom(B) ! {bridge_br, Bridge},
+    lager:info("A got a bridge request dialing B ~s", [B]),
+    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, 1]),
+    % {ok, _} = libp2p_relay:dial_framed_stream(Swarm, B, [{type, bridge_ab}]),
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
-    lager:warning("unknown envelope ~p", [_Env]),
+    lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
 
 
@@ -152,5 +162,5 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
     true = libp2p_config:insert_listener(TID, [Address], SessionPid),
     {noreply, State};
 handle_client_data(_Data, _Env, State) ->
-    lager:warning("unknown envelope ~p", [_Env]),
+    lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.
