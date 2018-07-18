@@ -40,15 +40,16 @@ add_stream_handler(TID) ->
 %%--------------------------------------------------------------------
 -spec dial_framed_stream(pid(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
 dial_framed_stream(Swarm, Address, Args) ->
-    case libp2p_swarm:dial(Swarm, Address, ?RELAY_VERSION) of
-        {ok, Conn} ->
-            Args1 = [
-                {swarm, Swarm}
-            ],
-            libp2p_framed_stream:client(libp2p_stream_relay, Conn, Args ++ Args1);
-        Error ->
-            Error
-    end.
+    Args1 = [
+        {swarm, Swarm}
+    ],
+    libp2p_swarm:dial_framed_stream(
+        Swarm
+        ,Address
+        ,?RELAY_VERSION
+        ,libp2p_stream_relay
+        ,Args ++ Args1
+    ).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
