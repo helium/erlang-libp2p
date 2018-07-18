@@ -57,30 +57,32 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
-    {ok, ASwarm} = libp2p_swarm:start(a, SwarmOpts),
-    {ok, BSwarm} = libp2p_swarm:start(b, SwarmOpts),
-    {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
-
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/6600"),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6602"),
-    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/6601"),
-
     Version = "relaytest/1.0.0",
+
+    {ok, ASwarm} = libp2p_swarm:start(a, SwarmOpts),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/6600"),
     libp2p_swarm:add_stream_handler(
         ASwarm
         ,Version
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
     ),
-    libp2p_swarm:add_stream_handler(
-        BSwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
-    ),
+
+    {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
+    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/6601"),
     libp2p_swarm:add_stream_handler(
         RSwarm
         ,Version
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RSwarm]}
     ),
+
+    {ok, BSwarm} = libp2p_swarm:start(b, SwarmOpts),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6602"),
+    libp2p_swarm:add_stream_handler(
+        BSwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
+    ),
+
     [RAddress] = libp2p_swarm:listen_addrs(RSwarm),
 
     % NAT fails so A dials R to create a relay
@@ -102,8 +104,6 @@ basic(_Config) ->
 
     timer:sleep(2000),
     ok.
-
-
 
 
 %% ------------------------------------------------------------------
