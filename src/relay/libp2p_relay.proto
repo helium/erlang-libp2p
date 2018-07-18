@@ -16,11 +16,17 @@ message relay_bridge_ra {
     required bytes a = 2;
 }
 
+message relay_bridge_ab {
+    required bytes b = 1;
+    required bytes a = 2;
+}
+
 message relay_envelope {
     oneof data {
         relay_req req = 1;
         relay_resp resp = 2;
         relay_bridge_br bridge_br = 3;
         relay_bridge_ra bridge_ra = 4;
+        relay_bridge_ab bridge_ab = 5;
     }
 }
