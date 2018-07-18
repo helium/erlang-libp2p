@@ -10,9 +10,9 @@
 -export_type([private_key/0, public_key/0, address/0, sig_fun/0]).
 
 -export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
-         pubkey_to_address/1, address_to_pubkey/1,
-         address_to_b58/1, b58_to_address/1,
-         pubkey_to_b58/1, b58_to_pubkey/1, verify/3
+         to_pem/1, from_pem/1, pubkey_to_address/1, address_to_pubkey/1,
+         address_to_b58/1, b58_to_address/1, pubkey_to_b58/1,
+         b58_to_pubkey/1, verify/3
         ]).
 
 -spec make_public_key(private_key()) -> public_key().
@@ -34,11 +34,7 @@ generate_keys() ->
 -spec load_keys(string()) -> {ok, private_key(), public_key()} | {error, term()}.
 load_keys(FileName) ->
     case file:read_file(FileName) of
-        {ok, PemBin} ->
-            [PemEntry] = public_key:pem_decode(PemBin),
-            PrivKey = public_key:pem_entry_decode(PemEntry),
-            PubKey = make_public_key(PrivKey),
-            {ok, PrivKey, PubKey};
+        {ok, PemBin} -> from_pem(PemBin);
         {error, Error} -> {error, Error}
     end.
 
@@ -51,9 +47,20 @@ mk_sig_fun(PrivKey) ->
 %% are relative to the swarm data folder.
 -spec save_keys({private_key(), public_key()}, string()) -> ok | {error, term()}.
 save_keys({PrivKey, _PubKey}, FileName) when is_list(FileName) ->
-    PemEntry = public_key:pem_entry_encode('ECPrivateKey', PrivKey),
-    PemBin = public_key:pem_encode([PemEntry]),
+    PemBin = to_pem(PrivKey),
     file:write_file(FileName, PemBin).
+
+-spec to_pem(private_key()) -> binary().
+to_pem(PrivKey) ->
+    PemEntry = public_key:pem_entry_encode('ECPrivateKey', PrivKey),
+    public_key:pem_encode([PemEntry]).
+
+-spec from_pem(binary()) -> {ok, private_key(), public_key()}.
+from_pem(PemBin) ->
+    [PemEntry] = public_key:pem_decode(PemBin),
+    PrivKey = public_key:pem_entry_decode(PemEntry),
+    PubKey = make_public_key(PrivKey),
+    {ok, PrivKey, PubKey}.
 
 -spec pubkey_to_address(public_key() | ecc_compact:compact_key()) -> address().
 pubkey_to_address(PubKey) ->
@@ -159,3 +166,4 @@ verify_test() ->
 
 
 -endif.
+
