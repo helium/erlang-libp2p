@@ -1,24 +1,24 @@
 message relay_req {
-    required bytes address = 1;
+    required string address = 1;
 }
 
 message relay_resp {
-    optional bytes address = 1;
+    optional string address = 1;
 }
 
 message relay_bridge_br {
-    required bytes a = 1;
-    required bytes b = 2;
+    required string a = 1;
+    required string b = 2;
 }
 
 message relay_bridge_ra {
-    required bytes a = 1;
-    required bytes b = 2;
+    required string a = 1;
+    required string b = 2;
 }
 
 message relay_bridge_ab {
-    required bytes a = 1;
-    required bytes b = 2;
+    required string a = 1;
+    required string b = 2;
 }
 
 message relay_envelope {

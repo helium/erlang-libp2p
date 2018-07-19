@@ -32,7 +32,7 @@
 %% Create an relay bridge B to R
 %% @end
 %%--------------------------------------------------------------------
--spec create_br(binary(), binary()) -> relay_bridge_br().
+-spec create_br(string(), string()) -> relay_bridge_br().
 create_br(A, B) ->
     #libp2p_relay_bridge_br_pb{a=A, b=B}.
 
@@ -41,7 +41,7 @@ create_br(A, B) ->
 %% Create an relay bridge R to A
 %% @end
 %%--------------------------------------------------------------------
--spec create_ra(binary(), binary()) -> relay_bridge_ra().
+-spec create_ra(string(), string()) -> relay_bridge_ra().
 create_ra(A, B) ->
     #libp2p_relay_bridge_ra_pb{a=A, b=B}.
 
@@ -50,7 +50,7 @@ create_ra(A, B) ->
 %% Create an relay bridge R to A
 %% @end
 %%--------------------------------------------------------------------
--spec create_ab(binary(), binary()) -> relay_bridge_ra().
+-spec create_ab(string(), string()) -> relay_bridge_ra().
 create_ab(A, B) ->
     #libp2p_relay_bridge_ab_pb{a=A, b=B}.
 
@@ -59,7 +59,7 @@ create_ab(A, B) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec a(relay_bridge_br() | relay_bridge_ra()) -> binary().
+-spec a(relay_bridge_br() | relay_bridge_ra()) -> string().
 a(#libp2p_relay_bridge_br_pb{a=A}) ->
     A;
 a(#libp2p_relay_bridge_ra_pb{a=A}) ->
@@ -72,7 +72,7 @@ a(#libp2p_relay_bridge_ab_pb{a=A}) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec b(relay_bridge_br() | relay_bridge_ra()) -> binary().
+-spec b(relay_bridge_br() | relay_bridge_ra()) -> string().
 b(#libp2p_relay_bridge_br_pb{b=B}) ->
     B;
 b(#libp2p_relay_bridge_ra_pb{b=B}) ->
@@ -90,13 +90,13 @@ b(#libp2p_relay_bridge_ab_pb{b=B}) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_relay_bridge_br_pb{a = <<"123">>, b = <<"456">>}, create_br(<<"123">>, <<"456">>)),
-    ?assertEqual(#libp2p_relay_bridge_ra_pb{a = <<"123">>, b = <<"456">>}, create_ra(<<"123">>, <<"456">>)),
-    ?assertEqual(#libp2p_relay_bridge_ab_pb{a = <<"123">>, b = <<"456">>}, create_ab(<<"123">>, <<"456">>)).
+    ?assertEqual(#libp2p_relay_bridge_br_pb{a="123", b="456"}, create_br("123", "456")),
+    ?assertEqual(#libp2p_relay_bridge_ra_pb{a="123", b="456"}, create_ra("123", "456")),
+    ?assertEqual(#libp2p_relay_bridge_ab_pb{a="123", b="456"}, create_ab("123", "456")).
 
 get_test() ->
-    Bridge = create_br(<<"123">>, <<"456">>),
-    ?assertEqual(<<"123">>, a(Bridge)),
-    ?assertEqual(<<"456">>, b(Bridge)).
+    Bridge = create_br("123", "456"),
+    ?assertEqual("123", a(Bridge)),
+    ?assertEqual("456", b(Bridge)).
 
 -endif.
