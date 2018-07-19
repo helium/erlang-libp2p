@@ -7,6 +7,7 @@
     ,start_listener/2
     ,match_addr/1
     ,connect/5
+    ,reg/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -27,9 +28,8 @@ match_addr(Addr) when is_list(Addr) ->
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->
-    % TODO: Should make this a fun
-    [To, A] = string:split(MAddr, "/p2p-circuit"),
-    true = erlang:register(erlang:list_to_atom(A ++ "/A"), self()),
+    {ok, {To, A}} = libp2p_relay:p2p_circuit(MAddr),
+    true = erlang:register(?MODULE:reg(A), self()),
     % TODO: This should not be forced to tcp will have to find a fix for that
     case libp2p_transport_tcp:connect(Pid, To, Options, Timeout, TID) of
         {error, _Reason}=Error -> Error;
@@ -43,7 +43,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
             receive
                 {sessions, [SessionPid|_]=Sessions} ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, _SessionPid]),
-                    true  = erlang:unregister(erlang:list_to_atom(A ++ "/A")),
+                    true  = erlang:unregister(?MODULE:reg(A)),
                     {ok, SessionPid};
                 _Error ->
                     lager:error("no relay sessions ~p", [_Error]),
@@ -52,6 +52,10 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
                 {error, timeout_relay_session}
             end
     end.
+
+-spec reg(string()) -> atom().
+reg(Address) ->
+    erlang:list_to_atom(Address ++ "/A").
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
