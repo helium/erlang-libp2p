@@ -11,7 +11,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/3, handle_ack/2, accept_stream/4]).
+-export([handle_data/3, handle_ack/3, accept_stream/4]).
 
 -record(worker,
        { target :: string(),
@@ -47,7 +47,7 @@ handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
 
 send_ack(Pid, Index) ->
-    erlang:send(Pid, {send_ack, Index}).
+    Pid ! {send_ack, Index}.
 
 info(Pid) ->
     catch gen_server:call(Pid, info).
@@ -56,8 +56,8 @@ info(Pid) ->
 handle_data(Pid, Ref, Bin) ->
     gen_server:call(Pid, {handle_data, Ref, Bin}, timer:seconds(30)).
 
-handle_ack(Pid, Ref) ->
-    gen_server:cast(Pid, {handle_ack, Ref}).
+handle_ack(Pid, Ref, Ack) ->
+    gen_server:cast(Pid, {handle_ack, Ref, Ack}).
 
 accept_stream(Pid, MAddr, StreamPid, Path) ->
     gen_server:call(Pid, {accept_stream, MAddr, StreamPid, Path}).
@@ -219,27 +219,42 @@ handle_cast({send_ready, Index, Ready}, State=#state{self_index=_SelfIndex}) ->
         _ ->
             {noreply, State}
     end;
-handle_cast({send_result, {_Key, _Index}, ok}, State=#state{self_index=_SelfIndex}) ->
-    %% Sent by group worker. Since we use an ack_stream the message
-    %% was sent async, and the ack response comes back through a
-    %% handle_ack cast.
+handle_cast({send_result, {_Key, _Index}, defer}, State=#state{self_index=_SelfIndex}) ->
+    %% Send result from sending a message to a remote woker. Since the
+    %% message is deferred we do not reset the worker on this side to
+    %% ready. The remote end will dispatch a separate ack to resume
+    %% message sends (handled in handle_ack).
+    %% lager:debug("~p SEND RESULT TO ~p: ~p defer",
+    %%             [_SelfIndex, Index, base58:binary_to_base58(_Key)]),
     {noreply, State};
-handle_cast({send_result, {_Key, Index}, _Error}, State=#state{self_index=_SelfIndex}) ->
-    %% Sent by group worker on error. Instead of looking up the
-    %% message by key again we locate the first message that needs to
-    %% be sent and dispatch it.
-    %% lager:debug("~p SEND ERROR TO ~p: ~p ERR: ~p ", [_SelfIndex, Index, base58:binary_to_base58(_Key), _Error]),
+handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}) ->
+    %% Send result from sending a message to a remote woker. An ok
+    %% send result means we delete the message and dispatch the next
+    %% one.
+    %% lager:debug("~p SEND RESULT TO ~p: ~p ok",
+    %%             [_SelfIndex, Index, base58:binary_to_base58(Key)]),
+    NewState = delete_message(Key, State),
+    {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, NewState))};
+handle_cast({send_result, {_Key, Index}, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
+    %% For any other result error response we set the worker back to
+    %% ready and dispatch the "next" message to it, which is likely
+    %% the same message.
+    %% lager:debug("~p SEND RESULT TO ~p: ~p ERR: ~p ",
+    %%             [_SelfIndex, Index, base58:binary_to_base58(_Key), _Error]),
     {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, State))};
-handle_cast({handle_ack, Index}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
+    %% Received when a previous message had a send_result of defer.
+    %% We don't handle another defer here so it falls through to an
+    %% unhandled cast below.
     case lookup_worker(Index, State) of
         #worker{msg_key=undefined} ->
             lager:debug("Unexpected ack for ~p", [Index]),
-            State;
+            {noreply, State};
         #worker{msg_key=MsgKey} ->
             %% Delete the outbound message for the given index
             NewState = delete_message(MsgKey, State),
             {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, NewState))};
-        _ -> State
+        _ -> {noreply, State}
     end;
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
@@ -337,10 +352,10 @@ lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
 dispatch_ack(Index, State=#state{}) ->
     case lookup_worker(Index, State) of
         #worker{pid=self} ->
-            handle_ack(self(), Index),
+            handle_ack(self(), Index, ok),
             State;
         #worker{pid=Worker} ->
-            libp2p_group_worker:ack(Worker),
+            libp2p_group_worker:send_ack(Worker),
             State
     end.
 
@@ -381,7 +396,7 @@ dispatch_next_messages(Indexes, State=#state{store=Store}) ->
                                               Result = handle_data(Parent, Index, Msg),
                                               libp2p_group_server:send_result(Parent, {Key, Index}, Result),
                                               case Result of
-                                                  ok -> handle_ack(Parent, Index);
+                                                  ok -> handle_ack(Parent, Index, ok);
                                                   _ -> ok
                                               end
                                       end),
