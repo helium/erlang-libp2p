@@ -92,7 +92,7 @@ handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
             lager:info("no listen addresses for ~p, relay disabled", [Swarm]),
             {noreply, State};
         [Address|_] ->
-            Req = libp2p_relay_req:create(erlang:list_to_binary(Address)),
+            Req = libp2p_relay_req:create(Address),
             EnvReq = libp2p_relay_envelope:create(Req),
             {noreply, State, libp2p_relay_envelope:encode(EnvReq)}
     end;
@@ -104,8 +104,7 @@ handle_info(client, {init_bridge_br, Address}, #state{swarm=Swarm}=State) ->
             lager:warning("no listen addresses for ~p, bridge failed", [Swarm]),
             {noreply, State};
         [ListenAddress|_] ->
-            Bridge = libp2p_relay_bridge:create_br(erlang:list_to_binary(Address)
-                                                   ,erlang:list_to_binary(ListenAddress)),
+            Bridge = libp2p_relay_bridge:create_br(Address, ListenAddress),
             EnvBridge = libp2p_relay_envelope:create(Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
     end;
@@ -135,21 +134,21 @@ handle_server_data(Bin, State) ->
 % and sends it back to the client A
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
-    true = erlang:register(erlang:list_to_atom(erlang:binary_to_list(Address)), self()),
+    true = erlang:register(erlang:list_to_atom(Address), self()),
     [LocalAddress|_] = libp2p_swarm:listen_addrs(Swarm),
-    Resp = libp2p_relay_resp:create(<<(erlang:list_to_binary(LocalAddress))/binary, "/p2p-circuit", Address/binary>>),
+    Resp = libp2p_relay_resp:create(LocalAddress ++ "/p2p-circuit" ++ Address),
     EnvResp = libp2p_relay_envelope:create(Resp),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
 % stream to A and sends it a message with bridge request
 handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
-    A = erlang:binary_to_list(libp2p_relay_bridge:a(Bridge)),
+    A = libp2p_relay_bridge:a(Bridge),
     lager:info("R got a relay request passing to A's relay stream ~s", [A]),
     erlang:list_to_atom(A) ! {bridge_br, Bridge},
     {noreply, State};
 handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
-    B = erlang:binary_to_list(libp2p_relay_bridge:b(Bridge)),
-    A = erlang:binary_to_list(libp2p_relay_bridge:a(Bridge)),
+    B = libp2p_relay_bridge:b(Bridge),
+    A = libp2p_relay_bridge:a(Bridge),
     lager:info("B (~s) got A (~s) dialing back", [B, A]),
     erlang:list_to_atom(A ++ "/A") ! {sessions, libp2p_swarm:sessions(Swarm)},
     {noreply, State};
@@ -166,14 +165,14 @@ handle_client_data(Bin, State) ->
 % Relay Step 3: Client A receives a relay response from server R with p2p-circuit address
 % and inserts it as a new listerner to get broadcasted by peerbook
 handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid}=State) ->
-    Address = erlang:binary_to_list(libp2p_relay_resp:address(Resp)),
+    Address = libp2p_relay_resp:address(Resp),
     TID = libp2p_swarm:tid(Swarm),
     lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
     true = libp2p_config:insert_listener(TID, [Address], SessionPid),
     {noreply, State};
 % Bridge Step 4: A got a bridge req, dialing B
 handle_client_data({bridge_ra, Bridge}, _Env, #state{swarm=Swarm}=State) ->
-    B = erlang:binary_to_list(libp2p_relay_bridge:b(Bridge)),
+    B = libp2p_relay_bridge:b(Bridge),
     lager:info("A got a bridge request dialing B ~s", [B]),
     {ok, _} = libp2p_relay:dial_framed_stream(Swarm, B, [{type, {bridge_ab, Bridge}}]),
     {noreply, State};

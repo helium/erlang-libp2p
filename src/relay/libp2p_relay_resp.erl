@@ -26,7 +26,7 @@
 %% Create an relay responce
 %% @end
 %%--------------------------------------------------------------------
--spec create(binary()) -> relay_resp().
+-spec create(string()) -> relay_resp().
 create(Address) ->
     #libp2p_relay_resp_pb{address=Address}.
 
@@ -35,7 +35,7 @@ create(Address) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec address(relay_resp()) -> binary().
+-spec address(relay_resp()) -> string().
 address(Req) ->
     Req#libp2p_relay_resp_pb.address.
 
@@ -49,10 +49,10 @@ address(Req) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_relay_resp_pb{address = <<"123">>}, create(<<"123">>)).
+    ?assertEqual(#libp2p_relay_resp_pb{address="123"}, create("123")).
 
 get_test() ->
-    Resp = create(<<"123">>),
-    ?assertEqual(<<"123">>, address(Resp)).
+    Resp = create("123"),
+    ?assertEqual("123", address(Resp)).
 
 -endif.
