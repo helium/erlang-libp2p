@@ -60,9 +60,8 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
                     {stop, {error, Reason}, State}
             end;
         #libp2p_ack_frame_pb{frame={ack, defer}} ->
-            %% When we receive a defer we do _not_ reply back to teh
-            %% original caller. This way we block the sender until the
-            %% actual ack is received
+            %% When we receive a defer we do _not_ invoke the
+            %% handler. The message is not yet complete
             {noreply, State};
         #libp2p_ack_frame_pb{frame={ack, ack}} ->
             AckModule:handle_ack(AckState, AckRef),

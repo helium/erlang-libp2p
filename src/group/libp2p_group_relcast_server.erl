@@ -336,7 +336,9 @@ lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
 -spec dispatch_ack(pos_integer(), #state{}) -> #state{}.
 dispatch_ack(Index, State=#state{}) ->
     case lookup_worker(Index, State) of
-        #worker{pid=self} -> State;
+        #worker{pid=self} ->
+            handle_ack(self(), Index),
+            State;
         #worker{pid=Worker} ->
             libp2p_group_worker:ack(Worker),
             State
@@ -377,7 +379,11 @@ dispatch_next_messages(Indexes, State=#state{store=Store}) ->
                                 %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
                                 spawn(fun() ->
                                               Result = handle_data(Parent, Index, Msg),
-                                              libp2p_group_server:send_result(Parent, {Key, Index}, Result)
+                                              libp2p_group_server:send_result(Parent, {Key, Index}, Result),
+                                              case Result of
+                                                  ok -> handle_ack(Parent, Index);
+                                                  _ -> ok
+                                              end
                                       end),
                                 ready_worker(Index, Key, Acc);
                             #worker{index=Index, pid=Worker, msg_key=undefined} ->

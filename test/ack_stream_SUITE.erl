@@ -23,9 +23,15 @@ end_per_testcase(_, Config) ->
 ack_test(Config) ->
     Client = proplists:get_value(client, Config),
     libp2p_framed_stream:send(Client, <<"hello">>, 100),
+
     receive
         {handle_data, ack_server_ref, <<"hello">>} -> ok
-    after 100 -> erlang:exit(timeout)
+    after 1000 -> erlang:exit(timeout_data)
+    end,
+
+    receive
+        {handle_ack, ack_server_ref} -> ok
+    after 1000 -> erlang:exit(timeout_ack)
     end,
 
     ok.
@@ -39,5 +45,6 @@ handle_data(Pid, Ref, Bin) ->
     Pid ! {handle_data, Ref, Bin},
     ok.
 
-handle_ack(_Pid, _Ref) ->
+handle_ack(Pid, Ref) ->
+    Pid ! {handle_ack, Ref},
     ok.
