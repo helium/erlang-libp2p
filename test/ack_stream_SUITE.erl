@@ -1,7 +1,7 @@
 -module(ack_stream_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accept_stream/4, handle_data/3]).
+-export([accept_stream/4, handle_data/3, handle_ack/2]).
 -export([ack_test/1]).
 
 
@@ -37,4 +37,7 @@ accept_stream(Pid, _MAddr, StreamPid, Path) ->
 
 handle_data(Pid, Ref, Bin) ->
     Pid ! {handle_data, Ref, Bin},
+    ok.
+
+handle_ack(_Pid, _Ref) ->
     ok.

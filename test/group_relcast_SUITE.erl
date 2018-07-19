@@ -143,7 +143,7 @@ defer_test(Config) ->
     true = lists:member({handle_msg, 1, <<"defer">>}, receive_messages([])),
 
     %% Then we ack it by telling G2 to ack for G1
-    libp2p_group_relcast:handle_ack(G2, 1),
+    libp2p_group_relcast:send_ack(G2, 1),
 
     %% Send a message from G2 to G1
     libp2p_group_relcast:handle_input(G2, <<"defer2">>),
