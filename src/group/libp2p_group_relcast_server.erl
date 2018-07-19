@@ -17,7 +17,7 @@
        { target :: string(),
          index :: pos_integer(),
          pid :: pid() | self,
-         msg_key=undefined :: msg_key() | undefined
+         msg_key=false :: msg_key() | undefined | false
        }).
 
 -record(state,
@@ -171,6 +171,7 @@ handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler, workers
                        length(Elements)
                end,
     MsgKeyInfo = fun(undefined) -> undefined;
+                    (false) -> false;
                     (MsgKey) -> base58:binary_to_base58(MsgKey)
                  end,
     WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, msg_key=MsgKey}, Acc) ->
@@ -221,11 +222,12 @@ handle_cast({send_ready, Index, Ready}, State=#state{self_index=_SelfIndex}) ->
         false ->
             case Ready of
                 true ->
-                    {noreply, dispatch_next_messages([Index], State)};
-                _ ->
-                    {noreply, State}
+                    {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, State))};
+                false ->
+                    {noreply, ready_worker(Index, false, State)}
             end;
         _ ->
+            %% The worker ready state already matches
             {noreply, State}
     end;
 handle_cast({send_result, {_Key, _Index}, defer}, State=#state{self_index=_SelfIndex}) ->
@@ -256,14 +258,13 @@ handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
     case lookup_worker(Index, State) of
-        #worker{msg_key=undefined} ->
-            lager:debug("Unexpected ack for ~p", [Index]),
-            {noreply, State};
-        #worker{msg_key=MsgKey} ->
+        #worker{msg_key=MsgKey} when is_binary(MsgKey) ->
             %% Delete the outbound message for the given index
             NewState = delete_message(MsgKey, State),
             {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, NewState))};
-        _ -> {noreply, State}
+        _ ->
+            lager:debug("Unexpected ack for ~p", [Index]),
+            {noreply, State}
     end;
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
