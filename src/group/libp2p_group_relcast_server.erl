@@ -133,8 +133,8 @@ handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{work
     {reply, {error, not_ready}, State};
 handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys=OK}) ->
     Map = #{
-      in => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- IK ],
-      out => [ {Index - 1, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- OK ]
+      in => [ {Index, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- IK ],
+      out => [ {Index, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- OK ]
      },
     {reply, Map, State};
 handle_call({accept_stream, MAddr, StreamPid, Path}, _From, State=#state{}) ->
@@ -165,13 +165,22 @@ handle_call(info, _From, State=#state{group_id=GroupID, handler=Handler, workers
                        (#worker{pid=Pid}, Map) ->
                             maps:put(info, libp2p_group_worker:info(Pid), Map)
                     end,
+    QueueLen = fun(false) ->
+                       0;
+                  ({_, Elements}) ->
+                       length(Elements)
+               end,
     MsgKeyInfo = fun(undefined) -> undefined;
                     (MsgKey) -> base58:binary_to_base58(MsgKey)
                  end,
     WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, msg_key=MsgKey}, Acc) ->
+                                      InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
+                                      OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
                                       maps:put(Index,
                                                AddWorkerInfo(WorkerInfo,
                                                              #{ index => Index,
+                                                                in_keys => InKeys,
+                                                                out_keys => OutKeys,
                                                                 msg_key => MsgKeyInfo(MsgKey)}),
                                                Acc)
                               end, #{}, Workers),
