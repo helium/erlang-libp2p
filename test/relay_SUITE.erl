@@ -83,7 +83,7 @@ basic(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
     ),
 
-    [RAddress] = libp2p_swarm:listen_addrs(RSwarm),
+    [RAddress|_] = libp2p_swarm:listen_addrs(RSwarm),
 
     % NAT fails so A dials R to create a relay
     {ok, _} = libp2p_relay:dial_framed_stream(ASwarm, RAddress, []),
