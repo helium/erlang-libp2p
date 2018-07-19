@@ -481,7 +481,7 @@ send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers, self_inde
 -include_lib("eunit/include/eunit.hrl").
 
 store_delete_test() ->
-    Store = bitcask:open(lib:nonl(os:cmd("mktemp -d")), [read_write]),
+    Store = bitcask:open(test_util:nonl(os:cmd("mktemp -d")), [read_write]),
     State0 = #state{workers=lists:seq(1, 5), store=Store},
     {[InKey], State1} = store_message(?INBOUND, [0], <<"hello">>, State0),
     State2 = delete_message(InKey, State1),
@@ -502,7 +502,7 @@ store_delete_test() ->
     ok.
 
 store_recover_test() ->
-    Store = bitcask:open(lib:nonl(os:cmd("mktemp -d")), [read_write]),
+    Store = bitcask:open(test_util:nonl(os:cmd("mktemp -d")), [read_write]),
     State0 = #state{workers=lists:seq(1, 5), store=Store},
     {[InKey], State1} = store_message(?INBOUND, [0], <<"hello">>, State0),
     {OutKeys0, InKeys0} = recover_msg_cache(Store),

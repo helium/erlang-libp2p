@@ -1,7 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
-         connect_swarms/2,
+         connect_swarms/2, nonl/1,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5]).
 
 setup() ->
@@ -18,7 +18,7 @@ setup_swarms(N, Opts, Acc) ->
     setup_swarms(N - 1, Opts,
                  [begin
                       Name = list_to_atom("swarm" ++ integer_to_list(erlang:unique_integer([monotonic]))),
-                      TmpDir = lib:nonl(os:cmd("mktemp -d")),
+                      TmpDir = nonl(os:cmd("mktemp -d")),
                       BaseDir = libp2p_config:get_opt(Opts, base_dir, TmpDir),
                       NewOpts = lists:keystore(base_dir, 1, Opts, {base_dir, BaseDir})
                         ++ [{libp2p_transport_tcp, [{nat, false}]}],
@@ -76,3 +76,10 @@ dial_framed_stream(FromSwarm, ToSwarm, Name, Module, Args) ->
     [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Stream} = libp2p_swarm:dial_framed_stream(FromSwarm, ToAddr, Name, Module, Args),
     Stream.
+
+-spec nonl(String1) -> String2 when
+      String1 :: string(),
+      String2 :: string().
+nonl([$\n]) -> [];
+nonl([]) -> [];
+nonl([H|T]) -> [H|nonl(T)].
