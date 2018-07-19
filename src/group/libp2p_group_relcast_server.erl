@@ -340,7 +340,7 @@ is_ready_worker(Index, Ready, State=#state{}) ->
         _ -> false
     end.
 
--spec ready_worker(pos_integer(), msg_key() | undefined, #state{}) -> #state{}.
+-spec ready_worker(pos_integer(), msg_key() | undefined | false, #state{}) -> #state{}.
 ready_worker(Index, Ready, State=#state{}) ->
     case lookup_worker(Index, State) of
         Worker=#worker{} -> update_worker(Worker#worker{msg_key=Ready}, State);
