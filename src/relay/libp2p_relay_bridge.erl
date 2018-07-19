@@ -50,7 +50,7 @@ create_ra(A, B) ->
 %% Create an relay bridge R to A
 %% @end
 %%--------------------------------------------------------------------
--spec create_ab(string(), string()) -> relay_bridge_ra().
+-spec create_ab(string(), string()) -> relay_bridge_ab().
 create_ab(A, B) ->
     #libp2p_relay_bridge_ab_pb{a=A, b=B}.
 
@@ -59,7 +59,7 @@ create_ab(A, B) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec a(relay_bridge_br() | relay_bridge_ra()) -> string().
+-spec a(relay_bridge_br() | relay_bridge_ra() | relay_bridge_ab()) -> string().
 a(#libp2p_relay_bridge_br_pb{a=A}) ->
     A;
 a(#libp2p_relay_bridge_ra_pb{a=A}) ->
@@ -72,7 +72,7 @@ a(#libp2p_relay_bridge_ab_pb{a=A}) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec b(relay_bridge_br() | relay_bridge_ra()) -> string().
+-spec b(relay_bridge_br() | relay_bridge_ra() | relay_bridge_ab()) -> string().
 b(#libp2p_relay_bridge_br_pb{b=B}) ->
     B;
 b(#libp2p_relay_bridge_ra_pb{b=B}) ->
