@@ -59,7 +59,7 @@ init(client, Conn, Args) ->
         {bridge_ab, Bridge} ->
             self() ! {init_bridge_ab, Bridge};
         {bridge_br, RelayAddress} ->
-            [_Self, DestinationAddress] = string:split(RelayAddress, "/p2p-circuit"),
+            {ok, {_Self, DestinationAddress}} = libp2p_relay:p2p_circuit(RelayAddress),
             self() ! {init_bridge_br, DestinationAddress}
     end,
     TID = libp2p_swarm:tid(Swarm),
@@ -140,7 +140,7 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
     true = erlang:register(erlang:list_to_atom(Address), self()),
     [LocalAddress|_] = libp2p_swarm:listen_addrs(Swarm),
-    Resp = libp2p_relay_resp:create(LocalAddress ++ "/p2p-circuit" ++ Address),
+    Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
@@ -156,7 +156,7 @@ handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     B = libp2p_relay_bridge:b(Bridge),
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("B (~s) got A (~s) dialing back", [B, A]),
-    erlang:list_to_atom(A ++ "/A") ! {sessions, libp2p_swarm:sessions(Swarm)},
+    libp2p_transport_relay:reg(A) ! {sessions, libp2p_swarm:sessions(Swarm)},
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
