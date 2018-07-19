@@ -3,4 +3,4 @@
 
 # Erlang Libp2p
 
-[Documentation](http://github.com/helium/erlang-libp2p/blob/master/doc/README.md)
+<a href="doc/README.md">Documentation</a>
