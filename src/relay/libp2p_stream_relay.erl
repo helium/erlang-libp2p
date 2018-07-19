@@ -32,6 +32,8 @@
     ,sessionPid
 }).
 
+-type state() :: #state{}.
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -124,6 +126,7 @@ handle_info(client, _Msg, State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+-spec handle_server_data(binary(), state()) -> libp2p_framed_stream:handle_data_result().
 handle_server_data(Bin, State) ->
     Env = libp2p_relay_envelope:decode(Bin),
     lager:notice("server got ~p", [Env]),
@@ -132,6 +135,7 @@ handle_server_data(Bin, State) ->
 
 % Relay Step 2: The relay server R receives a req craft the p2p-circuit address
 % and sends it back to the client A
+-spec handle_server_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
     true = erlang:register(erlang:list_to_atom(Address), self()),
@@ -146,6 +150,8 @@ handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     lager:info("R got a relay request passing to A's relay stream ~s", [A]),
     erlang:list_to_atom(A) ! {bridge_br, Bridge},
     {noreply, State};
+% Bridge Step 6: B got dialed back from A, that session (A->B) will be sent back to
+% libp2p_transport_relay:connect to be used instead of the B->R session
 handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     B = libp2p_relay_bridge:b(Bridge),
     A = libp2p_relay_bridge:a(Bridge),
@@ -156,6 +162,7 @@ handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
 
+-spec handle_client_data(binary(), state()) -> libp2p_framed_stream:handle_data_result().
 handle_client_data(Bin, State) ->
     Env = libp2p_relay_envelope:decode(Bin),
     lager:notice("client got ~p", [Env]),
@@ -164,6 +171,7 @@ handle_client_data(Bin, State) ->
 
 % Relay Step 3: Client A receives a relay response from server R with p2p-circuit address
 % and inserts it as a new listerner to get broadcasted by peerbook
+-spec handle_client_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
 handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid}=State) ->
     Address = libp2p_relay_resp:address(Resp),
     TID = libp2p_swarm:tid(Swarm),
