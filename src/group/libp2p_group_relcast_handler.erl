@@ -11,11 +11,13 @@
 
 -type handler_state() :: binary().
 
--type handler_result() ::
-        {State::handler_state(), ok} |
-        {State, {send, [message()]}} |
-        {State, stop, Reason::any()}.
+-type handler_result() :: {State::handler_state(), ok | defer | {send, [message()]}}.
 
 -type message() ::
-        {unicast, Index::pos_integer(), Msg::binary()} |
-        {multicast, Msg::binary()}.
+        {unicast, Index::pos_integer(), Msg::message_value()} |
+        {multicast, Msg::message_value()}.
+
+-type message_key_prefix() :: <<_:128>>.
+-type message_value() ::
+        {message_key_prefix(), binary()} |
+        binary().

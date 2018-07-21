@@ -4,7 +4,7 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, assign_target/2, assign_stream/3, send/3, ack/1]).
+-export([start_link/4, assign_target/2, assign_stream/3, send/3, send_ack/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -45,9 +45,10 @@ assign_stream(Pid, MAddr, Connection) ->
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
 
--spec ack(pid()) -> ok.
-ack(Pid) ->
-    gen_statem:cast(Pid, ack).
+-spec send_ack(pid()) -> ok.
+send_ack(Pid) ->
+    Pid ! send_ack,
+    ok.
 
 %% libp2p_info
 info(Pid) ->
@@ -75,13 +76,13 @@ init([Kind, ClientSpec, Server, TID]) ->
                             gen_statem:state_enter_result(request_target);
                     (gen_statem:event_type(), Msg :: term(), Data :: term()) ->
                             gen_statem:event_handler_result(atom()).
-request_target(enter, _, Data=#data{kind=Kind, server=Server}) ->
+request_target(enter, _, #data{kind=Kind, server=Server}) ->
     libp2p_group_server:request_target(Server, Kind, self()),
-    {next_state, request_target, Data, ?ASSIGN_RETRY};
+    {keep_state_and_data, ?ASSIGN_RETRY};
 request_target(timeout, _, #data{}) ->
     repeat_state_and_data;
 request_target(cast, {assign_target, undefined}, #data{}) ->
-    repeat_state_and_data;
+    {keep_state_and_data, ?ASSIGN_RETRY};
 request_target(cast, {assign_target, MAddr}, Data=#data{}) ->
     {next_state, connect, Data#data{target=MAddr}};
 request_target(cast, {send, Ref, _Bin}, #data{server=Server}) ->
@@ -167,6 +168,9 @@ connect(info, {assign_session, SessionPid}, Data=#data{client_spec={Path, {M, A}
             {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
                                                  stream_monitor=monitor_stream(undefined, Data)})}
     end;
+connect(info, send_ack, #data{stream_monitor={_, StreamPid}}) ->
+    StreamPid ! send_ack,
+    keep_state_and_data;
 connect(cast, {assign_stream, MAddr, StreamPid},
         Data=#data{tid=TID, stream_monitor=StreamMonitor={_,_CurrentStreamPid}}) when StreamMonitor /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
@@ -198,9 +202,6 @@ connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_monitor=undefined})
 connect(cast, {send, Ref, Bin}, #data{server=Server, stream_monitor={_, StreamPid}}) ->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
-    keep_state_and_data;
-connect(cast, ack, #data{stream_monitor={_, StreamPid}}) ->
-    gen_server:cast(StreamPid, ack),
     keep_state_and_data;
 connect(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
