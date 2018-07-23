@@ -6,7 +6,8 @@
 -module(libp2p_relay).
 
 -export([
-    version/0
+    init/1
+    ,version/0
     ,add_stream_handler/1
     ,dial_framed_stream/3
     ,p2p_circuit/1, p2p_circuit/2
@@ -14,6 +15,37 @@
 
 -define(RELAY_VERSION, "relay/1.0.0").
 -define(P2P_CIRCUIT, "/p2p-circuit").
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec init(pid()) -> {ok, pid()} | {error, any()} | ignore.
+init(Swarm) ->
+    lager:info("init relay for ~p", [libp2p_swarm:name(Swarm)]),
+    Peerbook = libp2p_swarm:peerbook(Swarm),
+    Peers = libp2p_peerbook:values(Peerbook),
+    SwarmAddr = libp2p_swarm:address(Swarm),
+    ListenAddrs = lists:foldl(
+        fun(Peer, Acc) ->
+            case libp2p_peer:address(Peer) of
+                SwarmAddr -> Acc;
+                _PeerAddress ->
+                    L = erlang:length(libp2p_peer:connected_peers(Peer)),
+                    [{L, libp2p_peer:listen_addrs(Peer)}|Acc]
+            end
+        end
+        ,[]
+        ,Peers
+    ),
+    case lists:sort(ListenAddrs) of
+        [{L, [ListenAddr|_]}|_] ->
+            lager:info("found ~s with the most connection (~p)", [ListenAddr, L]),
+            ?MODULE:dial_framed_stream(Swarm, ListenAddr, []);
+        _Any ->
+            lager:warning("could nopt initiate relay, failed to find address ~p", [_Any]),
+            {error, no_address}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
