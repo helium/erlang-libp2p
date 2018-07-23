@@ -435,13 +435,13 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
 maybe_spawn_nat_discovery(Handler, MultiAddrs, TID) ->
     case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, nat], true) of
         true ->
-            spawn_nat_discovery(Handler, MultiAddrs);
+            spawn_nat_discovery(Handler, MultiAddrs, libp2p_swarm:swarm(TID));
         _ ->
             lager:notice("nat is disabled"),
             ok
     end.
 
-spawn_nat_discovery(Handler, MultiAddrs) ->
+spawn_nat_discovery(Handler, MultiAddrs, Swarm) ->
     case lists:filtermap(fun(M) -> case tcp_addr(M) of
                                        {IP, Port, inet, _} ->
                                            case rfc1918(IP) of
@@ -457,10 +457,11 @@ spawn_nat_discovery(Handler, MultiAddrs) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            spawn(fun() -> try_nat(Handler, Tuple) end)
+            spawn(fun() -> try_nat(Handler, Tuple, Swarm) end)
     end.
 
-try_nat(Handler, {MultiAddr, _IP, Port}) ->
+% TODO If nat fails we should try to initiate relay
+try_nat(Handler, {MultiAddr, _IP, Port}, Swarm) ->
     case nat:discover() of
         {ok, Context} ->
             case nat:add_port_mapping(Context, tcp, Port, Port, 3600) of
@@ -468,11 +469,13 @@ try_nat(Handler, {MultiAddr, _IP, Port}) ->
                     ExternalAddress = nat_external_address(Context),
                     Handler ! {record_listen_addr, MultiAddr, to_multiaddr({ExternalAddress, Port})};
                 {error, _Reason} ->
-                    lager:notice("unable to add nat mapping: ~p", [_Reason]),
+                    lager:warning("unable to add nat mapping: ~p", [_Reason]),
+                    libp2p_relay:init(Swarm),
                     ok
             end;
         _ ->
-            lager:debug("no nat discovered"),
+            lager:info("no nat discovered"),
+            libp2p_relay:init(Swarm),
             ok
     end.
 
