@@ -11,6 +11,8 @@
 
 -export([
     basic/1
+    ,init_failed/1
+    ,init_success/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -24,7 +26,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic].
+    [basic, init_failed, init_success].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -101,6 +103,62 @@ basic(_Config) ->
         ,libp2p_stream_relay_test
         ,[]
     ),
+
+    timer:sleep(2000),
+    ok = libp2p_swarm:stop(ASwarm),
+    ok = libp2p_swarm:stop(RSwarm),
+    ok = libp2p_swarm:stop(BSwarm),
+
+    timer:sleep(2000),
+    ok.
+
+init_failed(_Config) ->
+    SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
+    {ok, Swarm} = libp2p_swarm:start(init_failed, SwarmOpts),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/6700"),
+
+    {error, no_address} = libp2p_relay:init(Swarm),
+
+    ok = libp2p_swarm:stop(Swarm),
+
+    timer:sleep(2000),
+    ok.
+
+init_success(_Config) ->
+    SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
+    Version = "relaytest/1.0.0",
+
+    {ok, ASwarm} = libp2p_swarm:start(init_success_a, SwarmOpts),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/6800"),
+    libp2p_swarm:add_stream_handler(
+        ASwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
+    ),
+
+    {ok, BSwarm} = libp2p_swarm:start(init_success_b, SwarmOpts),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6802"),
+    libp2p_swarm:add_stream_handler(
+        BSwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
+    ),
+
+    [BAddress|_] = libp2p_swarm:listen_addrs(BSwarm),
+    {ok, _} = libp2p_swarm:dial_framed_stream(
+        ASwarm
+        ,BAddress
+        ,Version
+        ,libp2p_stream_relay_test
+        ,[]
+    ),
+    timer:sleep(2000),
+
+    {ok, _} = libp2p_relay:init(ASwarm),
+    timer:sleep(2000),
+
+    ok = libp2p_swarm:stop(ASwarm),
+    ok = libp2p_swarm:stop(BSwarm),
 
     timer:sleep(2000),
     ok.
