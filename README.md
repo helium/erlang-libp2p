@@ -3,4 +3,6 @@
 
 # Erlang Libp2p
 
-<a href="doc/README.md">Documentation</a>
+<a href="doc/relay.md">Relay Doc</a>
+
+<a href="doc/README.md">Modules</a>
