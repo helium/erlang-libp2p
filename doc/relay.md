@@ -1,5 +1,15 @@
 # Relay Testing
 
+## Description
+
+### Relay Request
+
+![relay request](relay.png)
+
+### Dial P2P Circuit
+
+![Dial P2P Circuit](dial_p2p_circuit.png)
+
 ## Setup Docker
 
 1. Create Docker image:
