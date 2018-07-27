@@ -10,8 +10,12 @@
     ,version/0
     ,add_stream_handler/1
     ,dial_framed_stream/3
-    ,p2p_circuit/1, p2p_circuit/2
+    ,p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1
 ]).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -define(RELAY_VERSION, "relay/1.0.0").
 -define(P2P_CIRCUIT, "/p2p-circuit").
@@ -93,7 +97,7 @@ dial_framed_stream(Swarm, Address, Args) ->
 -spec p2p_circuit(string()) -> {ok, {string(), string()}} | error.
 p2p_circuit(P2PCircuit) ->
     case string:split(P2PCircuit, ?P2P_CIRCUIT) of
-        [A, B] -> {ok, {A, B}};
+        [R, A] -> {ok, {R, A}};
         _ -> error
     end.
 
@@ -103,9 +107,45 @@ p2p_circuit(P2PCircuit) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec p2p_circuit(string(), string()) -> string().
-p2p_circuit(A, B) ->
-    A ++ ?P2P_CIRCUIT ++ B.
+p2p_circuit(R, A) ->
+    R ++ ?P2P_CIRCUIT ++ A.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Split p2p circuit address
+%% @end
+%%--------------------------------------------------------------------
+-spec is_p2p_circuit(string()) -> boolean().
+is_p2p_circuit(Address) ->
+    case string:find(Address, ?P2P_CIRCUIT) of
+        nomatch -> false;
+        _ -> true
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+p2p_circuit_1_test() ->
+    ?assertEqual(
+        {ok, {"/ip4/192.168.1.61/tcp/6601", "/ip4/192.168.1.61/tcp/6600"}}
+        ,p2p_circuit("/ip4/192.168.1.61/tcp/6601/p2p-circuit/ip4/192.168.1.61/tcp/6600")
+    ),
+    ok.
+
+p2p_circuit_2_test() ->
+    ?assertEqual("/abc/p2p-circuit/def", p2p_circuit("/abc", "/def")),
+    ok.
+
+is_p2p_circuit_test() ->
+    ?assert(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601/p2p-circuit/ip4/192.168.1.61/tcp/6600")),
+    ?assertNot(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601")),
+    ?assertNot(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601p2p-circuit/ip4/192.168.1.61/tcp/6600")),
+    ok.
+
+-endif.
