@@ -108,7 +108,7 @@ basic(_Config) ->
     ),
     timer:sleep(2000),
 
-    Data = <<"some data">>
+    Data = <<"some data">>,
     Client ! Data,
     receive
         {echo, Data} -> ok
