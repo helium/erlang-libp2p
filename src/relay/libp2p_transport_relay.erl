@@ -59,7 +59,7 @@ relay_or_proxy(MAddr, RAddress, AAddress, TID, SessionPid) ->
         false ->
             init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid);
         true ->
-            init_proxy(SessionPid)
+            init_proxy(SessionPid, AAddress)
     end.
 
 -spec init_relay(string(), string(), string()
@@ -82,9 +82,9 @@ init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
         {error, timeout_relay_session}
     end.
 
--spec init_proxy(pid()) -> {ok, pid(), string()}.
-init_proxy(SessionPid) ->
-    {ok, SessionPid, libp2p_proxy:version()}.
+-spec init_proxy(pid(), string()) -> {ok, pid(), string()}.
+init_proxy(SessionPid, AAddress) ->
+    {ok, SessionPid, {proxy, libp2p_proxy:version(), AAddress}}.
 
 -spec match_protocols(list()) -> {ok, string()} | false.
 match_protocols(Protocols) ->

@@ -64,7 +64,7 @@ basic(_Config) ->
     libp2p_swarm:add_stream_handler(
         ASwarm
         ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ASwarm]}
     ),
 
     {ok, RSwarm} = libp2p_swarm:start(r_proxy, SwarmOpts),
@@ -72,7 +72,7 @@ basic(_Config) ->
     libp2p_swarm:add_stream_handler(
         RSwarm
         ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RSwarm]}
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), RSwarm]}
     ),
 
     {ok, BSwarm} = libp2p_swarm:start(b_proxy, SwarmOpts),
@@ -80,7 +80,7 @@ basic(_Config) ->
     libp2p_swarm:add_stream_handler(
         BSwarm
         ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), BSwarm]}
     ),
 
     [RAddress|_] = libp2p_swarm:listen_addrs(RSwarm),
@@ -99,14 +99,22 @@ basic(_Config) ->
     % Once relay is established get relay address from A's peerbook
     [_, ARelayAddress|_] = libp2p_swarm:listen_addrs(ASwarm),
     % B dials A via the relay address (so dialing R realy)
-    {ok, _} = libp2p_swarm:dial_framed_stream(
+    {ok, Client} = libp2p_swarm:dial_framed_stream(
         BSwarm
         ,ARelayAddress
         ,Version
-        ,libp2p_stream_relay_test
-        ,[]
+        ,libp2p_stream_proxy_test
+        ,[{echo, self()}]
     ),
     timer:sleep(2000),
+
+    Data = <<"some data">>
+    Client ! Data,
+    receive
+        {echo, Data} -> ok
+    after 5000 ->
+        ct:fail(timeout)
+    end,
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(RSwarm),
