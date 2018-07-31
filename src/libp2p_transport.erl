@@ -56,7 +56,7 @@ connect_to(Addr, Options, Timeout, TID) ->
                             try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
                                 {error, Error} -> {error, Error};
                                 {ok, SessionPid} -> {ok, SessionPid};
-                                {ok, SessionPid, Path} -> {ok, SessionPid, Path}
+                                {ok, SessionPid, Data} -> {ok, SessionPid, Data}
                             catch
                                 What:Why -> {error, {What, Why}}
                             end
