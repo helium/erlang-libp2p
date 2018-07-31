@@ -8,6 +8,7 @@
 -export([
     version/0
     ,add_stream_handler/1
+    ,dial_framed_stream/4
 ]).
 
 -ifdef(TEST).
@@ -34,6 +35,21 @@ add_stream_handler(TID) ->
         TID
         ,?PROXY_VERSION
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy, self(), TID]}
+    ).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Dial proxy stream
+%% @end
+%%--------------------------------------------------------------------
+-spec dial_framed_stream(pid(), string(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
+dial_framed_stream(Swarm, Address, Path, Args) ->
+    libp2p_swarm:dial_framed_stream(
+        Swarm
+        ,Address
+        ,Path
+        ,libp2p_stream_proxy
+        ,Args
     ).
 
 %% ------------------------------------------------------------------

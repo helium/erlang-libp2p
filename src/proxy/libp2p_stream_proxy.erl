@@ -28,11 +28,10 @@
 -include("pb/libp2p_proxy_pb.hrl").
 
 -record(state, {
-    swarm
-    ,sessionPid
+    ready = false :: boolean()
+    ,swarm :: pid()
+    ,proxy :: pid()
 }).
-
--type state() :: #state{}.
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -52,45 +51,41 @@ init(server, _Conn, [_, _Pid, TID]=Args) ->
     {ok, #state{swarm=Swarm}};
 init(client, Conn, Args) ->
     lager:info("init proxy client with ~p", [{Conn, Args}]),
-    {ok, #state{}}.
+    Proxy = proplists:get_value(proxy, Args),
+    {ok, #state{proxy=Proxy}}.
 
-handle_data(server, Bin, State) ->
-    handle_server_data(Bin, State);
-handle_data(client, Bin, State) ->
-    handle_client_data(Bin, State).
+handle_data(server, Data, #state{ready=false, swarm=Swarm}=State) ->
+    Env = libp2p_proxy_envelope:decode(Data),
+    lager:info("server got ~p", [Env]),
+    {req, Req} = libp2p_proxy_envelope:data(Env),
+    Path = libp2p_proxy_req:path(Req),
+    Address = libp2p_proxy_req:address(Req),
+    {ok, StreamPid} = libp2p_proxy:dial_framed_stream(
+        Swarm
+        ,Address
+        ,Path
+        ,[{proxy, self()}]
+    ),
+    {noreply, State#state{proxy=StreamPid, ready=true}};
+handle_data(server, Data, #state{ready=true, proxy=Proxy}=State) ->
+    lager:debug("server got data ~p, transfering to client", [Data]),
+    Proxy ! {data, Data},
+    {noreply, State};
+handle_data(client, Data, #state{proxy=Proxy}=State) ->
+    lager:debug("client got data ~p, transfering to server", [Data]),
+    Proxy ! {data, Data},
+    {noreply, State};
+handle_data(client, _Data, State) ->
+    {noreply, State}.
 
 
+handle_info(_Type, {data, Data}, State) ->
+    lager:debug("~p got data ~p, piping", [_Type, Data]),
+    {noreply, State, Data};
 handle_info(_Type, _Msg, State) ->
-    lager:notice("~p got ~p", [_Type, _Msg]),
+    lager:warning("~p got ~p", [_Type, _Msg]),
     {noreply, State}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec handle_server_data(binary(), state()) -> libp2p_framed_stream:handle_data_result().
-handle_server_data(Bin, State) ->
-    Env = libp2p_proxy_envelope:decode(Bin),
-    lager:notice("server got ~p", [Env]),
-    Data = libp2p_proxy_envelope:data(Env),
-    handle_server_data(Data, Env, State).
-
--spec handle_server_data(any(), libp2p_proxy_envelope:proxy_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
-handle_server_data({req, Req}, _Env, State) ->
-    lager:warning("[~p:~p:~p] MARKER ~p~n", [?MODULE, ?FUNCTION_NAME, ?LINE, Req]),
-    {noreply, State};
-handle_server_data(_Data, _Env, State) ->
-    lager:warning("server unknown envelope ~p", [_Env]),
-    {noreply, State}.
-
--spec handle_client_data(binary(), state()) -> libp2p_framed_stream:handle_data_result().
-handle_client_data(Bin, State) ->
-    Env = libp2p_proxy_envelope:decode(Bin),
-    lager:notice("client got ~p", [Env]),
-    Data = libp2p_proxy_envelope:data(Env),
-    handle_client_data(Data, Env, State).
-
--spec handle_client_data(any(), libp2p_proxy_envelope:proxy_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
-handle_client_data(_Data, _Env, State) ->
-    lager:warning("client unknown envelope ~p", [_Env]),
-    {noreply, State}.
