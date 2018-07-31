@@ -1,0 +1,9 @@
+message proxy_req {
+    required string path = 1;
+}
+
+message proxy_envelope {
+    oneof data {
+        proxy_req req = 1;
+    }
+}
