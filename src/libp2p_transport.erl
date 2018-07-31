@@ -55,7 +55,8 @@ connect_to(Addr, Options, Timeout, TID) ->
                             lager:debug("~p connecting to ~p", [Transport, ConnAddr]),
                             try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
                                 {error, Error} -> {error, Error};
-                                {ok, SessionPid} -> {ok, SessionPid}
+                                {ok, SessionPid} -> {ok, SessionPid};
+                                {ok, SessionPid, Path} -> {ok, SessionPid, Path}
                             catch
                                 What:Why -> {error, {What, Why}}
                             end
