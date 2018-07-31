@@ -30,31 +30,17 @@ match_addr(Addr) when is_list(Addr) ->
 priority() -> 1.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
-              ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
+              ,pos_integer(), ets:tab()) -> {ok, pid()}
+                                            | {ok, pid(), string()}
+                                            | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     true = erlang:register(?MODULE:reg_addr(AAddress), self()),
     case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
         {error, _Reason}=Error ->
             Error;
-        {ok, _SessionPid} ->
-            Swarm = libp2p_swarm:swarm(TID),
-            {ok, _} = libp2p_relay:dial_framed_stream(
-                Swarm
-                ,RAddress
-                ,[{type, {bridge_br, MAddr}}]
-            ),
-            receive
-                {sessions, [SessionPid|_]=Sessions} ->
-                    lager:info("using sessions: ~p instead of ~p", [Sessions, _SessionPid]),
-                    true  = erlang:unregister(?MODULE:reg_addr(AAddress)),
-                    {ok, SessionPid};
-                _Error ->
-                    lager:error("no relay sessions ~p", [_Error]),
-                    {error, no_relay_session}
-            after 8000 ->
-                {error, timeout_relay_session}
-            end
+        {ok, SessionPid} ->
+            relay_or_proxy(MAddr, RAddress, AAddress, TID, SessionPid)
     end.
 
 -spec reg_addr(string()) -> atom().
@@ -64,6 +50,42 @@ reg_addr(Address) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec relay_or_proxy(string(), string(), string()
+                     ,ets:tab(), pid()) -> {ok, pid()} | {error, term()}.
+relay_or_proxy(MAddr, RAddress, AAddress, TID, SessionPid) ->
+    Swarm = libp2p_swarm:swarm(TID),
+    ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
+    case is_p2p_circuit(ListenAddresses) of
+        false ->
+            init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid);
+        true ->
+            init_proxy(SessionPid)
+    end.
+
+-spec init_relay(string(), string(), string()
+                 ,ets:tab(), pid()) -> {ok, pid()} | {error, term()}.
+init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
+    {ok, _} = libp2p_relay:dial_framed_stream(
+        Swarm
+        ,RAddress
+        ,[{type, {bridge_br, MAddr}}]
+    ),
+    receive
+        {sessions, [SessionPid2|_]=Sessions} ->
+            lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
+            true  = erlang:unregister(?MODULE:reg(AAddress)),
+            {ok, SessionPid2};
+        _Error ->
+            lager:error("no relay sessions ~p", [_Error]),
+            {error, no_relay_session}
+    after 8000 ->
+        {error, timeout_relay_session}
+    end.
+
+-spec init_proxy(pid()) -> {ok, pid(), string()}.
+init_proxy(SessionPid) ->
+    {ok, SessionPid, libp2p_proxy:version()}.
+
 -spec match_protocols(list()) -> {ok, string()} | false.
 match_protocols(Protocols) ->
     match_protocols(Protocols, []).
@@ -75,3 +97,16 @@ match_protocols([{"p2p-circuit", _} | _]=A, Acc) ->
     {ok, multiaddr:to_string(lists:reverse(Acc) ++ A)};
 match_protocols([{_, _}=Head | Tail], Acc) ->
     match_protocols(Tail, [Head|Acc]).
+
+
+-spec is_p2p_circuit(list()) -> boolean().
+is_p2p_circuit(Addresses) ->
+    lists:foldl(
+        fun(_, true) ->
+            true;
+        (Address, _) ->
+            libp2p_relay:is_p2p_circuit(Address)
+        end
+        ,false
+        ,Addresses
+    ).
