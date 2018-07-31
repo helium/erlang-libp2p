@@ -7,8 +7,9 @@
 -module(libp2p_proxy_req).
 
 -export([
-    create/1
+    create/2
     ,path/1
+    ,address/1
 ]).
 
 -include("pb/libp2p_proxy_pb.hrl").
@@ -26,9 +27,9 @@
 %% Create an proxy request
 %% @end
 %%--------------------------------------------------------------------
--spec create(string()) -> proxy_req().
-create(Path) ->
-    #libp2p_proxy_req_pb{path=Path}.
+-spec create(string(), string()) -> proxy_req().
+create(Path, Address) ->
+    #libp2p_proxy_req_pb{path=Path, address=Address}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -38,6 +39,10 @@ create(Path) ->
 -spec path(proxy_req()) -> string().
 path(Req) ->
     Req#libp2p_proxy_req_pb.path.
+
+-spec address(proxy_req()) -> string().
+address(Req) ->
+    Req#libp2p_proxy_req_pb.address.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -49,10 +54,11 @@ path(Req) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_proxy_req_pb{path="123"}, create("123")).
+    ?assertEqual(#libp2p_proxy_req_pb{path="123", address="456"}, create("123", "456")).
 
 get_test() ->
-    Req = create("123"),
-    ?assertEqual("123", path(Req)).
+    Req = create("123", "456"),
+    ?assertEqual("123", path(Req)),
+    ?assertEqual("456", address(Req)).
 
 -endif.

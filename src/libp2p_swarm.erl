@@ -277,10 +277,10 @@ dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) ->
             {error, Error};
         {ok, SessionPid} ->
             libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args);
-        {ok, SessionPid, ProxyPath} ->
+        {ok, SessionPid, {proxy, ProxyPath, AAddress}} ->
             case libp2p_session:dial_framed_stream(ProxyPath, SessionPid, Module, Args) of
                 {ok, Pid}=R ->
-                    Pid ! {proxy, Path},
+                    Pid ! {proxy, Path, AAddress},
                     R;
                 Any -> Any
             end
