@@ -31,7 +31,7 @@ priority() -> 1.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()}
-                                            | {ok, pid(), string()}
+                                            | {ok, pid(), any()}
                                             | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
@@ -51,7 +51,7 @@ reg_addr(Address) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 -spec relay_or_proxy(string(), string(), string()
-                     ,ets:tab(), pid()) -> {ok, pid()} | {error, term()}.
+                     ,ets:tab(), pid()) -> {ok, pid()} | {ok, pid(), any()} | {error, term()}.
 relay_or_proxy(MAddr, RAddress, AAddress, TID, SessionPid) ->
     Swarm = libp2p_swarm:swarm(TID),
     ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
@@ -63,7 +63,7 @@ relay_or_proxy(MAddr, RAddress, AAddress, TID, SessionPid) ->
     end.
 
 -spec init_relay(string(), string(), string()
-                 ,ets:tab(), pid()) -> {ok, pid()} | {error, term()}.
+                 ,pid(), pid()) -> {ok, pid()} | {error, term()}.
 init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
     {ok, _} = libp2p_relay:dial_framed_stream(
         Swarm
@@ -82,7 +82,7 @@ init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
         {error, timeout_relay_session}
     end.
 
--spec init_proxy(pid(), string()) -> {ok, pid(), string()}.
+-spec init_proxy(pid(), string()) -> {ok, pid(), {proxy, string(), string()}}.
 init_proxy(SessionPid, AAddress) ->
     {ok, SessionPid, {proxy, libp2p_proxy:version(), AAddress}}.
 

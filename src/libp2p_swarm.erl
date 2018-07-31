@@ -234,12 +234,12 @@ add_connection_handler(TID, Key, {ServerMF, ClientMF}) ->
     libp2p_config:insert_connection_handler(TID, {Key, ServerMF, ClientMF}),
     ok.
 
--spec connect(pid(), string()) -> {ok, pid()} | {error, term()}.
+-spec connect(pid(), string()) -> {ok, pid()} | {ok, pid(), any()} | {error, term()}.
 connect(Sup, Addr) ->
     connect(Sup, Addr, [], ?CONNECT_TIMEOUT).
 
 -spec connect(pid() | ets:tab(), string(), connect_opts(), pos_integer())
-             -> {ok, pid()} | {error, term()}.
+             -> {ok, pid()} | {ok, pid(), any()} | {error, term()}.
 connect(Sup, Addr, Options, Timeout) when is_pid(Sup) ->
     connect(tid(Sup), Addr, Options, Timeout);
 connect(TID, Addr, Options, Timeout) ->
