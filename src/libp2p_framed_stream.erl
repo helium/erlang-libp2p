@@ -156,6 +156,11 @@ init_module(Kind, Module, Connection, Args) ->
     end.
 
 
+handle_info({proxy, Path}, State) ->
+    Req = libp2p_proxy_req:create(Path),
+    Env = libp2p_proxy_envelope:create(Req),
+    Response = libp2p_proxy_envelope:encode(Env),
+    {noreply, handle_fdset(handle_resp_send(noreply, Response, State))};
 handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
                                              module=Module, state=ModuleState0}) ->
     case handle_recv(Connection, ?RECV_TIMEOUT) of
