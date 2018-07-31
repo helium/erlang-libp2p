@@ -29,8 +29,8 @@
 
 -record(state, {
     ready = false :: boolean()
-    ,swarm :: pid()
-    ,proxy :: pid()
+    ,swarm :: pid() | undefined
+    ,proxy :: pid() | undefined
 }).
 
 %% ------------------------------------------------------------------

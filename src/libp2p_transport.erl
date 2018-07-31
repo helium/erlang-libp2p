@@ -4,7 +4,7 @@
 
 -callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
--callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
+-callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {ok, pid(), any()} | {error, term()}.
 -callback match_addr(string()) -> {ok, string()} | false.
 
 
@@ -42,7 +42,7 @@ for_addr(TID, Addr) ->
 %% or a `connect' call is made to transport service to perform the
 %% actual connect.
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, pid()} | {error, term()}.
+                -> {ok, pid()} | {ok, pid(), any()} | {error, term()}.
 connect_to(Addr, Options, Timeout, TID) ->
     case libp2p_swarm:is_stopping(TID) of
         true -> {error, stopping};
