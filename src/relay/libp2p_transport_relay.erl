@@ -62,9 +62,9 @@ relay_or_proxy(MAddr, RAddress, AAddress, TID, SessionPid) ->
             init_proxy(SessionPid, AAddress)
     end.
 
--spec init_relay(string(), string(), string()
-                 ,pid(), pid()) -> {ok, pid()} | {error, term()}.
+-spec init_relay(string(), string(), string(), pid(), pid()) -> {ok, pid()} | {error, term()}.
 init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
+    lager:info("init relay with ~p", [[MAddr, RAddress, AAddress, Swarm, SessionPid]]),
     {ok, _} = libp2p_relay:dial_framed_stream(
         Swarm
         ,RAddress
@@ -84,6 +84,7 @@ init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
 
 -spec init_proxy(pid(), string()) -> {ok, pid(), {proxy, string(), string()}}.
 init_proxy(SessionPid, AAddress) ->
+    lager:info("init proxy with ~p", [[SessionPid, AAddress]]),
     {ok, SessionPid, {proxy, libp2p_proxy:version(), AAddress}}.
 
 -spec match_protocols(list()) -> {ok, string()} | false.
