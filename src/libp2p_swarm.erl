@@ -278,6 +278,7 @@ dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) ->
         {ok, SessionPid} ->
             libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args);
         {ok, SessionPid, {proxy, ProxyPath, AAddress}} ->
+            lager:info("dialing ~p instead of ~p", [ProxyPath, Path]),
             case libp2p_session:dial_framed_stream(ProxyPath, SessionPid, Module, Args) of
                 {ok, Pid}=R ->
                     Pid ! {proxy, Path, AAddress},

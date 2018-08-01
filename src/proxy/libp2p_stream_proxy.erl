@@ -52,12 +52,13 @@ init(server, _Conn, [_, _Pid, TID]=Args) ->
 init(client, Conn, Args) ->
     lager:info("init proxy client with ~p", [{Conn, Args}]),
     Proxy = proplists:get_value(proxy, Args),
+    lager:info("linking with server ~p", [Proxy]),
     {ok, #state{proxy=Proxy}}.
 
 handle_data(server, Data, #state{ready=false, swarm=Swarm}=State) ->
     Env = libp2p_proxy_envelope:decode(Data),
-    lager:info("server got ~p", [Env]),
     {req, Req} = libp2p_proxy_envelope:data(Env),
+    lager:info("server got proxy request ~p, dialing", [Req]),
     Path = libp2p_proxy_req:path(Req),
     Address = libp2p_proxy_req:address(Req),
     {ok, StreamPid} = libp2p_proxy:dial_framed_stream(
@@ -66,6 +67,7 @@ handle_data(server, Data, #state{ready=false, swarm=Swarm}=State) ->
         ,Path
         ,[{proxy, self()}]
     ),
+    lager:info("linking with client ~p", [StreamPid]),
     {noreply, State#state{proxy=StreamPid, ready=true}};
 handle_data(server, Data, #state{ready=true, proxy=Proxy}=State) ->
     lager:debug("server got data ~p, transfering to client", [Data]),
