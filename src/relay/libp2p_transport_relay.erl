@@ -7,7 +7,7 @@
     ,start_listener/2
     ,match_addr/1
     ,connect/5
-    ,reg/1
+    ,reg_addr/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -29,7 +29,7 @@ match_addr(Addr) when is_list(Addr) ->
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    true = erlang:register(?MODULE:reg(AAddress), self()),
+    true = erlang:register(?MODULE:reg_addr(AAddress), self()),
     case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
         {error, _Reason}=Error ->
             Error;
@@ -43,7 +43,7 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
             receive
                 {sessions, [SessionPid|_]=Sessions} ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, _SessionPid]),
-                    true  = erlang:unregister(?MODULE:reg(AAddress)),
+                    true  = erlang:unregister(?MODULE:reg_addr(AAddress)),
                     {ok, SessionPid};
                 _Error ->
                     lager:error("no relay sessions ~p", [_Error]),
@@ -53,9 +53,9 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
             end
     end.
 
--spec reg(string()) -> atom().
-reg(Address) ->
-    erlang:list_to_atom(Address ++ "/A").
+-spec reg_addr(string()) -> atom().
+reg_addr(Address) ->
+    erlang:list_to_atom(Address ++ "/sessions").
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
