@@ -136,7 +136,7 @@ handle_server_data(Bin, State) ->
 -spec handle_server_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
-    true = erlang:register(erlang:list_to_atom(Address), self()),
+    true = erlang:register(reg_addr(Address), self()),
     [LocalAddress|_] = libp2p_swarm:listen_addrs(Swarm),
     Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
@@ -146,7 +146,7 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
 handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("R got a relay request passing to A's relay stream ~s", [A]),
-    erlang:list_to_atom(A) ! {bridge_br, Bridge},
+    reg_addr(A) ! {bridge_br, Bridge},
     {noreply, State};
 % Bridge Step 6: B got dialed back from A, that session (A->B) will be sent back to
 % libp2p_transport_relay:connect to be used instead of the B->R session
@@ -154,7 +154,7 @@ handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     B = libp2p_relay_bridge:b(Bridge),
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("B (~s) got A (~s) dialing back", [B, A]),
-    libp2p_transport_relay:reg(A) ! {sessions, libp2p_swarm:sessions(Swarm)},
+    libp2p_transport_relay:reg_addr(A) ! {sessions, libp2p_swarm:sessions(Swarm)},
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
@@ -185,3 +185,7 @@ handle_client_data({bridge_ra, Bridge}, _Env, #state{swarm=Swarm}=State) ->
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.
+
+-spec reg_addr(string()) -> atom().
+reg_addr(Address) ->
+    erlang:list_to_atom(Address ++ "/relay").
