@@ -47,7 +47,7 @@ init(Swarm) ->
             lager:info("found ~s with the most connection (~p)", [ListenAddr, L]),
             ?MODULE:dial_framed_stream(Swarm, ListenAddr, []);
         _Any ->
-            lager:warning("could nopt initiate relay, failed to find address ~p", [_Any]),
+            lager:warning("could not initiate relay, failed to find address ~p", [_Any]),
             {error, no_address}
     end.
 
