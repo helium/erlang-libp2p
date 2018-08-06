@@ -92,7 +92,7 @@ handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
     case libp2p_swarm:listen_addrs(Swarm) of
         [] ->
             lager:info("no listen addresses for ~p, relay disabled", [Swarm]),
-            {noreply, State};
+            {stop, no_listen_address, State};
         [Address|_] ->
             Req = libp2p_relay_req:create(Address),
             EnvReq = libp2p_relay_envelope:create(Req),
