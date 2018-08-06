@@ -76,8 +76,6 @@ handle_data(client, Bin, State) ->
 % and transfers it to A.
 handle_info(server, {bridge_br, BridgeBR}, State) ->
     lager:notice("client got bridge request ~p", [BridgeBR]),
-    [Name|_] = erlang:registered(),
-    true = erlang:unregister(Name),
     A = libp2p_relay_bridge:a(BridgeBR),
     B = libp2p_relay_bridge:b(BridgeBR),
     BridgeRA = libp2p_relay_bridge:create_ra(A, B),
