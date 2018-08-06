@@ -464,7 +464,6 @@ spawn_nat_discovery(Handler, MultiAddrs, Swarm) ->
             spawn(fun() -> try_nat(Handler, Tuple, Swarm) end)
     end.
 
-% TODO If nat fails we should try to initiate relay
 try_nat(Handler, {MultiAddr, _IP, Port}, Swarm) ->
     case nat:discover() of
         {ok, Context} ->
