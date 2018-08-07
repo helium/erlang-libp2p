@@ -86,7 +86,14 @@ basic(_Config) ->
     ),
 
     [RAddress|_] = libp2p_swarm:listen_addrs(RSwarm),
-
+    % B connect to R for PeerBook gossip
+    {ok, _} = libp2p_swarm:dial_framed_stream(
+        BSwarm
+        ,RAddress
+        ,Version
+        ,libp2p_stream_relay_test
+        ,[]
+    ),
     % NAT fails so A dials R to create a relay
     {ok, _} = libp2p_relay:dial_framed_stream(ASwarm, RAddress, []),
     % Waiting for connection
