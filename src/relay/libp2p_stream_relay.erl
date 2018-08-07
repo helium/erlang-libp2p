@@ -25,6 +25,10 @@
     ,handle_info/3
 ]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -include("pb/libp2p_relay_pb.hrl").
 
 -record(state, {
@@ -137,8 +141,8 @@ handle_server_data(Bin, State) ->
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
     true = erlang:register(reg_addr(Address), self()),
-    [LocalAddress|_] = libp2p_swarm:listen_addrs(Swarm),
-    Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalAddress, Address)),
+    LocalP2PAddress = craft_p2p_address(Swarm),
+    Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalP2PAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
@@ -189,3 +193,21 @@ handle_client_data(_Data, _Env, State) ->
 -spec reg_addr(string()) -> atom().
 reg_addr(Address) ->
     erlang:list_to_atom(Address ++ "/relay").
+
+-spec craft_p2p_address(pid()) -> string().
+craft_p2p_address(Swarm) ->
+    "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_swarm:address(Swarm)).
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+reg_addr_test() ->
+    ?assertEqual(
+        '/ip4/192.168.1.61/tcp/6601/relay'
+        ,reg_addr("/ip4/192.168.1.61/tcp/6601")
+    ),
+    ok.
+
+-endif.
