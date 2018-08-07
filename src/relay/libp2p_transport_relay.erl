@@ -6,6 +6,7 @@
     start_link/1
     ,start_listener/2
     ,match_addr/1
+    ,priority/0
     ,connect/5
     ,reg_addr/1
 ]).
@@ -24,6 +25,9 @@ start_listener(_Pid, _Addr) ->
 -spec match_addr(string()) -> {ok, string()} | false.
 match_addr(Addr) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+-spec priority() -> integer().
+priority() -> 1.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.

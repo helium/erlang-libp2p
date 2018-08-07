@@ -3,7 +3,7 @@
 -behavior(libp2p_transport).
 
 % libp2p_transport
--export([start_link/1, start_listener/2, connect/5, match_addr/1]).
+-export([start_link/1, start_listener/2, connect/5, match_addr/1, priority/0]).
 
 
 %% libp2p_transport
@@ -25,6 +25,9 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
 -spec match_addr(string()) -> {ok, string()} | false.
 match_addr(Addr) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+-spec priority() -> integer().
+priority() -> 2.
 
 match_protocols([A={"p2p", _} | _]) ->
     {ok, multiaddr:to_string([A])};
