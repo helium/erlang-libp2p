@@ -34,7 +34,7 @@
 -export_type([opt/0, listen_opt/0]).
 
 %% libp2p_transport
--export([start_listener/2, new_connection/1, connect/5, match_addr/1]).
+-export([start_listener/2, new_connection/1, connect/5, match_addr/1, priority/0]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -84,6 +84,9 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
 -spec match_addr(string()) -> {ok, string()} | false.
 match_addr(Addr) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+-spec priority() -> integer().
+priority() -> 2.
 
 match_protocols([A={_, _}, B={"tcp", _} | _]) ->
     {ok, multiaddr:to_string([A, B])};
