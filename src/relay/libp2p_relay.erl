@@ -30,25 +30,18 @@ init(Swarm) ->
     Peerbook = libp2p_swarm:peerbook(Swarm),
     Peers = libp2p_peerbook:values(Peerbook),
     SwarmAddr = libp2p_swarm:address(Swarm),
-    ListenAddrs = lists:foldl(
-        fun(Peer, Acc) ->
-            case libp2p_peer:address(Peer) of
-                SwarmAddr -> Acc;
-                _PeerAddress ->
-                    L = erlang:length(libp2p_peer:connected_peers(Peer)),
-                    [{L, libp2p_peer:listen_addrs(Peer)}|Acc]
+    case select_peer(SwarmAddr, Peers) of
+        {error, Reason}=Error ->
+            lager:warning("could not initiate relay, failed to find peer ~p", [Reason]),
+            Error;
+        Peer ->
+            case libp2p_peer:listen_addrs(Peer) of
+                [ListenAddr|_] ->
+                    ?MODULE:dial_framed_stream(Swarm, ListenAddr, []);
+                _Any ->
+                    lager:warning("could not initiate relay, failed to find address ~p", [_Any]),
+                    {error, no_address}
             end
-        end
-        ,[]
-        ,Peers
-    ),
-    case lists:sort(ListenAddrs) of
-        [{L, [ListenAddr|_]}|_] ->
-            lager:info("found ~s with the most connection (~p)", [ListenAddr, L]),
-            ?MODULE:dial_framed_stream(Swarm, ListenAddr, []);
-        _Any ->
-            lager:warning("could not initiate relay, failed to find address ~p", [_Any]),
-            {error, no_address}
     end.
 
 %%--------------------------------------------------------------------
@@ -125,6 +118,35 @@ is_p2p_circuit(Address) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec select_peer(binary(), list()) -> libp2p_peer:peer() | list() | {error, no_peer}.
+select_peer(SelfSwarmAddr, Peers) ->
+    case select_peer(SelfSwarmAddr, Peers, []) of
+        SelectedPeers when is_list(SelectedPeers) ->
+            case lists:sort(SelectedPeers) of
+                [{_, Peer}|_] -> Peer;
+                _ -> {error, no_peer}
+            end;
+        Peer ->
+            Peer
+    end.
+
+-spec select_peer(binary(), list(), list()) -> libp2p_peer:peer() | list().
+select_peer(_SelfSwarmAddr, [], Acc) -> Acc;
+select_peer(SelfSwarmAddr, [Peer|Peers], Acc) ->
+    case libp2p_peer:address(Peer) of
+        SelfSwarmAddr ->
+            select_peer(SelfSwarmAddr, Peers, Acc);
+        _PeerAddress ->
+            case libp2p_peer:nat_type(Peer) of
+                none -> Peer;
+                static -> Peer;
+                _ ->
+                    L = erlang:length(libp2p_peer:connected_peers(Peer)),
+                    select_peer(SelfSwarmAddr, Peers, [{L, Peer}|Acc])
+            end
+    end.
+
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
