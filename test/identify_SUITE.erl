@@ -16,7 +16,7 @@ end_per_testcase(_, Config) ->
 
 identify_test(Config) ->
     [S1, S2] = proplists:get_value(swarms, Config),
-    [S1Addr|_] = libp2p_swarm:listen_addrs(S1),
+    S1Addrs = libp2p_swarm:listen_addrs(S1),
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
     % identify S2
@@ -34,6 +34,7 @@ identify_test(Config) ->
 
     % Compare observed ip addresses and port.
     S1Addr = libp2p_identify:observed_addr(Identify),
+    true = lists:member(S1Addr, S1Addrs),
     [S1IP,  S1Port] = multiaddr:protocols(multiaddr:new(S1Addr)),
     [S1IP, S1Port] = multiaddr:protocols(libp2p_identify:observed_maddr(Identify)),
 

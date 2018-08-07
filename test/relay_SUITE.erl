@@ -62,7 +62,7 @@ basic(_Config) ->
     Version = "relaytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(a, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/6600"),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm
         ,Version
@@ -70,7 +70,7 @@ basic(_Config) ->
     ),
 
     {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
-    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/6601"),
+    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         RSwarm
         ,Version
@@ -78,7 +78,7 @@ basic(_Config) ->
     ),
 
     {ok, BSwarm} = libp2p_swarm:start(b, SwarmOpts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6602"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm
         ,Version
@@ -122,7 +122,7 @@ basic(_Config) ->
 init_failed(_Config) ->
     SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
     {ok, Swarm} = libp2p_swarm:start(init_failed, SwarmOpts),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/6700"),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
     {error, no_peer} = libp2p_relay:init(Swarm),
 
@@ -136,7 +136,7 @@ init_success(_Config) ->
     Version = "relaytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(init_success_a, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/6800"),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm
         ,Version
@@ -144,7 +144,7 @@ init_success(_Config) ->
     ),
 
     {ok, BSwarm} = libp2p_swarm:start(init_success_b, SwarmOpts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/6802"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm
         ,Version
