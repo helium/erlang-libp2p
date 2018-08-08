@@ -74,6 +74,13 @@ init([Name, Opts]) ->
                    10000,
                    worker,
                    [libp2p_peerbook]
+                  },
+                  {relay,
+                   {libp2p_relay, start_link, [TID]},
+                   permanent,
+                   10000,
+                   worker,
+                   [libp2p_relay]
                   }
                  ] ++ group_agent_spec(Opts, TID),
     {ok, {SupFlags, ChildSpecs}}.
