@@ -87,7 +87,7 @@ basic(Config) ->
                     ok;
                 {natpmp, discover, []} ->
                     ok;
-                {libp2p_transport_tcp, spawn_nat_discovery, _} ->
+                {libp2p_transport_tcp, spawn_nat_discovery, _, _} ->
                     handle_discovery(L, undefined);
                 {natpmp, add_port_mapping, _} ->
                     handle_natpmp(L, undefined);
@@ -106,7 +106,7 @@ basic(Config) ->
 
 -spec handle_discovery(list(), any()) -> ok.
 handle_discovery([], _Meta) -> ok;
-handle_discovery([{libp2p_transport_tcp, spawn_nat_discovery, [_, [Addr|_]]}|Traces], _Meta) ->
+handle_discovery([{libp2p_transport_tcp, spawn_nat_discovery, [_, [Addr|_], _]}|Traces], _Meta) ->
     handle_discovery(Traces, Addr);
 handle_discovery([{libp2p_transport_tcp, handle_info, [{record_listen_addr, Addr, _ExtAddr}, _State]}|Traces], Addr) ->
     handle_discovery(Traces, Addr).

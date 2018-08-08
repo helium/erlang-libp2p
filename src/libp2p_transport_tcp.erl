@@ -3,6 +3,10 @@
 -behaviour(libp2p_connection).
 -behavior(gen_server).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -type listen_opt() :: {backlog, non_neg_integer()}
                     | {buffer, non_neg_integer()}
                     | {delay_send, boolean()}
@@ -30,7 +34,7 @@
 -export_type([opt/0, listen_opt/0]).
 
 %% libp2p_transport
--export([start_listener/2, new_connection/1, connect/5, match_addr/1]).
+-export([start_listener/2, new_connection/1, connect/5, match_addr/1, priority/0]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -80,6 +84,9 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
 -spec match_addr(string()) -> {ok, string()} | false.
 match_addr(Addr) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+-spec priority() -> integer().
+priority() -> 2.
 
 match_protocols([A={_, _}, B={"tcp", _} | _]) ->
     {ok, multiaddr:to_string([A, B])};
@@ -148,6 +155,7 @@ init([TID]) ->
 
     libp2p_swarm:add_stream_handler(TID, "stungun/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
+    libp2p_relay:add_stream_handler(TID),
     {ok, #state{tid=TID, stun_sup=StunSup}}.
 
 %% libp2p_transport
@@ -434,13 +442,13 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
 maybe_spawn_nat_discovery(Handler, MultiAddrs, TID) ->
     case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, nat], true) of
         true ->
-            spawn_nat_discovery(Handler, MultiAddrs);
+            spawn_nat_discovery(Handler, MultiAddrs, libp2p_swarm:swarm(TID));
         _ ->
             lager:notice("nat is disabled"),
             ok
     end.
 
-spawn_nat_discovery(Handler, MultiAddrs) ->
+spawn_nat_discovery(Handler, MultiAddrs, Swarm) ->
     case lists:filtermap(fun(M) -> case tcp_addr(M) of
                                        {IP, Port, inet, _} ->
                                            case rfc1918(IP) of
@@ -456,22 +464,25 @@ spawn_nat_discovery(Handler, MultiAddrs) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            spawn(fun() -> try_nat(Handler, Tuple) end)
+            spawn(fun() -> try_nat(Handler, Tuple, Swarm) end)
     end.
 
-try_nat(Handler, {MultiAddr, _IP, Port}) ->
+try_nat(Handler, {MultiAddr, _IP, Port}, Swarm) ->
     case nat:discover() of
         {ok, Context} ->
             case nat:add_port_mapping(Context, tcp, Port, Port, 3600) of
                 {ok, _Since, Port, Port, _MappingLifetime} ->
                     ExternalAddress = nat_external_address(Context),
-                    Handler ! {record_listen_addr, MultiAddr, to_multiaddr({ExternalAddress, Port})};
+                    Handler ! {record_listen_addr, MultiAddr, to_multiaddr({ExternalAddress, Port})},
+                    ok;
                 {error, _Reason} ->
-                    lager:notice("unable to add nat mapping: ~p", [_Reason]),
+                    lager:warning("unable to add nat mapping: ~p", [_Reason]),
+                    libp2p_relay:init(Swarm),
                     ok
             end;
         _ ->
-            lager:debug("no nat discovered"),
+            lager:info("no nat discovered"),
+            libp2p_relay:init(Swarm),
             ok
     end.
 
@@ -480,13 +491,6 @@ nat_external_address(Context) ->
     {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
     ParsedExtAddress.
 
-%% @doc Get the subnet mask as an integer, stolen from an old post on
-%%      erlang-questions.
--spec mask_address(inet:ip_address(), pos_integer()) -> integer().
-mask_address(Addr={_, _, _, _}, Maskbits) ->
-    B = list_to_binary(tuple_to_list(Addr)),
-    <<Subnet:Maskbits, _Host/bitstring>> = B,
-    Subnet.
 %mask_address(_, _) ->
     %% presumably ipv6, don't have a function for that one yet
     %undefined.
@@ -506,3 +510,75 @@ rfc1918(IP={172, _, _, _}) ->
     end;
 rfc1918(_) ->
     false.
+
+%% @doc Get the subnet mask as an integer, stolen from an old post on
+%%      erlang-questions.
+-spec mask_address(inet:ip_address(), pos_integer()) -> integer().
+mask_address(Addr={_, _, _, _}, Maskbits) ->
+    B = list_to_binary(tuple_to_list(Addr)),
+    <<Subnet:Maskbits, _Host/bitstring>> = B,
+    Subnet.
+
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
+-ifdef(TEST).
+
+try_nat_success_test() ->
+    meck:new(nat, []),
+    meck:expect(nat, discover, fun() -> {ok, empty} end),
+    meck:expect(nat, add_port_mapping, fun(_, _, P1, P2, T) -> {ok, 0, P1, P2, T} end),
+    meck:expect(nat, get_external_address, fun(_) -> {ok, "11.10.0.89"} end),
+
+    ok = try_nat(self(), {multiaddr, ip, 8080}, swarm),
+
+    receive
+        Msg ->
+            ?assertMatch({record_listen_addr, multiaddr, "/ip4/11.10.0.89/tcp/8080"}, Msg)
+    after 100 ->
+        ?assert(false)
+    end,
+
+    ?assert(meck:validate(nat)),
+    meck:unload(nat).
+
+try_nat_fail_test() ->
+    meck:new(nat, []),
+    meck:expect(nat, discover, fun() -> {error, empty} end),
+
+    meck:new(libp2p_relay, []),
+    meck:expect(libp2p_relay, init, fun(_) -> ok end),
+
+    ok = try_nat(self(), {multiaddr, ip, 8080}, swarm),
+
+    ?assert(meck:called(libp2p_relay, init, [swarm])),
+
+    ?assert(meck:validate(nat)),
+    ?assert(meck:validate(libp2p_relay)),
+    meck:unload(nat).
+
+rfc1918_test() ->
+    ?assertEqual(8, rfc1918({10, 0, 0, 0})),
+    ?assertEqual(8, rfc1918({10, 20, 0, 0})),
+    ?assertEqual(8, rfc1918({10, 1, 1, 1})),
+    ?assertEqual(16, rfc1918({192, 168, 10, 1})),
+    ?assertEqual(16, rfc1918({192, 168, 20, 1})),
+    ?assertEqual(16, rfc1918({192, 168, 30, 1})),
+    ?assertEqual(12, rfc1918({172, 16, 1, 0})),
+    ?assertEqual(12, rfc1918({172, 16, 10, 0})),
+    ?assertEqual(12, rfc1918({172, 16, 100, 0})),
+    ?assertEqual(false, rfc1918({11, 0, 0, 0})),
+    ?assertEqual(false, rfc1918({192, 169, 10, 1})),
+    ?assertEqual(false, rfc1918({172, 254, 100, 0})).
+
+
+nat_external_address_test() ->
+    meck:new(nat, []),
+    meck:expect(nat, get_external_address, fun(_) -> {ok, "11.10.0.89"} end),
+
+    ?assertEqual({11, 10, 0, 89}, nat_external_address(0)),
+
+    ?assert(meck:validate(nat)),
+    meck:unload(nat).
+
+-endif.

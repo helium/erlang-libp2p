@@ -1,0 +1,41 @@
+// See doc/relay.md for more info
+
+// Request to initiate relay
+message relay_req {
+    required string address = 1; // address of the requester
+}
+
+// Response from relay server
+message relay_resp {
+    optional string address = 1; // p2p-circuit address
+}
+
+// Bridge messages are used to transmit the address of A and B nodes
+
+// Bridge from node B to R (Relay)
+message relay_bridge_br {
+    required string a = 1; // address of A node
+    required string b = 2; // address of B node
+}
+
+// Bridge from node R (Relay) to A
+message relay_bridge_ra {
+    required string a = 1; // address of A node
+    required string b = 2; // address of B node
+}
+
+// Bridge from node A to B
+message relay_bridge_ab {
+    required string a = 1; // address of A node
+    required string b = 2; // address of B node
+}
+
+message relay_envelope {
+    oneof data {
+        relay_req req = 1;
+        relay_resp resp = 2;
+        relay_bridge_br bridge_br = 3;
+        relay_bridge_ra bridge_ra = 4;
+        relay_bridge_ab bridge_ab = 5;
+    }
+}

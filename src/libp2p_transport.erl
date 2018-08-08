@@ -14,13 +14,26 @@
 
 -spec for_addr(ets:tab(), string()) -> {ok, string(), {atom(), pid()}} | {error, term()}.
 for_addr(TID, Addr) ->
-    lists:foldl(fun({Transport, Pid}, Acc={error, _}) ->
-                        case Transport:match_addr(Addr) of
-                            false -> Acc;
-                            {ok, Matched} -> {ok, Matched, {Transport, Pid}}
-                        end;
-                   (_, Acc) -> Acc
-                end, {error, {unsupported_address, Addr}}, libp2p_config:lookup_transports(TID)).
+    Matches = lists:foldl(
+        fun({Transport, Pid}, Acc) ->
+            case Transport:match_addr(Addr) of
+                false ->
+                    Acc;
+                {ok, Matched} ->
+                    Priority = Transport:priority(),
+                    [{Priority, Matched, {Transport, Pid}}|Acc]
+            end
+        end
+        ,[]
+        ,libp2p_config:lookup_transports(TID)
+    ),
+
+    case lists:sort(Matches) of
+        [] ->
+            {error, {unsupported_address, Addr}};
+        [{_, Matched, {Transport, Pid}}|_] ->
+            {ok, Matched, {Transport, Pid}}
+    end.
 
 %% @doc Connect through a transport service. This is a convenience
 %% function that verifies the given multiaddr, finds the right
