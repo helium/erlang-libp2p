@@ -332,11 +332,11 @@ tcp_listen_addrs(Socket) ->
     {ok, SockAddr={IP, Port}} = inet:sockname(Socket),
     case lists:all(fun(D) -> D == 0 end, tuple_to_list(IP)) of
         false ->
-            [to_multiaddr(SockAddr)];
+            [to_multiaddr(maybe_apply_nat_map(SockAddr))];
         true ->
             % all 0 address, collect all non loopback interface addresses
             {ok, IFAddrs} = inet:getifaddrs(),
-            [to_multiaddr({Addr, Port}) ||
+            [to_multiaddr(maybe_apply_nat_map({Addr, Port})) ||
              {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
              size(Addr) == size(IP),
              not lists:member(loopback, Flags),
@@ -345,6 +345,14 @@ tcp_listen_addrs(Socket) ->
             ]
     end.
 
+maybe_apply_nat_map({IP, Port}) ->
+    Map = application:get_env(libp2p, nat_map, #{}),
+    case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
+        {NewIP, NewPort} ->
+            {NewIP, NewPort};
+        NewIP ->
+            {NewIP, Port}
+    end.
 
 -spec tcp_addr(string() | binary())
               -> {inet:ip_address(), non_neg_integer(), inet | inet6, [any()]} | {error, term()}.
@@ -580,5 +588,19 @@ nat_external_address_test() ->
 
     ?assert(meck:validate(nat)),
     meck:unload(nat).
+
+nat_map_test() ->
+    application:load(libp2p),
+    %% no nat map, everything is unchanged
+    ?assertEqual({{192,168,1,10}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
+    application:set_env(libp2p, nat_map, #{
+                                  {192, 168, 1, 10} => {67, 128, 3, 4},
+                                  {{192, 168, 1, 10}, 4567} => {67, 128, 3, 99},
+                                  {192, 168, 1, 11} => {{67, 128, 3, 4}, 1111}
+                                 }),
+    ?assertEqual({{67,128,3,4}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
+    ?assertEqual({{67,128,3,99}, 4567}, maybe_apply_nat_map({{192,168,1,10}, 4567})),
+    ?assertEqual({{67,128,3,4}, 1111}, maybe_apply_nat_map({{192,168,1,11}, 4567})),
+    ok.
 
 -endif.
