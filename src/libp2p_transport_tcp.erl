@@ -478,12 +478,12 @@ try_nat(Handler, {MultiAddr, _IP, Port}, Swarm) ->
                     ok;
                 {error, _Reason} ->
                     lager:warning("unable to add nat mapping: ~p", [_Reason]),
-                    libp2p_relay:init(Swarm),
+                    libp2p_relay:init_relay(Swarm),
                     ok
             end;
         _ ->
             lager:info("no nat discovered"),
-            libp2p_relay:init(Swarm),
+            libp2p_relay:init_relay(Swarm),
             ok
     end.
 
@@ -548,11 +548,11 @@ try_nat_fail_test() ->
     meck:expect(nat, discover, fun() -> {error, empty} end),
 
     meck:new(libp2p_relay, []),
-    meck:expect(libp2p_relay, init, fun(_) -> ok end),
+    meck:expect(libp2p_relay, init_relay, fun(_) -> ok end),
 
     ok = try_nat(self(), {multiaddr, ip, 8080}, swarm),
 
-    ?assert(meck:called(libp2p_relay, init, [swarm])),
+    ?assert(meck:called(libp2p_relay, init_relay, [swarm])),
 
     ?assert(meck:validate(nat)),
     ?assert(meck:validate(libp2p_relay)),

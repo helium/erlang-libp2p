@@ -124,7 +124,7 @@ init_failed(_Config) ->
     {ok, Swarm} = libp2p_swarm:start(init_failed, SwarmOpts),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
-    {error, no_peer} = libp2p_relay:init(Swarm),
+    {error, no_peer} = libp2p_relay:init_relay(Swarm),
 
     ok = libp2p_swarm:stop(Swarm),
 
@@ -161,7 +161,7 @@ init_success(_Config) ->
     ),
     timer:sleep(2000),
 
-    {ok, _} = libp2p_relay:init(ASwarm),
+    {ok, _} = libp2p_relay:init_relay(ASwarm),
     timer:sleep(2000),
 
     ok = libp2p_swarm:stop(ASwarm),
