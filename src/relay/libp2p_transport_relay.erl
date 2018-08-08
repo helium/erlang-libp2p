@@ -73,7 +73,7 @@ init_relay(MAddr, RAddress, AAddress, Swarm, SessionPid) ->
     receive
         {sessions, [SessionPid2|_]=Sessions} ->
             lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
-            true  = erlang:unregister(?MODULE:reg(AAddress)),
+            true  = erlang:unregister(?MODULE:reg_addr(AAddress)),
             {ok, SessionPid2};
         _Error ->
             lager:error("no relay sessions ~p", [_Error]),
