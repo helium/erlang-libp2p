@@ -347,7 +347,7 @@ tcp_listen_addrs(Socket) ->
 
 maybe_apply_nat_map({IP, Port}) ->
     Map = application:get_env(libp2p, nat_map, #{}),
-    case maps:get({IP, Port}, Map, false) orelse maps:get(IP, Map, {IP, Port}) of
+    case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
         {NewIP, NewPort} ->
             {NewIP, NewPort};
         NewIP ->
@@ -588,5 +588,19 @@ nat_external_address_test() ->
 
     ?assert(meck:validate(nat)),
     meck:unload(nat).
+
+nat_map_test() ->
+    application:load(libp2p),
+    %% no nat map, everything is unchanged
+    ?assertEqual({{192,168,1,10}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
+    application:set_env(libp2p, nat_map, #{
+                                  {192, 168, 1, 10} => {67, 128, 3, 4},
+                                  {{192, 168, 1, 10}, 4567} => {67, 128, 3, 99},
+                                  {192, 168, 1, 11} => {{67, 128, 3, 4}, 1111}
+                                 }),
+    ?assertEqual({{67,128,3,4}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
+    ?assertEqual({{67,128,3,99}, 4567}, maybe_apply_nat_map({{192,168,1,10}, 4567})),
+    ?assertEqual({{67,128,3,4}, 1111}, maybe_apply_nat_map({{192,168,1,11}, 4567})),
+    ok.
 
 -endif.
