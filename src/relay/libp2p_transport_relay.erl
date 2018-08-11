@@ -66,13 +66,14 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
             receive
                 {sessions, [SessionPid2|_]=Sessions} ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
-                    true = libp2p_relay:unreg_addr_sessions(AAddress),
+                    libp2p_relay:unreg_addr_sessions(AAddress),
                     {ok, SessionPid2};
                 _Error ->
-                    true = libp2p_relay:unreg_addr_sessions(AAddress),
+                    libp2p_relay:unreg_addr_sessions(AAddress),
                     lager:error("no relay sessions ~p", [_Error]),
                     {error, no_relay_session}
             after 8000 ->
+                libp2p_relay:unreg_addr_sessions(AAddress),
                 {error, timeout_relay_session}
             end
     end.

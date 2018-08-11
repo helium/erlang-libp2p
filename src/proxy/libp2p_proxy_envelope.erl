@@ -71,14 +71,14 @@ data(Env) ->
 -ifdef(TEST).
 
 decode_encode_test() ->
-    Req = libp2p_proxy_req:create("123", "456"),
+    Req = libp2p_proxy_req:create("456"),
     EnvEncoded = encode(create(Req)),
     EnvDecoded = decode(EnvEncoded),
 
     ?assertEqual({req, Req}, data(EnvDecoded)).
 
 get_test() ->
-    Req = libp2p_proxy_req:create("123", "456"),
+    Req = libp2p_proxy_req:create("456"),
     Env = create(Req),
 
     ?assertEqual({req, Req}, data(Env)).

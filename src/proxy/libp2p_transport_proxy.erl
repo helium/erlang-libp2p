@@ -46,16 +46,14 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
             {ok, _} = libp2p_proxy:dial_framed_stream(
                 Swarm
                 ,RAddress
-                ,[]
+                ,[{destination, AAddress}]
             ),
             receive
                 {proxy_negotiated} ->
-                    true = libp2p_proxy:unreg_addr(AAddress),
-                    {ok, SessionPid};
-                _Error ->
-                    true = libp2p_proxy:unreg_addr(AAddress),
-                    {error, no_relay_session}
+                    libp2p_proxy:unreg_addr(AAddress),
+                    {ok, SessionPid}
             after 8000 ->
+                libp2p_proxy:unreg_addr(AAddress),
                 {error, timeout_relay_session}
             end
     end.

@@ -1,6 +1,5 @@
 message proxy_req {
-    required string path = 1;
-    required string address = 2;
+    required string address = 1;
 }
 
 message proxy_envelope {
