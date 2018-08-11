@@ -76,11 +76,11 @@ init([Name, Opts]) ->
                    [libp2p_peerbook]
                   },
                   {relay,
-                   {libp2p_relay, start_link, [TID]},
+                   {libp2p_relay_server, start_link, [TID]},
                    permanent,
                    10000,
                    worker,
-                   [libp2p_relay]
+                   [libp2p_relay_server]
                   }
                  ] ++ group_agent_spec(Opts, TID),
     {ok, {SupFlags, ChildSpecs}}.
