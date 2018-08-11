@@ -155,13 +155,6 @@ init_module(Kind, Module, Connection, Args) ->
                                                       module=Module, state=undefined}))}
     end.
 
-
-handle_info({proxy, Path, Address}, State) ->
-    Req = libp2p_proxy_req:create(Path, Address),
-    Env = libp2p_proxy_envelope:create(Req),
-    Response = libp2p_proxy_envelope:encode(Env),
-    lager:info("creating proxy request ~p", [Req]),
-    {noreply, handle_fdset(handle_resp_send(noreply, Response, State))};
 handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
                                              module=Module, state=ModuleState0}) ->
     case handle_recv(Connection, ?RECV_TIMEOUT) of
