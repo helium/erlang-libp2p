@@ -486,12 +486,12 @@ try_nat(Handler, {MultiAddr, _IP, Port}, Swarm) ->
                     ok;
                 {error, _Reason} ->
                     lager:warning("unable to add nat mapping: ~p", [_Reason]),
-                    libp2p_relay:init_relay(Swarm),
+                    libp2p_relay:init(Swarm),
                     ok
             end;
         _ ->
             lager:info("no nat discovered"),
-            libp2p_relay:init_relay(Swarm),
+            libp2p_relay:init(Swarm),
             ok
     end.
 

@@ -8,7 +8,6 @@
     ,match_addr/1
     ,priority/0
     ,connect/5
-    ,reg_addr/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -38,25 +37,21 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
     ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
     case has_p2p_circuit(ListenAddresses) of
         false ->
-            connect_relay(Pid, MAddr, Options, Timeout, TID);
+            connect_to(Pid, MAddr, Options, Timeout, TID);
         true ->
-            connect_proxy(Pid, MAddr, Options, Timeout, TID)
+            libp2p_transport_proxy:connect(Pid, MAddr, Options, Timeout, TID)
     end.
-
--spec reg_addr(string()) -> atom().
-reg_addr(Address) ->
-    erlang:list_to_atom(Address ++ "/sessions").
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec connect_relay(pid(), string(), libp2p_swarm:connect_opts()
-                    ,pos_integer(), ets:tab()) -> {ok, pid()}
-                                                  | {ok, pid(), any()}
-                                                  | {error, term()}.
-connect_relay(_Pid, MAddr, Options, Timeout, TID) ->
+-spec connect_to(pid(), string(), libp2p_swarm:connect_opts()
+                 ,pos_integer(), ets:tab()) -> {ok, pid()}
+                                               | {ok, pid(), any()}
+                                               | {error, term()}.
+connect_to(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    true = erlang:register(?MODULE:reg_addr(AAddress), self()),
+    true = libp2p_relay:reg_addr_sessions(AAddress, self()),
     lager:info("init relay with ~p", [[MAddr, RAddress, AAddress]]),
     case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
         {error, _Reason}=Error ->
@@ -71,29 +66,15 @@ connect_relay(_Pid, MAddr, Options, Timeout, TID) ->
             receive
                 {sessions, [SessionPid2|_]=Sessions} ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
-                    true  = erlang:unregister(?MODULE:reg_addr(AAddress)),
+                    true = libp2p_relay:unreg_addr_sessions(AAddress),
                     {ok, SessionPid2};
                 _Error ->
+                    true = libp2p_relay:unreg_addr_sessions(AAddress),
                     lager:error("no relay sessions ~p", [_Error]),
                     {error, no_relay_session}
             after 8000 ->
                 {error, timeout_relay_session}
             end
-    end.
-
--spec connect_proxy(pid(), string(), libp2p_swarm:connect_opts()
-                    ,pos_integer(), ets:tab()) -> {ok, pid()}
-                                                  | {ok, pid(), any()}
-                                                  | {error, term()}.
-connect_proxy(_Pid, MAddr, Options, Timeout, TID) ->
-    {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    true = erlang:register(?MODULE:reg_addr(AAddress), self()),
-    lager:info("init proxy with ~p", [[MAddr, RAddress, AAddress]]),
-    case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, SessionPid} ->
-            {ok, SessionPid, {proxy, libp2p_proxy:version(), AAddress}}
     end.
 
 -spec match_protocols(list()) -> {ok, string()} | false.
