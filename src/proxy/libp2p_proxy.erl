@@ -9,7 +9,7 @@
     version/0
     ,reg_addr/1 ,reg_addr/2, unreg_addr/1
     ,add_stream_handler/1
-    ,dial_framed_stream/3, dial_framed_stream/4
+    ,dial_framed_stream/3
 ]).
 
 -ifdef(TEST).
@@ -61,21 +61,6 @@ dial_framed_stream(Swarm, Address, Args) ->
         Swarm
         ,Address
         ,?PROXY_VERSION
-        ,libp2p_stream_relay
-        ,Args
-    ).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Dial proxy stream
-%% @end
-%%--------------------------------------------------------------------
--spec dial_framed_stream(pid(), string(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
-dial_framed_stream(Swarm, Address, Path, Args) ->
-    libp2p_swarm:dial_framed_stream(
-        Swarm
-        ,Address
-        ,Path
         ,libp2p_stream_proxy
         ,Args
     ).

@@ -2,8 +2,24 @@ message proxy_req {
     required string address = 1;
 }
 
+message proxy_resp {
+    required string address = 1;
+}
+
+message proxy_dial_back_req {
+    required string address = 1;
+}
+
+message proxy_dial_back_resp {
+    required string address = 1;
+}
+
 message proxy_envelope {
+    required string id = 1;
     oneof data {
-        proxy_req req = 1;
+        proxy_req req = 2;
+        proxy_resp resp = 3;
+        proxy_dial_back_req dial_back_req = 4;
+        proxy_dial_back_resp dial_back_resp = 5;
     }
 }

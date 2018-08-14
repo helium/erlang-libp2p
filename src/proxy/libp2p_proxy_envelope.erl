@@ -9,7 +9,8 @@
 -export([
     decode/1
     ,encode/1
-    ,create/1
+    ,create/2
+    ,id/1
     ,data/1
 ]).
 
@@ -46,18 +47,50 @@ encode(#libp2p_proxy_envelope_pb{}=Env) ->
 %% Create an envelope
 %% @end
 %%--------------------------------------------------------------------
--spec create(libp2p_proxy_req:proxy_req()) -> proxy_envelope().
-create(#libp2p_proxy_req_pb{}=Data) ->
+-spec create(string(), libp2p_proxy_req:proxy_req()
+                       | libp2p_proxy_req:proxy_req()
+                       | libp2p_proxy_dial_back_req:proxy_dial_back_req()
+                       | libp2p_proxy_dial_back_resp:proxy_dial_back_resp()) -> proxy_envelope().
+create(ID, #libp2p_proxy_req_pb{}=Data) ->
     #libp2p_proxy_envelope_pb{
-        data={req, Data}
+        id=ID
+        ,data={req, Data}
+    };
+create(ID, #libp2p_proxy_resp_pb{}=Data) ->
+    #libp2p_proxy_envelope_pb{
+        id=ID
+        ,data={resp, Data}
+    };
+create(ID, #libp2p_proxy_dial_back_req_pb{}=Data) ->
+    #libp2p_proxy_envelope_pb{
+        id=ID
+        ,data={dial_back_req, Data}
+    };
+create(ID, #libp2p_proxy_dial_back_resp_pb{}=Data) ->
+    #libp2p_proxy_envelope_pb{
+        id=ID
+        ,data={dial_back_resp, Data}
     }.
+
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec data(proxy_envelope()) -> {req, libp2p_proxy_req:proxy_req()}.
+-spec id(proxy_envelope()) -> string().
+id(Env) ->
+    Env#libp2p_proxy_envelope_pb.id.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Getter
+%% @end
+%%--------------------------------------------------------------------
+-spec data(proxy_envelope()) -> {req, libp2p_proxy_req:proxy_req()}
+                                | {resp, libp2p_proxy_resp:proxy_resp()}
+                                | {dial_back_req, libp2p_proxy_dial_back_req:proxy_dial_back_req()}
+                                | {dial_back_resp, libp2p_proxy_dial_back_resp:proxy_dial_back_resp()}.
 data(Env) ->
     Env#libp2p_proxy_envelope_pb.data.
 
@@ -72,15 +105,17 @@ data(Env) ->
 
 decode_encode_test() ->
     Req = libp2p_proxy_req:create("456"),
-    EnvEncoded = encode(create(Req)),
+    EnvEncoded = encode(create("123", Req)),
     EnvDecoded = decode(EnvEncoded),
 
+    ?assertEqual("123", id(EnvDecoded)),
     ?assertEqual({req, Req}, data(EnvDecoded)).
 
 get_test() ->
     Req = libp2p_proxy_req:create("456"),
-    Env = create(Req),
+    Env = create("123", Req),
 
+    ?assertEqual("123", id(Env)),
     ?assertEqual({req, Req}, data(Env)).
 
 -endif.
