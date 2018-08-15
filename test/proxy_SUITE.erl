@@ -57,10 +57,10 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
-    Version = "relaytest/1.0.0",
+    Version = "proxytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(a_proxy, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/7600"),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm
         ,Version
@@ -68,7 +68,7 @@ basic(_Config) ->
     ),
 
     {ok, RSwarm} = libp2p_swarm:start(r_proxy, SwarmOpts),
-    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/7601"),
+    ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         RSwarm
         ,Version
@@ -76,7 +76,7 @@ basic(_Config) ->
     ),
 
     {ok, BSwarm} = libp2p_swarm:start(b_proxy, SwarmOpts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/7602"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm
         ,Version
