@@ -49,8 +49,7 @@ encode(#libp2p_proxy_envelope_pb{}=Env) ->
 %%--------------------------------------------------------------------
 -spec create(string(), libp2p_proxy_req:proxy_req()
                        | libp2p_proxy_req:proxy_req()
-                       | libp2p_proxy_dial_back_req:proxy_dial_back_req()
-                       | libp2p_proxy_dial_back_resp:proxy_dial_back_resp()) -> proxy_envelope().
+                       | libp2p_proxy_dial_back:proxy_dial_back()) -> proxy_envelope().
 create(ID, #libp2p_proxy_req_pb{}=Data) ->
     #libp2p_proxy_envelope_pb{
         id=ID
@@ -61,15 +60,10 @@ create(ID, #libp2p_proxy_resp_pb{}=Data) ->
         id=ID
         ,data={resp, Data}
     };
-create(ID, #libp2p_proxy_dial_back_req_pb{}=Data) ->
+create(ID, #libp2p_proxy_dial_back_pb{}=Data) ->
     #libp2p_proxy_envelope_pb{
         id=ID
-        ,data={dial_back_req, Data}
-    };
-create(ID, #libp2p_proxy_dial_back_resp_pb{}=Data) ->
-    #libp2p_proxy_envelope_pb{
-        id=ID
-        ,data={dial_back_resp, Data}
+        ,data={dial_back, Data}
     }.
 
 
@@ -89,8 +83,7 @@ id(Env) ->
 %%--------------------------------------------------------------------
 -spec data(proxy_envelope()) -> {req, libp2p_proxy_req:proxy_req()}
                                 | {resp, libp2p_proxy_resp:proxy_resp()}
-                                | {dial_back_req, libp2p_proxy_dial_back_req:proxy_dial_back_req()}
-                                | {dial_back_resp, libp2p_proxy_dial_back_resp:proxy_dial_back_resp()}.
+                                | {dial_back, libp2p_proxy_dial_back:proxy_dial_back()}.
 data(Env) ->
     Env#libp2p_proxy_envelope_pb.data.
 

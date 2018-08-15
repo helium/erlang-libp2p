@@ -3,15 +3,12 @@ message proxy_req {
 }
 
 message proxy_resp {
-    required string address = 1;
+    required bool success = 1;
 }
 
-message proxy_dial_back_req {
-    required string address = 1;
-}
-
-message proxy_dial_back_resp {
-    required string address = 1;
+message proxy_dial_back {
+    required bytes id = 1;
+    required string address = 2;
 }
 
 message proxy_envelope {
@@ -19,7 +16,6 @@ message proxy_envelope {
     oneof data {
         proxy_req req = 2;
         proxy_resp resp = 3;
-        proxy_dial_back_req dial_back_req = 4;
-        proxy_dial_back_resp dial_back_resp = 5;
+        proxy_dial_back dial_back = 4;
     }
 }
