@@ -8,7 +8,7 @@
 
 -export([
     create/1
-    ,address/1
+    ,success/1
 ]).
 
 -include("pb/libp2p_proxy_pb.hrl").
@@ -26,18 +26,18 @@
 %% Create an proxy respuest
 %% @end
 %%--------------------------------------------------------------------
--spec create(string()) -> proxy_resp().
-create(Address) ->
-    #libp2p_proxy_resp_pb{address=Address}.
+-spec create(boolean()) -> proxy_resp().
+create(Success) ->
+    #libp2p_proxy_resp_pb{success=Success}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec address(proxy_resp()) -> string().
-address(Req) ->
-    Req#libp2p_proxy_resp_pb.address.
+-spec success(proxy_resp()) -> boolean() | 0 | 1.
+success(Resp) ->
+    Resp#libp2p_proxy_resp_pb.success.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -49,10 +49,10 @@ address(Req) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_proxy_resp_pb{address="456"}, create("456")).
+    ?assertEqual(#libp2p_proxy_resp_pb{success=true}, create(true)).
 
 get_test() ->
-    Req = create("456"),
-    ?assertEqual("456", address(Req)).
+    Resp = create(true),
+    ?assertEqual(true, success(Resp)).
 
 -endif.
