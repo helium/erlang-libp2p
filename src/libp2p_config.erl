@@ -57,7 +57,7 @@ base_dir(TID) ->
 
 -spec swarm_dir(ets:tab(), [file:name_all()]) -> file:filename_all().
 swarm_dir(TID, Names) ->
-    FileName = filename:join(base_dir(TID), [libp2p_swarm:name(TID) | Names]),
+    FileName = filename:join([base_dir(TID), libp2p_swarm:name(TID) | Names]),
     ok = filelib:ensure_dir(FileName),
     FileName.
 
