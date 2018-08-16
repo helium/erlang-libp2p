@@ -75,7 +75,7 @@ handle_info(setup_listener, #state{id=ID, server_stream=ServerStream
     Port = 8080,
     _Pid = erlang:spawn(fun() ->
         {ok, LSock} = gen_tcp:listen(8080, [binary, {packet, raw}, {active, false}]),
-        lager:info("setting up listener"),
+        lager:info("setting up listener (~p)", [LSock]),
 
         {ok, SockA} = gen_tcp:accept(LSock),
         {ok, PacketA} = gen_tcp:recv(SockA, 16),
