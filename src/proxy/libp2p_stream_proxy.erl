@@ -124,7 +124,8 @@ handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, socket=Socket}=State)
     Conn = libp2p_transport_tcp:new_connection(Socket),
     Ref = erlang:make_ref(),
     TID = libp2p_swarm:tid(Swarm),
-    {ok, _} = libp2p_transport:start_server_session(Ref, TID, Conn),
+    {ok, Pid} = libp2p_transport:start_server_session(Ref, TID, Conn),
+    Pid ! {shoot, Ref, ranch_tcp, Socket, 2000},
     lager:info("server got proxy resp ~p", [Resp]),
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
@@ -162,7 +163,7 @@ dial_back(DialBack, Env) ->
     ID = libp2p_proxy_envelope:id(Env),
     PAddress = libp2p_proxy_dial_back:address(DialBack),
     Port = libp2p_proxy_dial_back:port(DialBack),
-    {ok, Socket} = gen_tcp:connect(PAddress, Port, [binary, {packet, raw}]),
+    {ok, Socket} = gen_tcp:connect(PAddress, Port, [binary, {packet, raw}, {active, false}]),
     ok = gen_tcp:send(Socket, ID),
     {ok, Socket}.
 

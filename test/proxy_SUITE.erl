@@ -99,7 +99,7 @@ basic(_Config) ->
     % Once relay is established get relay address from A's peerbook
     [_, ARelayAddress|_] = libp2p_swarm:listen_addrs(ASwarm),
     % B dials A via the relay address (so dialing R realy)
-    {ok, _Client} = libp2p_swarm:dial_framed_stream(
+    {ok, Client} = libp2p_swarm:dial_framed_stream(
         BSwarm
         ,ARelayAddress
         ,Version
@@ -108,13 +108,13 @@ basic(_Config) ->
     ),
     timer:sleep(2000),
 
-    % Data = <<"some data">>,
-    % Client ! Data,
-    % receive
-    %     {echo, Data} -> ok
-    % after 5000 ->
-    %     ct:fail(timeout)
-    % end,
+    Data = <<"some data">>,
+    Client ! Data,
+    receive
+        {echo, Data} -> ok
+    after 5000 ->
+        ct:fail(timeout)
+    end,
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(RSwarm),
