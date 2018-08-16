@@ -47,7 +47,7 @@ encode(#libp2p_proxy_envelope_pb{}=Env) ->
 %% Create an envelope
 %% @end
 %%--------------------------------------------------------------------
--spec create(string(), libp2p_proxy_req:proxy_req()
+-spec create(binary(), libp2p_proxy_req:proxy_req()
                        | libp2p_proxy_req:proxy_req()
                        | libp2p_proxy_dial_back:proxy_dial_back()) -> proxy_envelope().
 create(ID, #libp2p_proxy_req_pb{}=Data) ->
@@ -72,7 +72,7 @@ create(ID, #libp2p_proxy_dial_back_pb{}=Data) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec id(proxy_envelope()) -> string().
+-spec id(proxy_envelope()) -> binary().
 id(Env) ->
     Env#libp2p_proxy_envelope_pb.id.
 
@@ -98,17 +98,17 @@ data(Env) ->
 
 decode_encode_test() ->
     Req = libp2p_proxy_req:create("456"),
-    EnvEncoded = encode(create("123", Req)),
+    EnvEncoded = encode(create(<<"123">>, Req)),
     EnvDecoded = decode(EnvEncoded),
 
-    ?assertEqual("123", id(EnvDecoded)),
+    ?assertEqual(<<"123">>, id(EnvDecoded)),
     ?assertEqual({req, Req}, data(EnvDecoded)).
 
 get_test() ->
     Req = libp2p_proxy_req:create("456"),
-    Env = create("123", Req),
+    Env = create(<<"123">>, Req),
 
-    ?assertEqual("123", id(Env)),
+    ?assertEqual(<<"123">>, id(Env)),
     ?assertEqual({req, Req}, data(Env)).
 
 -endif.
