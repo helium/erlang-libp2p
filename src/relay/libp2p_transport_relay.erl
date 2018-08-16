@@ -29,9 +29,7 @@ match_addr(Addr) when is_list(Addr) ->
 priority() -> 1.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
-              ,pos_integer(), ets:tab()) -> {ok, pid()}
-                                            | {ok, pid(), any()}
-                                            | {error, term()}.
+              ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     Swarm = libp2p_swarm:swarm(TID),
     ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
@@ -46,9 +44,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 -spec connect_to(pid(), string(), libp2p_swarm:connect_opts()
-                 ,pos_integer(), ets:tab()) -> {ok, pid()}
-                                               | {ok, pid(), any()}
-                                               | {error, term()}.
+                 ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect_to(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     true = libp2p_relay:reg_addr_sessions(AAddress, self()),

@@ -7,14 +7,9 @@
 
 -export([
     version/0
-    ,reg_addr/1 ,reg_addr/2, unreg_addr/1
     ,add_stream_handler/1
     ,dial_framed_stream/3
 ]).
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
 -define(PROXY_VERSION, "proxy/1.0.0").
 
@@ -25,18 +20,6 @@
 -spec version() -> string().
 version() ->
     ?PROXY_VERSION.
-
--spec reg_addr(string()) -> atom().
-reg_addr(Address) ->
-    erlang:list_to_atom(Address ++ "/proxy").
-
--spec reg_addr(string(), pid()) -> true.
-reg_addr(Address, Pid) ->
-    erlang:register(?MODULE:reg_addr(Address), Pid).
-
--spec unreg_addr(string()) -> true.
-unreg_addr(Address) ->
-    erlang:unregister(?MODULE:reg_addr(Address)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -68,9 +51,3 @@ dial_framed_stream(Swarm, Address, Args) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-%% ------------------------------------------------------------------
-%% EUNIT Tests
-%% ------------------------------------------------------------------
--ifdef(TEST).
--endif.
