@@ -116,7 +116,9 @@ connections(Kind, #state{workers=Workers}) ->
                     ({_, Pid, MAddr}, Acc) when Kind == all ->
                         [{MAddr, Pid} | Acc];
                     ({WorkerKind, Pid, MAddr}, Acc) when WorkerKind == Kind ->
-                        [{MAddr, Pid} | Acc]
+                        [{MAddr, Pid} | Acc];
+                   (_, Acc) ->
+                        Acc
                 end, [], Workers).
 
 assign_target(Kind, WorkerPid, TargetAddrs, State=#state{workers=Workers}) ->
