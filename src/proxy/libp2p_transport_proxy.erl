@@ -29,9 +29,7 @@ match_addr(Addr) when is_list(Addr) ->
 priority() -> 99.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
-              ,pos_integer(), ets:tab()) -> {ok, pid()}
-                                            | {ok, pid(), any()}
-                                            | {error, term()}.
+              ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(_Pid, MAddr, _Options, _Timeout, TID) ->
     {ok, {PAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     lager:info("init proxy with ~p", [[PAddress, AAddress]]),

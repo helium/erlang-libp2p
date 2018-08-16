@@ -26,7 +26,8 @@
                   multiaddr,
                   nat,
                   ecc_compact,
-                  bitcask
+                  bitcask,
+                  splicer
                  ]},
   {env,[]},
 

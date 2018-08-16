@@ -48,7 +48,7 @@ encode(#libp2p_proxy_envelope_pb{}=Env) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec create(binary(), libp2p_proxy_req:proxy_req()
-                       | libp2p_proxy_req:proxy_req()
+                       | libp2p_proxy_resp:proxy_resp()
                        | libp2p_proxy_dial_back:proxy_dial_back()) -> proxy_envelope().
 create(ID, #libp2p_proxy_req_pb{}=Data) ->
     #libp2p_proxy_envelope_pb{

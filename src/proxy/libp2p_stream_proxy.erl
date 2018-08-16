@@ -157,7 +157,7 @@ handle_client_data(_Data, _Env, State) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 
--spec dial_back(libp2p_proxy_dial_back:dial_back()
+-spec dial_back(libp2p_proxy_dial_back:proxy_dial_back()
                 ,libp2p_proxy_envelope:proxy_envelope()) -> {ok, inet:socket()}.
 dial_back(DialBack, Env) ->
     ID = libp2p_proxy_envelope:id(Env),
