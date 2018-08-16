@@ -32,32 +32,28 @@ priority() -> 99.
               ,pos_integer(), ets:tab()) -> {ok, pid()}
                                             | {ok, pid(), any()}
                                             | {error, term()}.
-connect(_Pid, MAddr, Options, Timeout, TID) ->
-    {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    true = libp2p_proxy:reg_addr(AAddress, self()),
-    lager:info("init proxy with ~p", [[MAddr, RAddress, AAddress]]),
-
-    ProxyOpts = [{unique_session, true}, {unique_port, true}],
-    case libp2p_transport:connect_to(RAddress, Options ++ ProxyOpts, Timeout, TID) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, SessionPid} ->
-            Swarm = libp2p_swarm:swarm(TID),
-            {ok, _} = libp2p_proxy:dial_framed_stream(
-                Swarm
-                ,RAddress
-                ,[{p2p_circuit, MAddr}]
-            ),
-            receive
-                {proxy_negotiated} ->
-                    libp2p_proxy:unreg_addr(AAddress),
-                    {ok, SessionPid}
-            after 8000 ->
-                libp2p_proxy:unreg_addr(AAddress),
-                % TODO: undo this when ready
-                % {error, timeout_relay_session}
-                {ok, SessionPid}
-            end
+connect(_Pid, MAddr, _Options, _Timeout, TID) ->
+    {ok, {PAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
+    lager:info("init proxy with ~p", [[PAddress, AAddress]]),
+    Swarm = libp2p_swarm:swarm(TID),
+    ID = crypto:strong_rand_bytes(16),
+    Args = [
+        {p2p_circuit, MAddr}
+        ,{transport, self()}
+        ,{id, ID}
+    ],
+    {ok, _} = libp2p_proxy:dial_framed_stream(
+        Swarm
+        ,PAddress
+        ,Args
+    ),
+    receive
+        {proxy_negotiated, Socket} ->
+            Conn = libp2p_transport_tcp:new_connection(Socket),
+            lager:info("proxy successful ~p", [Conn]),
+            libp2p_transport:start_client_session(TID, MAddr, Conn)
+    after 8000 ->
+        {error, timeout_relay_session}
     end.
 
 %% ------------------------------------------------------------------
