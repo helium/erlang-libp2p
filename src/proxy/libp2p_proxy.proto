@@ -7,12 +7,12 @@ message proxy_resp {
 }
 
 message proxy_dial_back {
-    required bytes id = 1;
-    required string address = 2;
+    required string address = 1;
+    required int32 port = 2;
 }
 
 message proxy_envelope {
-    required string id = 1;
+    required bytes id = 1;
     oneof data {
         proxy_req req = 2;
         proxy_resp resp = 3;

@@ -8,8 +8,8 @@
 
 -export([
     create/2
-    ,id/1
     ,address/1
+    ,port/1
 ]).
 
 -include("pb/libp2p_proxy_pb.hrl").
@@ -27,18 +27,9 @@
 %% Create an proxy request
 %% @end
 %%--------------------------------------------------------------------
--spec create(binary(), string()) -> proxy_dial_back().
-create(ID, Address) ->
-    #libp2p_proxy_dial_back_pb{id=ID, address=Address}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Getter
-%% @end
-%%--------------------------------------------------------------------
--spec id(proxy_dial_back()) -> binary().
-id(DialBack) ->
-    DialBack#libp2p_proxy_dial_back_pb.id.
+-spec create(string(), integer()) -> proxy_dial_back().
+create(Address, Port) ->
+    #libp2p_proxy_dial_back_pb{address=Address, port=Port}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -48,6 +39,15 @@ id(DialBack) ->
 -spec address(proxy_dial_back()) -> string().
 address(DialBack) ->
     DialBack#libp2p_proxy_dial_back_pb.address.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Getter
+%% @end
+%%--------------------------------------------------------------------
+-spec port(proxy_dial_back()) -> integer().
+port(DialBack) ->
+    DialBack#libp2p_proxy_dial_back_pb.port.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -59,11 +59,11 @@ address(DialBack) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_proxy_dial_back_pb{id= <<"123">>, address="456"}, create(<<"123">>, "456")).
+    ?assertEqual(#libp2p_proxy_dial_back_pb{address="456", port=9090}, create("456", 9090)).
 
 get_test() ->
-    DialBack = create(<<"123">>, "456"),
-    ?assertEqual(<<"123">>, id(DialBack)),
-    ?assertEqual("456", address(DialBack)).
+    DialBack = create("456", 9090),
+    ?assertEqual("456", address(DialBack)),
+    ?assertEqual(9090, port(DialBack)).
 
 -endif.
