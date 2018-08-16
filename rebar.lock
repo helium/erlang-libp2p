@@ -18,9 +18,17 @@
  {<<"lager">>,{pkg,<<"lager">>,<<"3.6.2">>},0},
  {<<"multiaddr">>,{pkg,<<"multiaddr">>,<<"1.1.2">>},0},
  {<<"nat">>,{pkg,<<"nat">>,<<"0.2.0">>},0},
+ {<<"procket">>,
+  {git,"https://github.com/msantos/procket.git",
+       {ref,"41e93841c519e37496a5e0f63a3761b36eec9a6a"}},
+  1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.5.0">>},0},
  {<<"rand_compat">>,{pkg,<<"rand_compat">>,<<"0.0.3">>},1},
  {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},1},
+ {<<"splicer">>,
+  {git,"https://github.com/helium/erlang-splicer.git",
+       {ref,"ad9a145f07492bbab20e147636d89c7b8278a1ab"}},
+  0},
  {<<"stacktrace_compat">>,{pkg,<<"stacktrace_compat">>,<<"1.0.0">>},1}]}.
 [
 {pkg_hash,[
