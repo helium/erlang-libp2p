@@ -37,7 +37,12 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         false ->
             connect_to(Pid, MAddr, Options, Timeout, TID);
         true ->
-            libp2p_transport_proxy:connect(Pid, MAddr, Options, Timeout, TID)
+            case check_peerbook(TID, MAddr) of
+                false ->
+                    {error, not_in_peerbook};
+                true ->
+                    libp2p_transport_proxy:connect(Pid, MAddr, Options, Timeout, TID)
+            end
     end.
 
 %% ------------------------------------------------------------------
@@ -102,3 +107,31 @@ has_p2p_circuit(Addresses) ->
         ,false
         ,Addresses
     ).
+
+-spec check_peerbook(ets:tab(), string()) -> boolean().
+check_peerbook(TID, MAddr) ->
+    {ok, {RAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
+    Swarm = libp2p_swarm:swarm(TID),
+    Peerbook = libp2p_swarm:peerbook(Swarm),
+    lists:foldl(
+        fun(_Peer, true) ->
+            true;
+           (Peer, Acc) ->
+            case p2p_address(Peer) of
+                RAddress ->
+                    ConnectedPeers = [p2p_address(P) || P <- libp2p_peer:connected_peers(Peer)],
+                    lists:member(AAddress, ConnectedPeers);
+                _PeerAddr ->
+                    Acc
+            end
+
+        end
+        ,false
+        ,libp2p_peerbook:values(Peerbook)
+    ).
+
+-spec p2p_address(libp2p_peer:peer() | binary()) -> string().
+p2p_address(Address) when is_binary(Address) ->
+    "/p2p/" ++ libp2p_crypto:address_to_b58(Address);
+p2p_address(Peer) ->
+    "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_peer:address(Peer)).
