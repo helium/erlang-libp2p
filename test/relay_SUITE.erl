@@ -108,14 +108,16 @@ basic(_Config) ->
     [ARelayAddress] = get_relay_addresses(ASwarm),
 
     %% wait for B to get A's relay address gossiped to it
-    ok = test_util:wait_until(fun() ->
-                                       case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:address(ASwarm)) of
-                                           {ok, PeerBookEntry} ->
-                                               lists:member(ARelayAddress, libp2p_peer:listen_addrs(PeerBookEntry));
-                                           _ ->
-                                               false
-                                       end
-                               end),
+    ok = test_util:wait_until(
+        fun() ->
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:address(ASwarm)) of
+                {ok, PeerBookEntry} ->
+                    lists:member(ARelayAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+                _ ->
+                    false
+            end
+        end
+    ),
 
     % B dials A via the relay address (so dialing R realy)
     {ok, _} = libp2p_swarm:dial_framed_stream(
@@ -226,31 +228,30 @@ dead_peer(_Config) ->
     % NAT fails so A dials R to create a relay
     {ok, _} = libp2p_relay:dial_framed_stream(ASwarm, RAddress, []),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() ->
-                                      [] /= get_relay_addresses(ASwarm)
-                              end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
 
     % Testing relay address
     % Once relay is established get relay address from A's peerbook
     [ARelayAddress] = get_relay_addresses(ASwarm),
 
-
     %% wait for B to get A's relay address gossiped to it
-    ok = test_util:wait_until(fun() ->
-                                       case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:address(ASwarm)) of
-                                           {ok, PeerBookEntry} ->
-                                               lists:member(ARelayAddress, libp2p_peer:listen_addrs(PeerBookEntry));
-                                           _ ->
-                                               false
-                                       end
-                               end),
+    ok = test_util:wait_until(
+        fun() ->
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:address(ASwarm)) of
+                {ok, PeerBookEntry} ->
+                    lists:member(ARelayAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+                _ ->
+                    false
+            end
+        end
+    ),
 
     %% stop the A swarm
     ok = libp2p_swarm:stop(ASwarm),
     timer:sleep(2000),
 
     % B dials A via the relay address (so dialing R realy)
-    {error, econnrefused} = libp2p_swarm:dial_framed_stream(
+    {error, "a_down"} = libp2p_swarm:dial_framed_stream(
         BSwarm
         ,ARelayAddress
         ,Version
@@ -263,7 +264,7 @@ dead_peer(_Config) ->
     ok = libp2p_swarm:stop(BSwarm),
 
     timer:sleep(2000),
-    ASwarm = BSwarm.
+    ok.
 
 
 %% ------------------------------------------------------------------
@@ -272,12 +273,12 @@ dead_peer(_Config) ->
 
 get_relay_addresses(Swarm) ->
     SwarmAddresses = libp2p_swarm:listen_addrs(Swarm),
-    lists:filter(fun(Addr) ->
-                         case multiaddr:protocols(multiaddr:new(Addr)) of
-                             [{"p2p", _}, {"p2p-circuit", _}] ->
-                                 true;
-                             _ ->
-                                 false
-                         end
-                 end, SwarmAddresses).
-
+    lists:filter(
+        fun(Addr) ->
+            case multiaddr:protocols(multiaddr:new(Addr)) of
+                [{"p2p", _}, {"p2p-circuit", _}] -> true;
+                _ -> false
+            end
+        end
+        ,SwarmAddresses
+    ).
