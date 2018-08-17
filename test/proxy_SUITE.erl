@@ -67,7 +67,7 @@ basic(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ASwarm]}
     ),
 
-    {ok, RSwarm} = libp2p_swarm:start(r_proxy, SwarmOpts),
+    {ok, RSwarm} = libp2p_swarm:start(r_proxy, SwarmOpts ++ [{proxy, 8080}]),
     ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         RSwarm
