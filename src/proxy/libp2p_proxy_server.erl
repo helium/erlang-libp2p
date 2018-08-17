@@ -147,7 +147,7 @@ setup_listener(Port) ->
     Server = self(),
     _Pid = erlang:spawn_link(fun() ->
         Opts = libp2p_transport_tcp:common_options(),
-        {ok, LSock} = gen_tcp:listen(Port, Opts),
+        {ok, LSock} = gen_tcp:listen(Port, [{reuseaddr, true} | Opts]),
         lager:info("setting up listener (~p)", [LSock]),
         ?MODULE:listener_loop(Server, LSock)
     end),
