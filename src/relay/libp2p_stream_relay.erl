@@ -147,7 +147,8 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     EnvResp = libp2p_relay_envelope:create(Resp),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
-% stream to A and sends it a message with bridge request
+% stream to A and sends it a message with bridge request. If this fails an error
+% response will be sent back to B
 handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("R got a relay request passing to A's relay stream ~s", [A]),
@@ -180,17 +181,20 @@ handle_client_data(Bin, State) ->
     Data = libp2p_relay_envelope:data(Env),
     handle_client_data(Data, Env, State).
 
-% Relay Step 3: Client A receives a relay response from server R with p2p-circuit address
-% and inserts it as a new listerner to get broadcasted by peerbook
--spec handle_client_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
+-spec handle_client_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) ->
+    libp2p_framed_stream:handle_data_result().
 handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid}=State) ->
     Address = libp2p_relay_resp:address(Resp),
     case libp2p_relay_resp:error(Resp) of
         undefined ->
+            % Relay Step 3: Client A receives a relay response from server R
+            % with p2p-circuit address and inserts it as a new listerner to get
+            % broadcasted by peerbook
             TID = libp2p_swarm:tid(Swarm),
             lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
             true = libp2p_config:insert_listener(TID, [Address], SessionPid);
         Error ->
+            % Bridge Step 3: An error is sent back to B transfering to relay transport
             libp2p_relay:reg_addr_sessions(Address) ! {error, Error}
     end,
     {noreply, State};
