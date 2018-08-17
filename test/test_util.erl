@@ -6,7 +6,7 @@
 
 setup() ->
     application:ensure_all_started(ranch),
-    %% application:set_env(lager, error_logger_flush_queue, false),
+    application:set_env(lager, error_logger_flush_queue, false),
     application:ensure_all_started(lager),
     lager:set_loglevel(lager_console_backend, debug),
     lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
