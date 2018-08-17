@@ -256,6 +256,21 @@ listen_on(Addr, TID) ->
             case gen_tcp:listen(Port, [Type | AddrOpts] ++ ListenOpts) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
+                    %% if we have any non RFC1918 addresses, set the nat type to none
+                    case lists:any(fun(MA) ->
+                                           [{_, ThisAddr}, _] = multiaddr:protocols(multiaddr:new(MA)),
+                                           case inet_parse:address(ThisAddr) of
+                                               {ok, ThisIP} ->
+                                                   rfc1918(ThisIP) == false;
+                                               _ ->
+                                                   false
+                                           end
+                                   end, ListenAddrs) of
+                        true ->
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none);
+                        false ->
+                            ok
+                    end,
                     ChildSpec = ranch:child_spec(ListenAddrs,
                                                  ranch_tcp, [{socket, Socket}],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
