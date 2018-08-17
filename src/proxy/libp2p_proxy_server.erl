@@ -95,18 +95,22 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, address=Address, port=Port, data=Data}=State) ->
-    {ok, ClientStream} = libp2p_proxy:dial_framed_stream(
-        Swarm
-        ,AAddress
-        ,[{id, ID}]
-    ),
-    lager:info("dialed A (~p)", [AAddress]),
-    PState = maps:get(ID, Data),
-    #pstate{id=ID, server_stream=ServerStream} = PState,
-    ok = dial_back(Address, Port, ID, ServerStream, ClientStream),
-    PState1 = PState#pstate{client_stream=ClientStream},
-    Data1 = maps:put(ID, PState1, Data),
-    {noreply, State#state{data=Data1}};
+    case libp2p_proxy:dial_framed_stream(
+           Swarm
+           ,AAddress
+           ,[{id, ID}]
+          ) of
+        {ok, ClientStream} ->
+            lager:info("dialed A (~p)", [AAddress]),
+            PState = maps:get(ID, Data),
+            #pstate{id=ID, server_stream=ServerStream} = PState,
+            ok = dial_back(Address, Port, ID, ServerStream, ClientStream),
+            PState1 = PState#pstate{client_stream=ClientStream},
+            Data1 = maps:put(ID, PState1, Data),
+            {noreply, State#state{data=Data1}};
+        _ ->
+            {noreply, State}
+    end;
 handle_info({tcp, Socket, ID}, #state{data=Data}=State) ->
     Data1 = case maps:get(ID, Data, undefined) of
         undefined ->
