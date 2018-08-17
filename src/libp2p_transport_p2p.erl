@@ -46,7 +46,9 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
                 {ok, PeerInfo} ->
                     ListenAddrs = libp2p_peer:listen_addrs(PeerInfo),
                     case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
-                        {ok, _, SessionPid} -> {ok, SessionPid};
+                        {ok, _, SessionPid} ->
+                            libp2p_config:insert_session(TID, MAddr, SessionPid),
+                            {ok, SessionPid};
                         {error, not_found} ->
                             case connect_to_listen_addr(ListenAddrs, UserOptions, Timeout, TID) of
                                 {ok, SessionPid}->
