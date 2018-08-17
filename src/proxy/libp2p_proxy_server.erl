@@ -164,13 +164,12 @@ dial_back(PAddress, Port, ID, ServerStream, ClientStream) ->
 
 -spec splice(inet:socket(), inet:socket()) -> ok.
 splice(Socket1, Socket2) ->
-    Pid = erlang:spawn(fun() ->
+    {Pid, _Ref} = erlang:spawn_monitor(fun() ->
         receive control_given -> ok end,
         {ok, FD1} = inet:getfd(Socket1),
         {ok, FD2} = inet:getfd(Socket2),
         splicer:splice(FD1, FD2)
     end),
-    _Ref = erlang:monitor(process, Pid),
     ok = gen_tcp:controlling_process(Socket1, Pid),
     ok = gen_tcp:controlling_process(Socket2, Pid),
     Pid ! control_given,
