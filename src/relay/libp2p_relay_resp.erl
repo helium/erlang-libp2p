@@ -45,7 +45,7 @@ create(Address, Error) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec address(relay_resp()) -> string().
+-spec address(relay_resp()) -> string() | undefined.
 address(Req) ->
     Req#libp2p_relay_resp_pb.address.
 
@@ -54,7 +54,7 @@ address(Req) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec error(relay_resp()) -> string().
+-spec error(relay_resp()) -> string() | undefined.
 error(Req) ->
     Req#libp2p_relay_resp_pb.error.
 
