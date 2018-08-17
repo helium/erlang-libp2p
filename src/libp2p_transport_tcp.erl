@@ -267,6 +267,7 @@ listen_on(Addr, TID) ->
                                            end
                                    end, ListenAddrs) of
                         true ->
+                            lager:notice("setting NAT type to none"),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none);
                         false ->
                             ok
