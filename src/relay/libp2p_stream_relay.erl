@@ -168,7 +168,7 @@ handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     B = libp2p_relay_bridge:b(Bridge),
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("B (~s) got A (~s) dialing back", [B, A]),
-    libp2p_relay:reg_addr_sessions(A) ! {sessions, libp2p_swarm:sessions(Swarm)},
+    catch libp2p_relay:reg_addr_sessions(A) ! {sessions, libp2p_swarm:sessions(Swarm)},
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
@@ -195,7 +195,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
             true = libp2p_config:insert_listener(TID, [Address], SessionPid);
         Error ->
             % Bridge Step 3: An error is sent back to B transfering to relay transport
-            libp2p_relay:reg_addr_sessions(Address) ! {error, Error}
+            catch libp2p_relay:reg_addr_sessions(Address) ! {error, Error}
     end,
     {noreply, State};
 % Bridge Step 4: A got a bridge req, dialing B
