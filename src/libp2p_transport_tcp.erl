@@ -42,7 +42,7 @@
 %% libp2p_connection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
-         fdset/1, fdclr/1
+         fdset/1, fdclr/1, common_options/0
         ]).
 
 -record(tcp_state, {
@@ -141,6 +141,9 @@ addr_info(#tcp_state{addr_info=AddrInfo}) ->
 controlling_process(#tcp_state{socket=Socket}, Pid) ->
     gen_tcp:controlling_process(Socket, Pid).
 
+-spec common_options() -> [term()].
+common_options() ->
+    [binary, {active, false}, {packet, raw}].
 
 %% gen_server
 %%
@@ -237,10 +240,6 @@ listen_options(IP, TID) ->
     end.
 
 
--spec common_options() -> [term()].
-common_options() ->
-    [binary, {active, false}, {packet, raw}].
-                                                %
 -spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
