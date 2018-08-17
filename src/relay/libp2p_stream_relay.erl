@@ -151,8 +151,16 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
 handle_server_data({bridge_br, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("R got a relay request passing to A's relay stream ~s", [A]),
-    libp2p_relay:reg_addr_stream(A) ! {bridge_br, Bridge},
-    {noreply, State};
+    try libp2p_relay:reg_addr_stream(A) ! {bridge_br, Bridge} of
+        _ ->
+            {noreply, State}
+    catch
+        What:Why ->
+            lager:error("fail to pass request A seems down ~p/~p", [What, Why]),
+            RespError = libp2p_relay_resp:create(A, "a_down"),
+            Env = libp2p_relay_envelope:create(RespError),
+            {noreply, State, libp2p_relay_envelope:encode(Env)}
+    end;
 % Bridge Step 6: B got dialed back from A, that session (A->B) will be sent back to
 % libp2p_transport_relay:connect to be used instead of the B->R session
 handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
@@ -177,9 +185,14 @@ handle_client_data(Bin, State) ->
 -spec handle_client_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
 handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid}=State) ->
     Address = libp2p_relay_resp:address(Resp),
-    TID = libp2p_swarm:tid(Swarm),
-    lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
-    true = libp2p_config:insert_listener(TID, [Address], SessionPid),
+    case libp2p_relay_resp:error(Resp) of
+        undefined ->
+            TID = libp2p_swarm:tid(Swarm),
+            lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
+            true = libp2p_config:insert_listener(TID, [Address], SessionPid);
+        Error ->
+            libp2p_relay:reg_addr_sessions(Address) ! {error, Error}
+    end,
     {noreply, State};
 % Bridge Step 4: A got a bridge req, dialing B
 handle_client_data({bridge_ra, Bridge}, _Env, #state{swarm=Swarm}=State) ->

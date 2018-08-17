@@ -8,6 +8,7 @@ message relay_req {
 // Response from relay server
 message relay_resp {
     optional string address = 1; // p2p-circuit address
+    optional string error = 2; // error
 }
 
 // Bridge messages are used to transmit the address of A and B nodes

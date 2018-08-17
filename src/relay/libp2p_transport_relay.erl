@@ -64,6 +64,10 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
                     libp2p_relay:unreg_addr_sessions(AAddress),
                     {ok, SessionPid2};
+                {error, _Reason}=Error ->
+                    libp2p_relay:unreg_addr_sessions(AAddress),
+                    lager:error("no relay sessions ~p", [_Reason]),
+                    Error;
                 _Error ->
                     libp2p_relay:unreg_addr_sessions(AAddress),
                     lager:error("no relay sessions ~p", [_Error]),
