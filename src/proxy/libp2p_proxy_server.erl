@@ -31,6 +31,7 @@
 -record(state, {
     tid :: ets:tab() | undefined
     ,swarm :: pid() | undefined
+    ,address :: string() | undefined
     ,port :: integer() | undefined
     ,data = maps:new() :: map()
 }).
@@ -70,12 +71,12 @@ listener_loop(Server, ListenSocket) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([TID, Port]=Args) ->
+init([TID, Address, Port]=Args) ->
     lager:info("~p init with ~p", [?MODULE, Args]),
     true = libp2p_config:insert_proxy(TID, self()),
     Swarm = libp2p_swarm:swarm(TID),
     ok = setup_listener(Port),
-    {ok, #state{tid=TID, swarm=Swarm, port=Port}}.
+    {ok, #state{tid=TID, swarm=Swarm, address=Address, port=Port}}.
 
 handle_call({init_proxy, ID, ServerStream, AAddress}, _From, #state{data=Data}=State) ->
     PState = #pstate{
@@ -93,7 +94,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, port=Port, data=Data}=State) ->
+handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, address=Address, port=Port, data=Data}=State) ->
     {ok, ClientStream} = libp2p_proxy:dial_framed_stream(
         Swarm
         ,AAddress
@@ -102,7 +103,7 @@ handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, port=Port, data=Data}
     lager:info("dialed A (~p)", [AAddress]),
     PState = maps:get(ID, Data),
     #pstate{id=ID, server_stream=ServerStream} = PState,
-    ok = dial_back(Swarm, Port, ID, ServerStream, ClientStream),
+    ok = dial_back(Address, Port, ID, ServerStream, ClientStream),
     PState1 = PState#pstate{client_stream=ClientStream},
     Data1 = maps:put(ID, PState1, Data),
     {noreply, State#state{data=Data1}};
@@ -152,10 +153,8 @@ setup_listener(Port) ->
     end),
     ok.
 
--spec dial_back(pid(), integer(), binary(), pid(), pid()) -> ok.
-dial_back(_Swarm, Port, ID, ServerStream, ClientStream) ->
-    % TODO: Should ask swarm for proxy address
-    PAddress = "localhost",
+-spec dial_back(string(), integer(), binary(), pid(), pid()) -> ok.
+dial_back(PAddress, Port, ID, ServerStream, ClientStream) ->
     DialBack = libp2p_proxy_dial_back:create(PAddress, Port),
     EnvA = libp2p_proxy_envelope:create(ID, DialBack),
     EnvB = libp2p_proxy_envelope:create(ID, DialBack),
