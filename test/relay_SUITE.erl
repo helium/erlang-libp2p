@@ -62,7 +62,7 @@ basic(_Config) ->
     SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
     Version = "relaytest/1.0.0",
 
-    {ok, ASwarm} = libp2p_swarm:start(a, SwarmOpts),
+    {ok, ASwarm} = libp2p_swarm:start(basic_a, SwarmOpts),
     ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm
@@ -70,7 +70,7 @@ basic(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
     ),
 
-    {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
+    {ok, RSwarm} = libp2p_swarm:start(basic_r, SwarmOpts),
     ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         RSwarm
@@ -78,7 +78,7 @@ basic(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RSwarm]}
     ),
 
-    {ok, BSwarm} = libp2p_swarm:start(b, SwarmOpts),
+    {ok, BSwarm} = libp2p_swarm:start(basic_b, SwarmOpts),
     ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm
@@ -99,9 +99,7 @@ basic(_Config) ->
     {ok, _} = libp2p_relay:dial_framed_stream(ASwarm, RAddress, []),
 
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() ->
-                                      [] /= get_relay_addresses(ASwarm)
-                              end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
 
     % Testing relay address
     % Once relay is established get relay address from A's peerbook
@@ -117,6 +115,8 @@ basic(_Config) ->
                     false
             end
         end
+        ,40
+        ,250
     ),
 
     % B dials A via the relay address (so dialing R realy)
@@ -192,7 +192,7 @@ dead_peer(_Config) ->
     SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
     Version = "relaytest/1.0.0",
 
-    {ok, ASwarm} = libp2p_swarm:start(a, SwarmOpts),
+    {ok, ASwarm} = libp2p_swarm:start(dead_peer_a, SwarmOpts),
     ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm
@@ -200,7 +200,7 @@ dead_peer(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
     ),
 
-    {ok, RSwarm} = libp2p_swarm:start(r, SwarmOpts),
+    {ok, RSwarm} = libp2p_swarm:start(dead_peer_r, SwarmOpts),
     ok = libp2p_swarm:listen(RSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         RSwarm
@@ -208,7 +208,7 @@ dead_peer(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RSwarm]}
     ),
 
-    {ok, BSwarm} = libp2p_swarm:start(b, SwarmOpts),
+    {ok, BSwarm} = libp2p_swarm:start(dead_peer_b, SwarmOpts),
     ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm
@@ -244,6 +244,8 @@ dead_peer(_Config) ->
                     false
             end
         end
+        ,40
+        ,250
     ),
 
     %% stop the A swarm
