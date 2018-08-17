@@ -8,7 +8,9 @@
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2,
-         insert_group/3, lookup_group/2, remove_group/2]).
+         insert_group/3, lookup_group/2, remove_group/2,
+         insert_relay/2, lookup_relay/1, remove_relay/1,
+         insert_proxy/2, lookup_proxy/1, remove_proxy/1]).
 
 -define(CONNECTION_HANDLER, connection_handler).
 -define(STREAM_HANDLER, stream_handler).
@@ -16,6 +18,8 @@
 -define(SESSION, session).
 -define(LISTENER, listener).
 -define(GROUP, group).
+-define(RELAY, relay).
+-define(PROXY, proxy).
 
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
@@ -221,3 +225,35 @@ lookup_group(TID, GroupID) ->
 -spec remove_group(ets:tab(), string()) -> true.
 remove_group(TID, GroupID) ->
     remove_pid(TID, ?GROUP, GroupID).
+
+%%
+%% Relay
+%%
+
+-spec insert_relay(ets:tab(), pid()) -> true.
+insert_relay(TID, Pid) ->
+    insert_pid(TID, ?RELAY, "pid", Pid).
+
+-spec lookup_relay(ets:tab()) -> {ok, pid()} | false.
+lookup_relay(TID) ->
+    lookup_pid(TID, ?RELAY, "pid").
+
+-spec remove_relay(ets:tab()) -> true.
+remove_relay(TID) ->
+    remove_pid(TID, ?RELAY, "pid").
+
+%%
+%% Proxy
+%%
+
+-spec insert_proxy(ets:tab(), pid()) -> true.
+insert_proxy(TID, Pid) ->
+    insert_pid(TID, ?PROXY, "pid", Pid).
+
+-spec lookup_proxy(ets:tab()) -> {ok, pid()} | false.
+lookup_proxy(TID) ->
+    lookup_pid(TID, ?PROXY, "pid").
+
+-spec remove_proxy(ets:tab()) -> true.
+remove_proxy(TID) ->
+    remove_pid(TID, ?PROXY, "pid").

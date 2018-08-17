@@ -74,8 +74,16 @@ init([Name, Opts]) ->
                    10000,
                    worker,
                    [libp2p_peerbook]
+                  },
+                  {relay,
+                   {libp2p_relay_server, start_link, [TID]},
+                   permanent,
+                   10000,
+                   worker,
+                   [libp2p_relay_server]
                   }
-                 ] ++ group_agent_spec(Opts, TID),
+                 ] ++ group_agent_spec(Opts, TID)
+                 ++ include_proxy(TID, Opts),
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -92,6 +100,22 @@ init_keys(Opts) ->
 group_agent_spec(Opts, TID) ->
     AgentModule = libp2p_config:get_opt(Opts, group_agent, libp2p_group_gossip),
     [AgentModule:group_agent_spec(?GROUP_AGENT, TID)].
+
+include_proxy(TID, Opts) ->
+    case {libp2p_config:get_opt(Opts, [proxy, address], undefined)
+          ,libp2p_config:get_opt(Opts, [proxy, port], undefined)} of
+        {undefined, _} -> [];
+        {_, undefined} -> [];
+        {Address, Port} ->
+            [{
+                proxy
+                ,{libp2p_proxy_server, start_link, [[TID, Address, Port]]}
+                ,permanent
+                ,10000
+                ,worker
+                ,[libp2p_proxy_server]
+            }]
+    end.
 
 -spec sup(ets:tab()) -> pid().
 sup(TID) ->

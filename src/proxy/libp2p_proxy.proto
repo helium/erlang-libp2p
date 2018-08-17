@@ -1,0 +1,21 @@
+message proxy_req {
+    required string address = 1;
+}
+
+message proxy_resp {
+    required bool success = 1;
+}
+
+message proxy_dial_back {
+    required string address = 1;
+    required int32 port = 2;
+}
+
+message proxy_envelope {
+    required bytes id = 1;
+    oneof data {
+        proxy_req req = 2;
+        proxy_resp resp = 3;
+        proxy_dial_back dial_back = 4;
+    }
+}

@@ -47,6 +47,7 @@ connect_to(Addr, Options, Timeout, TID) ->
     case libp2p_swarm:is_stopping(TID) of
         true -> {error, stopping};
         false ->
+            % TODO: maybe we should add an option to pick a specific session
             case find_session([Addr], Options, TID) of
                 {ok, _, SessionPid} -> {ok, SessionPid};
                 {error, not_found} ->

@@ -5,12 +5,17 @@
 %%%-------------------------------------------------------------------
 -module(libp2p_relay).
 
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
 -export([
     init/1
     ,version/0
     ,add_stream_handler/1
     ,dial_framed_stream/3
     ,p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1
+    ,reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1
+    ,reg_addr_stream/1, reg_addr_stream/2
 ]).
 
 -ifdef(TEST).
@@ -26,22 +31,11 @@
 %%--------------------------------------------------------------------
 -spec init(pid()) -> {ok, pid()} | {error, any()} | ignore.
 init(Swarm) ->
-    lager:info("init relay for ~p", [libp2p_swarm:name(Swarm)]),
-    Peerbook = libp2p_swarm:peerbook(Swarm),
-    Peers = libp2p_peerbook:values(Peerbook),
-    SwarmAddr = libp2p_swarm:address(Swarm),
-    case select_peer(SwarmAddr, Peers) of
-        {error, Reason}=Error ->
-            lager:warning("could not initiate relay, failed to find peer ~p", [Reason]),
-            Error;
-        Peer ->
-            case libp2p_peer:listen_addrs(Peer) of
-                [ListenAddr|_] ->
-                    ?MODULE:dial_framed_stream(Swarm, ListenAddr, []);
-                _Any ->
-                    lager:warning("could not initiate relay, failed to find address ~p", [_Any]),
-                    {error, no_address}
-            end
+    TID = libp2p_swarm:tid(Swarm),
+    case libp2p_config:lookup_relay(TID) of
+        false -> {error, no_relay};
+        {ok, Pid} ->
+            gen_server:call(Pid, init_relay)
     end.
 
 %%--------------------------------------------------------------------
@@ -115,38 +109,29 @@ is_p2p_circuit(Address) ->
         _ -> true
     end.
 
+-spec reg_addr_sessions(string()) -> atom().
+reg_addr_sessions(Address) ->
+    erlang:list_to_atom(Address ++ "/sessions").
+
+-spec reg_addr_sessions(string(), pid()) -> true.
+reg_addr_sessions(Address, Pid) ->
+    erlang:register(?MODULE:reg_addr_sessions(Address), Pid).
+
+-spec unreg_addr_sessions(string()) -> true.
+unreg_addr_sessions(Address) ->
+    erlang:unregister(?MODULE:reg_addr_sessions(Address)).
+
+-spec reg_addr_stream(string()) -> atom().
+reg_addr_stream(Address) ->
+    erlang:list_to_atom(Address ++ "/stream").
+
+-spec reg_addr_stream(string(), pid()) -> true.
+reg_addr_stream(Address, Pid) ->
+    erlang:register(?MODULE:reg_addr_stream(Address), Pid).
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec select_peer(binary(), list()) -> libp2p_peer:peer() | list() | {error, no_peer}.
-select_peer(SelfSwarmAddr, Peers) ->
-    case select_peer(SelfSwarmAddr, Peers, []) of
-        SelectedPeers when is_list(SelectedPeers) ->
-            case lists:sort(SelectedPeers) of
-                [{_, Peer}|_] -> Peer;
-                _ -> {error, no_peer}
-            end;
-        Peer ->
-            Peer
-    end.
-
--spec select_peer(binary(), list(), list()) -> libp2p_peer:peer() | list().
-select_peer(_SelfSwarmAddr, [], Acc) -> Acc;
-select_peer(SelfSwarmAddr, [Peer|Peers], Acc) ->
-    case libp2p_peer:address(Peer) of
-        SelfSwarmAddr ->
-            select_peer(SelfSwarmAddr, Peers, Acc);
-        _PeerAddress ->
-            case libp2p_peer:nat_type(Peer) of
-                none -> Peer;
-                static -> Peer;
-                _ ->
-                    L = erlang:length(libp2p_peer:connected_peers(Peer)),
-                    select_peer(SelfSwarmAddr, Peers, [{L, Peer}|Acc])
-            end
-    end.
-
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
@@ -168,6 +153,42 @@ is_p2p_circuit_test() ->
     ?assert(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601/p2p-circuit/ip4/192.168.1.61/tcp/6600")),
     ?assertNot(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601")),
     ?assertNot(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601p2p-circuit/ip4/192.168.1.61/tcp/6600")),
+    ok.
+
+reg_addr_sessions_1_test() ->
+    ?assertEqual(
+        '/ip4/192.168.1.61/tcp/6601/sessions'
+        ,reg_addr_sessions("/ip4/192.168.1.61/tcp/6601")
+    ),
+    ok.
+
+reg_addr_sessions_2_test() ->
+    ?assertEqual(
+        true
+        ,reg_addr_sessions("/ip4/192.168.1.61/tcp/6601", self())
+    ),
+    reg_addr_sessions("/ip4/192.168.1.61/tcp/6601") ! test,
+    receive M -> ?assertEqual(M, test) end,
+    ?assertEqual(
+        true
+        ,unreg_addr_sessions("/ip4/192.168.1.61/tcp/6601")
+    ),
+    ok.
+
+reg_addr_stream_1_test() ->
+    ?assertEqual(
+        '/ip4/192.168.1.61/tcp/6601/stream'
+        ,reg_addr_stream("/ip4/192.168.1.61/tcp/6601")
+    ),
+    ok.
+
+reg_addr_stream_2_test() ->
+    ?assertEqual(
+        true
+        ,reg_addr_stream("/ip4/192.168.1.61/tcp/6601", self())
+    ),
+    reg_addr_stream("/ip4/192.168.1.61/tcp/6601") ! test,
+    receive M -> ?assertEqual(M, test) end,
     ok.
 
 -endif.

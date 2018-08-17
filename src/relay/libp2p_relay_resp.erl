@@ -7,8 +7,9 @@
 -module(libp2p_relay_resp).
 
 -export([
-    create/1
+    create/1, create/2
     ,address/1
+    ,error/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -32,12 +33,30 @@ create(Address) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Create an relay responce
+%% @end
+%%--------------------------------------------------------------------
+-spec create(string(), string()) -> relay_resp().
+create(Address, Error) ->
+    #libp2p_relay_resp_pb{address=Address, error=Error}.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec address(relay_resp()) -> string().
+-spec address(relay_resp()) -> string() | undefined.
 address(Req) ->
     Req#libp2p_relay_resp_pb.address.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Getter
+%% @end
+%%--------------------------------------------------------------------
+-spec error(relay_resp()) -> string() | undefined.
+error(Req) ->
+    Req#libp2p_relay_resp_pb.error.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -49,10 +68,16 @@ address(Req) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_relay_resp_pb{address="123"}, create("123")).
+    ?assertEqual(#libp2p_relay_resp_pb{address="123", error=undefined}, create("123")),
+    ?assertEqual(#libp2p_relay_resp_pb{address="123", error="error"}, create("123", "error")).
 
 get_test() ->
     Resp = create("123"),
-    ?assertEqual("123", address(Resp)).
+    ?assertEqual("123", address(Resp)),
+    ?assertEqual(undefined, ?MODULE:error(Resp)),
+
+    Error = create("123", "error"),
+    ?assertEqual("123", address(Error)),
+    ?assertEqual("error", ?MODULE:error(Error)).
 
 -endif.
