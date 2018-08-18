@@ -45,6 +45,9 @@
          fdset/1, fdclr/1, common_options/0
         ]).
 
+%% for tcp sockets
+-export([to_multiaddr/1]).
+
 -record(tcp_state, {
           addr_info :: {string(), string()},
           socket :: gen_tcp:socket(),

@@ -111,7 +111,9 @@ handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, address=Address, port
         _ ->
             {noreply, State}
     end;
-handle_info({tcp, Socket, ID}, #state{data=Data}=State) ->
+handle_info({tcp, Socket, ID0}, #state{data=Data}=State) ->
+    %% possibly reverse the ID if we got it from the client
+    ID = get_id(ID0, Data),
     Data1 = case maps:get(ID, Data, undefined) of
         undefined ->
             lager:warning("got unknown ID ~p closing ~p", [ID, Socket]),
@@ -125,10 +127,26 @@ handle_info({tcp, Socket, ID}, #state{data=Data}=State) ->
                 ,server_stream=ServerStream
                 ,client_stream=ClientStream} ->
             lager:info("got second socket ~p", [Socket]),
+            %% TODO what kind of multiaddr should we send back, the p2p circuit address or
+            %% the underlying transport?
+            {ServerName, ClientName} = case ID0 == ID of
+                                           true ->
+                                               %% server's socket
+                                               {ok, SN} = inet:peername(Socket),
+                                               {ok, CN} = inet:peername(Socket1),
+                                               {SN, CN};
+                                           false ->
+                                               %% client's socket
+                                               {ok, SN} = inet:peername(Socket1),
+                                               {ok, CN} = inet:peername(Socket),
+                                               {SN, CN}
+                                       end,
+            ServerMA = libp2p_transport_tcp:to_multiaddr(ServerName),
+            ClientMA = libp2p_transport_tcp:to_multiaddr(ClientName),
             ok = splice(Socket1, Socket),
-            ok = proxy_successful(ID, ServerStream, ClientStream),
+            ok = proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream),
             maps:remove(ID, Data)
-    end,
+            end,
     {noreply,State#state{data=Data1}};
 handle_info({'DOWN', _Ref, process, Who, Reason}, State) ->
     lager:warning("splice process ~p went down: ~p", [Who, Reason]),
@@ -160,7 +178,8 @@ setup_listener(Port) ->
 -spec dial_back(string(), integer(), binary(), pid(), pid()) -> ok.
 dial_back(PAddress, Port, ID, ServerStream, ClientStream) ->
     DialBack = libp2p_proxy_dial_back:create(PAddress, Port),
-    EnvA = libp2p_proxy_envelope:create(ID, DialBack),
+    %% reverse the ID for the client so we can distinguish
+    EnvA = libp2p_proxy_envelope:create(binary:encode_unsigned(binary:decode_unsigned(ID, little), big), DialBack),
     EnvB = libp2p_proxy_envelope:create(ID, DialBack),
     ServerStream ! {transfer, libp2p_proxy_envelope:encode(EnvB)},
     ClientStream ! {transfer, libp2p_proxy_envelope:encode(EnvA)},
@@ -180,10 +199,20 @@ splice(Socket1, Socket2) ->
     lager:info("spice started @ ~p", [Pid]),
     ok.
 
--spec proxy_successful(binary(), pid(), pid()) -> ok.
-proxy_successful(ID, ServerStream, ClientStream) ->
-    ProxyResp = libp2p_proxy_resp:create(true),
-    Env = libp2p_proxy_envelope:create(ID, ProxyResp),
-    ServerStream ! {transfer, libp2p_proxy_envelope:encode(Env)},
-    ClientStream ! {transfer, libp2p_proxy_envelope:encode(Env)},
+-spec proxy_successful(binary(), string(), pid(), string(), pid()) -> ok.
+proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream) ->
+    CProxyResp = libp2p_proxy_resp:create(true, ServerMA),
+    SProxyResp = libp2p_proxy_resp:create(true, ClientMA),
+    CEnv = libp2p_proxy_envelope:create(ID, CProxyResp),
+    SEnv = libp2p_proxy_envelope:create(ID, SProxyResp),
+    ServerStream ! {transfer, libp2p_proxy_envelope:encode(SEnv)},
+    ClientStream ! {transfer, libp2p_proxy_envelope:encode(CEnv)},
     ok.
+
+get_id(ID, Data) ->
+    case maps:is_key(binary:encode_unsigned(binary:decode_unsigned(ID, little), big), Data) of
+        true ->
+            binary:encode_unsigned(binary:decode_unsigned(ID, little), big);
+        false ->
+            ID
+    end.
