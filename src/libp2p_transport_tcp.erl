@@ -34,7 +34,7 @@
 -export_type([opt/0, listen_opt/0]).
 
 %% libp2p_transport
--export([start_listener/2, new_connection/1, connect/5, match_addr/1, priority/0]).
+-export([start_listener/2, new_connection/1, new_connection/2,  connect/5, match_addr/1, priority/0]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -69,9 +69,13 @@
 
 -spec new_connection(inet:socket()) -> libp2p_connection:connection().
 new_connection(Socket) ->
-    {ok, LocalAddr} = inet:sockname(Socket),
     {ok, RemoteAddr} = inet:peername(Socket),
-    libp2p_connection:new(?MODULE, #tcp_state{addr_info={to_multiaddr(LocalAddr), to_multiaddr(RemoteAddr)},
+    new_connection(Socket, to_multiaddr(RemoteAddr)).
+
+-spec new_connection(inet:socket(), string()) -> libp2p_connection:connection().
+new_connection(Socket, PeerName) when is_list(PeerName) ->
+    {ok, LocalAddr} = inet:sockname(Socket),
+    libp2p_connection:new(?MODULE, #tcp_state{addr_info={to_multiaddr(LocalAddr), PeerName},
                                               socket=Socket,
                                               transport=ranch_tcp}).
 

@@ -115,12 +115,12 @@ handle_server_data({dial_back, DialBack}, Env, State) ->
     {ok, Socket} = dial_back(DialBack, Env),
     {noreply, State#state{socket=Socket}};
 handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, socket=Socket}=State) ->
-    Conn = libp2p_transport_tcp:new_connection(Socket),
+    Conn = libp2p_transport_tcp:new_connection(Socket, libp2p_proxy_resp:multiaddr(Resp)),
     Ref = erlang:make_ref(),
     TID = libp2p_swarm:tid(Swarm),
     {ok, Pid} = libp2p_transport:start_server_session(Ref, TID, Conn),
     Pid ! {shoot, Ref, ranch_tcp, Socket, 2000},
-    lager:info("server got proxy resp ~p", [Resp]),
+    lager:info("server got proxy resp ~p ~p", [Resp, Conn]),
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
@@ -141,7 +141,7 @@ handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid
                                               ,socket=Socket}=State) ->
     lager:info("client got proxy resp ~p", [Resp]),
     ok = gen_tcp:controlling_process(Socket, TransportPid),
-    TransportPid ! {proxy_negotiated, Socket},
+    TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)},
     {noreply, State};
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),

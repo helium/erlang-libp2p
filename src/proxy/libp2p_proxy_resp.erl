@@ -55,9 +55,13 @@ success(Resp) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec multiaddr(proxy_resp()) -> iodata() | undefined.
+-spec multiaddr(proxy_resp()) -> string() | undefined.
 multiaddr(Resp) ->
-    Resp#libp2p_proxy_resp_pb.multiaddr.
+    case Resp#libp2p_proxy_resp_pb.multiaddr of
+        undefined -> undefined;
+        Bin when is_binary(Bin) -> binary_to_list(Bin);
+        List -> lists:flatten(List)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
