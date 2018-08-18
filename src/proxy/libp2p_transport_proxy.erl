@@ -5,7 +5,7 @@
 -export([
     start_link/1
     ,start_listener/2
-    ,match_addr/1
+    ,match_addr/2
     ,priority/0
     ,connect/5
 ]).
@@ -21,8 +21,8 @@ start_link(_TID) ->
 start_listener(_Pid, _Addr) ->
     {error, unsupported}.
 
--spec match_addr(string()) -> false.
-match_addr(Addr) when is_list(Addr) ->
+-spec match_addr(string(), ets:tab()) -> false.
+match_addr(Addr, _TID) when is_list(Addr) ->
     false.
 
 -spec priority() -> integer().

@@ -5,7 +5,7 @@
 -callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
 -callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
--callback match_addr(string()) -> {ok, string()} | false.
+-callback match_addr(string(), ets:tab()) -> {ok, string()} | false.
 
 
 -export_type([connection_handler/0]).
@@ -16,7 +16,7 @@
 for_addr(TID, Addr) ->
     Matches = lists:foldl(
         fun({Transport, Pid}, Acc) ->
-            case Transport:match_addr(Addr) of
+            case Transport:match_addr(Addr, TID) of
                 false ->
                     Acc;
                 {ok, Matched} ->

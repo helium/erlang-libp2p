@@ -5,7 +5,7 @@
 -export([
     start_link/1
     ,start_listener/2
-    ,match_addr/1
+    ,match_addr/2
     ,priority/0
     ,connect/5
 ]).
@@ -21,9 +21,21 @@ start_link(_TID) ->
 start_listener(_Pid, _Addr) ->
     {error, unsupported}.
 
--spec match_addr(string()) -> {ok, string()} | false.
-match_addr(Addr) when is_list(Addr) ->
-    match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+-spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
+match_addr(Addr, TID) when is_list(Addr) ->
+    Protocols = multiaddr:protocols(multiaddr:new(Addr)),
+   case match_protocols(Protocols) of
+       {ok, _} = Result ->
+           SwarmAddress = libp2p_crypto:address_to_b58(libp2p_swarm:address(TID)),
+           case Protocols of
+               [{"p2p", SwarmAddress}|_] ->
+                   lager:info("can't match a relay address for ourselves"),
+                   false;
+               _ ->
+                   Result
+           end;
+       false -> false
+   end.
 
 -spec priority() -> integer().
 priority() -> 1.
