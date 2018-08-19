@@ -89,7 +89,7 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
                     libp2p_relay:unreg_addr_sessions(AAddress),
                     lager:error("no relay sessions ~p", [_Error]),
                     {error, no_relay_session}
-            after infinity ->
+            after 8000 ->
                 libp2p_relay:unreg_addr_sessions(AAddress),
                 {error, timeout_relay_session}
             end
