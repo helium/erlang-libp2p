@@ -95,6 +95,11 @@ match_addr(Addr, _TID) when is_list(Addr) ->
 
 -spec sort_addrs([string()]) -> [string()].
 sort_addrs(Addrs) ->
+    AddressesForDefaultRoutes = [ A || {ok, A} <- [ inet_parse:address(inet_ext:get_internal_address(Addr)) || {_Interface, Addr} <- inet_ext:gateways()]],
+    sort_addrs(Addrs, AddressesForDefaultRoutes).
+
+-spec sort_addrs([string()], [inet:ip_address()]) -> [string()].
+sort_addrs(Addrs, AddressesForDefaultRoutes) ->
     AddrIPs = lists:filtermap(fun(A) ->
                                       case tcp_addr(A) of
                                           {error, _} -> false;
@@ -106,14 +111,22 @@ sort_addrs(Addrs) ->
                                        BIP_1918 = not (false == rfc1918(BIP)),
                                        case AIP_1918 == BIP_1918 of
                                            %% Same kind of IP address to a straight compare
-                                           true -> AIP =< BIP;
+                                           true ->
+                                               %% check if one of them is a the default route network
+                                               case {lists:member(AIP, AddressesForDefaultRoutes),
+                                                     lists:member(BIP, AddressesForDefaultRoutes)} of
+                                                   {X, X} -> %% they're the same
+                                                       AIP =< BIP;
+                                                   {X, _} ->
+                                                       %% different, so return if A is a default route address or not
+                                                       X
+                                               end;
                                            %% Different, A <= B if B is a 1918 addr but A is not
                                            false -> BIP_1918 andalso not AIP_1918
                                        end
                                end, AddrIPs),
     {SortedAddrs, _} = lists:unzip(SortedAddrIps),
     SortedAddrs.
-
 
 -spec priority() -> integer().
 priority() -> 2.
@@ -653,14 +666,22 @@ sort_addr_test() ->
     Addrs = ["/ip4/10.0.0.0/tcp/22",
              "/ip4/207.148.0.20/tcp/100",
              "/ip4/10.0.0.1/tcp/19",
-             "/ip4/10.0.0.2/tcp/18",
+             "/ip4/192.168.1.16/tcp/18",
              "/ip4/207.148.0.21/tcp/101"],
     ?assertEqual(["/ip4/207.148.0.20/tcp/100",
                   "/ip4/207.148.0.21/tcp/101",
                   "/ip4/10.0.0.0/tcp/22",
                   "/ip4/10.0.0.1/tcp/19",
-                  "/ip4/10.0.0.2/tcp/18"],
-                 sort_addrs(Addrs)),
+                  "/ip4/192.168.1.16/tcp/18"],
+                 sort_addrs(Addrs, [])),
+    %% check that 'default route' addresses sort first, within their class
+    ?assertEqual(["/ip4/207.148.0.20/tcp/100",
+                  "/ip4/207.148.0.21/tcp/101",
+                  "/ip4/192.168.1.16/tcp/18",
+                  "/ip4/10.0.0.0/tcp/22",
+                  "/ip4/10.0.0.1/tcp/19"],
+                 sort_addrs(Addrs, [{192, 168, 1, 16}])),
+
     ok.
 
 -endif.
