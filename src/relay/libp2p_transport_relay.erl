@@ -6,6 +6,7 @@
     start_link/1
     ,start_listener/2
     ,match_addr/2
+    ,sort_addrs/1
     ,priority/0
     ,connect/5
 ]).
@@ -36,6 +37,10 @@ match_addr(Addr, TID) when is_list(Addr) ->
            end;
        false -> false
    end.
+
+-spec sort_addrs([string()]) -> [string()].
+sort_addrs(Addrs) ->
+    Addrs.
 
 -spec priority() -> integer().
 priority() -> 1.

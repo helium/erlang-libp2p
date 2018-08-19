@@ -6,6 +6,7 @@
     start_link/1
     ,start_listener/2
     ,match_addr/2
+    ,sort_addrs/1
     ,priority/0
     ,connect/5
 ]).
@@ -24,6 +25,10 @@ start_listener(_Pid, _Addr) ->
 -spec match_addr(string(), ets:tab()) -> false.
 match_addr(Addr, _TID) when is_list(Addr) ->
     false.
+
+-spec sort_addrs([string()]) -> [string()].
+sort_addrs(Addrs) ->
+    Addrs.
 
 -spec priority() -> integer().
 priority() -> 99.
