@@ -33,13 +33,8 @@ sort_addrs(Addrs) ->
 -spec priority() -> integer().
 priority() -> 2.
 
-match_protocols([A={"p2p", _} | Tail]) ->
-    case lists:keyfind("p2p-circuit", 1, Tail) of
-        false ->
-            {ok, multiaddr:to_string([A])};
-        _ ->
-            false
-    end;
+match_protocols([A={"p2p", _} | _]) ->
+    {ok, multiaddr:to_string([A])};
 match_protocols(_) ->
     false.
 
