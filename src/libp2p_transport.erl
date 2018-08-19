@@ -47,7 +47,7 @@ sort_addrs(TID, Addrs) ->
                                                     end, Addrs),
                              Transport:sort_addrs(Matched)
                      end,
-    Transports = [{T:prriority(), TransportAddrs(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
+    Transports = [{T:priority(), TransportAddrs(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
     {_, SortedAddrLists} = lists:unzip(lists:sort(Transports)),
     lists:flatten(SortedAddrLists).
 
