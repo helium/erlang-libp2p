@@ -34,7 +34,8 @@
 -export_type([opt/0, listen_opt/0]).
 
 %% libp2p_transport
--export([start_listener/2, new_connection/1, new_connection/2,  connect/5, match_addr/2, priority/0]).
+-export([start_listener/2, new_connection/1, new_connection/2,
+         connect/5, match_addr/2, sort_addrs/1, priority/0]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -91,6 +92,28 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+-spec sort_addrs([string()]) -> [string()].
+sort_addrs(Addrs) ->
+    AddrIPs = lists:filtermap(fun(A) ->
+                                      case tcp_addr(A) of
+                                          {error, _} -> false;
+                                          {IP, _, _, _} -> {true, {A, IP}}
+                                      end
+                              end, Addrs),
+    SortedAddrIps = lists:sort(fun({_, AIP}, {_, BIP}) ->
+                                       AIP_1918 = not (false == rfc1918(AIP)),
+                                       BIP_1918 = not (false == rfc1918(BIP)),
+                                       case AIP_1918 == BIP_1918 of
+                                           %% Same kind of IP address to a straight compare
+                                           true -> AIP =< BIP;
+                                           %% Different, A <= B if B is a 1918 addr but A is not
+                                           false -> BIP_1918 andalso not AIP_1918
+                                       end
+                               end, AddrIPs),
+    {SortedAddrs, _} = lists:unzip(SortedAddrIps),
+    SortedAddrs.
+
 
 -spec priority() -> integer().
 priority() -> 2.
@@ -624,6 +647,20 @@ nat_map_test() ->
     ?assertEqual({{67,128,3,4}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
     ?assertEqual({{67,128,3,99}, 4567}, maybe_apply_nat_map({{192,168,1,10}, 4567})),
     ?assertEqual({{67,128,3,4}, 1111}, maybe_apply_nat_map({{192,168,1,11}, 4567})),
+    ok.
+
+sort_addr_test() ->
+    Addrs = ["/ip4/10.0.0.0/tcp/22",
+             "/ip4/207.148.0.20/tcp/100",
+             "/ip4/10.0.0.1/tcp/19",
+             "/ip4/10.0.0.2/tcp/18",
+             "/ip4/207.148.0.21/tcp/101"],
+    ?assertEqual(["/ip4/207.148.0.20/tcp/100",
+                  "/ip4/207.148.0.21/tcp/101",
+                  "/ip4/10.0.0.0/tcp/22",
+                  "/ip4/10.0.0.1/tcp/19",
+                  "/ip4/10.0.0.2/tcp/18"],
+                 sort_addrs(Addrs)),
     ok.
 
 -endif.
