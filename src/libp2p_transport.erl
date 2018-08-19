@@ -49,7 +49,8 @@ sort_addrs(TID, Addrs) ->
                      end,
     Transports = [{T:priority(), TransportAddrs(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
     {_, SortedAddrLists} = lists:unzip(lists:sort(Transports)),
-    lists:flatten(SortedAddrLists).
+    %% can't use lists flatten here because it flattens too much, we only want one level of flattening
+    lists:foldl(fun(E, A) -> A ++ E end, [], SortedAddrLists).
 
 
 %% @doc Connect through a transport service. This is a convenience
