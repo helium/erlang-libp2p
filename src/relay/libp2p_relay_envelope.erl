@@ -48,9 +48,9 @@ encode(#libp2p_relay_envelope_pb{}=Env) ->
 %%--------------------------------------------------------------------
 -spec create(libp2p_relay_req:relay_req()
              | libp2p_relay_resp:relay_resp()
-             | libp2p_relay_bridge:relay_bridge_br()
-             | libp2p_relay_bridge:relay_bridge_ra()
-             | libp2p_relay_bridge:relay_bridge_ab()) -> relay_envelope().
+             | libp2p_relay_bridge:relay_bridge_cr()
+             | libp2p_relay_bridge:relay_bridge_rs()
+             | libp2p_relay_bridge:relay_bridge_sc()) -> relay_envelope().
 create(#libp2p_relay_req_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={req, Data}
@@ -59,17 +59,17 @@ create(#libp2p_relay_resp_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={resp, Data}
     };
-create(#libp2p_relay_bridge_br_pb{}=Data) ->
+create(#libp2p_relay_bridge_cr_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
-        data={bridge_br, Data}
+        data={bridge_cr, Data}
     };
-create(#libp2p_relay_bridge_ra_pb{}=Data) ->
+create(#libp2p_relay_bridge_rs_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
-        data={bridge_ra, Data}
+        data={bridge_rs, Data}
     };
-create(#libp2p_relay_bridge_ab_pb{}=Data) ->
+create(#libp2p_relay_bridge_sc_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
-        data={bridge_ab, Data}
+        data={bridge_sc, Data}
     }.
 
 
@@ -80,9 +80,9 @@ create(#libp2p_relay_bridge_ab_pb{}=Data) ->
 %%--------------------------------------------------------------------
 -spec data(relay_envelope()) -> {req, libp2p_relay_req:relay_req()}
                                 | {resp, libp2p_relay_resp:relay_resp()}
-                                | {bridge_br, libp2p_relay_bridge:relay_bridge_br()}
-                                | {bridge_ra, libp2p_relay_bridge:relay_bridge_ra()}
-                                | {bridge_ab, libp2p_relay_bridge:relay_bridge_ab()}.
+                                | {bridge_cr, libp2p_relay_bridge:relay_bridge_cr()}
+                                | {bridge_rs, libp2p_relay_bridge:relay_bridge_rs()}
+                                | {bridge_sc, libp2p_relay_bridge:relay_bridge_sc()}.
 data(Env) ->
     Env#libp2p_relay_envelope_pb.data.
 
