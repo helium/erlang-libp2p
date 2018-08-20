@@ -13,6 +13,7 @@
 -export([
     start_link/1
     ,relay/1
+    ,connection_lost/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -45,11 +46,20 @@ start_link(Args) ->
 
 -spec relay(pid()) -> {ok, pid()} | {error, any()} | ignore.
 relay(Swarm) ->
-    TID = libp2p_swarm:tid(Swarm),
-    case libp2p_config:lookup_relay(TID) of
-        false -> {error, no_relay};
+    case get_relay_server(Swarm) of
         {ok, Pid} ->
-            gen_server:call(Pid, init_relay)
+            gen_server:call(Pid, init_relay);
+        {error, _}=Error ->
+            Error
+    end.
+
+-spec connection_lost(pid()) -> ok.
+connection_lost(Swarm) ->
+    case get_relay_server(Swarm) of
+        {ok, Pid} ->
+            gen_server:cast(Pid, connection_lost);
+        {error, _}=Error ->
+            Error
     end.
 
 %% ------------------------------------------------------------------
@@ -78,21 +88,34 @@ handle_call(_Msg, _From, State) ->
     lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast(connection_lost, State) ->
+    self() ! try_relay,
+    {noreply, State#state{started=false}};
 handle_cast(_Msg, State) ->
     lager:debug("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
 handle_info({new_peers, _}, #state{started=true}=State) ->
-    lager:info("relay already started ignoring new peer"),
+    lager:info("relay already started, just adding new peer"),
     {noreply, State#state{peers=sort_peers(State#state.swarm)}};
-handle_info({new_peers, _}, #state{swarm=Swarm, started=false}=State0) ->
-    State = State0#state{peers=sort_peers(Swarm)},
+handle_info({new_peers, _}, #state{swarm=Swarm, started=false}=State) ->
+    self() ! try_relay,
+    {noreply, State#state{peers=sort_peers(Swarm)}};
+handle_info(try_relay, State) ->
     case int_relay(State) of
         {ok, _} ->
             lager:info("relay started successfuly"),
             {noreply, State#state{started=true}};
+        {error, no_peer} ->
+            lager:warning("could not initiate relay no peer found"),
+            {noreply, State};
+        {error, no_address} ->
+            lager:warning("could not initiate relay, swarm has no listen address"),
+            {noreply, State};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
+            % TODO: exponential back off here?
+            erlang:send_after(2500, self(), try_relay),
             {noreply, next_peer(State)}
     end;
 handle_info(_Msg, State) ->
@@ -109,8 +132,21 @@ terminate(_Reason, #state{tid=TID}=_State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec get_relay_server(pid()) -> {ok, pid()} | {error, any()}.
+get_relay_server(Swarm) ->
+    try libp2p_swarm:tid(Swarm) of
+        TID ->
+            case libp2p_config:lookup_relay(TID) of
+                false -> {error, no_relay};
+                {ok, _Pid}=R -> R
+            end
+    catch
+        What:Why ->
+            lager:warning("fail to get relay server ~p/~p", [What, Why]),
+            {error, swarm_down}
+    end.
 
--spec int_relay(#state{}) -> {ok, pid()} | {error, any()} | ignore.
+-spec int_relay(state()) -> {ok, pid()} | {error, any()} | ignore.
 int_relay(#state{peers=[]}) ->
     {error, no_peer};
 int_relay(State=#state{swarm=Swarm}) ->
@@ -136,7 +172,6 @@ sort_peers(Swarm) ->
     end, Peers0),
     lager:info("sorting peers ~p ~p", [length(Peers0), length(Peers)]),
     lists:sort(fun sort_peers_fun/2, Peers).
-
 
 -spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
 sort_peers_fun(A, B) ->

@@ -23,6 +23,7 @@
     init/3
     ,handle_data/3
     ,handle_info/3
+    ,terminate/3
 ]).
 
 -ifdef(TEST).
@@ -32,8 +33,9 @@
 -include("pb/libp2p_relay_pb.hrl").
 
 -record(state, {
-    swarm
-    ,sessionPid
+    swarm :: pid() | undefined
+    ,sessionPid :: pid() | undefined
+    ,type = bridge :: bridge | client
 }).
 
 -type state() :: #state{}.
@@ -87,7 +89,7 @@ handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
             Address = craft_p2p_address(Swarm),
             Req = libp2p_relay_req:create(Address),
             EnvReq = libp2p_relay_envelope:create(Req),
-            {noreply, State, libp2p_relay_envelope:encode(EnvReq)}
+            {noreply, State#state{type=client}, libp2p_relay_envelope:encode(EnvReq)}
     end;
 % Bridge Step 1: Init bridge, if listen_addrs, the Client create a relay bridge
 % to be sent to the relay server R
@@ -121,6 +123,12 @@ handle_info(client, {init_bridge_sc, BridgeSC}, State) ->
 handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unknown info message ~p", [_Type, _Msg]),
     {noreply, State}.
+
+terminate(client, _Reason, #state{type=client, swarm=Swarm}) ->
+    _ = libp2p_relay_server:connection_lost(Swarm),
+    ok;
+terminate(_Type, _Reason, _State) ->
+    ok.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
