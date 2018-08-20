@@ -400,7 +400,9 @@ tcp_listen_addrs(Socket) ->
              size(Addr) == size(IP),
              not lists:member(loopback, Flags),
              %% filter out ipv6 link-local addresses
-             not (size(Addr) == 8 andalso element(1, Addr) == 16#fe80)
+             not (size(Addr) == 8 andalso element(1, Addr) == 16#fe80),
+             %% filter out RFC3927 ipv4 link-local addresses
+             not (size(Addr) == 4 andalso element(1, Addr) == 169 andalso element(2, Addr) == 254)
             ]
     end.
 
