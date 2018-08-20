@@ -136,13 +136,13 @@ opts(TID) ->
     libp2p_swarm_sup:opts(TID).
 
 
-%% @doc Get a list of libp2p_session pids for all open sessions to
-%% remote peers.
--spec sessions(ets:tab() | pid()) -> [pid()].
+%% @doc Get a list of libp2p_session addresses and pids for all open
+%% sessions to remote peers.
+-spec sessions(ets:tab() | pid()) -> [{string(), pid()}].
 sessions(Sup) when is_pid(Sup) ->
     sessions(tid(Sup));
 sessions(TID) ->
-    [Pid || {_, Pid} <- libp2p_config:lookup_sessions(TID)].
+    libp2p_config:lookup_sessions(TID).
 
 % Transport
 %

@@ -168,7 +168,8 @@ handle_server_data({bridge_ab, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     B = libp2p_relay_bridge:b(Bridge),
     A = libp2p_relay_bridge:a(Bridge),
     lager:info("B (~s) got A (~s) dialing back", [B, A]),
-    catch libp2p_relay:reg_addr_sessions(A) ! {sessions, libp2p_swarm:sessions(Swarm)},
+    SessionPids = [Pid || {_, Pid} <- libp2p_swarm:sessions(Swarm)],
+    catch libp2p_relay:reg_addr_sessions(A) ! {sessions, SessionPids},
     {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
