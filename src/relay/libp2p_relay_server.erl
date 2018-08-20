@@ -12,6 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1
+    ,relay/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -41,6 +42,15 @@
 %% ------------------------------------------------------------------
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
+
+-spec relay(pid()) -> {ok, pid()} | {error, any()} | ignore.
+relay(Swarm) ->
+    TID = libp2p_swarm:tid(Swarm),
+    case libp2p_config:lookup_relay(TID) of
+        false -> {error, no_relay};
+        {ok, Pid} ->
+            gen_server:call(Pid, init_relay)
+    end.
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
