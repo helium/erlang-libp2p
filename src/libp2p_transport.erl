@@ -38,24 +38,28 @@ for_addr(TID, Addr) ->
     end.
 
 sort_addrs(TID, Addrs) ->
-    TransportAddrs = fun(Transport) ->
-                             Matched = lists:filter(fun(Addr) ->
-                                                            case Transport:match_addr(Addr, TID) of
-                                                                false -> false;
-                                                                {ok, _} -> true
-                                                            end
-                                                    end, Addrs),
-                             Transport:sort_addrs(Matched)
-                     end,
-    Transports = [{T:priority(), TransportAddrs(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
+    TransportAddrsFun = fun(Transport) ->
+        Matched = lists:filter(fun(Addr) ->
+            case Transport:match_addr(Addr, TID) of
+                false -> false;
+                {ok, _} -> true
+            end
+        end, Addrs),
+        Transport:sort_addrs(Matched)
+    end,
+    Transports = [{T:priority(), TransportAddrsFun(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
     {_, SortedAddrLists} = lists:unzip(lists:keysort(1, Transports)),
     %% can't use lists flatten here because it flattens too much, we
     %% only want one level of flattening additionally only allow the
     %% highest priority (the first one) address to appear, since
     %% several transports may match an address
-    lists:foldl(fun(Elements, Acc) ->
-                        Acc ++ [E || E <- Elements, not lists:member(E, Acc)]
-                end, [], SortedAddrLists).
+    lists:foldl(
+        fun(Elements, Acc) ->
+            Acc ++ [E || E <- Elements, not lists:member(E, Acc)]
+        end
+        ,[]
+        ,SortedAddrLists
+    ).
 
 
 %% @doc Connect through a transport service. This is a convenience

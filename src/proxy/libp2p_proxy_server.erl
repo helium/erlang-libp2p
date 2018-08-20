@@ -94,12 +94,10 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, address=Address, port=Port, data=Data}=State) ->
-    case libp2p_proxy:dial_framed_stream(
-           Swarm
-           ,AAddress
-           ,[{id, ID}]
-          ) of
+handle_info({post_init, ID, AAddress}, #state{swarm=Swarm, address=Address
+                                              ,port=Port, data=Data}=State) ->
+    Res = libp2p_proxy:dial_framed_stream(Swarm, AAddress, [{id, ID}]),
+    case Res of
         {ok, ClientStream} ->
             lager:info("dialed A (~p)", [AAddress]),
             PState = maps:get(ID, Data),
@@ -129,24 +127,25 @@ handle_info({tcp, Socket, ID0}, #state{data=Data}=State) ->
             lager:info("got second socket ~p", [Socket]),
             %% TODO what kind of multiaddr should we send back, the p2p circuit address or
             %% the underlying transport?
-            {ServerName, ClientName} = case ID0 == ID of
-                                           true ->
-                                               %% server's socket
-                                               {ok, SN} = inet:peername(Socket),
-                                               {ok, CN} = inet:peername(Socket1),
-                                               {SN, CN};
-                                           false ->
-                                               %% client's socket
-                                               {ok, SN} = inet:peername(Socket1),
-                                               {ok, CN} = inet:peername(Socket),
-                                               {SN, CN}
-                                       end,
+            {ServerName, ClientName} =
+                case ID0 == ID of
+                    true ->
+                        %% server's socket
+                        {ok, SN} = inet:peername(Socket),
+                        {ok, CN} = inet:peername(Socket1),
+                        {SN, CN};
+                    false ->
+                        %% client's socket because it has been reversed
+                        {ok, SN} = inet:peername(Socket1),
+                        {ok, CN} = inet:peername(Socket),
+                        {SN, CN}
+                end,
             ServerMA = libp2p_transport_tcp:to_multiaddr(ServerName),
             ClientMA = libp2p_transport_tcp:to_multiaddr(ClientName),
             ok = splice(Socket1, Socket),
             ok = proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream),
             maps:remove(ID, Data)
-            end,
+    end,
     {noreply,State#state{data=Data1}};
 handle_info({'DOWN', _Ref, process, Who, Reason}, State) ->
     lager:warning("splice process ~p went down: ~p", [Who, Reason]),
@@ -179,10 +178,10 @@ setup_listener(Port) ->
 dial_back(PAddress, Port, ID, ServerStream, ClientStream) ->
     DialBack = libp2p_proxy_dial_back:create(PAddress, Port),
     %% reverse the ID for the client so we can distinguish
-    EnvA = libp2p_proxy_envelope:create(binary:encode_unsigned(binary:decode_unsigned(ID, little), big), DialBack),
-    EnvB = libp2p_proxy_envelope:create(ID, DialBack),
-    ServerStream ! {transfer, libp2p_proxy_envelope:encode(EnvB)},
-    ClientStream ! {transfer, libp2p_proxy_envelope:encode(EnvA)},
+    CEnv = libp2p_proxy_envelope:create(reverse_id(ID), DialBack),
+    SEnv = libp2p_proxy_envelope:create(ID, DialBack),
+    ServerStream ! {transfer, libp2p_proxy_envelope:encode(SEnv)},
+    ClientStream ! {transfer, libp2p_proxy_envelope:encode(CEnv)},
     ok.
 
 -spec splice(inet:socket(), inet:socket()) -> ok.
@@ -209,10 +208,13 @@ proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream) ->
     ClientStream ! {transfer, libp2p_proxy_envelope:encode(CEnv)},
     ok.
 
+-spec get_id(binary(), map()) -> binary().
 get_id(ID, Data) ->
-    case maps:is_key(binary:encode_unsigned(binary:decode_unsigned(ID, little), big), Data) of
-        true ->
-            binary:encode_unsigned(binary:decode_unsigned(ID, little), big);
-        false ->
-            ID
+    case maps:is_key(reverse_id(ID), Data) of
+        true -> reverse_id(ID);
+        false -> ID
     end.
+
+-spec reverse_id(binary()) -> binary().
+reverse_id(ID) ->
+    binary:encode_unsigned(binary:decode_unsigned(ID, little), big).

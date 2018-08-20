@@ -34,6 +34,8 @@
     ,started = false :: boolean()
 }).
 
+-type state() :: #state{}.
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -105,6 +107,7 @@ int_relay(State=#state{swarm=Swarm}) ->
     lager:info("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     Peer = lists:nth(State#state.peer_index, State#state.peers),
     case libp2p_peer:listen_addrs(Peer) of
+        % TODO: Should we select differently? Maybe get the /p2p/addr
         [ListenAddr|_] ->
             lager:info("initiating relay with ~p", [ListenAddr]),
             libp2p_relay:dial_framed_stream(Swarm, ListenAddr, []);
@@ -113,22 +116,24 @@ int_relay(State=#state{swarm=Swarm}) ->
             {error, no_address}
     end.
 
+-spec sort_peers(pid()) -> [libp2p_peer:peer()].
 sort_peers(Swarm) ->
     Peerbook = libp2p_swarm:peerbook(Swarm),
     Peers0 = libp2p_peerbook:values(Peerbook),
     SwarmAddr = libp2p_swarm:address(Swarm),
     Peers = lists:dropwhile(fun(E) ->
-                                    libp2p_peer:address(E) == SwarmAddr
-                            end, Peers0),
+        libp2p_peer:address(E) == SwarmAddr
+    end, Peers0),
     lager:info("sorting peers ~p ~p", [length(Peers0), length(Peers)]),
     lists:sort(fun sort_peers_fun/2, Peers).
 
+
+-spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
 sort_peers_fun(A, B) ->
     TypeA = libp2p_peer:nat_type(A),
     TypeB= libp2p_peer:nat_type(B),
     LengthA = erlang:length(libp2p_peer:connected_peers(A)),
     LengthB = erlang:length(libp2p_peer:connected_peers(A)),
-
     case {TypeA, TypeB} of
         {X, X} ->
             LengthA >= LengthB;
@@ -144,6 +149,7 @@ sort_peers_fun(A, B) ->
             true
     end.
 
+-spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
     case PeerIndex + 1 > length(Peers) of
         true ->
