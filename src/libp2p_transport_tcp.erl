@@ -225,14 +225,18 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info({identify, _, Session, Identify}, State=#state{}) ->
+handle_info({identify, Kind, Session, Identify}, State=#state{}) ->
+    lager:notice("IDENTIFY in transport_tcp ~p ~p ~p", [Kind, Session, Identify]),
     {_, PeerAddr} = libp2p_session:addr_info(Session),
     ObservedAddr = libp2p_identify:observed_addr(Identify),
     {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
+    lager:info("stungun detected NAT type ~p", [NatType]),
     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
 handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
+    lager:info("stungun timed out"),
+    %libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
 handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=StunTxns}) ->
     case take_stun_txn(TxnID, StunTxns) of
@@ -472,6 +476,7 @@ is_observed_addr(ObservedAddr, Addrs) ->
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_sup=StunSup, stun_txns=StunTxns}) ->
+    lager:notice("recording observed address ~p ~p", [PeerAddr, ObservedAddr]),
     case libp2p_config:lookup_listener(TID, ObservedAddr) of
         {ok, _} ->
             %% we already know about this observed address
@@ -486,12 +491,12 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     case is_observed_addr(ObservedAddr, ObservedAddrs) of
                         true ->
                             %% ok, we have independant confirmation of an observed address
-                            lager:debug("received confirmation of observed address ~s", [ObservedAddr]),
+                            lager:info("received confirmation of observed address ~s", [ObservedAddr]),
                             <<TxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
                             %% Record the TxnID , then convince a peer to dial us back with that TxnID
                             %% then that handler needs to forward the response back here, so we can add the external address
                             ChildSpec = #{ id => make_ref(),
-                                           start => {libp2p_stream_stungun, start_client, [TxnID, TID, PeerAddr]},
+                                           start => {libp2p_stream_stungun, start_client, [TxnID, TID, PeerAddr, self(), 5000]},
                                            restart => temporary,
                                            shutdown => 5000,
                                            type => worker },
@@ -499,7 +504,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
                                         stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
                         false ->
-                            lager:debug("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
+                            lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
                     end
             end
