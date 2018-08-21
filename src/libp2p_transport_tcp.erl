@@ -230,16 +230,28 @@ handle_info(Msg={identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
     ObservedAddr = libp2p_identify:observed_addr(Identify),
     {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
-    lager:info("stungun detected NAT type ~p", [NatType]),
-    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
-    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
+    case maps:is_key(TxnID, StunTxns) of
+        true ->
+            lager:info("stungun detected NAT type ~p", [NatType]),
+            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
+            {noreply, State};
+        false ->
+            {noreply, State}
+    end;
 handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
-    lager:info("stungun timed out"),
-    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
+    case maps:is_key(TxnID, StunTxns) of
+        true ->
+            lager:info("stungun timed out"),
+            %% note we only remove the txnid here, because we can get multiple messages
+            %% for this txnid
+            {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
+        false ->
+            {noreply, State}
+    end;
 handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=StunTxns}) ->
-    case take_stun_txn(TxnID, StunTxns) of
+    case maps:find(TxnID, StunTxns) of
         error -> {noreply, State};
-        {ObservedAddr, NewStunTxns} ->
+        {ok, ObservedAddr} ->
             lager:debug("Got dial back confirmation of observed address ~p", [ObservedAddr]),
             case libp2p_config:lookup_listener(TID, LocalAddr) of
                 {ok, ListenerPid} ->
@@ -247,7 +259,7 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
                 false ->
                     lager:notice("unable to determine listener pid for ~p", [LocalAddr])
             end,
-            {noreply, State#state{stun_txns=NewStunTxns}}
+            {noreply, State}
     end;
 handle_info({record_listen_addr, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
     case libp2p_config:lookup_listener(TID, InternalAddr) of
@@ -455,9 +467,6 @@ to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
 add_stun_txn(TxnID, ObservedAddr, Txns) ->
     maps:put(TxnID, ObservedAddr, Txns).
 
-take_stun_txn(TxnID, Txns) ->
-    maps:take(TxnID, Txns).
-
 remove_stun_txn(TxnID, Txns) ->
     maps:remove(TxnID, Txns).
 
@@ -498,7 +507,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                                 {ok, StunPid} ->
                                     %% TODO: Remove this once dial stops using start_link
                                     unlink(StunPid),
-                                    erlang:send_after(5000, self(), {stungun_timeout, TxnID}),
+                                    erlang:send_after(20000, self(), {stungun_timeout, TxnID}),
                                     State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
                                                 stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
                                 _ ->
