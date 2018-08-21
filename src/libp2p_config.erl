@@ -85,6 +85,7 @@ lookup_pid(TID, Kind, Ref) ->
 lookup_pids(TID, Kind) ->
     [{Addr, Pid} || [Addr, Pid] <- ets:match(TID, {{Kind, '$1'}, '$2'})].
 
+-spec lookup_addrs(ets:tab(), atom(), pid()) -> [string()].
 lookup_addrs(TID, Kind, Pid) ->
     [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, Pid})].
 
@@ -189,7 +190,7 @@ remove_session(TID, Addr) ->
 lookup_sessions(TID) ->
     lookup_pids(TID, ?SESSION).
 
--spec lookup_session_addrs(ets:tab(), pid()) -> {ok, [string()]} | false.
+-spec lookup_session_addrs(ets:tab(), pid()) -> [string()].
 lookup_session_addrs(TID, Pid) ->
     lookup_addrs(TID, ?SESSION, Pid).
 

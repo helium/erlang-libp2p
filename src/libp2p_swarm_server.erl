@@ -50,12 +50,13 @@ handle_info({identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
     %% spawn_identify. Register the connection in peerbook
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:register_session(PeerBook, Session, Identify, Kind),
-    libp2p_config:insert_session(TID, p2p_address(libp2p_identify:address(Identify)), Session),
+    libp2p_config:insert_session(TID, libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)), Session),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:unregister_session(PeerBook, Pid),
+    libp2p_config:remove_pid(TID, Pid),
     {noreply, NewState};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
     {stop, Reason, State};
@@ -107,8 +108,3 @@ remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
             libp2p_config:remove_pid(TID, Pid),
             State#state{monitors=NewMonitors}
     end.
-
-
--spec p2p_address(binary()) -> string().
-p2p_address(Address) when is_binary(Address) ->
-    "/p2p/" ++ libp2p_crypto:address_to_b58(Address).
