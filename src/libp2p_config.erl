@@ -3,7 +3,8 @@
 -export([get_opt/2, get_opt/3,
          base_dir/1, swarm_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3,
-         session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2, lookup_sessions/1,
+         session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2,
+         lookup_sessions/1, lookup_session_addrs/2,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
@@ -83,6 +84,9 @@ lookup_pid(TID, Kind, Ref) ->
 -spec lookup_pids(ets:tab(), atom()) -> [{term(), pid()}].
 lookup_pids(TID, Kind) ->
     [{Addr, Pid} || [Addr, Pid] <- ets:match(TID, {{Kind, '$1'}, '$2'})].
+
+lookup_addrs(TID, Kind, Pid) ->
+    [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, Pid})].
 
 -spec remove_pid(ets:tab(), atom(), term()) -> true.
 remove_pid(TID, Kind, Ref) ->
@@ -185,6 +189,9 @@ remove_session(TID, Addr) ->
 lookup_sessions(TID) ->
     lookup_pids(TID, ?SESSION).
 
+-spec lookup_session_addrs(ets:tab(), pid()) -> {ok, [string()]} | false.
+lookup_session_addrs(TID, Pid) ->
+    lookup_addrs(TID, ?SESSION, Pid).
 
 %%
 %% Connections

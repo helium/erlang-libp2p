@@ -624,7 +624,7 @@ try_nat_success_test() ->
     meck:expect(nat, add_port_mapping, fun(_, _, P1, P2, T) -> {ok, 0, P1, P2, T} end),
     meck:expect(nat, get_external_address, fun(_) -> {ok, "11.10.0.89"} end),
 
-    ok = try_nat(self(), {multiaddr, ip, 8080}, swarm),
+    ok = try_nat(self(), {multiaddr, ip, 8080}),
 
     receive
         Msg ->
@@ -637,15 +637,18 @@ try_nat_success_test() ->
     meck:unload(nat).
 
 try_nat_fail_test() ->
+    %% TODO: This test doesn't do much right now since relay isn't set
+    %% up until stungun returns. We should fix this to drive the
+    %% stungun responses
     meck:new(nat, []),
     meck:expect(nat, discover, fun() -> {error, empty} end),
 
     meck:new(libp2p_relay, []),
-    meck:expect(libp2p_relay, init, fun(_) -> ok end),
+    %% meck:expect(libp2p_relay, init, fun(_) -> ok end),
 
-    ok = try_nat(self(), {multiaddr, ip, 8080}, swarm),
+    ok = try_nat(self(), {multiaddr, ip, 8080}),
 
-    ?assert(meck:called(libp2p_relay, init, [swarm])),
+    %% ?assert(meck:called(libp2p_relay, init, [])),
 
     ?assert(meck:validate(nat)),
     ?assert(meck:validate(libp2p_relay)),
