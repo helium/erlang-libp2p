@@ -249,33 +249,45 @@ connect(TID, Addr, Options, Timeout) ->
 % Stream
 %
 -spec dial(pid(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Sup, Addr, Path) ->
-    dial(Sup, Addr, Path, [], ?CONNECT_TIMEOUT).
+dial(Sup, Addr, Path) when is_pid(Sup) ->
+    dial(Sup, Addr, Path, [], ?CONNECT_TIMEOUT);
+dial(TID, Addr, Path) ->
+    dial(swarm(TID), Addr, Path).
 
--spec dial(pid(), string(), string(), connect_opts(), pos_integer())
+
+-spec dial(pid() | ets:tab(), string(), string(), connect_opts(), pos_integer())
           -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Sup, Addr, Path, Options, Timeout) ->
+dial(Sup, Addr, Path, Options, Timeout) when is_pid(Sup) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     case connect(Sup, Addr, Options, Timeout) of
         {error, Error} -> {error, Error};
         {ok, SessionPid} -> libp2p_session:dial(Path, SessionPid)
-    end.
+    end;
+dial(TID, Addr, Path, Options, Timeout) ->
+    dial(swarm(TID), Addr, Path, Options, Timeout).
+
 
 %% @doc Dial a remote swarm, negotiate a path and start a framed
 %% stream client with the given Module as the handler.
--spec dial_framed_stream(pid(), Addr::string(), Path::string(), Module::atom(), Args::[any()])
+-spec dial_framed_stream(pid() | ets:tab(), Addr::string(), Path::string(),
+                         Module::atom(), Args::[any()])
                         -> {ok, pid()} | {error, term()}.
-dial_framed_stream(Sup, Addr, Path, Module, Args) ->
-    dial_framed_stream(Sup, Addr, Path, [], ?CONNECT_TIMEOUT, Module, Args).
+dial_framed_stream(Sup, Addr, Path, Module, Args) when is_pid(Sup) ->
+    dial_framed_stream(Sup, Addr, Path, [], ?CONNECT_TIMEOUT, Module, Args);
+dial_framed_stream(TID, Addr, Path, Module, Args) ->
+    dial_framed_stream(swarm(TID), Addr, Path, Module, Args).
 
--spec dial_framed_stream(pid(), Addr::string(), Path::string(), connect_opts(), Timeout::pos_integer(),
-                         Module::atom(), Args::[any()]) -> {ok, pid()} | {error, term()}.
-dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) ->
+-spec dial_framed_stream(pid() | ets:tab(), Addr::string(), Path::string(), connect_opts(),
+                         Timeout::pos_integer(), Module::atom(), Args::[any()])
+                        -> {ok, pid()} | {error, term()}.
+dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) when is_pid(Sup) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     case connect(Sup, Addr, Options, Timeout) of
         {error, Error} -> {error, Error};
         {ok, SessionPid} -> libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args)
-    end.
+    end;
+dial_framed_stream(TID, Addr, Path, Options, Timeout, Module, Args) ->
+    dial_framed_stream(swarm(TID), Addr, Path, Options, Timeout, Module, Args).
 
 -spec add_stream_handler(pid() | ets:tab(), string(), libp2p_session:stream_handler()) -> ok.
 add_stream_handler(Sup, Key, HandlerDef) when is_pid(Sup) ->

@@ -59,9 +59,8 @@
 
 -record(state, {
           tid :: ets:tab(),
-          stun_sup ::pid(),
-          stun_txns=#{} :: #{},
-          observed_addrs=sets:new() :: sets:set()
+          stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
+          observed_addrs=sets:new() :: sets:set(string())
          }).
 
 
@@ -86,8 +85,8 @@ start_listener(Pid, Addr) ->
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
              -> {ok, pid()} | {error, term()}.
-connect(_Pid, MAddr, Options, Timeout, TID) ->
-    connect_to(MAddr, Options, Timeout, TID).
+connect(Pid, MAddr, Options, Timeout, TID) ->
+    connect_to(MAddr, Options, Timeout, TID, Pid).
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
@@ -197,13 +196,11 @@ start_link(TID) ->
 init([TID]) ->
     erlang:process_flag(trap_exit, true),
 
-    {ok, StunSup} = supervisor:start_link(libp2p_simple_sup, []),
-
     libp2p_swarm:add_stream_handler(TID, "stungun/1.0.0",
                                     {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
     libp2p_relay:add_stream_handler(TID),
     libp2p_proxy:add_stream_handler(TID),
-    {ok, #state{tid=TID, stun_sup=StunSup}}.
+    {ok, #state{tid=TID}}.
 
 %% libp2p_transport
 %%
@@ -225,8 +222,10 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info({identify, Kind, Session, Identify}, State=#state{}) ->
+handle_info(Msg={identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
     lager:notice("IDENTIFY in transport_tcp ~p ~p ~p", [Kind, Session, Identify]),
+    %% Forward on to swarm server for initial registration
+    libp2p_swarm_sup:server(TID) ! Msg,
     {_, PeerAddr} = libp2p_session:addr_info(Session),
     ObservedAddr = libp2p_identify:observed_addr(Identify),
     {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
@@ -236,7 +235,6 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
 handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
     lager:info("stungun timed out"),
-    %libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
 handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=StunTxns}) ->
     case take_stun_txn(TxnID, StunTxns) of
@@ -337,18 +335,19 @@ listen_on(Addr, TID) ->
     end.
 
 
--spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
+-spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab(), pid())
                 -> {ok, pid()} | {error, term()}.
-connect_to(Addr, UserOptions, Timeout, TID) ->
+connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
     case tcp_addr(Addr) of
         {IP, Port, Type, AddrOpts} ->
             UniqueSession = proplists:get_value(unique_session, UserOptions, false),
             UniquePort = proplists:get_value(unique_port, UserOptions, false),
             ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs, UniqueSession, UniquePort),
+            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs,
+                                      UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
-                    libp2p_transport:start_client_session(TID, Addr, new_connection(Socket));
+                    libp2p_transport:start_client_session(TID, Addr, new_connection(Socket), TCPPid);
                 {error, Error} ->
                     {error, Error}
             end;
@@ -475,7 +474,7 @@ is_observed_addr(ObservedAddr, Addrs) ->
               false, Addrs).
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
-record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_sup=StunSup, stun_txns=StunTxns}) ->
+record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
     lager:notice("recording observed address ~p ~p", [PeerAddr, ObservedAddr]),
     case libp2p_config:lookup_listener(TID, ObservedAddr) of
         {ok, _} ->
@@ -492,17 +491,19 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                         true ->
                             %% ok, we have independant confirmation of an observed address
                             lager:info("received confirmation of observed address ~s", [ObservedAddr]),
-                            <<TxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
+                            {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
                             %% Record the TxnID , then convince a peer to dial us back with that TxnID
                             %% then that handler needs to forward the response back here, so we can add the external address
-                            ChildSpec = #{ id => make_ref(),
-                                           start => {libp2p_stream_stungun, start_client, [TxnID, TID, PeerAddr, self(), 5000]},
-                                           restart => temporary,
-                                           shutdown => 5000,
-                                           type => worker },
-                            {ok, _} = supervisor:start_child(StunSup, ChildSpec),
-                            State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
-                                        stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
+                            case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                                {ok, StunPid} ->
+                                    %% TODO: Remove this once dial stops using start_link
+                                    unlink(StunPid),
+                                    erlang:send_after(5000, self(), {stungun_timeout, TxnID}),
+                                    State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
+                                                stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
+                                _ ->
+                                    State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
+                            end;
                         false ->
                             lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
