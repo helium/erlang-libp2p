@@ -5,7 +5,8 @@
 -export([
     start_link/1
     ,start_listener/2
-    ,match_addr/1
+    ,match_addr/2
+    ,sort_addrs/1
     ,priority/0
     ,connect/5
 ]).
@@ -21,9 +22,13 @@ start_link(_TID) ->
 start_listener(_Pid, _Addr) ->
     {error, unsupported}.
 
--spec match_addr(string()) -> false.
-match_addr(Addr) when is_list(Addr) ->
+-spec match_addr(string(), ets:tab()) -> false.
+match_addr(Addr, _TID) when is_list(Addr) ->
     false.
+
+-spec sort_addrs([string()]) -> [string()].
+sort_addrs(Addrs) ->
+    Addrs.
 
 -spec priority() -> integer().
 priority() -> 99.
@@ -46,8 +51,8 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
         ,Args
     ),
     receive
-        {proxy_negotiated, Socket} ->
-            Conn = libp2p_transport_tcp:new_connection(Socket),
+        {proxy_negotiated, Socket, MultiAddr} ->
+            Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
             lager:info("proxy successful ~p", [Conn]),
             libp2p_transport:start_client_session(TID, MAddr, Conn)
     after 8000 ->

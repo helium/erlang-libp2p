@@ -268,7 +268,7 @@ handle_cast(Request, State=#state{kind=Kind, module=Module, state=ModuleState}) 
     end.
 
 terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, module=Module, state=ModuleState}) ->
-    case erlang:function_exported(Module, terminate, 2) of
+    case erlang:function_exported(Module, terminate, 3) of
         true -> Module:terminate(Kind, Reason, ModuleState);
         false -> ok
     end,

@@ -87,6 +87,6 @@ sessions_test(Config) ->
 
     {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
 
-    [Session] = libp2p_swarm:sessions(S1),
+    [{_, Session}] = libp2p_swarm:sessions(S1),
 
     ok.

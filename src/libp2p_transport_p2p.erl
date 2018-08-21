@@ -3,7 +3,7 @@
 -behavior(libp2p_transport).
 
 % libp2p_transport
--export([start_link/1, start_listener/2, connect/5, match_addr/1, priority/0]).
+-export([start_link/1, start_listener/2, connect/5, match_addr/2, sort_addrs/1, priority/0]).
 
 
 %% libp2p_transport
@@ -22,9 +22,13 @@ start_listener(_Pid, _Addr) ->
 connect(_Pid, MAddr, Options, Timeout, TID) ->
     connect_to(MAddr, Options, Timeout, TID).
 
--spec match_addr(string()) -> {ok, string()} | false.
-match_addr(Addr) when is_list(Addr) ->
+-spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
+match_addr(Addr, _TID) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+
+-spec sort_addrs([string()]) -> [string()].
+sort_addrs(Addrs) ->
+    Addrs.
 
 -spec priority() -> integer().
 priority() -> 2.
@@ -46,9 +50,12 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
                 {ok, PeerInfo} ->
                     ListenAddrs = libp2p_peer:listen_addrs(PeerInfo),
                     case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
-                        {ok, _, SessionPid} -> {ok, SessionPid};
+                        {ok, _, SessionPid} ->
+                            libp2p_config:insert_session(TID, MAddr, SessionPid),
+                            {ok, SessionPid};
                         {error, not_found} ->
-                            case connect_to_listen_addr(ListenAddrs, UserOptions, Timeout, TID) of
+                            SortedListenAddrs = libp2p_transport:sort_addrs(TID, ListenAddrs),
+                            case connect_to_listen_addr(SortedListenAddrs, UserOptions, Timeout, TID) of
                                 {ok, SessionPid}->
                                     libp2p_config:insert_session(TID, MAddr, SessionPid),
                                     {ok, SessionPid};
