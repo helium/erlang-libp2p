@@ -55,6 +55,8 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             libp2p_connection:close(C),
             %% ok they have full-cone or restricted cone NAT
             %% without trying from an unrelated IP we can't distinguish
+            %% TODO find an entry in the peerbook for a peer not connected to this peer
+            %% that we can use to distinguish
             {stop, normal, ?OK};
         {error, _} ->
             case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath, [{unique_session, true}], 5000) of
