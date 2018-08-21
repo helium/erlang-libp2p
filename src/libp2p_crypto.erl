@@ -12,6 +12,7 @@
 -export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
          to_pem/1, from_pem/1, pubkey_to_address/1, address_to_pubkey/1,
          address_to_b58/1, b58_to_address/1, pubkey_to_b58/1,
+         address_to_p2p/1, p2p_to_address/1,
          b58_to_pubkey/1, verify/3
         ]).
 
@@ -97,6 +98,17 @@ b58_to_address(Str) ->
         {error, Reason} -> error(Reason)
     end.
 
+-spec address_to_p2p(address()) -> string().
+address_to_p2p(Addr) ->
+    "/p2p/" ++ address_to_b58(Addr).
+
+-spec p2p_to_address(string()) -> address().
+p2p_to_address(Str) ->
+    case multiaddr:protocols(multiaddr:new(Str)) of
+        [{"p2p", B58Addr}] -> b58_to_address(B58Addr);
+        _ -> error(badarg)
+    end.
+
 -spec base58check_encode(binary(), binary()) -> string().
 base58check_encode(Version, Payload) ->
   VPayload = <<Version/binary, Payload/binary>>,
@@ -145,6 +157,9 @@ address_test() ->
     Address = pubkey_to_address(PubKey),
     B58Address = address_to_b58(Address),
 
+    MAddr = address_to_p2p(Address),
+    Address = p2p_to_address(MAddr),
+
     B58Address = pubkey_to_b58(PubKey),
     PubKey = b58_to_pubkey(B58Address),
 
@@ -166,4 +181,3 @@ verify_test() ->
 
 
 -endif.
-

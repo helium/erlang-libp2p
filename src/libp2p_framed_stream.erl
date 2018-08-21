@@ -7,7 +7,7 @@
 % gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
--export([client/3, server/3, server/4, send/2, send/3,
+-export([client/3, server/3, server/4, send/2, send/3, recv/2,
          close/1, close_state/1, addr_info/1]).
 %% libp2p_info
 -export([info/1]).
@@ -157,7 +157,7 @@ init_module(Kind, Module, Connection, Args) ->
 
 handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
                                              module=Module, state=ModuleState0}) ->
-    case handle_recv(Connection, ?RECV_TIMEOUT) of
+    case recv(Connection, ?RECV_TIMEOUT) of
         {error, timeout} ->
             %% timeouts are fine and not an error we want to propogate because there's no waiter
             {noreply, State};
@@ -311,11 +311,8 @@ addr_info(Pid) ->
     call(Pid, addr_info).
 
 
-%% Internal
-%%
-
--spec handle_recv(libp2p_connection:connection(), non_neg_integer()) -> {ok, binary()} | {error, term()}.
-handle_recv(Connection, Timeout) ->
+-spec recv(libp2p_connection:connection(), non_neg_integer()) -> {ok, binary()} | {error, term()}.
+recv(Connection, Timeout) ->
     case libp2p_connection:recv(Connection, 4, Timeout) of
         {error, Error} -> {error, Error};
         {ok, <<Size:32/little-unsigned-integer>>} ->
@@ -327,6 +324,10 @@ handle_recv(Connection, Timeout) ->
                 {error, Error} -> {error, Error}
             end
     end.
+
+%% Internal
+%%
+
 
 -spec handle_fdset(#state{}) -> #state{}.
 handle_fdset(State=#state{connection=Connection}) ->
