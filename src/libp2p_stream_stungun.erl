@@ -59,10 +59,10 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% trying from an unrelated IP we can't distinguish Find
             %% an entry in the peerbook for a peer not connected to
             %% the target that we can use to distinguish
-            VerifierAddr = find_verifier(TID, libp2p_swarm:address(TID),
-                                         find_p2p_addr(TID, ObservedAddr)),
+            {ok, VerifierAddr} = find_verifier(TID, libp2p_swarm:address(TID),
+                                               find_p2p_addr(TID, ObservedAddr)),
             VerifyPath = "/verify/"++TxnID++ObservedAddr,
-            case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, []) of
+            case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
                 {ok, VC} ->
                     %% Read the response
                     case libp2p_framed_stream:recv(VC, 5000) of
@@ -96,7 +96,7 @@ init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
 init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
     {TxnID, TargetAddr} = string:take(Info, "/", true),
     ReplyPath = reply_path(TxnID),
-    case libp2p_swarm:dial(TID, TargetAddr, ReplyPath, []) of
+    case libp2p_swarm:dial(TID, TargetAddr, ReplyPath, [], 5000) of
         {ok, C} ->
             libp2p_connection:close(C),
             {stop, normal, ?OK};
@@ -120,7 +120,7 @@ handle_data(server, _,  _) ->
 %% @private Find the p2p address for the given multiaddress
 -spec find_p2p_addr(ets:tab(), string()) -> {ok, string()} | {error, not_found}.
 find_p2p_addr(TID, Addr) ->
-    SessionPid = libp2p_config:lookup_session(TID, Addr),
+    {ok, SessionPid} = libp2p_config:lookup_session(TID, Addr),
     SessionAddrs = libp2p_config:lookup_session_addrs(TID, SessionPid),
     case lists:filter(fun(A) ->
                               case multiaddr:protocols(multiaddr:new(A)) of
@@ -131,26 +131,27 @@ find_p2p_addr(TID, Addr) ->
                                   _ -> false
                               end
                       end, SessionAddrs) of
-        [P2PAddr] -> P2PAddr;
+        [P2PAddr] -> {ok, P2PAddr};
         _ -> {error, not_found}
     end.
 
 %% @private Find a peer in the peerbook who is connected to the
 %% given FromAddr but _not_ connected to the given TargetAddr
--spec find_verifier(ets:tab(), string(), string()) -> {ok, string()} | {error, not_found}.
+-spec find_verifier(ets:tab(), binary(), {error, not_found} | {ok, string()} | string())
+                   -> {ok, string()} | {error, not_found}.
 find_verifier(_TID, _, {error, not_found}) ->
     {error, not_found};
 find_verifier(TID, FromAddr, {ok, TargetAddr}) ->
     find_verifier(TID, FromAddr, TargetAddr);
 find_verifier(TID, FromAddr, TargetAddr) ->
     PeerBook = libp2p_swarm:peerbook(TID),
-    FromEntry = libp2p_peerbook:get(PeerBook, FromAddr),
+    {ok, FromEntry} = libp2p_peerbook:get(PeerBook, FromAddr),
     TargetCryptoAddr = libp2p_crypto:p2p_to_address(TargetAddr),
     %% Gets the peers connected to the given FromAddr
     FromConnected = libp2p_peer:connected_peers(FromEntry),
     case lists:filter(fun(P) ->
                               %% Get the entry for the connected peer
-                              Peer = libp2p_peerbook:get(PeerBook, P),
+                              {ok, Peer} = libp2p_peerbook:get(PeerBook, P),
                               not lists:member(TargetCryptoAddr,
                                                libp2p_peer:connected_peers(Peer))
                       end, FromConnected) of
