@@ -208,8 +208,12 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
 handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     Client = libp2p_relay_bridge:client(Bridge),
     lager:info("Server got a bridge request dialing Client ~s", [Client]),
-    {ok, _} = libp2p_relay:dial_framed_stream(Swarm, Client, [{type, {bridge_sc, Bridge}}]),
-    {noreply, State};
+    case libp2p_relay:dial_framed_stream(Swarm, Client, [{type, {bridge_sc, Bridge}}]) of
+        {ok, _} ->
+            {noreply, State};
+        {error, _} ->
+            {stop, normal, State}
+    end;
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.

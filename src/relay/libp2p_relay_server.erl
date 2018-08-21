@@ -82,6 +82,7 @@ handle_call(init_relay, _From, #state{swarm=Swarm}=State0) ->
             {reply, Resp, State#state{started=true}};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
+            erlang:send_after(2500, self(), try_relay),
             {reply, _Error, next_peer(State)}
     end;
 handle_call(_Msg, _From, State) ->
@@ -89,6 +90,7 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(connection_lost, State) ->
+    lager:info("relay connection lost"),
     self() ! try_relay,
     {noreply, State#state{started=false}};
 handle_cast(_Msg, State) ->
@@ -97,11 +99,11 @@ handle_cast(_Msg, State) ->
 
 handle_info({new_peers, _}, #state{started=true}=State) ->
     lager:info("relay already started, just adding new peer"),
-    {noreply, State#state{peers=sort_peers(State#state.swarm)}};
+    {noreply, State#state{peers=sort_peers(State#state.swarm), peer_index=1}};
 handle_info({new_peers, _}, #state{swarm=Swarm, started=false}=State) ->
     self() ! try_relay,
     {noreply, State#state{peers=sort_peers(Swarm)}};
-handle_info(try_relay, State) ->
+handle_info(try_relay, State = #state{started=false}) ->
     case int_relay(State) of
         {ok, _} ->
             lager:info("relay started successfuly"),
@@ -152,25 +154,18 @@ int_relay(#state{peers=[]}) ->
 int_relay(State=#state{swarm=Swarm}) ->
     lager:info("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     Peer = lists:nth(State#state.peer_index, State#state.peers),
-    case libp2p_peer:listen_addrs(Peer) of
-        % TODO: Should we select differently? Maybe get the /p2p/addr
-        [ListenAddr|_] ->
-            lager:info("initiating relay with ~p", [ListenAddr]),
-            libp2p_relay:dial_framed_stream(Swarm, ListenAddr, []);
-        _Any ->
-            lager:warning("could not initiate relay, failed to find address ~p", [_Any]),
-            {error, no_address}
-    end.
+    Address = "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_peer:address(Peer)),
+    lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
+    libp2p_relay:dial_framed_stream(Swarm, Address, []).
 
 -spec sort_peers(pid()) -> [libp2p_peer:peer()].
 sort_peers(Swarm) ->
     Peerbook = libp2p_swarm:peerbook(Swarm),
     Peers0 = libp2p_peerbook:values(Peerbook),
     SwarmAddr = libp2p_swarm:address(Swarm),
-    Peers = lists:dropwhile(fun(E) ->
-        libp2p_peer:address(E) == SwarmAddr
+    Peers = lists:filter(fun(E) ->
+        libp2p_peer:address(E) /= SwarmAddr
     end, Peers0),
-    lager:info("sorting peers ~p ~p", [length(Peers0), length(Peers)]),
     lists:sort(fun sort_peers_fun/2, Peers).
 
 -spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
