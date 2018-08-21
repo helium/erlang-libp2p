@@ -31,12 +31,7 @@
 %%--------------------------------------------------------------------
 -spec init(pid()) -> {ok, pid()} | {error, any()} | ignore.
 init(Swarm) ->
-    TID = libp2p_swarm:tid(Swarm),
-    case libp2p_config:lookup_relay(TID) of
-        false -> {error, no_relay};
-        {ok, Pid} ->
-            gen_server:call(Pid, init_relay)
-    end.
+    libp2p_relay_server:relay(Swarm).
 
 %%--------------------------------------------------------------------
 %% @doc

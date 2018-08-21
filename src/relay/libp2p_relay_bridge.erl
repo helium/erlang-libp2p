@@ -7,10 +7,10 @@
 -module(libp2p_relay_bridge).
 
 -export([
-    create_br/2
-    ,create_ra/2
-    ,create_ab/2
-    ,a/1, b/1
+    create_cr/2
+    ,create_rs/2
+    ,create_sc/2
+    ,server/1, client/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -19,66 +19,66 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_bridge_br() :: #libp2p_relay_bridge_br_pb{}.
--type relay_bridge_ra() :: #libp2p_relay_bridge_ra_pb{}.
--type relay_bridge_ab() :: #libp2p_relay_bridge_ab_pb{}.
+-type relay_bridge_cr() :: #libp2p_relay_bridge_cr_pb{}.
+-type relay_bridge_rs() :: #libp2p_relay_bridge_rs_pb{}.
+-type relay_bridge_sc() :: #libp2p_relay_bridge_sc_pb{}.
 
--export_type([relay_bridge_br/0]).
--export_type([relay_bridge_ra/0]).
--export_type([relay_bridge_ab/0]).
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Create an relay bridge B to R
-%% @end
-%%--------------------------------------------------------------------
--spec create_br(string(), string()) -> relay_bridge_br().
-create_br(A, B) ->
-    #libp2p_relay_bridge_br_pb{a=A, b=B}.
+-export_type([relay_bridge_cr/0]).
+-export_type([relay_bridge_rs/0]).
+-export_type([relay_bridge_sc/0]).
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Create an relay bridge R to A
+%% Create an relay bridge Client to Relay
 %% @end
 %%--------------------------------------------------------------------
--spec create_ra(string(), string()) -> relay_bridge_ra().
-create_ra(A, B) ->
-    #libp2p_relay_bridge_ra_pb{a=A, b=B}.
+-spec create_cr(string(), string()) -> relay_bridge_cr().
+create_cr(Server, Client) ->
+    #libp2p_relay_bridge_cr_pb{server=Server, client=Client}.
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Create an relay bridge R to A
+%% Create an relay bridge Relay to Server
 %% @end
 %%--------------------------------------------------------------------
--spec create_ab(string(), string()) -> relay_bridge_ab().
-create_ab(A, B) ->
-    #libp2p_relay_bridge_ab_pb{a=A, b=B}.
+-spec create_rs(string(), string()) -> relay_bridge_rs().
+create_rs(Server, Client) ->
+    #libp2p_relay_bridge_rs_pb{server=Server, client=Client}.
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Getter
+%% Create an relay bridge Server to Client
 %% @end
 %%--------------------------------------------------------------------
--spec a(relay_bridge_br() | relay_bridge_ra() | relay_bridge_ab()) -> string().
-a(#libp2p_relay_bridge_br_pb{a=A}) ->
-    A;
-a(#libp2p_relay_bridge_ra_pb{a=A}) ->
-    A;
-a(#libp2p_relay_bridge_ab_pb{a=A}) ->
-    A.
+-spec create_sc(string(), string()) -> relay_bridge_sc().
+create_sc(Server, Client) ->
+    #libp2p_relay_bridge_sc_pb{server=Server, client=Client}.
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec b(relay_bridge_br() | relay_bridge_ra() | relay_bridge_ab()) -> string().
-b(#libp2p_relay_bridge_br_pb{b=B}) ->
-    B;
-b(#libp2p_relay_bridge_ra_pb{b=B}) ->
-    B;
-b(#libp2p_relay_bridge_ab_pb{b=B}) ->
-    B.
+-spec server(relay_bridge_cr() | relay_bridge_rs() | relay_bridge_sc()) -> string().
+server(#libp2p_relay_bridge_cr_pb{server=Server}) ->
+    Server;
+server(#libp2p_relay_bridge_rs_pb{server=Server}) ->
+    Server;
+server(#libp2p_relay_bridge_sc_pb{server=Server}) ->
+    Server.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Getter
+%% @end
+%%--------------------------------------------------------------------
+-spec client(relay_bridge_cr() | relay_bridge_rs() | relay_bridge_sc()) -> string().
+client(#libp2p_relay_bridge_cr_pb{client=Client}) ->
+    Client;
+client(#libp2p_relay_bridge_rs_pb{client=Client}) ->
+    Client;
+client(#libp2p_relay_bridge_sc_pb{client=Client}) ->
+    Client.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -90,13 +90,13 @@ b(#libp2p_relay_bridge_ab_pb{b=B}) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_relay_bridge_br_pb{a="123", b="456"}, create_br("123", "456")),
-    ?assertEqual(#libp2p_relay_bridge_ra_pb{a="123", b="456"}, create_ra("123", "456")),
-    ?assertEqual(#libp2p_relay_bridge_ab_pb{a="123", b="456"}, create_ab("123", "456")).
+    ?assertEqual(#libp2p_relay_bridge_cr_pb{server="123", client="456"}, create_cr("123", "456")),
+    ?assertEqual(#libp2p_relay_bridge_rs_pb{server="123", client="456"}, create_rs("123", "456")),
+    ?assertEqual(#libp2p_relay_bridge_sc_pb{server="123", client="456"}, create_sc("123", "456")).
 
 get_test() ->
-    Bridge = create_br("123", "456"),
-    ?assertEqual("123", a(Bridge)),
-    ?assertEqual("456", b(Bridge)).
+    Bridge = create_cr("123", "456"),
+    ?assertEqual("123", server(Bridge)),
+    ?assertEqual("456", client(Bridge)).
 
 -endif.

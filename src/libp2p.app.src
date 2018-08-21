@@ -25,6 +25,7 @@
                   inert,
                   multiaddr,
                   nat,
+                  inet_ext,
                   ecc_compact,
                   bitcask,
                   splicer

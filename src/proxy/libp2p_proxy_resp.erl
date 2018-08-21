@@ -8,7 +8,9 @@
 
 -export([
     create/1
+    ,create/2
     ,success/1
+    ,multiaddr/1
 ]).
 
 -include("pb/libp2p_proxy_pb.hrl").
@@ -32,12 +34,34 @@ create(Success) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Create an proxy respuest
+%% @end
+%%--------------------------------------------------------------------
+-spec create('true', string()) -> proxy_resp().
+create(Success=true, MultiAddr) ->
+    #libp2p_proxy_resp_pb{success=Success, multiaddr=MultiAddr}.
+
+%%--------------------------------------------------------------------
+%% @doc
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
 -spec success(proxy_resp()) -> boolean() | 0 | 1.
 success(Resp) ->
     Resp#libp2p_proxy_resp_pb.success.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Getter
+%% @end
+%%--------------------------------------------------------------------
+-spec multiaddr(proxy_resp()) -> string() | undefined.
+multiaddr(Resp) ->
+    case Resp#libp2p_proxy_resp_pb.multiaddr of
+        undefined -> undefined;
+        Bin when is_binary(Bin) -> binary_to_list(Bin);
+        List -> lists:flatten(List)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

@@ -5,18 +5,20 @@
 -callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
 -callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
--callback match_addr(string()) -> {ok, string()} | false.
+-callback match_addr(string(), ets:tab()) -> {ok, string()} | false.
+-callback sort_addrs([string()]) -> [string()].
 
 
 -export_type([connection_handler/0]).
--export([for_addr/2, connect_to/4, find_session/3, start_client_session/3, start_server_session/3]).
+-export([for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
+         start_client_session/3, start_server_session/3]).
 
 
 -spec for_addr(ets:tab(), string()) -> {ok, string(), {atom(), pid()}} | {error, term()}.
 for_addr(TID, Addr) ->
     Matches = lists:foldl(
         fun({Transport, Pid}, Acc) ->
-            case Transport:match_addr(Addr) of
+            case Transport:match_addr(Addr, TID) of
                 false ->
                     Acc;
                 {ok, Matched} ->
@@ -34,6 +36,31 @@ for_addr(TID, Addr) ->
         [{_, Matched, {Transport, Pid}}|_] ->
             {ok, Matched, {Transport, Pid}}
     end.
+
+sort_addrs(TID, Addrs) ->
+    TransportAddrsFun = fun(Transport) ->
+        Matched = lists:filter(fun(Addr) ->
+            case Transport:match_addr(Addr, TID) of
+                false -> false;
+                {ok, _} -> true
+            end
+        end, Addrs),
+        Transport:sort_addrs(Matched)
+    end,
+    Transports = [{T:priority(), TransportAddrsFun(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
+    {_, SortedAddrLists} = lists:unzip(lists:keysort(1, Transports)),
+    %% can't use lists flatten here because it flattens too much, we
+    %% only want one level of flattening additionally only allow the
+    %% highest priority (the first one) address to appear, since
+    %% several transports may match an address
+    lists:foldl(
+        fun(Elements, Acc) ->
+            Acc ++ [E || E <- Elements, not lists:member(E, Acc)]
+        end
+        ,[]
+        ,SortedAddrLists
+    ).
+
 
 %% @doc Connect through a transport service. This is a convenience
 %% function that verifies the given multiaddr, finds the right

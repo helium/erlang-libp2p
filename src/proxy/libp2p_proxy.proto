@@ -4,6 +4,7 @@ message proxy_req {
 
 message proxy_resp {
     required bool success = 1;
+    optional bytes multiaddr = 2;
 }
 
 message proxy_dial_back {
