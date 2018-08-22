@@ -78,13 +78,13 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
                             lager:info("verifier dial reported failure for ~p", [ObservedAddr]),
                             %% Restricted cone
                             {stop, normal, ?RESTRICTED_NAT};
-                        {error, _} ->
-                            lager:info("verifier dial failed to respond for ~p", [ObservedAddr]),
+                        {error, Reason} ->
+                            lager:info("verifier dial failed to respond for ~p : ~p", [ObservedAddr, Reason]),
                             %% Could not determine
                             {stop, normal, ?FAILED}
                     end;
-                {error, _} ->
-                    lager:info("verifier dial failed for ~p", [ObservedAddr]),
+                {error, Reason} ->
+                    lager:info("verifier dial failed for ~p : ~p", [ObservedAddr, Reason]),
                     {stop, normal, ?FAILED}
             end;
         {error, _} ->
@@ -154,7 +154,7 @@ find_p2p_addr(TID, Addr, Retries) ->
         [P2PAddr] -> {ok, P2PAddr};
         _ when Retries > 0 ->
             lager:info("failed to find p2p address for ~p, waiting for identify to complete"),
-            timer:sleep(5000),
+            timer:sleep(1000),
             find_p2p_addr(TID, Addr, Retries - 1);
         _ -> {error, not_found}
     end.
@@ -185,8 +185,10 @@ find_verifier(TID, FromAddr, TargetAddr) ->
                                                                      [libp2p_crypto:address_to_p2p(F) || F <- libp2p_peer:connected_peers(Peer)], Res]),
                               Res
                       end, FromConnected) of
-        [Candidate | _] -> {ok, libp2p_crypto:address_to_p2p(Candidate)};
-        [] -> {error, not_found}
+        [] -> {error, not_found};
+        Candidates ->
+            Candidate = lists:nth(rand:uniform(length(Candidates)), Candidates),
+            {ok, libp2p_crypto:address_to_p2p(Candidate)}
     end.
 
 reply_path(TxnID) ->

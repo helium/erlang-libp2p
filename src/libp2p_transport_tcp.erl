@@ -60,7 +60,8 @@
 -record(state, {
           tid :: ets:tab(),
           stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
-          observed_addrs=sets:new() :: sets:set(string())
+          observed_addrs=sets:new() :: sets:set(string()),
+          negotiated_nat=false :: boolean()
          }).
 
 
@@ -228,39 +229,40 @@ handle_info(Msg={identify, _Kind, Session, Identify}, State=#state{tid=TID}) ->
     {_, PeerAddr} = libp2p_session:addr_info(Session),
     ObservedAddr = libp2p_identify:observed_addr(Identify),
     {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
+handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns=StunTxns}) ->
+    {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
+    %% choose a random connected peer to do stungun with
+    {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
+    MyConnectedPeers = [libp2p_crypto:address_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
+    PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
+    lager:info("retrying stungun with peer ~p", [PeerAddr]),
+    case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+        {ok, StunPid} ->
+            ObservedAddr = most_observed_addr(Addrs),
+            %% TODO: Remove this once dial stops using start_link
+            unlink(StunPid),
+            erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+            {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
+        _ ->
+            {noreply, State}
+    end;
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
             lager:info("stungun detected NAT type ~p", [NatType]),
             case NatType of
-                unknown ->
-                    %% if we have any non RFC1918 addresses, set the nat type to none
-                    {ok, MyPeerEntry} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
-                    case lists:any(fun(MA) ->
-                                           [{_, ThisAddr}, _] = multiaddr:protocols(MA),
-                                           case inet_parse:address(ThisAddr) of
-                                               {ok, ThisIP} ->
-                                                   rfc1918(ThisIP) == false;
-                                               _ ->
-                                                   false
-                                           end
-                                   end, libp2p_peer:listen_addrs(MyPeerEntry)) of
+                none ->
+                    %% don't need to start relay here
+                    %% if we didn't have an external address originally, set the NAT type to 'static'
+                    case State#state.negotiated_nat of
                         true ->
-                            lager:notice("setting NAT type to none"),
-                            %% We do not need to start a relay here because we have a routable address
-                            %% that is not firewalled
-                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none);
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), static);
                         false ->
-                            %% NAT type remains 'unknown'
-                            %% This indicates we are either:
-                            %% * full cone NAT (good)
-                            %% * restricted cone NAT (bad), needs relay
-                            %% * firewalled (bad) needs relay
-                            %%
-                            %% Until we can detect full cone NAT, we assume a relay is needed
-                            libp2p_relay:init(libp2p_swarm:swarm(TID)),
-                            ok
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none)
                     end;
+                unknown ->
+                    %% stungun failed to resolve, so we have to retry later
+                    erlang:send_after(30000, self(), stungun_retry);
                 _ ->
                     %% we have either port restricted cone NAT or symmetric NAT
                     %% and we need to start a relay
@@ -299,7 +301,8 @@ handle_info({record_listen_addr, InternalAddr, ExternalAddr}, State=#state{tid=T
         {ok, ListenPid} ->
             lager:debug("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
             libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
-            {noreply, State};
+            %% TODO if the nat type has resolved to 'none' here we should change it to static
+            {noreply, State#state{negotiated_nat=true}};
         _ ->
             {noreply, State}
     end;
@@ -495,6 +498,14 @@ is_observed_addr(ObservedAddr, Addrs) ->
                  (_, true) -> true
               end,
               false, Addrs).
+
+most_observed_addr(Addrs) ->
+    {_, ObservedAddrs} = lists:unzip(sets:to_list(Addrs)),
+    Counts = dict:to_list(lists:foldl(fun(A, D) ->
+                                              dict:update_counter(A, 1, D)
+                                      end, dict:new(), ObservedAddrs)),
+    [{_, MostObservedAddr} |_] = lists:reverse(lists:keysort(1, Counts)),
+    MostObservedAddr.
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
