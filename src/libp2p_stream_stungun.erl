@@ -51,9 +51,11 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
     {_, ObservedAddr} = libp2p_connection:addr_info(Connection),
     %% first, try with the unique dial option, so we can check if the peer has Full Cone or Restricted Cone NAT
     ReplyPath = reply_path(TxnID),
+    lager:info("stungun attempting dial back with unique session and port to ~p", [ObservedAddr]),
     case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath,
                            [{unique_session, true}, {unique_port, true}], 5000) of
         {ok, C} ->
+            lager:info("successfully dialed ~p using unique session/port", [ObservedAddr]),
             libp2p_connection:close(C),
             %% ok they have full-cone or restricted cone NAT without
             %% trying from an unrelated IP we can't distinguish Find
@@ -61,29 +63,40 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% the target that we can use to distinguish
             {ok, VerifierAddr} = find_verifier(TID, libp2p_swarm:address(TID),
                                                find_p2p_addr(TID, ObservedAddr)),
+            lager:info("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
             VerifyPath = "/verify/"++TxnID++ObservedAddr,
             case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
                 {ok, VC} ->
+                    lager:info("verifier dial suceeded for ~p", [ObservedAddr]),
                     %% Read the response
                     case libp2p_framed_stream:recv(VC, 5000) of
                         {ok, ?OK} ->
+                            lager:info("verifier dial reported ok"),
                             %% Full cone or no restrictions on dialing back
                             {stop, normal, ?OK};
                          {ok, ?FAILED} ->
+                            lager:info("verifier dial reported failure for ~p", [ObservedAddr]),
                             %% Restricted cone
                             {stop, normal, ?RESTRICTED_NAT};
                         {error, _} ->
+                            lager:info("verifier dial failed to respond for ~p", [ObservedAddr]),
                             %% Could not determine
                             {stop, normal, ?FAILED}
-                    end
+                    end;
+                {error, _} ->
+                    lager:info("verifier dial failed for ~p", [ObservedAddr]),
+                    {stop, normal, ?FAILED}
             end;
         {error, _} ->
+            lager:info("unique session/port dial failed, trying simple dial back"),
             case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath, [{unique_session, true}], 5000) of
                 {ok, C2} ->
+                    lager:info("detected port restricted NAT for ~p", [ObservedAddr]),
                     %% ok they have port restricted cone NAT
                     libp2p_connection:close(C2),
                     {stop, normal, ?PORT_RESTRICTED_NAT};
                 {error, _} ->
+                    lager:info("detected port symmetric NAT for ~p", [ObservedAddr]),
                     %% reply here to tell the peer we can't dial back at all
                     %% and they're behind symmetric NAT
                     {stop, normal, ?SYMMETRIC_NAT}
@@ -95,12 +108,15 @@ init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
     {stop, normal};
 init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
     {TxnID, TargetAddr} = string:take(Info, "/", true),
+    lager:info("got verify request for ~p", [TargetAddr]),
     ReplyPath = reply_path(TxnID),
     case libp2p_swarm:dial(TID, TargetAddr, ReplyPath, [], 5000) of
         {ok, C} ->
+            lager:info("verify dial succeeded for ~p", [TargetAddr]),
             libp2p_connection:close(C),
             {stop, normal, ?OK};
         {error, _} ->
+            lager:info("verify dial failed for ~p", [TargetAddr]),
             {stop, normal, ?FAILED}
     end.
 
@@ -158,9 +174,6 @@ find_verifier(TID, FromAddr, TargetAddr) ->
         [Candidate | _] -> {ok, libp2p_crypto:address_to_p2p(Candidate)};
         [] -> {error, not_found}
     end.
-
-
-
 
 reply_path(TxnID) ->
     lists:flatten(io_lib:format("stungun/1.0.0/reply/~b", [list_to_integer(TxnID)])).

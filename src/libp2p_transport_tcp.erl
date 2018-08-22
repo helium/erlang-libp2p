@@ -222,8 +222,7 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info(Msg={identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
-    lager:notice("IDENTIFY in transport_tcp ~p ~p ~p", [Kind, Session, Identify]),
+handle_info(Msg={identify, _Kind, Session, Identify}, State=#state{tid=TID}) ->
     %% Forward on to swarm server for initial registration
     libp2p_swarm_sup:server(TID) ! Msg,
     {_, PeerAddr} = libp2p_session:addr_info(Session),
@@ -513,11 +512,12 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
                     %% Record the TxnID , then convince a peer to dial us back with that TxnID
                     %% then that handler needs to forward the response back here, so we can add the external address
+                    lager:info("attempting to discover network status using stungun with ~p", [PeerAddr]),
                     case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                         {ok, StunPid} ->
                             %% TODO: Remove this once dial stops using start_link
                             unlink(StunPid),
-                            erlang:send_after(20000, self(), {stungun_timeout, TxnID}),
+                            erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
                                         stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
                         _ ->
