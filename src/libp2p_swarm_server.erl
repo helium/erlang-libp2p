@@ -45,7 +45,6 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_info({identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
-    lager:notice("IDENTIFY in swarm_server ~p --  ~p -- ~p", [Kind, Session, Identify]),
     %% Response from a connect_to or accept initiated
     %% spawn_identify. Register the connection in peerbook
     PeerBook = libp2p_swarm:peerbook(TID),
