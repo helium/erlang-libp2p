@@ -136,8 +136,12 @@ handle_data(server, _,  _) ->
 %% @private Find the p2p address for the given multiaddress
 -spec find_p2p_addr(ets:tab(), string()) -> {ok, string()} | {error, not_found}.
 find_p2p_addr(TID, Addr) ->
+    find_p2p_addr(TID, Addr, 5).
+
+find_p2p_addr(TID, Addr, Retries) ->
     {ok, SessionPid} = libp2p_config:lookup_session(TID, Addr),
     SessionAddrs = libp2p_config:lookup_session_addrs(TID, SessionPid),
+    lager:info("peer ~p has session addresses ~p", [Addr, SessionAddrs]),
     case lists:filter(fun(A) ->
                               case multiaddr:protocols(A) of
                                   %% Ensur we only take simple p2p
@@ -148,6 +152,10 @@ find_p2p_addr(TID, Addr) ->
                               end
                       end, SessionAddrs) of
         [P2PAddr] -> {ok, P2PAddr};
+        _ when Retries > 0 ->
+            lager:info("failed to find p2p address for ~p, waiting for identify to complete"),
+            timer:sleep(5000),
+            find_p2p_addr(TID, Addr, Retries - 1);
         _ -> {error, not_found}
     end.
 
