@@ -160,16 +160,22 @@ find_verifier(_TID, _, {error, not_found}) ->
 find_verifier(TID, FromAddr, {ok, TargetAddr}) ->
     find_verifier(TID, FromAddr, TargetAddr);
 find_verifier(TID, FromAddr, TargetAddr) ->
+    lager:info("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
     PeerBook = libp2p_swarm:peerbook(TID),
     {ok, FromEntry} = libp2p_peerbook:get(PeerBook, FromAddr),
     TargetCryptoAddr = libp2p_crypto:p2p_to_address(TargetAddr),
+    lager:info("Target crypto addr ~p", [TargetCryptoAddr]),
     %% Gets the peers connected to the given FromAddr
     FromConnected = libp2p_peer:connected_peers(FromEntry),
+    lager:info("Our peers: ~p", [[libp2p_crypto:address_to_p2p(F) || F <- FromConnected]]),
     case lists:filter(fun(P) ->
                               %% Get the entry for the connected peer
                               {ok, Peer} = libp2p_peerbook:get(PeerBook, P),
-                              not lists:member(TargetCryptoAddr,
-                                               libp2p_peer:connected_peers(Peer))
+                              Res = not lists:member(TargetCryptoAddr,
+                                               libp2p_peer:connected_peers(Peer)),
+                              lager:info("peer ~p connected to ~p ? ~p", [libp2p_crypto:address_to_p2p(libp2p_peer:address(Peer)),
+                                                                     [libp2p_crypto:address_to_p2p(F) || F <- libp2p_peer:connected_peers(Peer)], Res]),
+                              Res
                       end, FromConnected) of
         [Candidate | _] -> {ok, libp2p_crypto:address_to_p2p(Candidate)};
         [] -> {error, not_found}
