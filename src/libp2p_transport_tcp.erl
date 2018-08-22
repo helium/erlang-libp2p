@@ -504,7 +504,7 @@ most_observed_addr(Addrs) ->
     Counts = dict:to_list(lists:foldl(fun(A, D) ->
                                               dict:update_counter(A, 1, D)
                                       end, dict:new(), ObservedAddrs)),
-    [{_, MostObservedAddr} |_] = lists:reverse(lists:keysort(1, Counts)),
+    [{MostObservedAddr, _} |_] = lists:reverse(lists:keysort(1, Counts)),
     MostObservedAddr.
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
