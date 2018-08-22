@@ -44,7 +44,11 @@ handle_msg(Msg, State) ->
         {noreply, NewState} ->
             loop(NewState);
         {exec, M, F, A} ->
-            erlang:apply(M, F, A);
+            try erlang:apply(M, F, A) of
+                Result -> Result
+            catch
+                What:Why -> terminate({What, Why}, State)
+            end;
         {stop, Reason, NewState} ->
             terminate(Reason, NewState)
     end.
