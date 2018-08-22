@@ -104,7 +104,7 @@ address_to_p2p(Addr) ->
 
 -spec p2p_to_address(string()) -> address().
 p2p_to_address(Str) ->
-    case multiaddr:protocols(multiaddr:new(Str)) of
+    case multiaddr:protocols(Str) of
         [{"p2p", B58Addr}] -> b58_to_address(B58Addr);
         _ -> error(badarg)
     end.

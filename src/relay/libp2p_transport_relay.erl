@@ -24,7 +24,7 @@ start_listener(_Pid, _Addr) ->
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, TID) when is_list(Addr) ->
-    Protocols = multiaddr:protocols(multiaddr:new(Addr)),
+    Protocols = multiaddr:protocols(Addr),
    case match_protocols(Protocols) of
        {ok, _} = Result ->
            SwarmAddress = libp2p_crypto:address_to_b58(libp2p_swarm:address(TID)),

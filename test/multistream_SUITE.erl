@@ -13,7 +13,7 @@ init_per_testcase(_, Config) ->
     [Swarm] = test_util:setup_swarms(1, []),
     [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
 
-    [{"ip4", IPStr}, {"tcp", PortStr}] = multiaddr:protocols(multiaddr:new(Addr)),
+    [{"ip4", IPStr}, {"tcp", PortStr}] = multiaddr:protocols(Addr),
     {ok, IP} = inet:parse_address(IPStr),
     Port  =  list_to_integer(PortStr),
     {ok, Socket} = ranch_tcp:connect(IP, Port, [inet]),

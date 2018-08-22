@@ -123,7 +123,7 @@ find_p2p_addr(TID, Addr) ->
     {ok, SessionPid} = libp2p_config:lookup_session(TID, Addr),
     SessionAddrs = libp2p_config:lookup_session_addrs(TID, SessionPid),
     case lists:filter(fun(A) ->
-                              case multiaddr:protocols(multiaddr:new(A)) of
+                              case multiaddr:protocols(A) of
                                   %% Ensur we only take simple p2p
                                   %% addresses and not relayed
                                   %% addresses.
