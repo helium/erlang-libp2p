@@ -277,7 +277,7 @@ get_relay_addresses(Swarm) ->
     SwarmAddresses = libp2p_swarm:listen_addrs(Swarm),
     lists:filter(
         fun(Addr) ->
-            case multiaddr:protocols(multiaddr:new(Addr)) of
+            case multiaddr:protocols(Addr) of
                 [{"p2p", _}, {"p2p-circuit", _}] -> true;
                 _ -> false
             end

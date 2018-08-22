@@ -35,7 +35,7 @@ identify_test(Config) ->
     % Compare observed ip addresses and port.
     S1Addr = libp2p_identify:observed_addr(Identify),
     true = lists:member(S1Addr, S1Addrs),
-    [S1IP,  S1Port] = multiaddr:protocols(multiaddr:new(S1Addr)),
+    [S1IP,  S1Port] = multiaddr:protocols(S1Addr),
     [S1IP, S1Port] = multiaddr:protocols(libp2p_identify:observed_maddr(Identify)),
 
     %% Compare stream protocols

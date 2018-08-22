@@ -90,7 +90,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
-    match_protocols(multiaddr:protocols(multiaddr:new(Addr))).
+    match_protocols(multiaddr:protocols(Addr)).
 
 -spec sort_addrs([string()]) -> [string()].
 sort_addrs(Addrs) ->
@@ -238,7 +238,7 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     %% if we have any non RFC1918 addresses, set the nat type to none
                     {ok, MyPeerEntry} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
                     case lists:any(fun(MA) ->
-                                           [{_, ThisAddr}, _] = multiaddr:protocols(multiaddr:new(MA)),
+                                           [{_, ThisAddr}, _] = multiaddr:protocols(MA),
                                            case inet_parse:address(ThisAddr) of
                                                {ok, ThisIP} ->
                                                    rfc1918(ThisIP) == false;
@@ -448,12 +448,10 @@ maybe_apply_nat_map({IP, Port}) ->
             {NewIP, Port}
     end.
 
--spec tcp_addr(string() | binary())
+-spec tcp_addr(string() | multiaddr:multiaddr())
               -> {inet:ip_address(), non_neg_integer(), inet | inet6, [any()]} | {error, term()}.
-tcp_addr(MAddr) when is_binary(MAddr) ->
-    tcp_addr(MAddr, multiaddr:protocols(MAddr));
-tcp_addr(MAddr) when is_list(MAddr) ->
-    tcp_addr(MAddr, multiaddr:protocols(multiaddr:new(MAddr))).
+tcp_addr(MAddr) ->
+    tcp_addr(MAddr, multiaddr:protocols(MAddr)).
 
 tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
     Port = list_to_integer(PortStr),

@@ -44,7 +44,7 @@ addr0_test(Config) ->
     ListenAddrs = libp2p_swarm:listen_addrs(Swarm),
     true = length(ListenAddrs) > 0,
 
-    PAddrs = lists:map(fun(N) -> multiaddr:protocols(multiaddr:new(N)) end, ListenAddrs),
+    PAddrs = lists:map(fun(N) -> multiaddr:protocols(N) end, ListenAddrs),
     lists:foreach(fun([{"ip4", IP},{"tcp", Port}]) ->
                           {ok, _} = inet:parse_ipv4_address(IP),
                           true = list_to_integer(Port) > 0
