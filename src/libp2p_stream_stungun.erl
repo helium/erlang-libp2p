@@ -61,30 +61,35 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% trying from an unrelated IP we can't distinguish Find
             %% an entry in the peerbook for a peer not connected to
             %% the target that we can use to distinguish
-            {ok, VerifierAddr} = find_verifier(TID, libp2p_swarm:address(TID),
-                                               find_p2p_addr(TID, ObservedAddr)),
-            lager:info("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
-            VerifyPath = "/verify/"++TxnID++ObservedAddr,
-            case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
-                {ok, VC} ->
-                    lager:info("verifier dial suceeded for ~p", [ObservedAddr]),
-                    %% Read the response
-                    case libp2p_framed_stream:recv(VC, 5000) of
-                        {ok, ?OK} ->
-                            lager:info("verifier dial reported ok"),
-                            %% Full cone or no restrictions on dialing back
-                            {stop, normal, ?OK};
-                         {ok, ?FAILED} ->
-                            lager:info("verifier dial reported failure for ~p", [ObservedAddr]),
-                            %% Restricted cone
-                            {stop, normal, ?RESTRICTED_NAT};
+            case find_verifier(TID, libp2p_swarm:address(TID),
+                                               find_p2p_addr(TID, ObservedAddr)) of
+                {ok, VerifierAddr} ->
+                    lager:info("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
+                    VerifyPath = "/verify/"++TxnID++ObservedAddr,
+                    case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
+                        {ok, VC} ->
+                            lager:info("verifier dial suceeded for ~p", [ObservedAddr]),
+                            %% Read the response
+                            case libp2p_framed_stream:recv(VC, 5000) of
+                                {ok, ?OK} ->
+                                    lager:info("verifier dial reported ok"),
+                                    %% Full cone or no restrictions on dialing back
+                                    {stop, normal, ?OK};
+                                {ok, ?FAILED} ->
+                                    lager:info("verifier dial reported failure for ~p", [ObservedAddr]),
+                                    %% Restricted cone
+                                    {stop, normal, ?RESTRICTED_NAT};
+                                {error, Reason} ->
+                                    lager:info("verifier dial failed to respond for ~p : ~p", [ObservedAddr, Reason]),
+                                    %% Could not determine
+                                    {stop, normal, ?FAILED}
+                            end;
                         {error, Reason} ->
-                            lager:info("verifier dial failed to respond for ~p : ~p", [ObservedAddr, Reason]),
-                            %% Could not determine
+                            lager:info("verifier dial failed for ~p : ~p", [ObservedAddr, Reason]),
                             {stop, normal, ?FAILED}
                     end;
-                {error, Reason} ->
-                    lager:info("verifier dial failed for ~p : ~p", [ObservedAddr, Reason]),
+                {error, not_found} ->
+                    lager:info("no verifiers available for", [ObservedAddr]),
                     {stop, normal, ?FAILED}
             end;
         {error, _} ->
