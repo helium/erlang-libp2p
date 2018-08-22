@@ -36,6 +36,7 @@
     swarm :: pid() | undefined
     ,sessionPid :: pid() | undefined
     ,type = bridge :: bridge | client
+    ,relay_addr :: string() | undefined
 }).
 
 -type state() :: #state{}.
@@ -124,8 +125,12 @@ handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unknown info message ~p", [_Type, _Msg]),
     {noreply, State}.
 
-terminate(client, _Reason, #state{type=client, swarm=Swarm}) ->
-    _ = libp2p_relay_server:connection_lost(Swarm),
+terminate(client, _Reason, #state{type=client, swarm=Swarm, relay_addr=RelayAddress}) ->
+    erlang:spawn(fun() ->
+        _ = libp2p_relay_server:connection_lost(Swarm),
+        TID = libp2p_swarm:tid(Swarm),
+        _ = libp2p_config:remove_listener(TID, RelayAddress)
+    end),
     ok;
 terminate(_Type, _Reason, _State) ->
     ok.
@@ -198,12 +203,13 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
             % broadcasted by peerbook
             TID = libp2p_swarm:tid(Swarm),
             lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
-            true = libp2p_config:insert_listener(TID, [Address], SessionPid);
+            true = libp2p_config:insert_listener(TID, [Address], SessionPid),
+            {noreply, State#state{relay_addr=Address}};
         Error ->
             % Bridge Step 3: An error is sent back to Client transfering to relay transport
-            catch libp2p_relay:reg_addr_sessions(Address) ! {error, Error}
-    end,
-    {noreply, State};
+            catch libp2p_relay:reg_addr_sessions(Address) ! {error, Error},
+            {noreply, State}
+    end;
 % Bridge Step 4: Server got a bridge req, dialing Client
 handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     Client = libp2p_relay_bridge:client(Bridge),
