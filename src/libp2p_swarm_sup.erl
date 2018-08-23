@@ -8,11 +8,14 @@
 -export([sup/1, opts/1, name/1, address/1,
          register_server/1, server/1,
          register_group_agent/1, group_agent/1,
-         register_peerbook/1, peerbook/1]).
+         register_peerbook/1, peerbook/1,
+         register_cache/1, cache/1
+         ]).
 
 -define(SUP, swarm_sup).
 -define(SERVER, swarm_server).
 -define(PEERBOOK, swarm_peerbook).
+-define(CACHE, swarm_cache).
 -define(GROUP_AGENT, swarm_group_agent).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
@@ -74,6 +77,13 @@ init([Name, Opts]) ->
                    10000,
                    worker,
                    [libp2p_peerbook]
+                  },
+                  {?CACHE,
+                   {libp2p_cache, start_link, [TID]},
+                   permanent,
+                   10000,
+                   worker,
+                   [libp2p_cache]
                   },
                   {relay,
                    {libp2p_relay_server, start_link, [TID]},
@@ -138,6 +148,13 @@ register_peerbook(TID) ->
 -spec peerbook(ets:tab()) -> pid().
 peerbook(TID) ->
     ets:lookup_element(TID, ?PEERBOOK, 2).
+
+register_cache(TID) ->
+    ets:insert(TID, {?CACHE, self()}).
+
+-spec cache(ets:tab()) -> pid().
+cache(TID) ->
+    ets:lookup_element(TID, ?CACHE, 2).
 
 -spec address(ets:tab()) -> libp2p_crypto:address().
 address(TID) ->
