@@ -367,7 +367,7 @@ listen_options(IP, TID) ->
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
-        {IP, Port, Type, AddrOpts} ->
+        {IP, Port0, Type, AddrOpts} ->
             ListenOpts0 = listen_options(IP, TID),
             % Non-overidable options, taken from ranch_tcp:listen
             DefaultListenOpts = [{reuseaddr, true}, reuseport()] ++ common_options(),
@@ -376,9 +376,14 @@ listen_on(Addr, TID) ->
                                               DefaultListenOpts),
             % Dialyzer severely dislikes ranch_tcp:listen so we
             % emulate it's behavior here
+            Port = reuseport0(TID, Type, IP, Port0),
             case gen_tcp:listen(Port, [Type | AddrOpts] ++ ListenOpts) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
+
+                    Cache = libp2p_swarm_sup:cache(TID),
+                    ok = libp2p_cache:insert(Cache, {tcp_listen_addrs, Type}, ListenAddrs),
+
                     ChildSpec = ranch:child_spec(ListenAddrs,
                                                  ranch_tcp, [{socket, Socket}],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
@@ -459,17 +464,83 @@ tcp_listen_addrs(Socket) ->
             [to_multiaddr(maybe_apply_nat_map(SockAddr))];
         true ->
             % all 0 address, collect all non loopback interface addresses
-            {ok, IFAddrs} = inet:getifaddrs(),
-            [to_multiaddr(maybe_apply_nat_map({Addr, Port})) ||
-             {_, Opts} <- IFAddrs, {addr, Addr} <- Opts, {flags, Flags} <- Opts,
-             size(Addr) == size(IP),
-             not lists:member(loopback, Flags),
-             %% filter out ipv6 link-local addresses
-             not (size(Addr) == 8 andalso element(1, Addr) == 16#fe80),
-             %% filter out RFC3927 ipv4 link-local addresses
-             not (size(Addr) == 4 andalso element(1, Addr) == 169 andalso element(2, Addr) == 254)
-            ]
+            Addresses = get_non_local_addrs(),
+            [to_multiaddr(maybe_apply_nat_map({Addr, Port}))
+                || Addr <- Addresses, size(Addr) == size(IP)]
     end.
+
+reuseport0(TID, Type, {0,0,0,0}, 0) ->
+    Cache = libp2p_swarm_sup:cache(TID),
+    case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
+        [] -> 0;
+        ListenAddrs ->
+            TCPAddrs = [tcp_addr(L) || L <- ListenAddrs],
+            Ports = [P ||  {_, P, _, _} <- TCPAddrs],
+            [P1|_] = Ports,
+            Filtered = lists:filter(fun(P) -> P =:= P1 end, Ports),
+            case erlang:length(Filtered) =:= erlang:length(TCPAddrs) of
+                true -> P1;
+                false -> 0
+            end
+    end;
+reuseport0(TID, Type, {0,0,0,0,0,0,0,0}, 0) ->
+    Cache = libp2p_swarm_sup:cache(TID),
+    case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
+        [] -> 0;
+        ListenAddrs ->
+            TCPAddrs = [tcp_addr(L) || L <- ListenAddrs],
+            Ports = [P ||  {_, P, _, _} <- TCPAddrs],
+            [P1|_] = Ports,
+            Filtered = lists:filter(fun(P) -> P =:= P1 end, Ports),
+            case erlang:length(Filtered) =:= erlang:length(TCPAddrs) of
+                true -> P1;
+                false -> 0
+            end
+    end;
+reuseport0(TID, Type, IP, 0) ->
+    Cache = libp2p_swarm_sup:cache(TID),
+    case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
+        [] -> 0;
+        ListenAddrs ->
+            lists:foldl(
+                fun(ListenAddr, 0) ->
+                    case tcp_addr(ListenAddr) of
+                        {IP, Port, _, _} -> Port;
+                        _ -> 0
+                    end;
+                   (_, Port) ->
+                       Port
+                end
+                ,0
+                ,ListenAddrs
+            )
+    end;
+reuseport0(_TID, _Type, _IP, Port) ->
+    Port.
+
+
+get_non_local_addrs() ->
+    {ok, IFAddrs} = inet:getifaddrs(),
+    [
+        Addr || {_, Opts} <- IFAddrs
+        ,{addr, Addr} <- Opts
+        ,{flags, Flags} <- Opts
+        %% filter out loopbacks
+        ,not lists:member(loopback, Flags)
+        %% filter out ipv6 link-local addresses
+        ,not (filter_ipv6(Addr))
+        %% filter out RFC3927 ipv4 link-local addresses
+        ,not (filter_ipv4(Addr))
+    ].
+
+filter_ipv4(Addr) ->
+    erlang:size(Addr) == 4
+        andalso erlang:element(1, Addr) == 169
+        andalso erlang:element(2, Addr) == 254.
+
+filter_ipv6(Addr) ->
+    erlang:size(Addr) == 8
+        andalso erlang:element(1, Addr) == 16#fe80.
 
 maybe_apply_nat_map({IP, Port}) ->
     Map = application:get_env(libp2p, nat_map, #{}),
