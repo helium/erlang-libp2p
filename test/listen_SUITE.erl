@@ -127,40 +127,37 @@ port0_reuse(_Config) ->
     SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
 
     {ok, Swarm} = libp2p_swarm:start(listen_port0_reuse, SwarmOpts),
+    true = erlang:register(test, Swarm),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
     ok = libp2p_swarm:listen(Swarm, "/ip6/::/tcp/0"),
 
-    timer:sleep(2000),
     ListenAddrs = libp2p_swarm:listen_addrs(Swarm),
 
     ok = libp2p_swarm:stop(Swarm),
-    timer:sleep(2000),
+    ok = test_util:wait_until(fun() -> true /= erlang:is_process_alive(Swarm) end),
 
     {ok, Swarm2} = libp2p_swarm:start(listen_port0_reuse, SwarmOpts),
     ok = libp2p_swarm:listen(Swarm2, "/ip4/0.0.0.0/tcp/0"),
     ok = libp2p_swarm:listen(Swarm2, "/ip6/::/tcp/0"),
 
-    timer:sleep(2000),
     ListenAddrs = libp2p_swarm:listen_addrs(Swarm2),
     ok = libp2p_swarm:stop(Swarm2),
 
-    timer:sleep(2000),
+    ok = test_util:wait_until(fun() -> true /= erlang:is_process_alive(Swarm2)  end),
 
     {ok, Swarm3} = libp2p_swarm:start(listen_port0_reuse2, SwarmOpts),
     ok = libp2p_swarm:listen(Swarm3, "/ip4/127.0.0.1/tcp/0"),
     ok = libp2p_swarm:listen(Swarm3, "/ip6/::1/tcp/0"),
 
-    timer:sleep(2000),
     ListenAddrs2 = libp2p_swarm:listen_addrs(Swarm3),
 
     ok = libp2p_swarm:stop(Swarm3),
-    timer:sleep(2000),
+    ok = test_util:wait_until(fun() -> true /= erlang:is_process_alive(Swarm3)  end),
 
     {ok, Swarm4} = libp2p_swarm:start(listen_port0_reuse2, SwarmOpts),
     ok = libp2p_swarm:listen(Swarm4, "/ip4/127.0.0.1/tcp/0"),
     ok = libp2p_swarm:listen(Swarm4, "/ip6/::1/tcp/0"),
 
-    timer:sleep(2000),
     ListenAddrs2 = libp2p_swarm:listen_addrs(Swarm4),
     ok = libp2p_swarm:stop(Swarm4),
     ok.
@@ -168,25 +165,3 @@ port0_reuse(_Config) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-% ok() ->
-% SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
-% {ok, Swarm} = libp2p_swarm:start(port0_reuse, SwarmOpts),
-% ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
-% TID = libp2p_swarm:tid(Swarm),
-% Sup = libp2p_swarm_listener_sup:sup(TID),
-% observer:start().
-%
-%
-% supervisor:terminate_child(Sup, {ranch_listener_sup,["/ip4/192.168.1.61/tcp/49880"]}).
-%
-%     Peerbook = libp2p_swarm:peerbook(Swarm),
-%     ListenAddrs = [libp2p_peer:listen_addrs(Peer) || Peer <- libp2p_peerbook:values(Peerbook)],
-%     [[Addr]] = ListenAddrs,
-%     Split = string:split(Addr, "/", all),
-%     _Port = lists:last(Split),
-%
-%
-%     _ = libp2p_config:remove_listener(TID, Addr),
-%
-%     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
