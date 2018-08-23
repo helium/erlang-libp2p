@@ -226,24 +226,41 @@ handle_cast(Msg, State) ->
 handle_info(Msg={identify, _Kind, Session, Identify}, State=#state{tid=TID}) ->
     %% Forward on to swarm server for initial registration
     libp2p_swarm_sup:server(TID) ! Msg,
-    {_, PeerAddr} = libp2p_session:addr_info(Session),
-    ObservedAddr = libp2p_identify:observed_addr(Identify),
-    {noreply, record_observed_addr(PeerAddr, ObservedAddr, State)};
-handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns=StunTxns}) ->
-    {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
-    %% choose a random connected peer to do stungun with
+    {LocalAddr, _PeerAddr} = libp2p_session:addr_info(Session),
+    RemoteP2PAddr = libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
     {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
-    MyConnectedPeers = [libp2p_crypto:address_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
-    PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
-    lager:info("retrying stungun with peer ~p", [PeerAddr]),
-    case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
-        {ok, StunPid} ->
-            ObservedAddr = most_observed_addr(Addrs),
-            %% TODO: Remove this once dial stops using start_link
-            unlink(StunPid),
-            erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-            {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
-        _ ->
+    ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
+    lager:info("IDENTIFY ~p ~p ~p ~p ~p", [LocalAddr, _PeerAddr, RemoteP2PAddr, libp2p_identify:observed_addr(Identify), ListenAddrs]),
+    case lists:member(LocalAddr, ListenAddrs) of
+        true ->
+            ObservedAddr = libp2p_identify:observed_addr(Identify),
+            {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
+        false ->
+            lager:info("identify response for socket with local address ~p is not a listen addr socket, ignoring", [LocalAddr]),
+            %% this is likely a discovery session we dialed with unique_port
+            %% we can't trust this for the purposes of the observed address
+            {noreply, State}
+    end;
+handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns=StunTxns}) ->
+    case most_observed_addr(Addrs) of
+        {ok, ObservedAddr} ->
+            {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
+            %% choose a random connected peer to do stungun with
+            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
+            MyConnectedPeers = [libp2p_crypto:address_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
+            PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
+            lager:info("retrying stungun with peer ~p", [PeerAddr]),
+            case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                {ok, StunPid} ->
+                    %% TODO: Remove this once dial stops using start_link
+                    unlink(StunPid),
+                    erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                    {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
+                _ ->
+                    {noreply, State}
+            end;
+        error ->
+            %% we need at least 2 peers to agree on the observed address
             {noreply, State}
     end;
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
@@ -500,12 +517,20 @@ is_observed_addr(ObservedAddr, Addrs) ->
               false, Addrs).
 
 most_observed_addr(Addrs) ->
+    lager:info("observed addresses ~p", [Addrs]),
     {_, ObservedAddrs} = lists:unzip(sets:to_list(Addrs)),
     Counts = dict:to_list(lists:foldl(fun(A, D) ->
                                               dict:update_counter(A, 1, D)
                                       end, dict:new(), ObservedAddrs)),
-    [{MostObservedAddr, _} |_] = lists:reverse(lists:keysort(1, Counts)),
-    MostObservedAddr.
+    lager:info("most observed addresses ~p", [Counts]),
+    [{MostObservedAddr, Count} |_] = lists:reverse(lists:keysort(1, Counts)),
+    case Count >= 2 of
+        true ->
+            {ok, MostObservedAddr};
+        false ->
+            error
+    end.
+
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
