@@ -48,8 +48,10 @@ server(Connection, Path, _TID, Args) ->
 init(client, _Connection, [TxnID, Handler]) ->
     {ok, #client_state{txn_id=TxnID, handler=Handler}};
 init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
+    {ok, SessionPid} = libp2p_connection:session(Connection),
     {_, ObservedAddr} = libp2p_connection:addr_info(Connection),
-    %% first, try with the unique dial option, so we can check if the peer has Full Cone or Restricted Cone NAT
+    %% first, try with the unique dial option, so we can check if the
+    %% peer has Full Cone or Restricted Cone NAT
     ReplyPath = reply_path(TxnID),
     lager:info("stungun attempting dial back with unique session and port to ~p", [ObservedAddr]),
     [{"ip4", IP}, {"tcp", PortStr}] = multiaddr:protocols(ObservedAddr),
@@ -64,8 +66,7 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% trying from an unrelated IP we can't distinguish Find
             %% an entry in the peerbook for a peer not connected to
             %% the target that we can use to distinguish
-            case find_verifier(TID, libp2p_swarm:address(TID),
-                                               find_p2p_addr(TID, ObservedAddr)) of
+            case find_verifier(TID, libp2p_swarm:address(TID), find_p2p_addr(TID, SessionPid)) of
                 {ok, VerifierAddr} ->
                     lager:info("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
@@ -145,14 +146,12 @@ handle_data(server, _,  _) ->
 %%
 
 %% @private Find the p2p address for the given multiaddress
--spec find_p2p_addr(ets:tab(), string()) -> {ok, string()} | {error, not_found}.
-find_p2p_addr(TID, Addr) ->
-    find_p2p_addr(TID, Addr, 5).
+-spec find_p2p_addr(ets:tab(), pid()) -> {ok, string()} | {error, not_found}.
+find_p2p_addr(TID, SessionPid) ->
+    find_p2p_addr(TID, SessionPid, 5).
 
-find_p2p_addr(TID, Addr, Retries) ->
-    {ok, SessionPid} = libp2p_config:lookup_session(TID, Addr),
+find_p2p_addr(TID, SessionPid, Retries) ->
     SessionAddrs = libp2p_config:lookup_session_addrs(TID, SessionPid),
-    lager:info("peer ~p has session addresses ~p", [Addr, SessionAddrs]),
     case lists:filter(fun(A) ->
                               case multiaddr:protocols(A) of
                                   %% Ensur we only take simple p2p
@@ -166,7 +165,7 @@ find_p2p_addr(TID, Addr, Retries) ->
         _ when Retries > 0 ->
             lager:info("failed to find p2p address for ~p, waiting for identify to complete"),
             timer:sleep(1000),
-            find_p2p_addr(TID, Addr, Retries - 1);
+            find_p2p_addr(TID, SessionPid, Retries - 1);
         _ -> {error, not_found}
     end.
 

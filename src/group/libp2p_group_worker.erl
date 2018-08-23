@@ -38,8 +38,9 @@
 assign_target(Pid, MAddr) ->
     gen_statem:cast(Pid, {assign_target, MAddr}).
 
-assign_stream(Pid, MAddr, Connection) ->
-    gen_statem:cast(Pid, {assign_stream, MAddr, Connection}).
+-spec assign_stream(pid(), libp2p_connection:connection(), pid()) -> ok.
+assign_stream(Pid, Connection, StreamPid) ->
+    gen_statem:cast(Pid, {assign_stream, Connection, StreamPid}).
 
 -spec send(pid(), term(), binary()) -> ok.
 send(Pid, Ref, Data) ->
@@ -171,8 +172,8 @@ connect(info, {assign_session, SessionPid}, Data=#data{client_spec={Path, {M, A}
 connect(info, send_ack, #data{stream_monitor={_, StreamPid}}) ->
     StreamPid ! send_ack,
     keep_state_and_data;
-connect(cast, {assign_stream, MAddr, StreamPid},
-        Data=#data{tid=TID, stream_monitor=StreamMonitor={_,_CurrentStreamPid}}) when StreamMonitor /= undefined  ->
+connect(cast, {assign_stream, Conn, StreamPid},
+        Data=#data{stream_monitor=StreamMonitor={_,_CurrentStreamPid}}) when StreamMonitor /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
@@ -185,14 +186,14 @@ connect(cast, {assign_stream, MAddr, StreamPid},
             %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
             %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
             %%               _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
+            {ok, SessionPid} = libp2p_connection:session(Conn),
             {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                                    stream_monitor=monitor_stream(StreamPid, Data)}}
     end;
-connect(cast, {assign_stream, MAddr, StreamPid}, Data=#data{tid=TID}) ->
+connect(cast, {assign_stream, Conn, StreamPid}, Data=#data{}) ->
     %% Assign a stream. Monitor the session and remember the
     %% stream
-    {ok, SessionPid} = libp2p_config:lookup_session(TID, MAddr),
+    {ok, SessionPid} = libp2p_connection:session(Conn),
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                            stream_monitor=monitor_stream(StreamPid, Data)}};
 connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_monitor=undefined}) ->

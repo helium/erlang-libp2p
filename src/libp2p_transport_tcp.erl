@@ -43,26 +43,29 @@
 %% libp2p_connection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
-         fdset/1, fdclr/1, common_options/0
+         session/1, fdset/1, fdclr/1
         ]).
 
 %% for tcp sockets
--export([to_multiaddr/1]).
+-export([to_multiaddr/1, common_options/0]).
 
--record(tcp_state, {
-          addr_info :: {string(), string()},
-          socket :: gen_tcp:socket(),
-          transport :: atom()
-         }).
+-record(tcp_state,
+        {
+         addr_info :: {string(), string()},
+         socket :: gen_tcp:socket(),
+         session=undefined :: pid() | undefined,
+         transport :: atom()
+        }).
 
 -type tcp_state() :: #tcp_state{}.
 
--record(state, {
-          tid :: ets:tab(),
-          stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
-          observed_addrs=sets:new() :: sets:set(string()),
-          negotiated_nat=false :: boolean()
-         }).
+-record(state,
+        {
+         tid :: ets:tab(),
+         stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
+         observed_addrs=sets:new() :: sets:set(string()),
+         negotiated_nat=false :: boolean()
+        }).
 
 
 %% libp2p_transport
@@ -180,9 +183,19 @@ fdclr(#tcp_state{socket=Socket}) ->
 addr_info(#tcp_state{addr_info=AddrInfo}) ->
     AddrInfo.
 
--spec controlling_process(tcp_state(), pid()) ->  ok | {error, closed | not_owner | atom()}.
-controlling_process(#tcp_state{socket=Socket}, Pid) ->
-    gen_tcp:controlling_process(Socket, Pid).
+-spec session(tcp_state()) -> {ok, pid()} | undefined.
+session(#tcp_state{session=undefined}) ->
+    undefined;
+session(#tcp_state{session=Session}) ->
+    {ok, Session}.
+
+-spec controlling_process(tcp_state(), pid())
+                         ->  {ok, tcp_state()} | {error, closed | not_owner | atom()}.
+controlling_process(State=#tcp_state{socket=Socket}, Pid) ->
+    case gen_tcp:controlling_process(Socket, Pid) of
+        ok -> {ok, State#tcp_state{session=Pid}};
+        Other -> Other
+    end.
 
 -spec common_options() -> [term()].
 common_options() ->
