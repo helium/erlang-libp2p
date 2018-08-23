@@ -15,7 +15,7 @@
     ,dial_framed_stream/3
     ,p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1
     ,reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1
-    ,reg_addr_stream/1, reg_addr_stream/2
+    ,reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
 ]).
 
 -ifdef(TEST).
@@ -122,7 +122,19 @@ reg_addr_stream(Address) ->
 
 -spec reg_addr_stream(string(), pid()) -> true.
 reg_addr_stream(Address, Pid) ->
-    erlang:register(?MODULE:reg_addr_stream(Address), Pid).
+    RegName = ?MODULE:reg_addr_stream(Address),
+    case erlang:whereis(RegName) of
+        undefined ->
+            ok;
+        RegPid ->
+            RegPid ! stop,
+            _ = ?MODULE:unreg_addr_stream(Address)
+    end,
+    erlang:register(RegName, Pid).
+
+-spec unreg_addr_stream(string()) -> true.
+unreg_addr_stream(Address) ->
+    erlang:unregister(?MODULE:reg_addr_stream(Address)).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -184,6 +196,13 @@ reg_addr_stream_2_test() ->
     ),
     reg_addr_stream("/ip4/192.168.1.61/tcp/6601") ! test,
     receive M -> ?assertEqual(M, test) end,
+    erlang:spawn(fun() ->
+        ?assertEqual(
+            true
+            ,reg_addr_stream("/ip4/192.168.1.61/tcp/6601", self())
+        )
+    end),
+    receive M1 -> ?assertEqual(M1, stop) end,
     ok.
 
 -endif.
