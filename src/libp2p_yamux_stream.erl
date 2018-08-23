@@ -56,7 +56,8 @@
 -export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2]).
 % libp2p_connection
 -export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
-         fdset/1, fdclr/1, addr_info/1, controlling_process/2]).
+         fdset/1, fdclr/1, addr_info/1, controlling_process/2,
+         session/1]).
 %% libp2p_info
 -export([info/1]).
 
@@ -133,6 +134,9 @@ fdclr(Pid) ->
 
 addr_info(Pid) ->
     statem(Pid, addr_info).
+
+session(Pid) ->
+    statem(Pid, session).
 
 controlling_process(_Pid, _Owner) ->
     {error, unsupported}.
@@ -290,6 +294,9 @@ handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, s
     {keep_state, Data#state{addr_info=AddrInfo}, {reply, From, AddrInfo}};
 handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
     {keep_state_and_data, {reply, From, AddrInfo}};
+handle_event({call, From}, session, _State, #state{session=Session}) ->
+    {keep_state_and_data, {reply, From, {ok, Session}}};
+
 
 % Catch all
 %

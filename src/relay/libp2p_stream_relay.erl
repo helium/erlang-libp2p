@@ -69,9 +69,7 @@ init(client, Conn, Args) ->
             {ok, {_Self, ServerAddress}} = libp2p_relay:p2p_circuit(CircuitAddress),
             self() ! {init_bridge_cr, ServerAddress}
     end,
-    TID = libp2p_swarm:tid(Swarm),
-    {_Local, Remote} = libp2p_connection:addr_info(Conn),
-    {ok, SessionPid} = libp2p_config:lookup_session(TID, Remote, []),
+    {ok, SessionPid} = libp2p_connection:session(Conn),
     {ok, #state{swarm=Swarm, sessionPid=SessionPid}}.
 
 handle_data(server, Bin, State) ->

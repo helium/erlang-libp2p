@@ -21,12 +21,12 @@
 -define(GOAWAY_INTERNAL, 16#02).
 
 -record(state,
-        { connection :: libp2p_connection:connection(),
+        { connection=undefined :: libp2p_connection:connection() | undefined,
           tid :: ets:tab(),
           stream_sup :: pid(),
           next_stream_id :: stream_id(),
           sends=#{} :: #{send_id() => send_info()},
-          send_pid :: pid(),
+          send_pid=undefined :: pid() | undefined,
           pings=#{} :: #{ping_id() => ping_info()},
           next_ping_id=0 :: ping_id(),
           goaway_state=none :: none | local | remote
@@ -66,14 +66,19 @@
 
 -spec start_server(libp2p_connection:connection(), string(), ets:tab(), []) -> no_return().
 start_server(Connection, Path, TID, []) ->
-    %% In libp2p_swarm, the server takes over the calling process since
-    %% it's fired of synchronously by a multistream.
-    init({TID, Connection, Path, 2}).
+    %% In libp2p_swarm, the server takes over the calling process
+    %% since it's fired of synchronously by a multistream. Since ranch
+    %% already assigned the controlling process, there is no need to
+    %% wait for a shoot message
+    init({TID, Connection, Path, 2, no_wait_shoot}).
 
 -spec start_client(libp2p_connection:connection(), string(), ets:tab()) -> {ok, pid()}.
 start_client(Connection, Path, TID) ->
-    %% In libp2p_swarm the client needs to spawn a new process
-    {ok, proc_lib:spawn_link(?MODULE, init, [{TID, Connection, Path, 1}])}.
+    %% In libp2p_swarm the client needs to spawn a new process. Since
+    %% this is a new process, start_client_session (in
+    %% libp2p_transport) will assign the controlling process. Wait for
+    %% a shoot message.
+    {ok, proc_lib:spawn_link(?MODULE, init, [{TID, Connection, Path, 1, undefined}])}.
 
 call(Pid, Cmd) ->
     try
@@ -107,16 +112,23 @@ send_data(Pid, Header, Data, Timeout) ->
 %% gen_server
 %%
 
-init({TID, Connection, _Path, NextStreamId}) ->
+init({TID, Connection, _Path, NextStreamId, WaitShoot}) ->
     erlang:process_flag(trap_exit, true),
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
-    SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
-    State = #state{connection=Connection, tid=TID,
+    State = #state{tid=TID,
                    stream_sup=StreamSup,
-                   send_pid=SendPid,
                    next_stream_id=NextStreamId},
-    gen_server:enter_loop(?MODULE, [], fdset(Connection, State), ?TIMEOUT).
+    %% If we're not waiting for a shoot message with a new connection
+    %% we fire one to ourselves to kick of the machinery the same way.
+    case WaitShoot of
+        no_wait_shoot -> self() ! {shoot_connection, Connection};
+        _ -> ok
+    end,
+    gen_server:enter_loop(?MODULE, [], State, ?TIMEOUT).
 
+handle_info({shoot_connection, NewConnection}, State=#state{send_pid=undefined}) ->
+    SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), NewConnection)),
+    {noreply, fdset(NewConnection, State#state{send_pid=SendPid, connection=NewConnection})};
 handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
     case read_header(Connection) of
         {error, closed} ->
@@ -202,6 +214,8 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
+terminate(_Reason, #state{connection=undefined, send_pid=undefined}) ->
+    ok;
 terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
     fdclr(Connection),
     erlang:exit(SendPid, Reason),
