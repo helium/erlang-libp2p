@@ -119,6 +119,8 @@ handle_info(client, {init_bridge_sc, BridgeSC}, State) ->
     Bridge = libp2p_relay_bridge:create_sc(Server, Client),
     EnvBridge = libp2p_relay_envelope:create(Bridge),
     {noreply, State, libp2p_relay_envelope:encode(EnvBridge)};
+handle_info(server, stop, State) ->
+    {stop, normal, State};
 handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unknown info message ~p", [_Type, _Msg]),
     {noreply, State}.
