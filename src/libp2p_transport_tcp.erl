@@ -243,7 +243,6 @@ handle_info(Msg={identify, _Kind, Session, Identify}, State=#state{tid=TID}) ->
     RemoteP2PAddr = libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
     {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
     ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
-    lager:info("IDENTIFY ~p ~p ~p ~p ~p", [LocalAddr, _PeerAddr, RemoteP2PAddr, libp2p_identify:observed_addr(Identify), ListenAddrs]),
     case lists:member(LocalAddr, ListenAddrs) of
         true ->
             ObservedAddr = libp2p_identify:observed_addr(Identify),
@@ -336,8 +335,9 @@ handle_info({record_listen_addr, InternalAddr, ExternalAddr}, State=#state{tid=T
         _ ->
             {noreply, State}
     end;
-handle_info(Msg, _State) ->
-    lager:warning("Unhandled message ~p", [Msg]).
+handle_info(Msg, State) ->
+    lager:warning("Unhandled message ~p", [Msg]),
+    {noreply, State}.
 
 terminate(_Reason, #state{}) ->
     ok.

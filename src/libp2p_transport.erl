@@ -10,9 +10,28 @@
 
 
 -export_type([connection_handler/0]).
--export([for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
+-export([start_link/2, for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
          start_client_session/3, start_client_session/4, start_server_session/3]).
 
+
+start_link(TransportMod, TID) ->
+    case TransportMod:start_link(TID) of
+        {ok, TransportPid} ->
+            libp2p_config:insert_transport(TID, TransportMod, TransportPid),
+            %% on bootup we're blocking the top level supervisor's init, so we need to
+            %% call back asynchronously
+            spawn(fun() ->
+                          Server = libp2p_swarm_sup:server(libp2p_swarm:swarm(TID)),
+                          gen_server:cast(Server, {register, libp2p_config:transport(), TransportPid})
+                  end),
+            {ok, TransportPid};
+        ignore ->
+            %% for some reason we register these transports as `undefined`
+            libp2p_config:insert_transport(TID, TransportMod, undefined),
+            ignore;
+        Other ->
+            Other
+    end.
 
 -spec for_addr(ets:tab(), string()) -> {ok, string(), {atom(), pid()}} | {error, term()}.
 for_addr(TID, Addr) ->
