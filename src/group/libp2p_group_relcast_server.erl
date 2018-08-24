@@ -59,8 +59,8 @@ handle_data(Pid, Ref, Bin) ->
 handle_ack(Pid, Ref, Ack) ->
     gen_server:cast(Pid, {handle_ack, Ref, Ack}).
 
-accept_stream(Pid, MAddr, StreamPid, Path) ->
-    gen_server:call(Pid, {accept_stream, MAddr, StreamPid, Path}).
+accept_stream(Pid, Connection, StreamPid, Path) ->
+    gen_server:call(Pid, {accept_stream, Connection, StreamPid, Path}).
 
 
 %% gen_server
@@ -129,7 +129,7 @@ sort_and_group_keys(Input) ->
                         end
                 end, [], lists:keysort(1, Input)).
 
-handle_call({accept_stream, _MAddr, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
+handle_call({accept_stream, _Conn, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
 handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys=OK}) ->
     Map = #{
@@ -137,14 +137,14 @@ handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys
       out => [ {Index, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- OK ]
      },
     {reply, Map, State};
-handle_call({accept_stream, MAddr, StreamPid, Path}, _From, State=#state{}) ->
+handle_call({accept_stream, Conn, StreamPid, Path}, _From, State=#state{}) ->
     case lookup_worker(mk_multiaddr(Path), #worker.target, State) of
         false ->
             {reply, {error, not_found}, State};
         #worker{pid=self} ->
             {reply, {error, bad_arg}, State};
         #worker{index=Index, pid=Worker} ->
-            libp2p_group_worker:assign_stream(Worker, MAddr, StreamPid),
+            libp2p_group_worker:assign_stream(Worker, Conn, StreamPid),
             {reply, {ok, Index}, State}
     end;
 handle_call({handle_data, Index, Msg}, _From, State=#state{self_index=_SelfIndex}) ->

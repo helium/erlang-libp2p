@@ -14,7 +14,7 @@
          recv/1, recv/2, recv/3,
          acknowledge/2, fdset/1, fdclr/1,
          addr_info/1, close/1, close_state/1,
-         controlling_process/2]).
+         controlling_process/2, session/1]).
 -export([mk_async_sender/2]).
 
 -callback acknowledge(any(), any()) -> ok.
@@ -25,7 +25,8 @@
 -callback fdset(any()) -> ok | {error, term()}.
 -callback fdclr(any()) -> ok.
 -callback addr_info(any()) -> {string(), string()}.
--callback controlling_process(any(), pid()) ->  ok | {error, closed | not_owner | atom()}.
+-callback session(any()) -> {ok, pid()} | undefined.
+-callback controlling_process(any(), pid()) ->  {ok, any()} | {error, closed | not_owner | atom()}.
 
 -define(RECV_TIMEOUT, 5000).
 -define(SEND_TIMEOUT, 5000).
@@ -78,9 +79,19 @@ fdclr(#connection{module=Module, state=State}) ->
 addr_info(#connection{module=Module, state=State}) ->
     Module:addr_info(State).
 
--spec controlling_process(connection(), pid())-> ok | {error, closed | not_owner | atom()}.
-controlling_process(#connection{module=Module, state=State}, Pid) ->
-    Module:controlling_process(State, Pid).
+-spec session(connection()) ->  {ok, pid()} | undefined.
+session(#connection{module=Module, state=State}) ->
+    Module:session(State).
+
+-spec controlling_process(connection(), pid())-> {ok, connection()} | {error, closed | not_owner | atom()}.
+controlling_process(Conn=#connection{module=Module, state=State}, Pid) ->
+    case Module:controlling_process(State, Pid) of
+        {ok, NewState} ->
+            NewConn = Conn#connection{state=NewState},
+            Pid ! {shoot_connection, NewConn},
+            {ok, NewConn};
+        Other -> Other
+    end.
 
 
 %%

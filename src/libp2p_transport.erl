@@ -133,7 +133,7 @@ start_client_session(TID, Addr, Connection, IdentifyHandler) ->
             SessionSup = libp2p_swarm_session_sup:sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
-                ok ->
+                {ok, _} ->
                     libp2p_config:insert_session(TID, Addr, SessionPid),
                     libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
                     libp2p_identify:spawn_identify(SessionPid, IdentifyHandler, client),

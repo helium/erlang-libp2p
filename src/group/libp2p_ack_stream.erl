@@ -5,7 +5,9 @@
 -behavior(libp2p_framed_stream).
 
 -callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok | defer | {error, term()}.
--callback accept_stream(State::any(), MAddr::string(), Stream::pid(), Path::string()) ->
+-callback accept_stream(State::any(),
+                        Connection::libp2p_connection:connection(),
+                        Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
 -callback handle_ack(State::any(), Ref::any(), Ack::ok | defer) -> ok.
 
@@ -40,8 +42,7 @@ server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
 init(server, Connection, [Path, AckModule, AckState]) ->
-    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-    case AckModule:accept_stream(AckState, RemoteAddr, self(), Path) of
+    case AckModule:accept_stream(AckState, Connection, self(), Path) of
         {ok, AckRef} ->
             {ok, #state{connection=Connection,
                         ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
