@@ -93,7 +93,7 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
                             {stop, normal, ?FAILED}
                     end;
                 {error, not_found} ->
-                    lager:info("no verifiers available for", [ObservedAddr]),
+                    lager:info("no verifiers available for ~p", [ObservedAddr]),
                     {stop, normal, ?FAILED}
             end;
         {error, Reason} ->
