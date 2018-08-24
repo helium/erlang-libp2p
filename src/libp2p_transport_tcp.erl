@@ -348,7 +348,7 @@ listen_on(Addr, TID) ->
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
 
-                    Cache = libp2p_swarm_sup:cache(TID),
+                    Cache = libp2p_swarm:cache(TID),
                     ok = libp2p_cache:insert(Cache, {tcp_listen_addrs, Type}, ListenAddrs),
 
                     ChildSpec = ranch:child_spec(ListenAddrs,
@@ -437,7 +437,7 @@ tcp_listen_addrs(Socket) ->
     end.
 
 reuseport0(TID, Type, {0,0,0,0}, 0) ->
-    Cache = libp2p_swarm_sup:cache(TID),
+    Cache = libp2p_swarm:cache(TID),
     case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
         [] -> 0;
         ListenAddrs ->
@@ -451,7 +451,7 @@ reuseport0(TID, Type, {0,0,0,0}, 0) ->
             end
     end;
 reuseport0(TID, Type, {0,0,0,0,0,0,0,0}, 0) ->
-    Cache = libp2p_swarm_sup:cache(TID),
+    Cache = libp2p_swarm:cache(TID),
     case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
         [] -> 0;
         ListenAddrs ->
@@ -465,7 +465,7 @@ reuseport0(TID, Type, {0,0,0,0,0,0,0,0}, 0) ->
             end
     end;
 reuseport0(TID, Type, IP, 0) ->
-    Cache = libp2p_swarm_sup:cache(TID),
+    Cache = libp2p_swarm:cache(TID),
     case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
         [] -> 0;
         ListenAddrs ->

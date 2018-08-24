@@ -1,7 +1,7 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
-         opts/1, name/1, address/1, keys/1, peerbook/1, sessions/1,
+         opts/1, name/1, address/1, keys/1, peerbook/1, cache/1, sessions/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
          listen/2, listen_addrs/1,
@@ -127,6 +127,13 @@ peerbook(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook(TID) ->
     libp2p_swarm_sup:peerbook(TID).
+
+%% @doc Get the cache for a swarm.
+-spec cache(ets:tab() | pid()) -> pid().
+cache(Sup) when is_pid(Sup) ->
+    cache(tid(Sup));
+cache(TID) ->
+    libp2p_swarm_sup:cache(TID).
 
 %% @doc Get the options a swarm was started with.
 -spec opts(ets:tab() | pid()) -> swarm_opts() | any().
