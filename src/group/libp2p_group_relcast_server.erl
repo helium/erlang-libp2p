@@ -524,12 +524,12 @@ lookup_messages(Kind, Indices, #state{in_keys=InKeys, out_keys=OutKeys}) ->
     end.
 
 
--spec efoldl_messages(msg_filter_fun(), [{pos_integer(), [msg_key()]}], Acc::any()) -> {atom(), any()}.
-efoldl_messages(Fun, Messages, Acc) ->
+-spec efoldl_messages(msg_filter_fun(), Acc::any(), [{pos_integer(), [msg_key()]}]) -> any().
+efoldl_messages(Fun, Acc, Messages) ->
      Res = try
-              {ok, lists:foldl(Fun, Messages, Acc)}
+              lists:foldl(Fun, Acc, Messages)
           catch
-              throw:{What, R} -> {What, R}
+              throw:{ok, R} -> R
           end,
     Res.
 
@@ -537,19 +537,16 @@ efoldl_messages(Fun, Messages, Acc) ->
 -spec filter_messages(msg_filter_fun(), #state{}) -> #state{}.
 filter_messages(Pred, State=#state{store=Store}) ->
     Messages = lookup_messages(?OUTBOUND, all, State),
-    efoldl_messages(fun({Index, MsgKeys}, AccState) ->
-                            case efoldl_messages(fun(MsgKey, AccState1) ->
-                                                    {ok, Msg} = bitcask:get(Store, MsgKey),
-                                                    case Pred(Index, Msg) of
-                                                        true -> AccState1;
-                                                        false -> delete_message(MsgKey, AccState1);
-                                                        done -> throw({done, AccState1})
-                                                    end
-                                                 end, AccState, MsgKeys) of
-                                {ok, S} -> S;
-                                {done, S} -> S
-                            end
-                    end, State, Messages).
+    lists:foldl(fun({Index, MsgKeys}, AccState) ->
+                        efoldl_messages(fun(MsgKey, AccState1) ->
+                                                {ok, Msg} = bitcask:get(Store, MsgKey),
+                                                case Pred(Index, Msg) of
+                                                    true -> AccState1;
+                                                    false -> delete_message(MsgKey, AccState1);
+                                                    done -> throw({ok, AccState1})
+                                                end
+                                        end, AccState, MsgKeys)
+                end, State, Messages).
 
 send_messages([], State=#state{}) ->
     State;
