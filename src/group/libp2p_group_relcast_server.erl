@@ -57,10 +57,12 @@ send_ack(Pid, Index) ->
 %% messages since the remote end may have already achieved the desired
 %% state. Filtering messages allows this. The given predicate function
 %% can return true to keep the outbound message for the given indes,
-%% or false to delete it.
+%% or false to delete it. The messages for a given index are passed in
+%% from oldest to newest.
 %%
 %% To allow for an early exit the predicate function can return `done'
-%% to stop filtering messages immediately.
+%% to stop filtering messages for the given index immediately, and
+%% move on to the next index, if any.
 -spec filter(pid(), msg_filter_fun()) -> ok.
 filter(Pid, Pred) ->
     gen_server:cast(Pid, {filter, Pred}).
@@ -522,12 +524,12 @@ lookup_messages(Kind, Indices, #state{in_keys=InKeys, out_keys=OutKeys}) ->
     end.
 
 
--spec efoldl_messages(msg_filter_fun(), [{pos_integer(), [msg_key()]}], Acc::any()) -> any().
+-spec efoldl_messages(msg_filter_fun(), [{pos_integer(), [msg_key()]}], Acc::any()) -> {atom(), any()}.
 efoldl_messages(Fun, Messages, Acc) ->
      Res = try
-              lists:foldl(Fun, Messages, Acc)
+              {ok, lists:foldl(Fun, Messages, Acc)}
           catch
-              throw:{ok, R} -> R
+              throw:{What, R} -> {What, R}
           end,
     Res.
 
@@ -536,14 +538,17 @@ efoldl_messages(Fun, Messages, Acc) ->
 filter_messages(Pred, State=#state{store=Store}) ->
     Messages = lookup_messages(?OUTBOUND, all, State),
     efoldl_messages(fun({Index, MsgKeys}, AccState) ->
-                            lists:foldl(fun(MsgKey, AccState1) ->
-                                                {ok, Msg} = bitcask:get(Store, MsgKey),
-                                                case Pred(Index, Msg) of
-                                                    true -> AccState1;
-                                                    false -> delete_message(MsgKey, AccState1);
-                                                    done -> throw({ok, AccState1})
-                                                end
-                                        end, AccState, MsgKeys)
+                            case efoldl_messages(fun(MsgKey, AccState1) ->
+                                                    {ok, Msg} = bitcask:get(Store, MsgKey),
+                                                    case Pred(Index, Msg) of
+                                                        true -> AccState1;
+                                                        false -> delete_message(MsgKey, AccState1);
+                                                        done -> throw({done, AccState1})
+                                                    end
+                                                 end, AccState, MsgKeys) of
+                                {ok, S} -> S;
+                                {done, S} -> S
+                            end
                     end, State, Messages).
 
 send_messages([], State=#state{}) ->
@@ -586,9 +591,9 @@ store_delete_test() ->
     %% Drop all messages intil we hit OutKey32. This should delete
     %% Outkey12
     _State7 = filter_messages(fun(3, <<"outbound2">>) ->
-                                      false;
+                                      true;
                                  (_, _) ->
-                                      true
+                                      false
                               end, State6),
     {ok, _} = bitcask:get(Store, OutKey32),
     not_found = bitcask:get(Store, OutKey12),
