@@ -52,7 +52,7 @@ handle_info({identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
     libp2p_config:insert_session(TID, libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)), Session),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
-    NewState = remove_monitor(MonitorRef, Pid, State),
+    {_Kind, NewState} = remove_monitor(MonitorRef, Pid, State),
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:unregister_session(PeerBook, Pid),
     libp2p_config:remove_pid(TID, Pid),
@@ -103,7 +103,7 @@ add_monitor(Kind, Pid, State=#state{monitors=Monitors}) ->
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
     case lists:keytake(Pid, 1, Monitors) of
         false -> State;
-        {value, {Pid, {MonitorRef, _Kind}}, NewMonitors} ->
+        {value, {Pid, {MonitorRef, Kind}}, NewMonitors} ->
             libp2p_config:remove_pid(TID, Pid),
-            State#state{monitors=NewMonitors}
+            {Kind, State#state{monitors=NewMonitors}}
     end.
