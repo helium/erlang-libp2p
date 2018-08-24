@@ -7,7 +7,7 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, handle_input/2, send_ack/2, info/1]).
+-export([start_link/4, handle_input/2, send_ack/2, filter/2, info/1]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
@@ -42,12 +42,30 @@
 -type msg_key_prefix() :: <<_:128>>.
 -type msg_cache_entry() :: {pos_integer(), [msg_key()]}.
 
+-type msg_filter_fun() :: fun((pos_integer(), binary()) -> boolean() | done).
+
 %% API
 handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
 
 send_ack(Pid, Index) ->
     Pid ! {send_ack, Index}.
+
+%% @doc Filter outbound messages given a predicate.
+%%
+%% In some uses of the relcast group we need to delete outbound
+%% messages since the remote end may have already achieved the desired
+%% state. Filtering messages allows this. The given predicate function
+%% can return true to keep the outbound message for the given indes,
+%% or false to delete it. The messages for a given index are passed in
+%% from oldest to newest.
+%%
+%% To allow for an early exit the predicate function can return `done'
+%% to stop filtering messages for the given index immediately, and
+%% move on to the next index, if any.
+-spec filter(pid(), msg_filter_fun()) -> ok.
+filter(Pid, Pred) ->
+    gen_server:cast(Pid, {filter, Pred}).
 
 info(Pid) ->
     catch gen_server:call(Pid, info).
@@ -266,6 +284,8 @@ handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
             lager:debug("Unexpected ack for ~p", [Index]),
             {noreply, State}
     end;
+handle_cast({filter, Pred}, State=#state{}) ->
+    {noreply, filter_messages(Pred, State)};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
@@ -503,6 +523,31 @@ lookup_messages(Kind, Indices, #state{in_keys=InKeys, out_keys=OutKeys}) ->
                          end, Keys)
     end.
 
+
+-spec efoldl_messages(msg_filter_fun(), Acc::any(), [{pos_integer(), [msg_key()]}]) -> any().
+efoldl_messages(Fun, Acc, Messages) ->
+     Res = try
+              lists:foldl(Fun, Acc, Messages)
+          catch
+              throw:{ok, R} -> R
+          end,
+    Res.
+
+
+-spec filter_messages(msg_filter_fun(), #state{}) -> #state{}.
+filter_messages(Pred, State=#state{store=Store}) ->
+    Messages = lookup_messages(?OUTBOUND, all, State),
+    lists:foldl(fun({Index, MsgKeys}, AccState) ->
+                        efoldl_messages(fun(MsgKey, AccState1) ->
+                                                {ok, Msg} = bitcask:get(Store, MsgKey),
+                                                case Pred(Index, Msg) of
+                                                    true -> AccState1;
+                                                    false -> delete_message(MsgKey, AccState1);
+                                                    done -> throw({ok, AccState1})
+                                                end
+                                        end, AccState, MsgKeys)
+                end, State, Messages).
+
 send_messages([], State=#state{}) ->
     State;
 send_messages([{unicast, Index, Msg} | Tail], State=#state{}) ->
@@ -539,6 +584,16 @@ store_delete_test() ->
     State6 = delete_message(OutKey3, State5),
     not_found = bitcask:get(Store, OutKey3),
     ?assertEqual([{3, [OutKey32]}], lookup_messages(?OUTBOUND, [3], State6)),
+
+    %% Drop all messages intil we hit OutKey32. This should delete
+    %% Outkey12
+    _State7 = filter_messages(fun(3, <<"outbound2">>) ->
+                                      true;
+                                 (_, _) ->
+                                      false
+                              end, State6),
+    {ok, _} = bitcask:get(Store, OutKey32),
+    not_found = bitcask:get(Store, OutKey12),
     ok.
 
 store_recover_test() ->
