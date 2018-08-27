@@ -57,7 +57,7 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic(_Config) ->
-    SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
     Version = "proxytest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(proxy_basic_server, SwarmOpts),
@@ -138,7 +138,7 @@ basic(_Config) ->
     ok.
 
 two_proxy(_Config) ->
-    SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
     Version = "proxytest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(proxy_two_server, SwarmOpts),

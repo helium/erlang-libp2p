@@ -87,7 +87,7 @@ basic(Config) ->
                     ok;
                 {natpmp, discover, []} ->
                     ok;
-                {libp2p_transport_tcp, spawn_nat_discovery, _, _} ->
+                {libp2p_nat, spawn_discovery, _, _} ->
                     handle_discovery(L, undefined);
                 {natpmp, add_port_mapping, _} ->
                     handle_natpmp(L, undefined);
@@ -106,9 +106,9 @@ basic(Config) ->
 
 -spec handle_discovery(list(), any()) -> ok.
 handle_discovery([], _Meta) -> ok;
-handle_discovery([{libp2p_transport_tcp, spawn_nat_discovery, [_, [Addr|_], _]}|Traces], _Meta) ->
+handle_discovery([{libp2p_nat, spawn_discovery, [_, [Addr|_], _]}|Traces], _Meta) ->
     handle_discovery(Traces, Addr);
-handle_discovery([{libp2p_transport_tcp, handle_info, [{record_listen_addr, Addr, _ExtAddr}, _State]}|Traces], Addr) ->
+handle_discovery([{libp2p_transport_tcp, handle_info, [{nat_discovery, Addr, _ExtAddr}, _State]}|Traces], Addr) ->
     handle_discovery(Traces, Addr).
 
 -spec handle_natpmp(list(), any()) -> ok.
@@ -139,6 +139,7 @@ start_tracing(To) ->
     HandlerSpec = {HandlerFun, ok},
     {ok, _} = dbg:tracer(process, HandlerSpec),
     {ok, _} = dbg:tpl(libp2p_transport_tcp, '_', '_', []),
+    {ok, _} = dbg:tpl(libp2p_nat, '_', '_', []),
     {ok, _} = dbg:tpl(natpmp, '_', '_', []),
     {ok, _} = dbg:tpl(natupnp_v1, '_', '_', []),
     {ok, _} = dbg:p(all, [c]),
@@ -147,13 +148,9 @@ start_tracing(To) ->
 -spec gather_traces(list()) -> map().
 gather_traces(Acc) ->
     receive
-        {trace, Pid, call, {libp2p_transport_tcp, spawn_nat_discovery, _}=Data} ->
+        {trace, Pid, call, {libp2p_nat, spawn_discovery, _}=Data} ->
             gather_traces([{Pid, Data}|Acc]);
-        {trace, Pid, call, {libp2p_transport_tcp, try_nat_pmp, _}=Data} ->
-            gather_traces([{Pid, Data}|Acc]);
-        {trace, Pid, call, {libp2p_transport_tcp, try_natupnp_v1, _}=Data} ->
-            gather_traces([{Pid, Data}|Acc]);
-        {trace, Pid, call, {libp2p_transport_tcp, nat_external_address, _}=Data} ->
+        {trace, Pid, call, {libp2p_nat, add_port_mapping, _}=Data} ->
             gather_traces([{Pid, Data}|Acc]);
         {trace, Pid, call, {libp2p_transport_tcp, handle_info, _}=Data} ->
             gather_traces([{Pid, Data}|Acc]);

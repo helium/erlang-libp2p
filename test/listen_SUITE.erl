@@ -125,7 +125,7 @@ bad_addr(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 port0_reuse(_Config) ->
-    SwarmOpts = [{libp2p_transport_tcp, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
 
     {ok, Swarm} = libp2p_swarm:start(listen_port0_reuse, SwarmOpts),
     true = erlang:register(test, Swarm),
