@@ -124,11 +124,12 @@ init({TID, Connection, _Path, NextStreamId, WaitShoot}) ->
         no_wait_shoot -> self() ! {shoot_connection, Connection};
         _ -> ok
     end,
-    gen_server:enter_loop(?MODULE, [], State, ?TIMEOUT).
+    gen_server:enter_loop(?MODULE, [], update_metadata(State), ?TIMEOUT).
 
 handle_info({shoot_connection, NewConnection}, State=#state{send_pid=undefined}) ->
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), NewConnection)),
-    {noreply, fdset(NewConnection, State#state{send_pid=SendPid, connection=NewConnection})};
+    NewState = update_metadata(State#state{send_pid=SendPid, connection=NewConnection}),
+    {noreply, fdset(NewConnection, NewState)};
 handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
     case read_header(Connection) of
         {error, closed} ->
@@ -461,3 +462,15 @@ header_data(StreamID, Flags, Length) ->
 -spec header_length(header()) -> non_neg_integer().
 header_length(#header{length=Length}) ->
     Length.
+
+-spec update_metadata(#state{}) -> #state{}.
+update_metadata(State=#state{connection=undefined}) ->
+    State;
+update_metadata(State=#state{connection=Connection}) ->
+    {LocalAddr, RemoteAddr} = libp2p_connection:addr_info(Connection),
+    libp2p_lager_metadata:update(
+      [
+       {session_local, LocalAddr},
+       {session_remote, RemoteAddr}
+      ]),
+    State.

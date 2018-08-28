@@ -4,7 +4,7 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, assign_target/2, assign_stream/3, send/3, send_ack/1]).
+-export([start_link/5, assign_target/2, assign_stream/3, send/3, send_ack/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -18,6 +18,7 @@
 -record(data,
         { tid :: ets:tab(),
           kind :: atom(),
+          group_id :: string(),
           server :: pid(),
           client_spec=undefined :: undefined | libp2p_group:stream_client_spec(),
           target=undefined :: undefined | string(),
@@ -58,20 +59,21 @@ info(Pid) ->
 %% gen_statem
 %%
 
--spec start_link(atom(), libp2p_group:stream_client_spec(), pid(), ets:tab()) ->
+-spec start_link(atom(), libp2p_group:stream_client_spec(), pid(), string(), ets:tab()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Kind, ClientSpec, Server, TID) ->
-    gen_statem:start_link(?MODULE, [Kind, ClientSpec, Server, TID], []).
+start_link(Kind, ClientSpec, Server, GroupID, TID) ->
+    gen_statem:start_link(?MODULE, [Kind, ClientSpec, Server, GroupID, TID], []).
 
 
 callback_mode() -> [state_functions, state_enter].
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Kind, ClientSpec, Server, TID]) ->
+init([Kind, ClientSpec, Server, GroupID, TID]) ->
     process_flag(trap_exit, true),
-    {ok, request_target, #data{tid=TID, server=Server, kind=Kind, client_spec=ClientSpec}}.
+    {ok, request_target,
+     update_metadata(#data{tid=TID, server=Server, kind=Kind, group_id=GroupID, client_spec=ClientSpec})}.
 
 -spec request_target('enter', Msg :: term(), Data :: term()) ->
                             gen_statem:state_enter_result(request_target);
@@ -85,7 +87,7 @@ request_target(timeout, _, #data{}) ->
 request_target(cast, {assign_target, undefined}, #data{}) ->
     {keep_state_and_data, ?ASSIGN_RETRY};
 request_target(cast, {assign_target, MAddr}, Data=#data{}) ->
-    {next_state, connect, Data#data{target=MAddr}};
+    {next_state, connect, update_metadata(Data#data{target=MAddr})};
 request_target(cast, {send, Ref, _Bin}, #data{server=Server}) ->
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     {keep_state_and_data, ?ASSIGN_RETRY};
@@ -158,14 +160,14 @@ connect(info, {assign_session, SessionPid},
     %% session. Success, no timeout needed
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                            stream_monitor=monitor_stream(undefined, Data)}};
-connect(info, {assign_session, SessionPid}, Data=#data{client_spec={Path, {M, A}}}) ->
+connect(info, {assign_session, SessionPid}, Data=#data{target=Target, client_spec={Path, {M, A}}}) ->
     %% Assign session with a client spec. Start client
     case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of
         {ok, StreamPid} ->
             {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                                    stream_monitor=monitor_stream(StreamPid, Data)}};
         {error, Error} ->
-            lager:notice("Failed to start client on ~p: ~p", [Path, Error]),
+            lager:notice("Failed to start client on target: ~s path: ~s: ~p", [Target, Path, Error]),
             {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
                                                  stream_monitor=monitor_stream(undefined, Data)})}
     end;
@@ -287,3 +289,31 @@ kill_pid(Pid) ->
     unlink(Pid),
     erlang:exit(Pid, kill),
     undefined.
+
+update_metadata(Data=#data{}) ->
+    Path = fun(undefined) ->
+                   undefined;
+              ({P, _}) -> P
+           end,
+    SessionRemote = fun(undefined) ->
+                            undefined;
+                       ({_, Pid}) ->
+                            {_, RemoteAddr} = libp2p_session:addr_info(Pid),
+                            RemoteAddr
+                    end,
+    SessionLocal = fun(undefined) ->
+                            undefined;
+                       ({_, Pid}) ->
+                            {LocalAddr, _} = libp2p_session:addr_info(Pid),
+                            LocalAddr
+                    end,
+    libp2p_lager_metadata:update(
+      [
+       {target, Data#data.target},
+       {path, Path(Data#data.client_spec)},
+       {index, Data#data.kind},
+       {group_id, Data#data.group_id},
+       {session_local, SessionLocal(Data#data.session_monitor)},
+       {session_remote, SessionRemote(Data#data.session_monitor)}
+      ]),
+    Data.

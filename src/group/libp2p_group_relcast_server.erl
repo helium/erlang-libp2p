@@ -108,11 +108,13 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
                                                         _ ->
                                                             HandlerState
                                                     end,
-                            {ok, #state{sup=Sup, tid=TID, group_id=GroupID,
-                                        self_index=SelfIndex,
-                                        out_keys=OutKeys,
-                                        in_keys=InKeys,
-                                        handler=Handler, handler_state=RecoveredHandlerState, store=Ref}};
+                            {ok, update_metadata(#state{sup=Sup, tid=TID, group_id=GroupID,
+                                                        self_index=SelfIndex,
+                                                        out_keys=OutKeys,
+                                                        in_keys=InKeys,
+                                                        handler=Handler,
+                                                        handler_state=RecoveredHandlerState,
+                                                        store=Ref})};
                         false ->
                             {stop, {error, {not_found, SelfAddr}}}
                     end
@@ -329,8 +331,7 @@ save_state(_State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerSt
     end.
 
 -spec start_workers([string()], #state{}) -> [#worker{}].
-start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
-                                  self_index=SelfIndex}) ->
+start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index=SelfIndex}) ->
     WorkerSup = libp2p_group_relcast_sup:workers(Sup),
     Path = lists:flatten([?GROUP_PATH_BASE, GroupID, "/",
                           libp2p_crypto:address_to_b58(libp2p_swarm:address(TID))]),
@@ -345,7 +346,7 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID,  tid=TID,
                                           WorkerSup,
                                           #{ id => make_ref(),
                                              start => {libp2p_group_worker, start_link,
-                                                       [Index, ClientSpec, self(), TID]},
+                                                       [Index, ClientSpec, self(), GroupID, TID]},
                                              restart => permanent
                                            }),
                       %% sync on the mailbox having been flushed.
@@ -450,7 +451,7 @@ filter_ready_workers(Indexes, State=#state{}) ->
                     end, Indexes).
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
-    lists:flatten(["/p2p/", libp2p_crypto:address_to_b58(Addr)]);
+    libp2p_crypto:address_to_p2p(Addr);
 mk_multiaddr(Path) when is_list(Path) ->
     lists:flatten(["/p2p", Path]).
 
@@ -558,6 +559,14 @@ send_messages([{multicast, Msg} | Tail], State=#state{workers=Workers, self_inde
     %% lager:debug("~p STORED MULTICAST: ~p", [SelfIndex, base58:binary_to_base58(Key)]),
     {_, NewState} = store_message(?OUTBOUND, Indexes, Msg, State),
     send_messages(Tail, dispatch_next_messages(Indexes, NewState)).
+
+update_metadata(State=#state{group_id=GroupID}) ->
+    libp2p_lager_metadata:update(
+      [
+       {group_id, GroupID}
+      ]),
+    State.
+
 
 %% Tests
 %%
