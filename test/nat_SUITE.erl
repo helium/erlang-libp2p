@@ -5,13 +5,13 @@
 
 -export([
     all/0
-    ,groups/0
     ,init_per_testcase/2
     ,end_per_testcase/2
 ]).
 
 -export([
     basic/1
+    ,statem/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -25,17 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [{group, nat}].
-
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%%   Tests groups
-%% @end
-%%--------------------------------------------------------------------
-groups() ->
-    [{nat, [], [basic]}].
-
+    [basic, statem].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -43,10 +33,10 @@ groups() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, Config) ->
+init_per_testcase(_, _Config) ->
     test_util:setup(),
-    {ok, Swarm} = libp2p_swarm:start(test),
-    [{swarm, Swarm} | Config].
+    lager:set_loglevel(lager_console_backend, info),
+    _Config.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -54,9 +44,8 @@ init_per_testcase(_, Config) ->
 %%   Special end config for test case
 %% @end
 %%--------------------------------------------------------------------
-end_per_testcase(_, Config) ->
-    Swarm = proplists:get_value(swarm, Config),
-    test_util:teardown_swarms([Swarm]).
+end_per_testcase(_, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -67,13 +56,13 @@ end_per_testcase(_, Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+basic(_Config) ->
+    {ok, Swarm} = libp2p_swarm:start(nat_basic),
 
     start_tracing(self()),
 
     [] = libp2p_swarm:listen_addrs(Swarm),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/8333"),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
     Traces = gather_traces([]),
 
@@ -98,7 +87,13 @@ basic(Config) ->
             end
         end
         ,maps:keys(Traces)
-    ).
+    ),
+    libp2p_swarm:stop(Swarm).
+
+statem(_Config) ->
+    {ok, Swarm} = libp2p_swarm:start(nat_statem),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:stop(Swarm).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
