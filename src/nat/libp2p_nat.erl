@@ -31,6 +31,7 @@ maybe_spawn_discovery(Pid, MultiAddrs, TID) ->
         _ ->
             lager:warning("nat is disabled")
     end.
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -55,6 +56,10 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
             end
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 maybe_apply_nat_map({IP, Port}) ->
     Map = application:get_env(libp2p, nat_map, #{}),
     case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
@@ -68,6 +73,10 @@ maybe_apply_nat_map({IP, Port}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec discovery_filter(string()) -> false | {true, any()}.
 discovery_filter(MultiAddr) ->
     case libp2p_transport_tcp:tcp_addr(MultiAddr) of
@@ -79,20 +88,41 @@ discovery_filter(MultiAddr) ->
         _ -> false
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec add_port_mapping(integer()) -> {ok, string()} | {error, any()}.
 add_port_mapping(Port) ->
+    add_port_mapping(Port, 3).
+
+-spec add_port_mapping(integer(), integer()) -> {ok, string()} | {error, any()}.
+add_port_mapping(_Port, 0) ->
+    {error, too_many_retries};
+add_port_mapping(Port, Retry) ->
     case nat:discover() of
         {ok, Context} ->
-            case nat:add_port_mapping(Context, tcp, Port, Port, 0) of
-                {ok, _Since, Port, Port, _MappingLifetime} ->
+            Lease = retry_lease(Retry),
+            case nat:add_port_mapping(Context, tcp, Port, Port, Lease) of
+                {ok, _Since, Port, Port, _Lease} ->
                     ExternalAddress = nat:get_external_address(Context),
                     {ok, ExternalAddress};
-                {error, _Reason}=Error ->
-                    Error
+                {error, _Reason} ->
+                    lager:warning("failed to add port mapping for ~p: ", [{Port, Lease}, _Reason]),
+                    add_port_mapping(Port, Retry-1)
             end;
         no_nat ->
             {error, no_nat}
     end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec retry_lease(integer()) -> integer().
+retry_lease(3) -> 0;
+retry_lease(2) -> 60*60*24;
+retry_lease(1) -> 60*60.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
