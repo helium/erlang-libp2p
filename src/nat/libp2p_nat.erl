@@ -9,7 +9,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    maybe_spawn_discovery/3, spawn_discovery/3
+    enabled/1
+    ,maybe_spawn_discovery/3, spawn_discovery/3
     ,maybe_apply_nat_map/1
 ]).
 
@@ -21,14 +22,24 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec enabled(ets:tab() | list()) -> boolean().
+enabled(Opts) when is_list(Opts) ->
+    libp2p_config:get_opt(Opts, [?MODULE, nat], true);
+enabled(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    libp2p_config:get_opt(Opts, [?MODULE, nat], true).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 -spec maybe_spawn_discovery(pid(), [string()], ets:tab()) -> ok.
 maybe_spawn_discovery(Pid, MultiAddrs, TID) ->
-    Opts = libp2p_swarm:opts(TID),
-    case libp2p_config:get_opt(Opts, [?MODULE, nat], true) of
+    case ?MODULE:enabled(TID) of
         true ->
             erlang:spawn(?MODULE, spawn_discovery, [Pid, MultiAddrs, TID]),
             ok;
-        _ ->
+        false ->
             lager:warning("nat is disabled")
     end.
 
@@ -41,12 +52,13 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
     case lists:filtermap(fun discovery_filter/1, MultiAddrs) of
         [] -> ok;
         [{MultiAddr, _IP, Port}|_] ->
+            lager:info("trying to map ~p ~p", [MultiAddr, Port]),
             %% TODO we should make a port mapping for EACH address
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
             case add_port_mapping(Port) of
-                {ok, ExternalAddr} ->
+                {ok, ExternalAddr, _Lease} ->
                     {ok, ParsedExtAddress} = inet_parse:address(ExternalAddr),
                     ExternalMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, Port}),
                     Pid ! {nat_discovery, MultiAddr, ExternalMultiAddr},
@@ -92,11 +104,13 @@ discovery_filter(MultiAddr) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(integer()) -> {ok, string()} | {error, any()}.
+-spec add_port_mapping(integer()) -> {ok, string(), integer()}
+                                     | {error, any()}.
 add_port_mapping(Port) ->
     add_port_mapping(Port, 3).
 
--spec add_port_mapping(integer(), integer()) -> {ok, string()} | {error, any()}.
+-spec add_port_mapping(integer(), integer()) -> {ok, string(), integer()}
+                                                | {error, any()}.
 add_port_mapping(_Port, 0) ->
     {error, too_many_retries};
 add_port_mapping(Port, Retry) ->
@@ -105,8 +119,8 @@ add_port_mapping(Port, Retry) ->
             Lease = retry_lease(Retry),
             case nat:add_port_mapping(Context, tcp, Port, Port, Lease) of
                 {ok, _Since, Port, Port, _Lease} ->
-                    ExternalAddress = nat:get_external_address(Context),
-                    {ok, ExternalAddress};
+                    {ok, ExternalAddress} = nat:get_external_address(Context),
+                    {ok, ExternalAddress, Lease};
                 {error, _Reason} ->
                     lager:warning("failed to add port mapping for ~p: ", [{Port, Lease}, _Reason]),
                     add_port_mapping(Port, Retry-1)
