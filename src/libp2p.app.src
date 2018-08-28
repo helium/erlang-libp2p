@@ -21,6 +21,7 @@
                   stdlib,
                   crypto,
                   lager,
+                  cuttlefish,
                   ranch,
                   inert,
                   multiaddr,

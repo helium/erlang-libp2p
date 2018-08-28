@@ -22,7 +22,7 @@
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
-
+-define(GROUP_ID, "gossip").
 
 %% gen_server
 %%
@@ -42,9 +42,9 @@ init([Sup, TID]) ->
     ClientSpec = libp2p_group_gossip:get_opt(Opts, stream_client, undefined),
     SeedNodes = libp2p_group_gossip:get_opt(Opts, seed_nodes, []),
     self() ! {start_workers, PeerBookCount, length(SeedNodes)},
-    {ok, #state{sup=Sup, tid=TID, client_spec=ClientSpec,
-                seed_nodes=SeedNodes, peerbook_connections=PeerBookCount,
-                drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)}}.
+    {ok, update_metadata(#state{sup=Sup, tid=TID, client_spec=ClientSpec,
+                                seed_nodes=SeedNodes, peerbook_connections=PeerBookCount,
+                                drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)})}.
 
 handle_call(workers, _From, State=#state{}) ->
     {reply, connections(all, State), State};
@@ -139,13 +139,20 @@ drop_target(Kind, WorkerPid, State=#state{workers=Workers}) ->
 start_child(Kind, #state{tid=TID, client_spec=ClientSpec, sup=Sup}) ->
     WorkerSup = libp2p_group_gossip_sup:workers(Sup),
     ChildSpec = #{ id => make_ref(),
-                   start => {libp2p_group_worker, start_link, [Kind, ClientSpec, self(), TID]},
+                   start => {libp2p_group_worker, start_link, [Kind, ClientSpec, self(), ?GROUP_ID, TID]},
                    restart => permanent
                  },
     {ok, WorkerPid} = supervisor:start_child(WorkerSup, ChildSpec),
     {Kind, WorkerPid, undefined}.
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
-    lists:flatten(["/p2p/", libp2p_crypto:address_to_b58(Addr)]);
+    libp2p_crypto:address_to_p2p(Addr);
 mk_multiaddr(Value) ->
     Value.
+
+update_metadata(State=#state{}) ->
+    libp2p_lager_metadata:update(
+      [
+       {group_id, ?GROUP_ID}
+      ]),
+    State.
