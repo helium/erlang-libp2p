@@ -94,8 +94,7 @@ init([Name, Opts]) ->
                   }
                  ]
                  ++ group_agent_spec(Opts, TID)
-                 ++ include_proxy(TID, Opts)
-                 ++ include_nat(TID, Opts),
+                 ++ include_proxy(TID, Opts),
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -126,20 +125,6 @@ include_proxy(TID, Opts) ->
                 ,10000
                 ,worker
                 ,[libp2p_proxy_server]
-            }]
-    end.
-
-include_nat(TID, Opts) ->
-    case libp2p_nat:enabled(Opts) of
-        false -> [];
-        true ->
-            [{
-                nat
-                ,{libp2p_nat_statem, start_link, [[TID]]}
-                ,permanent
-                ,10000
-                ,worker
-                ,[libp2p_nat_statem]
             }]
     end.
 
