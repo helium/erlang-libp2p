@@ -32,11 +32,14 @@
     tid :: ets:tab() | undefined
     ,peers = []
     ,peer_index = 1
+    ,flap_count = 0
     ,swarm :: pid() | undefined
     ,started = false :: boolean()
 }).
 
 -type state() :: #state{}.
+
+-define(FLAP_LIMIT, 3).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -79,7 +82,7 @@ handle_call(init_relay, _From, #state{swarm=Swarm}=State0) ->
     case int_relay(State) of
         {ok, _}=Resp ->
             lager:info("relay started successfuly"),
-            {reply, Resp, State#state{started=true}};
+            {reply, Resp, add_flap(State#state{started=true})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             erlang:send_after(2500, self(), try_relay),
@@ -98,7 +101,6 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({new_peers, _}, #state{started=true}=State) ->
-    lager:info("relay already started, just adding new peer"),
     {noreply, State#state{peers=sort_peers(State#state.swarm), peer_index=1}};
 handle_info({new_peers, _}, #state{swarm=Swarm, started=false}=State) ->
     self() ! try_relay,
@@ -107,7 +109,7 @@ handle_info(try_relay, State = #state{started=false}) ->
     case int_relay(State) of
         {ok, _} ->
             lager:info("relay started successfuly"),
-            {noreply, State#state{started=true}};
+            {noreply, add_flap(State#state{started=true})};
         {error, no_peer} ->
             lager:warning("could not initiate relay no peer found"),
             {noreply, State};
@@ -196,4 +198,12 @@ next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
             State#state{peer_index=1};
         false ->
             State#state{peer_index=PeerIndex +1}
+    end.
+
+add_flap(State = #state{flap_count=Flaps}) ->
+    case Flaps + 1 >= ?FLAP_LIMIT of
+        true ->
+            next_peer(State#state{flap_count=0});
+        false ->
+            State#state{flap_count=Flaps+1}
     end.
