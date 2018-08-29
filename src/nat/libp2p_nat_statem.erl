@@ -81,7 +81,7 @@ started(Type, Content, Data) ->
     handle_event(Type, Content, Data).
 
 active(info, renew, #data{port=Port}=Data) ->
-    case libp2p_nat:add_port_mapping(Port) of
+    case libp2p_nat:add_port_mapping(Port, false) of
         {ok, _, Lease, Since} ->
             _ = erlang:send_after(Lease-10, self(), renew),
             {keep_state, Data#data{lease=Lease, since=Since}};

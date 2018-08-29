@@ -11,7 +11,7 @@
 -export([
     enabled/1
     ,maybe_spawn_discovery/3, spawn_discovery/3
-    ,add_port_mapping/1
+    ,add_port_mapping/2
     ,maybe_apply_nat_map/1
 ]).
 
@@ -59,7 +59,7 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
             {ok, Statem} = libp2p_nat_statem:start([Pid]),
-            case add_port_mapping(Port) of
+            case add_port_mapping(Port, true) of
                 {ok, ExternalAddr, Lease, Since} ->
                     _ = libp2p_nat_statem:register(Statem, Port, Lease, Since),
                     {ok, ParsedExtAddress} = inet_parse:address(ExternalAddr),
@@ -75,9 +75,17 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(integer()) -> {ok, string(), integer(), integer()}
-                                     | {error, any()}.
-add_port_mapping(Port) ->
+-spec add_port_mapping(integer(), boolean()) -> {ok, string(), integer(), integer()}
+                                                | {error, any()}.
+
+add_port_mapping(Port, false) ->
+    case nat:discover() of
+        {ok, Context} ->
+            add_port_mapping(Context, Port, 3);
+        no_nat ->
+            {error, no_nat}
+    end;
+add_port_mapping(Port, true) ->
     case nat:discover() of
         {ok, Context} ->
             case nat:delete_port_mapping(Context, tcp, Port, Port) of
