@@ -3,6 +3,7 @@
 -export([types/0, update/1, from_strings/1]).
 
 -type md_type() :: pid
+                 | application
                  | module
                  | function
                  | line
@@ -10,6 +11,7 @@
                  | path
                  | string
                  | index
+                 | kind
                  | group_id
                  | session_local
                  | session_remote.
@@ -19,12 +21,14 @@
 types() ->
     #{
       pid => string,
+      application => atom,
       module => atom,
       function => atom,
       line => integer,
       target => string,
       path => string,
       index => integer,
+      kind => atom,
       group_id => string,
       session_local => string,
       session_remote => string
