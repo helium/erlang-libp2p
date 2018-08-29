@@ -139,13 +139,13 @@ discovery_filter(MultiAddr) ->
 add_port_mapping(_Context, _Port, 0) ->
     {error, too_many_retries};
 add_port_mapping(Context, Port, Retry) ->
-    Lease = retry_lease(Retry),
-    case nat:add_port_mapping(Context, tcp, Port, Port, Lease) of
-        {ok, Since, Port, Port, _Lease} ->
+    Lease0 = retry_lease(Retry),
+    case nat:add_port_mapping(Context, tcp, Port, Port, Lease0) of
+        {ok, Since, Port, Port, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
-            {ok, ExternalAddress, Lease, Since};
+            {ok, ExternalAddress, Lease1, Since};
         {error, _Reason} ->
-            lager:warning("failed to add port mapping for ~p: ", [{Port, Lease}, _Reason]),
+            lager:warning("failed to add port mapping for ~p: ~p", [{Port, Lease0}, _Reason]),
             add_port_mapping(Context, Port, Retry-1)
     end.
 

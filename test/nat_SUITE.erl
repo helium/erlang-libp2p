@@ -91,13 +91,60 @@ basic(_Config) ->
     libp2p_swarm:stop(Swarm).
 
 statem(_Config) ->
+    Self = self(),
+    MockLease = 3000,
+    Since = 0,
+
+    meck:new(nat, [unstick, passthrough]),
+    meck:expect(nat, discover, fun() ->
+        {ok, context}
+    end),
+    meck:expect(nat, add_port_mapping, fun(_Context, tcp, Port, Port, 0) ->
+        {error, error};
+                                          (_Context, tcp, Port, Port, _Lease) ->
+        {ok, Since, Port, Port, MockLease}
+    end),
+    meck:expect(nat, get_external_address, fun(_Context) ->
+        {ok, "127.0.0.1"}
+    end),
+    meck:expect(nat, delete_port_mapping, fun(_Context, tcp, _Port, _Port) ->
+        ok
+    end),
+
+    meck:new(libp2p_nat_statem, [unstick, passthrough]),
+    meck:expect(libp2p_nat_statem, start, fun(Args) ->
+        {ok, Pid} = gen_statem:start(libp2p_nat_statem, Args, []),
+        erlang:trace(Pid, true, [{tracer, Self}, 'receive']),
+        {ok, Pid}
+    end),
+
     {ok, Swarm} = libp2p_swarm:start(nat_statem),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
-    libp2p_swarm:stop(Swarm).
+
+    statem_rcv(MockLease, Since),
+
+    libp2p_swarm:stop(Swarm),
+
+    ?assert(meck:validate(nat)),
+    meck:unload(nat),
+    ?assert(meck:validate(libp2p_nat_statem)),
+    meck:unload(libp2p_nat_statem).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+statem_rcv(MockLease, Since) ->
+    receive
+        {trace, _, 'receive', renew} ->
+            ok;
+        {trace, _, 'receive', {'$gen_cast', {register, _port, MockLease, Since}}} ->
+            statem_rcv(MockLease, Since);
+        {trace, _, 'receive', {_, meck_passthrough}} ->
+            statem_rcv(MockLease, Since);
+        M ->
+            ct:fail(M)
+    after 4000 -> ct:fail(timeout)
+    end.
 
 -spec handle_discovery(list(), any()) -> ok.
 handle_discovery([], _Meta) -> ok;
