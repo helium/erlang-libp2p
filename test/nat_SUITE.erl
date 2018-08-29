@@ -88,6 +88,7 @@ basic(_Config) ->
         end
         ,maps:keys(Traces)
     ),
+    ok = dbg:stop(),
     libp2p_swarm:stop(Swarm).
 
 statem(_Config) ->
@@ -95,7 +96,7 @@ statem(_Config) ->
     MockLease = 3000,
     Since = 0,
 
-    meck:new(nat, [unstick, passthrough]),
+    meck:new(nat, [no_link, passthrough]),
     meck:expect(nat, discover, fun() ->
         {ok, context}
     end),
@@ -111,7 +112,7 @@ statem(_Config) ->
         ok
     end),
 
-    meck:new(libp2p_nat_statem, [unstick, passthrough]),
+    meck:new(libp2p_nat_statem, [no_link, passthrough]),
     meck:expect(libp2p_nat_statem, start, fun(Args) ->
         {ok, Pid} = gen_statem:start(libp2p_nat_statem, Args, []),
         erlang:trace(Pid, true, [{tracer, Self}, 'receive']),
