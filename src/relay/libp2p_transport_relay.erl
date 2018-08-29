@@ -149,6 +149,6 @@ check_peerbook(TID, MAddr) ->
 
 -spec p2p_address(libp2p_peer:peer() | binary()) -> string().
 p2p_address(Address) when is_binary(Address) ->
-    "/p2p/" ++ libp2p_crypto:address_to_b58(Address);
+    libp2p_crypto:address_to_p2p(Address);
 p2p_address(Peer) ->
-    "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_peer:address(Peer)).
+    p2p_address(libp2p_peer:address(Peer)).

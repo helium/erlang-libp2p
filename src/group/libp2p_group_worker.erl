@@ -17,7 +17,7 @@
 
 -record(data,
         { tid :: ets:tab(),
-          kind :: atom(),
+          kind :: atom() | pos_integer(),
           group_id :: string(),
           server :: pid(),
           client_spec=undefined :: undefined | libp2p_group:stream_client_spec(),
@@ -307,11 +307,16 @@ update_metadata(Data=#data{}) ->
                             {LocalAddr, _} = libp2p_session:addr_info(Pid),
                             LocalAddr
                     end,
+    IndexOrKind = fun(V) when is_atom(V) ->
+                          {kind, V};
+                     (I) when is_integer(I) ->
+                          {index, I}
+                  end,
     libp2p_lager_metadata:update(
       [
        {target, Data#data.target},
        {path, Path(Data#data.client_spec)},
-       {index, Data#data.kind},
+       IndexOrKind(Data#data.kind),
        {group_id, Data#data.group_id},
        {session_local, SessionLocal(Data#data.session_monitor)},
        {session_remote, SessionRemote(Data#data.session_monitor)}

@@ -154,7 +154,7 @@ int_relay(#state{peers=[]}) ->
 int_relay(State=#state{swarm=Swarm}) ->
     lager:info("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     Peer = lists:nth(State#state.peer_index, State#state.peers),
-    Address = "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_peer:address(Peer)),
+    Address = libp2p_crypto:address_to_p2p(libp2p_peer:address(Peer)),
     lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
     libp2p_relay:dial_framed_stream(Swarm, Address, []).
 

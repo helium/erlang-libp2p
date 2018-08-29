@@ -226,7 +226,7 @@ handle_client_data(_Data, _Env, State) ->
 
 -spec craft_p2p_address(pid()) -> string().
 craft_p2p_address(Swarm) ->
-    "/p2p/" ++ libp2p_crypto:address_to_b58(libp2p_swarm:address(Swarm)).
+    libp2p_crypto:address_to_p2p(libp2p_swarm:address(Swarm)).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
