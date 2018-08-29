@@ -11,8 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
-    ,ok/1
+    start/1
+    ,register/4
 ]).
 
 %% ------------------------------------------------------------------
@@ -29,67 +29,73 @@
 %% gen_statem callbacks Exports
 %% ------------------------------------------------------------------
 -export([
-    enabled/3
+    started/3
+    ,active/3
 ]).
 
 -record(data, {
-    tid :: ets:tab() | undefined
-    ,cache :: pid() | undefined
+    port :: integer() | undefined
+    ,lease :: integer() | undefined
+    ,since :: integer() | undefined
 }).
+
+-define(CACHE_KEY, nat_lease).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_statem:start_link(?MODULE, Args, []).
+start(Args) ->
+    gen_statem:start(?MODULE, Args, []).
 
-ok(TID) ->
-    case get_nat_statem(TID) of
-        {ok, Pid} ->
-            gen_server:call(Pid, ok);
-        {error, _}=Error ->
-            Error
-    end.
+register(Pid, Port, Lease, Since) ->
+    gen_server:cast(Pid, {register, Port, Lease, Since}).
 
 %% ------------------------------------------------------------------
 %% gen_statem Function Definitions
 %% ------------------------------------------------------------------
-init([TID]=_Args) ->
+init([Pid]=_Args) ->
     lager:info("init with ~p", [_Args]),
-    Cache = libp2p_swarm:cache(TID),
-    true = libp2p_config:insert_nat(TID, self()),
-    {ok, enabled, #data{tid=TID, cache=Cache}}.
+    true = erlang:link(Pid),
+    {ok, started, #data{}}.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 callback_mode() -> state_functions.
 
-terminate(_Reason, _State, #data{tid=TID}) ->
-    true = libp2p_config:remove_nat(TID),
+terminate(_Reason, _State, _Data) ->
     ok.
 
 %% ------------------------------------------------------------------
 %% gen_statem callbacks
 %% ------------------------------------------------------------------
 
-enabled(Type, Content, State) ->
-    handle_event(Type, Content, State).
+started(cast, {register, Port, Lease, Since}, Data) ->
+    case Lease =:= 0 of
+        false -> ok;
+        true ->
+            _ = erlang:send_after(Lease-10, self(), renew)
+    end,
+    {next_state, active, Data#data{port=Port, lease=Lease, since=Since}};
+started(Type, Content, Data) ->
+    handle_event(Type, Content, Data).
 
-handle_event({call, From}, ok, Data) ->
-    Reply = [{reply, From, ok}],
-    {keep_state, Data, Reply};
-handle_event(_Type, _Content, State) ->
+active(info, renew, #data{port=Port}=Data) ->
+    case libp2p_nat:add_port_mapping(Port) of
+        {ok, _, Lease, Since} ->
+            _ = erlang:send_after(Lease-10, self(), renew),
+            {keep_state, Data#data{lease=Lease, since=Since}};
+        {error, _Reason} ->
+            lager:warning("failed to renew lease for port ~p: ~p", [Port, _Reason]),
+            {stop, renew_failed}
+    end;
+active(Type, Content, Data) ->
+    handle_event(Type, Content, Data).
+
+handle_event(_Type, _Content, Data) ->
     lager:warning("got unhandled msg ~p ~p", [_Type, _Content]),
-    {keep_state, State}.
+    {keep_state, Data}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
--spec get_nat_statem(ets:tab()) -> {ok, pid()} | {error, any()}.
-get_nat_statem(TID) ->
-    case libp2p_config:lookup_nat(TID) of
-        false -> {error, no_nat_statem};
-        {ok, _Pid}=R -> R
-    end.

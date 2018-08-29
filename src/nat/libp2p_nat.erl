@@ -11,6 +11,7 @@
 -export([
     enabled/1
     ,maybe_spawn_discovery/3, spawn_discovery/3
+    ,add_port_mapping/1
     ,maybe_apply_nat_map/1
 ]).
 
@@ -57,15 +58,36 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
+            {ok, Statem} = libp2p_nat_statem:start([Pid]),
             case add_port_mapping(Port) of
-                {ok, ExternalAddr, _Lease} ->
+                {ok, ExternalAddr, Lease, Since} ->
+                    _ = libp2p_nat_statem:register(Statem, Port, Lease, Since),
                     {ok, ParsedExtAddress} = inet_parse:address(ExternalAddr),
                     ExternalMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, Port}),
-                    Pid ! {nat_discovery, MultiAddr, ExternalMultiAddr},
+                    Pid ! {nat_discovered, MultiAddr, ExternalMultiAddr},
                     ok;
                 {error, _Reason} ->
                     lager:warning("unable to add nat mapping: ~p", [_Reason])
             end
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec add_port_mapping(integer()) -> {ok, string(), integer(), integer()}
+                                     | {error, any()}.
+add_port_mapping(Port) ->
+    case nat:discover() of
+        {ok, Context} ->
+            case nat:delete_port_mapping(Context, tcp, Port, Port) of
+                ok -> ok;
+                {error, _Reason} ->
+                    lager:warning("failed to delete port mapping ~p: ~p", [Port, _Reason])
+            end,
+            add_port_mapping(Context, Port, 3);
+        no_nat ->
+            {error, no_nat}
     end.
 
 %%--------------------------------------------------------------------
@@ -104,29 +126,19 @@ discovery_filter(MultiAddr) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(integer()) -> {ok, string(), integer()}
-                                     | {error, any()}.
-add_port_mapping(Port) ->
-    add_port_mapping(Port, 3).
-
--spec add_port_mapping(integer(), integer()) -> {ok, string(), integer()}
-                                                | {error, any()}.
-add_port_mapping(_Port, 0) ->
+-spec add_port_mapping(nat:nat_ctx(), integer(), integer()) ->
+    {ok, string(), integer(), integer()} | {error, any()}.
+add_port_mapping(_Context, _Port, 0) ->
     {error, too_many_retries};
-add_port_mapping(Port, Retry) ->
-    case nat:discover() of
-        {ok, Context} ->
-            Lease = retry_lease(Retry),
-            case nat:add_port_mapping(Context, tcp, Port, Port, Lease) of
-                {ok, _Since, Port, Port, _Lease} ->
-                    {ok, ExternalAddress} = nat:get_external_address(Context),
-                    {ok, ExternalAddress, Lease};
-                {error, _Reason} ->
-                    lager:warning("failed to add port mapping for ~p: ", [{Port, Lease}, _Reason]),
-                    add_port_mapping(Port, Retry-1)
-            end;
-        no_nat ->
-            {error, no_nat}
+add_port_mapping(Context, Port, Retry) ->
+    Lease = retry_lease(Retry),
+    case nat:add_port_mapping(Context, tcp, Port, Port, Lease) of
+        {ok, Since, Port, Port, _Lease} ->
+            {ok, ExternalAddress} = nat:get_external_address(Context),
+            {ok, ExternalAddress, Lease, Since};
+        {error, _Reason} ->
+            lager:warning("failed to add port mapping for ~p: ", [{Port, Lease}, _Reason]),
+            add_port_mapping(Context, Port, Retry-1)
     end.
 
 %%--------------------------------------------------------------------
