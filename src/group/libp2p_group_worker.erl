@@ -25,7 +25,7 @@
           connect_pid=undefined :: undefined | pid(),
           connect_retry_timer=undefined :: undefined | reference(),
           session_monitor=undefined :: pid_monitor(),
-          stream_monitor=undefined :: pid_monitor()
+          stream_pid=undefined :: pid() | undefined
         }).
 
 -define(ASSIGN_RETRY, 1000).
@@ -118,21 +118,20 @@ connect(info, connect_retry, Data=#data{}) ->
 connect(cast, {assign_target, undefined}, Data=#data{connect_pid=ConnectPid}) ->
     {next_state, request_target, Data#data{connect_pid=kill_pid(ConnectPid),
                                            session_monitor=monitor_session(undefined, Data),
-                                           stream_monitor=monitor_stream(undefined, Data)}};
+                                           stream_pid=assign_stream(undefined, Data)}};
 connect(info, {error, _Reason}, Data=#data{}) ->
     {keep_state, connect_retry(Data)};
+connect(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
+    %% The _stream_ that this worker is linked to went away.
+    %% Try creating the stream again
+    {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
+                                         stream_pid=assign_stream(undefined, Data)})};
 connect(info, {'DOWN', SessionMonitor, process, _Pid, _Reason},
         Data=#data{session_monitor={SessionMonitor, _}}) ->
     %% The _session_ that this worker is monitoring went away. Set a
     %% timer to try again.
     {keep_state, connect_retry(Data#data{session_monitor=undefined,
-                                         stream_monitor=monitor_stream(undefined, Data)})};
-connect(info, {'DOWN', StreamMonitor, process, _Pid, _Reason},
-        Data=#data{stream_monitor={StreamMonitor, _}}) ->
-    %% The _stream_ that this worker is monitoring went away.
-    %% Try creating the stream again
-    {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
-                                         stream_monitor=monitor_stream(undefined, Data)})};
+                                         stream_pid=assign_stream(undefined, Data)})};
 connect(info, {'DOWN', _, process, _, normal}, Data=#data{}) ->
     %% Ignore a normal down for the connect pid, since it completed
     %% it's work successfully
@@ -142,40 +141,41 @@ connect(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
     %% timeout to try again.
     {keep_state, connect_retry(Data#data{connect_pid=undefined})};
 connect(info, {assign_session, SessionPid},
-        Data=#data{session_monitor=SessionMonitor, stream_monitor=_StreamMonitor}) when SessionMonitor /= undefined ->
-    %% Attempting to assign a session when we already have one
+        Data=#data{session_monitor=SessionMonitor, stream_pid=_StreamPid}) when SessionMonitor /= undefined ->
+    %% Attempting to assign a session when we already have one. We
+    %% toss a coin to decide if we keep ours (1) or use the new given one.
     case rand:uniform(2) of
         1 ->
             %% lager:debug("Trying to assign a session ~p while one is being monitored with stream ~p",
-            %%             [SessionPid, StreamMonitor]),
+            %%             [SessionMonitor, _StreamPid]),
             keep_state_and_data;
         _ ->
             connect(info, {assign_session, SessionPid},
                     Data#data{session_monitor=monitor_session(undefined, Data),
-                              stream_monitor=monitor_stream(undefined, Data)})
+                              stream_pid=assign_stream(undefined, Data)})
     end;
 connect(info, {assign_session, SessionPid},
         Data=#data{session_monitor=undefined, client_spec=undefined}) ->
     %% Assign a session without a client spec. Just monitor the
     %% session. Success, no timeout needed
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                           stream_monitor=monitor_stream(undefined, Data)}};
+                           stream_pid=assign_stream(undefined, Data)}};
 connect(info, {assign_session, SessionPid}, Data=#data{target=Target, client_spec={Path, {M, A}}}) ->
-    %% Assign session with a client spec. Start client
+    %% Assign session with a client spec. Start and link client by dialing
     case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of
         {ok, StreamPid} ->
             {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                                   stream_monitor=monitor_stream(StreamPid, Data)}};
+                                   stream_pid=assign_stream(StreamPid, Data)}};
         {error, Error} ->
             lager:notice("Failed to start client on target: ~s path: ~s: ~p", [Target, Path, Error]),
             {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
-                                                 stream_monitor=monitor_stream(undefined, Data)})}
+                                                 stream_pid=assign_stream(undefined, Data)})}
     end;
-connect(info, send_ack, #data{stream_monitor={_, StreamPid}}) ->
+connect(info, send_ack, #data{stream_pid=StreamPid}) ->
     StreamPid ! send_ack,
     keep_state_and_data;
 connect(cast, {assign_stream, Conn, StreamPid},
-        Data=#data{stream_monitor=StreamMonitor={_,_CurrentStreamPid}}) when StreamMonitor /= undefined  ->
+        Data=#data{stream_pid=_CurrentStreamPid}) when StreamPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
@@ -188,21 +188,27 @@ connect(cast, {assign_stream, Conn, StreamPid},
             %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
             %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
             %%               _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            {ok, SessionPid} = libp2p_connection:session(Conn),
-            {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                                   stream_monitor=monitor_stream(StreamPid, Data)}}
+            case libp2p_connection:session(Conn) of
+                {ok, SessionPid} ->
+                    {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
+                                           stream_pid=assign_stream(StreamPid, Data)}};
+                {error, _} ->
+                    libp2p_framed_stream:close(StreamPid),
+                    keep_state_and_data
+            end
     end;
 connect(cast, {assign_stream, Conn, StreamPid}, Data=#data{}) ->
     %% Assign a stream. Monitor the session and remember the
-    %% stream
+    %% stream. Link the stream right away
+    link(StreamPid),
     {ok, SessionPid} = libp2p_connection:session(Conn),
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                           stream_monitor=monitor_stream(StreamPid, Data)}};
-connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_monitor=undefined}) ->
+                           stream_pid=assign_stream(StreamPid, Data)}};
+connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-connect(cast, {send, Ref, Bin}, #data{server=Server, stream_monitor={_, StreamPid}}) ->
+connect(cast, {send, Ref, Bin}, #data{server=Server, stream_pid=StreamPid}) ->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     keep_state_and_data;
@@ -213,14 +219,14 @@ connect(EventType, Msg, Data) ->
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
 terminate(_Reason, _State, Data=#data{connect_pid=Process}) ->
     kill_pid(Process),
-    monitor_stream(undefined, Data),
+    assign_stream(undefined, Data),
     monitor_session(undefined, Data).
 
 
 handle_event(info, {'EXIT', _, normal}, #data{}) ->
     keep_state_and_data;
 handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
-                                            stream_monitor=StreamMonitor,
+                                            stream_pid=StreamPid,
                                             session_monitor=SessionMonitor}) ->
     Info = #{
              module => ?MODULE,
@@ -234,9 +240,9 @@ handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=
                      Other -> Other
                  end,
              stream_info =>
-                 case StreamMonitor of
+                 case StreamPid of
                      undefined -> undefined;
-                     {_, StrPid} -> libp2p_framed_stream:info(StrPid)
+                     _ -> libp2p_framed_stream:info(StreamPid)
                  end
             },
     {keep_state, Data, [{reply, From, Info}]};
@@ -265,22 +271,24 @@ monitor_session(SessionPid, #data{session_monitor={Monitor,_}}) ->
     erlang:demonitor(Monitor),
     {erlang:monitor(process, SessionPid), SessionPid}.
 
-monitor_stream(undefined, #data{stream_monitor=undefined}) ->
+assign_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
-monitor_stream(undefined, #data{stream_monitor={Monitor,Pid}, kind=Kind, server=Server}) ->
-    erlang:demonitor(Monitor),
+assign_stream(undefined, #data{stream_pid=Pid, kind=Kind, server=Server}) ->
+    catch unlink(Pid),
     libp2p_framed_stream:close(Pid),
     libp2p_group_server:send_ready(Server, Kind, false),
     undefined;
-monitor_stream(StreamPid, #data{stream_monitor=undefined, kind=Kind, server=Server}) ->
+assign_stream(StreamPid, #data{stream_pid=undefined, kind=Kind, server=Server}) ->
+    link(StreamPid),
     libp2p_group_server:send_ready(Server, Kind, true),
-    {erlang:monitor(process, StreamPid), StreamPid};
-monitor_stream(StreamPid, #data{stream_monitor={Monitor,StreamPid}}) ->
-    {Monitor, StreamPid};
-monitor_stream(StreamPid, #data{stream_monitor={Monitor,Pid}}) ->
-    erlang:demonitor(Monitor),
+    StreamPid;
+assign_stream(StreamPid, #data{stream_pid=StreamPid}) ->
+    StreamPid;
+assign_stream(StreamPid, #data{stream_pid=Pid}) ->
+    link(StreamPid),
+    catch unlink(Pid),
     libp2p_framed_stream:close(Pid),
-    {erlang:monitor(process, StreamPid), StreamPid}.
+    StreamPid.
 
 -spec kill_pid(pid() | undefined) -> undefined.
 kill_pid(undefined) ->
