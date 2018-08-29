@@ -346,7 +346,7 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             end,
             {noreply, State}
     end;
-handle_info({nat_discovery, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
+handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
             lager:debug("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
