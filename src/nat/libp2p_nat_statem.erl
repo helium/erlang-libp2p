@@ -72,9 +72,9 @@ terminate(_Reason, _State, _Data) ->
 
 started(cast, {register, Port, Lease, Since}, Data) ->
     case Lease =:= 0 of
-        false -> ok;
-        true ->
-            _ = erlang:send_after(Lease-10, self(), renew)
+        true -> ok;
+        false ->
+            ok = renew(Lease)
     end,
     {next_state, active, Data#data{port=Port, lease=Lease, since=Since}};
 started(Type, Content, Data) ->
@@ -83,7 +83,7 @@ started(Type, Content, Data) ->
 active(info, renew, #data{port=Port}=Data) ->
     case libp2p_nat:add_port_mapping(Port, false) of
         {ok, _, Lease, Since} ->
-            _ = erlang:send_after(Lease-10, self(), renew),
+            ok = renew(Lease),
             {keep_state, Data#data{lease=Lease, since=Since}};
         {error, _Reason} ->
             lager:warning("failed to renew lease for port ~p: ~p", [Port, _Reason]),
@@ -99,3 +99,12 @@ handle_event(_Type, _Content, Data) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+% TODO: calculate more accurate time using since
+-spec renew(integer()) -> ok.
+renew(Time) when Time > 2000 ->
+    _ = erlang:send_after(Time-2000, self(), renew),
+    ok;
+renew(Time) ->
+    _ = erlang:send_after(Time, self(), renew),
+    ok.
