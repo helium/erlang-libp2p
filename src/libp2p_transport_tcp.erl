@@ -240,12 +240,13 @@ init([TID]) ->
 %% libp2p_transport
 %%
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
-    Response = case listen_on(Addr, TID) of
-                   {ok, ListenAddrs, Pid} ->
-                       libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
-                       {ok, ListenAddrs, Pid};
-                   {error, Error} -> {error, Error}
-                   end,
+    Response =
+        case listen_on(Addr, TID) of
+            {ok, ListenAddrs, Pid} ->
+                libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
+                {ok, ListenAddrs, Pid};
+            {error, Error} -> {error, Error}
+        end,
     {reply, Response, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -395,10 +396,10 @@ listen_on(Addr, TID) ->
             % filter out disallowed options and supply default ones
             ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
                                               DefaultListenOpts),
+            Port1 = reuseport0(TID, Type, IP, Port0),
             % Dialyzer severely dislikes ranch_tcp:listen so we
             % emulate it's behavior here
-            Port = reuseport0(TID, Type, IP, Port0),
-            case gen_tcp:listen(Port, [Type | AddrOpts] ++ ListenOpts) of
+            case gen_tcp:listen(Port1, [Type | AddrOpts] ++ ListenOpts) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
 
