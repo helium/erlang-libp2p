@@ -163,14 +163,13 @@ add_transport_handler(TID, Transport) ->
         false ->
             TransportSup = libp2p_swarm_transport_sup:sup(TID),
             ChildSpec = #{ id => Transport,
-                           start => {Transport, start_link, [TID]},
-                           restart => temporary,
+                           start => {libp2p_transport, start_link, [Transport, TID]},
+                           restart => transient,
                            shutdown => 5000,
                            type => worker },
             case supervisor:start_child(TransportSup, ChildSpec) of
                 {error, Error} -> {error, Error};
-                {ok, TransportPid} ->
-                    libp2p_config:insert_transport(TID, Transport, TransportPid),
+                {ok, _TransportPid} ->
                     ok
             end
     end.

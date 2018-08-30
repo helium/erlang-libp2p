@@ -12,6 +12,7 @@
     ,already/1
     ,bad_addr/1
     ,port0_reuse/1
+    ,restart_transport/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -25,7 +26,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [port0, addr0, already, bad_addr].
+    [port0, addr0, already, bad_addr, port0_reuse, restart_transport].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -161,6 +162,34 @@ port0_reuse(_Config) ->
     ListenAddrs2 = libp2p_swarm:listen_addrs(Swarm4),
     ok = libp2p_swarm:stop(Swarm4),
     ok.
+
+restart_transport(Config) ->
+    Swarm = proplists:get_value(swarm, Config),
+
+    [] = libp2p_swarm:listen_addrs(Swarm),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/127.0.0.1/tcp/0"),
+
+    ["/ip4/127.0.0.1/" ++ _] = libp2p_swarm:listen_addrs(Swarm),
+
+    {ok, Pid} = libp2p_config:lookup_transport(libp2p_swarm:tid(Swarm), libp2p_transport_tcp),
+    exit(Pid, kill),
+    ok = test_util:wait_until(fun() -> true /= erlang:is_process_alive(Pid) end),
+    ok = test_util:wait_until(fun() ->
+                                      case libp2p_config:lookup_transport(libp2p_swarm:tid(Swarm), libp2p_transport_tcp) of
+                                          {ok, Pid} ->
+                                              ct:pal("stale pid"),
+                                              false;
+                                          false ->
+                                              ct:pal("no pid"),
+                                              false;
+                                          {ok, _} -> true
+                                      end
+                              end),
+    {ok, Pid2} = libp2p_config:lookup_transport(libp2p_swarm:tid(Swarm), libp2p_transport_tcp),
+    false = (Pid == Pid2),
+
+    ok.
+
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
