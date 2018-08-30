@@ -100,10 +100,10 @@ statem(_Config) ->
     meck:expect(nat, discover, fun() ->
         {ok, context}
     end),
-    meck:expect(nat, add_port_mapping, fun(_Context, tcp, Port, Port, 0) ->
+    meck:expect(nat, add_port_mapping, fun(_Context, tcp, _Port, _ExtPort, 0) ->
         {error, error};
-                                          (_Context, tcp, Port, Port, _Lease) ->
-        {ok, Since, Port, Port, MockLease}
+                                          (_Context, tcp, Port, ExtPort, _Lease) ->
+        {ok, Since, Port, ExtPort, MockLease}
     end),
     meck:expect(nat, get_external_address, fun(_Context) ->
         {ok, "127.0.0.1"}

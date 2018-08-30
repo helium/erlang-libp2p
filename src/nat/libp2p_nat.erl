@@ -60,11 +60,11 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
             %% a particular interface yet
             {ok, Statem} = libp2p_nat_statem:start([Pid]),
             case add_port_mapping(Port, true) of
-                {ok, ExternalAddr, Lease, Since} ->
-                    _ = libp2p_nat_statem:register(Statem, Port, Lease, Since),
-                    {ok, ParsedExtAddress} = inet_parse:address(ExternalAddr),
-                    ExternalMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, Port}),
-                    Pid ! {nat_discovered, MultiAddr, ExternalMultiAddr},
+                {ok, ExtAddr, ExtPort, Lease, Since} ->
+                    _ = libp2p_nat_statem:register(Statem, ExtPort, Lease, Since),
+                    {ok, ParsedExtAddress} = inet_parse:address(ExtAddr),
+                    ExtMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, ExtPort}),
+                    Pid ! {nat_discovered, MultiAddr, ExtMultiAddr},
                     ok;
                 {error, _Reason} ->
                     lager:warning("unable to add nat mapping: ~p", [_Reason])
@@ -75,13 +75,13 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(integer(), boolean()) -> {ok, string(), integer(), integer()}
-                                                | {error, any()}.
-
+-spec add_port_mapping(integer(), boolean()) ->
+    {ok, string(), integer(), integer(), integer()} | {error, any()}.
 add_port_mapping(Port, false) ->
     case nat:discover() of
         {ok, Context} ->
-            add_port_mapping(Context, Port, 3);
+            MaxRetry = erlang:length(retry_matrix(Port)),
+            add_port_mapping(Context, Port, MaxRetry);
         no_nat ->
             {error, no_nat}
     end;
@@ -93,7 +93,8 @@ add_port_mapping(Port, true) ->
                 {error, _Reason} ->
                     lager:warning("failed to delete port mapping ~p: ~p", [Port, _Reason])
             end,
-            add_port_mapping(Context, Port, 3);
+            MaxRetry = erlang:length(retry_matrix(Port)),
+            add_port_mapping(Context, Port, MaxRetry);
         no_nat ->
             {error, no_nat}
     end.
@@ -135,17 +136,17 @@ discovery_filter(MultiAddr) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_port_mapping(nat:nat_ctx(), integer(), integer()) ->
-    {ok, string(), integer(), integer()} | {error, any()}.
+    {ok, string(), integer(), integer(), integer()} | {error, any()}.
 add_port_mapping(_Context, _Port, 0) ->
     {error, too_many_retries};
 add_port_mapping(Context, Port, Retry) ->
-    Lease0 = retry_lease(Retry),
-    case nat:add_port_mapping(Context, tcp, Port, Port, Lease0) of
-        {ok, Since, Port, Port, Lease1} ->
+    {Lease0, ExtPort} = retry_matrix(Retry, Port),
+    case nat:add_port_mapping(Context, tcp, Port, ExtPort, Lease0) of
+        {ok, Since, Port, ExtPort, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
-            {ok, ExternalAddress, Lease1, Since};
+            {ok, ExternalAddress, ExtPort, Lease1, Since};
         {error, _Reason} ->
-            lager:warning("failed to add port mapping for ~p: ~p", [{Port, Lease0}, _Reason]),
+            lager:warning("failed to add port mapping for ~p: ~p", [{ExtPort, Lease0}, _Reason]),
             add_port_mapping(Context, Port, Retry-1)
     end.
 
@@ -153,10 +154,41 @@ add_port_mapping(Context, Port, Retry) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec retry_lease(integer()) -> integer().
-retry_lease(3) -> 0;
-retry_lease(2) -> 60*60*24;
-retry_lease(1) -> 60*60.
+-spec retry_matrix(integer()) -> list().
+retry_matrix(Port) ->
+    [
+        {0, Port}
+        ,{60*60*24, Port}
+        ,{60*60, Port}
+        ,{0, increment_port(Port)}
+        ,{0, random_port(Port)}
+        ,{60*60*24, increment_port(Port)}
+        ,{60*60*24, random_port(Port)}
+        ,{60*60, increment_port(Port)}
+        ,{60*60, random_port(Port)}
+    ].
+
+-spec retry_matrix(integer(), integer()) -> {integer(), integer()}.
+retry_matrix(Try, Port) ->
+    lists:nth(Try, retry_matrix(Port)).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+increment_port(Port) when Port < 65535-1 ->
+    Port+1.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec random_port(integer()) -> integer().
+random_port(Port) ->
+    case rand:uniform(65535-1024) + 1024 of
+        Port -> random_port(Port);
+        RandomPort -> RandomPort
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

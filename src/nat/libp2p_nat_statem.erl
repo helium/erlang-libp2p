@@ -82,9 +82,9 @@ started(Type, Content, Data) ->
 
 active(info, renew, #data{port=Port}=Data) ->
     case libp2p_nat:add_port_mapping(Port, false) of
-        {ok, _, Lease, Since} ->
+        {ok, _, ExtPort, Lease, Since} ->
             ok = renew(Lease),
-            {keep_state, Data#data{lease=Lease, since=Since}};
+            {keep_state, Data#data{port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason} ->
             lager:warning("failed to renew lease for port ~p: ~p", [Port, _Reason]),
             {stop, renew_failed}
