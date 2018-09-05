@@ -21,7 +21,11 @@ init_per_testcase(put_test, Config) ->
                             }]);
 init_per_testcase(gossip_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
-                                         [{peerbook_connections, 0}]
+                                         [{peerbook_connections, 1}]
+                                        },
+                                        {libp2p_peerbook,
+                                         [{notify_time, 500},
+                                          {peer_time, 400}]
                                         }]),
     [{swarms, Swarms} | Config];
 init_per_testcase(stale_test, Config) ->
@@ -39,8 +43,8 @@ end_per_testcase(bad_peer_test, Config) ->
 end_per_testcase(put_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(gossip_test, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
-    test_util:teardown_swarms(Swarms);
+    [S1, _S2] = proplists:get_value(swarms, Config),
+    test_util:teardown_swarms([S1]);
 end_per_testcase(stale_test, Config) ->
     Swarms = proplists:get_value(swarms, Config),
     test_util:teardown_swarms(Swarms).
@@ -86,8 +90,12 @@ bad_peer_test(Config) ->
 
     SigFun2 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey2) end,
 
-    InvalidPeer = libp2p_peer:new(PubKey1, ["/ip4/8.8.8.8/tcp/1234"], [PubKey2],
-                                  static, erlang:system_time(), SigFun2),
+    InvalidPeer = libp2p_peer:from_map(#{address => PubKey1,
+                                         listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                                         connected => [PubKey2],
+                                         nat_type => static,
+                                         timestamp => erlang:system_time(millisecond)},
+                                       SigFun2),
 
     {'EXIT', {invalid_signature, _}} = (catch libp2p_peerbook:put(PeerBook, [InvalidPeer])),
     false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(InvalidPeer)),
@@ -138,47 +146,46 @@ put_test(Config) ->
 gossip_test(Config) ->
     [S1, S2] = proplists:get_value(swarms, Config),
 
-    [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
-
-    {ok, S1Session} = libp2p_swarm:connect(S1, S2ListenAddr),
+    test_util:connect_swarms(S1, S2),
 
     S1PeerBook = libp2p_swarm:peerbook(S1),
     S2PeerBook = libp2p_swarm:peerbook(S2),
     S1Addr = libp2p_swarm:address(S1),
     S2Addr = libp2p_swarm:address(S2),
 
-    %% Wait to see if S1 knows about S2
-    ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S1PeerBook, S2Addr) end),
-    %% And if S2 knows about S1
-    ok = test_util:wait_until(fun() -> libp2p_peerbook:is_key(S2PeerBook, S1Addr) end),
+
+    S1Group = libp2p_swarm:gossip_group(S1),
+    test_util:wait_until(fun() ->
+                                 lists:member(libp2p_swarm:p2p_address(S2),
+                                              libp2p_group_gossip:connected_addrs(S1Group, all))
+                         end),
+    S2Group = libp2p_swarm:gossip_group(S2),
+    test_util:wait_until(fun() ->
+                                 lists:member(libp2p_swarm:p2p_address(S1),
+                                              libp2p_group_gossip:connected_addrs(S2Group, all))
+                         end),
 
     %% The S2 entry in S1 should end up containing the address of S1
     %% as a connected peer
     ok = test_util:wait_until(fun() ->
                                       {ok, S2PeerInfo} = libp2p_peerbook:get(S1PeerBook, S2Addr),
-                                      [S1Addr] == libp2p_peer:connected_peers(S2PeerInfo)
+                                      lists:member(S1Addr, libp2p_peer:connected_peers(S2PeerInfo))
                               end),
 
     %% and the S1 entry in S2 should end up containing the address of
     %% S2 as a connected peer
     ok = test_util:wait_until(fun() ->
                                       {ok, S1PeerInfo} = libp2p_peerbook:get(S2PeerBook, S1Addr),
-                                      [S2Addr] == libp2p_peer:connected_peers(S1PeerInfo)
+                                      lists:member(S2Addr, libp2p_peer:connected_peers(S1PeerInfo))
                               end),
 
-    %% Close the session
-    libp2p_session:close(S1Session),
+    %% Close the session by terminating the swarm
+    libp2p_swarm:stop(S2),
 
     %% After the session closes S1 should no longer have S2 as a connected peer
     ok = test_util:wait_until(fun() ->
                                       {ok, S1Info} = libp2p_peerbook:get(S1PeerBook, S1Addr),
                                       [] == libp2p_peer:connected_peers(S1Info)
-                              end),
-
-    %% And S2 should no longer have S1 as a connected peer
-    ok = test_util:wait_until(fun() ->
-                                      {ok, S2Info} = libp2p_peerbook:get(S2PeerBook, S2Addr),
-                                      [] == libp2p_peer:connected_peers(S2Info)
                               end),
 
     ok.
@@ -197,8 +204,11 @@ stale_test(Config) ->
     %% This peer should remew itself after stale_time
     ok = test_util:wait_until(
            fun() ->
-                   {ok, S1Entry} = libp2p_peerbook:get(PeerBook, S1Addr),
-                   libp2p_peer:supersedes(S1Entry, S1First)
+                   case libp2p_peerbook:get(PeerBook, S1Addr) of
+                       {ok, S1Entry} ->
+                           libp2p_peer:supersedes(S1Entry, S1First);
+                       _ -> false
+                   end
            end),
 
     Peer1Addr = libp2p_peer:address(Peer1),
@@ -240,9 +250,12 @@ peer_keys(PeerList) ->
 mk_peer() ->
     {ok, PrivKey, PubKey} = ecc_compact:generate_key(),
     {ok, _, PubKey2} = ecc_compact:generate_key(),
-    libp2p_peer:new(PubKey, ["/ip4/8.8.8.8/tcp/1234"], [PubKey2],
-                    static, erlang:system_time(seconds),
-                    libp2p_crypto:mk_sig_fun(PrivKey)).
+    libp2p_peer:from_map(#{address => PubKey,
+                           listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                           connected => [PubKey2],
+                           nat_type => static,
+                           timestamp => erlang:system_time(millisecond)},
+                         libp2p_crypto:mk_sig_fun(PrivKey)).
 
 setup_peerbook(Config, Opts) ->
     Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),

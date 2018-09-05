@@ -20,6 +20,12 @@
 -define(GOAWAY_PROTOCOL, 16#01).
 -define(GOAWAY_INTERNAL, 16#02).
 
+-record(ident,
+       { identify=undefined :: libp2p_identify:identify() | undefined,
+         pid=undefined :: pid() | undefined,
+         waiters=[] :: [term()]
+       }).
+
 -record(state,
         { connection=undefined :: libp2p_connection:connection() | undefined,
           tid :: ets:tab(),
@@ -29,7 +35,8 @@
           send_pid=undefined :: pid() | undefined,
           pings=#{} :: #{ping_id() => ping_info()},
           next_ping_id=0 :: ping_id(),
-          goaway_state=none :: none | local | remote
+          goaway_state=none :: none | local | remote,
+          ident=#ident{} :: #ident{}
          }).
 
 -record(header, {
@@ -51,9 +58,9 @@
 
 -export_type([stream_id/0, header/0]).
 
-% gen_server
+%% gen_server
 -export([init/1, handle_info/2, handle_call/3, handle_cast/2, terminate/2]).
-% API
+%% API
 -export([start_server/4, start_client/3]).
 -export([send_header/2, send_header/3,
          send_data/3, send_data/4,
@@ -161,6 +168,29 @@ handle_info({timeout_ping, PingID}, State=#state{}) ->
 handle_info({stop, Reason}, State=#state{}) ->
     {stop, Reason, State};
 
+
+%% Identify
+%%
+handle_info({identify, Handler, HandlerData}, State=#state{ident=#ident{identify=I}}) when I /= undefined ->
+    Handler ! {handle_identify, HandlerData, {ok, I}},
+    {noreply, State};
+handle_info({identify, Handler, HandlerData}, State=#state{ident=Ident=#ident{pid=undefined}, tid=TID}) ->
+    Pid = libp2p_stream_identify:dial_spawn(self(), TID, self()),
+    NewIdent=Ident#ident{waiters=[{Handler, HandlerData} | Ident#ident.waiters], pid=Pid},
+    {noreply, State#state{ident=NewIdent}};
+handle_info({identify, Handler, HandlerData}, State=#state{ident=Ident=#ident{}}) ->
+    NewIdent=Ident#ident{waiters=[{Handler, HandlerData} | Ident#ident.waiters]},
+    {noreply, State#state{ident=NewIdent}};
+handle_info({handle_identify, _Session, Response}, State=#state{ident=Ident=#ident{}}) ->
+    lists:foreach(fun({Handler, HandlerData}) ->
+                          Handler ! {handle_identify, HandlerData, Response}
+                  end, Ident#ident.waiters),
+    NewIdentify = case Response of
+                      {ok, I} -> I;
+                      {error, _} -> undefined
+                  end,
+    {noreply, State#state{ident=Ident#ident{pid=undefined, waiters=[], identify=NewIdentify}}};
+
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p", [Msg]),
     {stop, unknown, State}.
@@ -199,7 +229,9 @@ handle_call(addr_info, _From, State=#state{connection=Connection}) ->
 handle_call(close_state, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:close_state(Connection), State};
 
+
 %% Info
+%%
 handle_call(info, _From, State=#state{connection=Connection}) ->
     Info = #{
              pid => self(),
@@ -218,7 +250,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
-terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
+terminate(_Reason, #state{connection=Connection, send_pid=SendPid}) ->
     case Connection of
         undefined -> ok;
         _ ->
@@ -227,7 +259,7 @@ terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
     end,
     case SendPid of
         undefined -> ok;
-        _ -> erlang:exit(SendPid, Reason)
+        _ -> erlang:exit(SendPid, kill)
     end.
 
 

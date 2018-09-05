@@ -3,21 +3,28 @@
 -include("pb/libp2p_peer_pb.hrl").
 
 -type nat_type() :: libp2p_peer_pb:nat_type().
--opaque peer() :: #libp2p_signed_peer_pb{}.
--export_type([peer/0, nat_type/0]).
+-type peer_map() :: #{ address => libp2p_crypto:address(),
+                       listen_addrs => [string()],
+                       connected => [binary()],
+                       nat_type => nat_type()
+                     }.
+-type peer() :: #libp2p_signed_peer_pb{}.
+-export_type([peer/0, map/0, nat_type/0]).
 
--export([new/6, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
-        address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
-        supersedes/2, is_stale/2]).
+-export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
+         address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
+         supersedes/2, is_stale/2, is_similar/2]).
 
--spec new(libp2p_crypto:address(), [string()], [binary()], nat_type(), integer(),
-          fun((binary()) -> binary()))
-         -> peer().
-new(Key, ListenAddrs, ConnectedAddrs, NatType, Timestamp, SigFun) ->
-    Peer = #libp2p_peer_pb{address=Key,
-                           listen_addrs=[multiaddr:new(L) || L <- ListenAddrs],
-                           connected = ConnectedAddrs,
-                           nat_type=NatType,
+-spec from_map(peer_map(), fun((binary()) -> binary())) -> peer().
+from_map(Map, SigFun) ->
+    Timestamp = case maps:get(timestamp, Map, no_entry) of
+                    no_entry -> erlang:system_time(millisecond);
+                    V -> V
+                end,
+    Peer = #libp2p_peer_pb{address=maps:get(address, Map),
+                           listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
+                           connected = maps:get(connected, Map),
+                           nat_type=maps:get(nat_type, Map),
                            timestamp=Timestamp},
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
     Signature = SigFun(EncodedPeer),
@@ -51,18 +58,28 @@ timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
     Timestamp.
 
 %% @doc Returns whether a given `Target' is more recent than `Other'
--spec supersedes(Target::peer() | integer(), Other::peer()) -> boolean().
+-spec supersedes(Target::peer(), Other::peer()) -> boolean().
 supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}},
            #libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=OtherTimestamp}}) ->
     ThisTimestamp > OtherTimestamp.
 
+%% @doc Returns whether a given `Target` is mostly equal to an `Other`
+%% peer. Similarity means equality foro all fields, except for the
+%% timestamp of the peers.
+-spec is_similar(Target::peer(), Other::peer()) -> boolean().
+is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
+           Other=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}}) ->
+    address(Target) == address(Other)
+        andalso nat_type(Target) == nat_type(Other)
+        andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
+        andalso sets:from_list(connected_peers(Target)) == sets:from_list(connected_peers(Other)).
+
 %% @doc Returns whether a given peer is stale relative to a given
-%% stale delta time in milliseconds. Note that the accuracy of a peer
-%% entry is only up to the nearest second. .
+%% stale delta time in milliseconds.
 -spec is_stale(peer(), integer()) -> boolean().
 is_stale(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}, StaleMS) ->
-    Now = erlang:system_time(seconds),
-    (Timestamp * 1000 + StaleMS) < (Now * 1000).
+    Now = erlang:system_time(millisecond),
+    (Timestamp + StaleMS) < Now.
 
 %% @doc Encodes the given peer into its binary form.
 -spec encode(peer()) -> binary().
@@ -78,7 +95,7 @@ encode_list(List) ->
 -spec decode_list(binary()) -> [peer()].
 decode_list(Bin) ->
     List = libp2p_peer_pb:decode_msg(Bin, libp2p_peer_list_pb),
-    [verify(Msg) || Msg <- List#libp2p_peer_list_pb.peers].
+    List#libp2p_peer_list_pb.peers.
 
 %% @doc Decodes a given binary into a peer.
 -spec decode(binary()) -> peer().

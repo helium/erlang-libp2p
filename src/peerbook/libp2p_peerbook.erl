@@ -4,8 +4,10 @@
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
-         join_notify/2, register_session/4,  unregister_session/2,
-         changed_listener/1, update_nat_type/2]).
+         join_notify/2, changed_listener/1, update_nat_type/2,
+         register_session/3, unregister_session/2]).
+%% libp2p_group_gossip_handler
+-export([handle_gossip_data/2, init_gossip_data/1]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
@@ -13,6 +15,7 @@
 -export_type([opt/0]).
 
 -behviour(gen_server).
+-behavior(libp2p_group_gossip_handler).
 
 -record(state,
         { tid :: ets:tab(),
@@ -21,6 +24,7 @@
           peer_time :: pos_integer(),
           peer_timer :: undefined | reference(),
           stale_time :: pos_integer(),
+          gossip_group :: undefined | pid(),
           notify_group :: atom(),
           notify_time :: pos_integer(),
           notify_timer=undefined :: reference() | undefined,
@@ -37,6 +41,8 @@
 %% allows for fast arrivels to coalesce a number of new peers before a
 %% new list is sent out.
 -define(DEFAULT_NOTIFY_TIME, 5 * 1000).
+%% Gossip group key to register and transmit with
+-define(GOSSIP_GROUP_KEY, "peer").
 
 %%
 %% API
@@ -71,9 +77,9 @@ remove(Pid, ID) ->
 join_notify(Pid, Joiner) ->
     gen_server:cast(Pid, {join_notify, Joiner}).
 
--spec register_session(pid(), pid(), libp2p_identify:identify(), client | server) -> ok.
-register_session(Pid, SessionPid, Identify, Kind) ->
-    gen_server:cast(Pid, {register_session, SessionPid, Identify, Kind}).
+-spec register_session(pid(), pid(), libp2p_identify:identify()) -> ok.
+register_session(Pid, SessionPid, Identify) ->
+    gen_server:cast(Pid, {register_session, SessionPid, Identify}).
 
 -spec unregister_session(pid(), pid()) -> ok.
 unregister_session(Pid, SessionPid) ->
@@ -85,6 +91,19 @@ changed_listener(Pid) ->
 -spec update_nat_type(pid(), libp2p_peer:nat_type()) -> ok.
 update_nat_type(Pid, NatType) ->
     gen_server:cast(Pid, {update_nat_type, NatType}).
+
+%%
+%% Gossip Group
+%%
+
+-spec handle_gossip_data(binary(), pid()) -> libp2p_group_gossip_handler:handler_result().
+handle_gossip_data(Data, Pid) ->
+    DecodedList = libp2p_peer:decode_list(Data),
+    libp2p_peerbook:put(Pid, DecodedList).
+
+-spec init_gossip_data(pid()) -> libp2p_group_gossip_handler:init_result().
+init_gossip_data(Pid) ->
+    gen_server:call(Pid, init_gossip_data).
 
 
 %%
@@ -107,6 +126,16 @@ init([TID, SigFun]) ->
     Group = group_create(SwarmName),
     Opts = libp2p_swarm:opts(TID),
     StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
+    %% We catch exceptions here because the peerbook can work
+    %% _without_ a gossip group. The tests for peerbook use this to
+    %% isolate tetsing of a peerbook without having to construct a
+    %% gossip group too
+    GossipGroup = case (catch libp2p_swarm:gossip_group(TID)) of
+                      {'EXIT', _} -> undefined;
+                      G ->
+                          libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, self()}),
+                          G
+                  end,
     case bitcask:open(DataDir, [read_write, {expiry_secs, 2 * StaleTime / 1000}]) of
         {error, Reason} -> {stop, Reason};
         Ref ->
@@ -114,7 +143,7 @@ init([TID, SigFun]) ->
             NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
             {ok, update_this_peer(#state{tid=TID, store=Ref, notify_group=Group, sigfun=SigFun,
                                          peer_time=PeerTime, notify_time=NotifyTime,
-                                         stale_time=StaleTime})}
+                                         stale_time=StaleTime, gossip_group=GossipGroup})}
     end.
 
 
@@ -159,10 +188,6 @@ handle_call({put, PeerList, _}, _From, State=#state{tid=TID, stale_time=StaleTim
                                     end
                             end, PeerList),
 
-    %% lager:notice("PEERBOOK ~p ADDING ~p: ~p", [libp2p_crypto:address_to_b58(ThisPeerId),
-    %%                                            length(NewPeers),
-    %%                                            [libp2p_crypto:address_to_b58(libp2p_peer:address(P))
-    %%                                             || P <- NewPeers]]),
     % Add new peers to the store
     lists:foreach(fun(P) -> store_peer(P, State) end, NewPeers),
     % Notify group of new peers
@@ -173,6 +198,9 @@ handle_call({remove, ID}, _From, State=#state{tid=TID}) ->
                  false -> delete_peer(ID, State)
              end,
     {reply, Result, State};
+handle_call(init_gossip_data, _From, State=#state{}) ->
+    Peers = fetch_peers(State),
+    {reply, {send, libp2p_peer:encode_list(Peers)}, State};
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -186,32 +214,11 @@ handle_cast({update_nat_type, UpdatedNatType},
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
-handle_cast({register_session, SessionPid, Identify, Kind},
-            State=#state{tid=TID, sessions=Sessions}) ->
+handle_cast({register_session, SessionPid, Identify},
+            State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:address(Identify),
     NewSessions = [{SessionAddr, SessionPid} | Sessions],
-    NewState = update_this_peer(State#state{sessions=NewSessions}),
-
-    case Kind of
-        client ->
-            try
-                {_, RemoteAddr} = libp2p_session:addr_info(SessionPid),
-                lager:info("Starting discovery with ~p", [RemoteAddr]),
-                %% Pass the peerlist directly into the stream_peer client
-                %% since it is a synchronous call
-                %%
-                %% TODO: Can this be moved into a higher level by
-                %% using a group_gosip to gossip peers instead of
-                %% eagerly exchanging peers on every new connection?
-                PeerList = fetch_peers(NewState),
-                libp2p_session:dial_framed_stream("peer/1.0.0", SessionPid,
-                                                  libp2p_stream_peer, [TID, PeerList])
-            catch
-                _What:_Why -> ok
-            end;
-        _ -> ok
-    end,
-    {noreply, NewState};
+    {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
@@ -220,11 +227,12 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info(peer_timeout, State=#state{}) ->
-    {noreply, update_this_peer(State)};
+    {noreply, update_this_peer(mk_this_peer(State), State)};
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
+
 handle_info(Msg, State) ->
-    lager:warning("Unhandled peerbook info: ~p", [Msg]),
+    lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 terminate(_Reason, #state{store=Store}) ->
@@ -234,22 +242,41 @@ terminate(_Reason, #state{store=Store}) ->
 %%
 %% Internal
 %%
--spec update_this_peer(#state{}) -> #state{}.
-update_this_peer(State=#state{tid=TID, sessions=Sessions, sigfun=SigFun, nat_type=NatType,
-                             peer_time=PeerTime, peer_timer=PeerTimer}) ->
+
+-spec mk_this_peer(#state{}) -> libp2p_peer:peer().
+mk_this_peer(State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:address(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
-    ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- Sessions])),
-    Peer = libp2p_peer:new(SwarmAddr, ListenAddrs, ConnectedAddrs, NatType,
-                           erlang:system_time(seconds), SigFun),
-    store_peer(Peer, State),
+    ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
+    libp2p_peer:from_map(#{ address => SwarmAddr,
+                            listen_addrs => ListenAddrs,
+                            connected => ConnectedAddrs,
+                            nat_type => State#state.nat_type},
+                         State#state.sigfun).
+
+-spec update_this_peer(#state{}) -> #state{}.
+update_this_peer(State=#state{tid=TID}) ->
+    SwarmAddr = libp2p_swarm:address(TID),
+    NewPeer = mk_this_peer(State),
+    case unsafe_fetch_peer(SwarmAddr, State) of
+        {error, not_found} ->
+            update_this_peer(NewPeer, State);
+        {ok, OldPeer} ->
+            case libp2p_peer:is_similar(NewPeer, OldPeer) of
+                true -> State;
+                false -> update_this_peer(NewPeer, State)
+            end
+    end.
+
+-spec update_this_peer(libp2p_peer:peer(), #state{}) -> #state{}.
+update_this_peer(NewPeer, State=#state{peer_timer=PeerTimer}) ->
+    store_peer(NewPeer, State),
     case PeerTimer of
         undefined -> ok;
         _ -> erlang:cancel_timer(PeerTimer)
     end,
-    NewPeerTimer = erlang:send_after(PeerTime, self(), peer_timeout),
-    notify_new_peers([Peer], State#state{peer_timer=NewPeerTimer}).
-
+    NewPeerTimer = erlang:send_after(State#state.peer_time, self(), peer_timeout),
+    notify_new_peers([NewPeer], State#state{peer_timer=NewPeerTimer}).
 
 -spec notify_new_peers([libp2p_peer:peer()], #state{}) -> #state{}.
 notify_new_peers([], State=#state{}) ->
@@ -283,9 +310,19 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
 -spec notify_peers(#state{}) -> #state{}.
 notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) == 0 ->
     State;
-notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup}) ->
+notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
+                          gossip_group=GossipGroup}) ->
+    %% Notify to local interested parties
     PeerList = maps:values(NotifyPeers),
     [Pid ! {new_peers, PeerList} || Pid <- pg2:get_members(NotifyGroup)],
+    case GossipGroup of
+        undefined ->
+            ok;
+        _ ->
+            %% Gossip to any attached parties
+            EncodedPeerList = libp2p_peer:encode_list(PeerList),
+            libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY, EncodedPeerList)
+    end,
     State#state{notify_peers=#{}}.
 
 

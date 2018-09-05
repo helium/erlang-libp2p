@@ -1,62 +1,120 @@
 -module(libp2p_group_gossip_server).
 
 -behaviour(gen_server).
+-behavior(libp2p_gossip_stream).
 
 %% API
 -export([start_link/2]).
 %% gen_server
--export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+%% libp2p_gossip_stream
+-export([accept_stream/3, handle_data/3]).
+
+-record(worker,
+       { target :: string() | undefined,
+         kind :: libp2p_group_gossip:connection_kind(),
+         pid :: pid() | self
+       }).
 
 -record(state,
        { sup :: pid(),
          tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
+         max_inbound_connections :: non_neg_integer(),
          seed_nodes :: [string()],
-         client_spec :: libp2p_group:stream_client_spec(),
-         workers=[] :: [worker()],
+         workers=[] :: [#worker{}],
+         handlers=#{} :: #{string() => libp2p_group_gossip:handler()},
          drop_timeout :: pos_integer(),
          drop_timer :: reference()
        }).
 
--type worker() :: {Kind::atom(), Pid::pid(), MAddr::string() | undefined}.
-
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
+-define(DEFAULT_MAX_INBOUND_CONNECTIONS, 10).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 -define(GROUP_ID, "gossip").
+-define(GROUP_PATH, "gossip/1.0.0").
 
-%% gen_server
+%% API
 %%
 
 start_link(Sup, TID) ->
     gen_server:start_link(?MODULE, [Sup, TID], []).
 
+%% libp2p_gossip_stream
+%%
+
+handle_data(Pid, Key, Bin) ->
+    gen_server:call(Pid, {handle_data, Key, Bin}).
+
+accept_stream(Pid, SessionPid, StreamPid) ->
+    gen_server:call(Pid, {accept_stream, SessionPid, StreamPid}).
+
+
+%% gen_server
+%%
+
 init([Sup, TID]) ->
     erlang:process_flag(trap_exit, true),
-    %% TODO: Remove the assumption that this is _the_ group agent for
-    %% the swarm. Perhaps by moving the creation into the swarm server
-    %% instead of directly in the swarm_sup?
-    libp2p_swarm_sup:register_group_agent(TID),
+    libp2p_swarm_sup:register_gossip_group(TID),
     Opts = libp2p_swarm:opts(TID),
-    PeerBookCount = libp2p_group_gossip:get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
-    DropTimeOut = libp2p_group_gossip:get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
-    ClientSpec = libp2p_group_gossip:get_opt(Opts, stream_client, undefined),
-    SeedNodes = libp2p_group_gossip:get_opt(Opts, seed_nodes, []),
+    PeerBookCount = get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
+    InboundCount = get_opt(Opts, inbound_connections, ?DEFAULT_MAX_INBOUND_CONNECTIONS),
+    DropTimeOut = get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
+    SeedNodes = get_opt(Opts, seed_nodes, []),
     self() ! {start_workers, PeerBookCount, length(SeedNodes)},
-    {ok, update_metadata(#state{sup=Sup, tid=TID, client_spec=ClientSpec,
-                                seed_nodes=SeedNodes, peerbook_connections=PeerBookCount,
-                                drop_timeout=DropTimeOut, drop_timer=schedule_drop_timer(DropTimeOut)})}.
+    {ok, update_metadata(#state{sup=Sup, tid=TID,
+                                seed_nodes=SeedNodes,
+                                max_inbound_connections=InboundCount,
+                                peerbook_connections=PeerBookCount,
+                                drop_timeout=DropTimeOut,
+                                drop_timer=schedule_drop_timer(DropTimeOut)})}.
 
-handle_call(workers, _From, State=#state{}) ->
-    {reply, connections(all, State), State};
+handle_call({accept_stream, _Session, _StreamPid}, _From, State=#state{workers=[]}) ->
+    {reply, {error, not_ready}, State};
+handle_call({accept_stream, Session, StreamPid}, From, State=#state{}) ->
+    libp2p_session:identify(Session, self(), {From, StreamPid}),
+    {noreply, State};
+handle_call({handle_data, Key, Msg}, _From, State=#state{}) ->
+    %% Incoming message from a gossip stream for a given key
+    case maps:find(Key, State#state.handlers) of
+        error -> {reply, ok, State};
+        {ok, {M, S}} ->
+            %% Catch the callback response. This avoids a crash in the
+            %% handler taking down the gossip_server itself.
+            case (catch M:handle_gossip_data(Msg, S)) of
+                {'EXIT', Err} -> {reply, {error, Err}, State};
+                {error, Reason} -> {reply, {error, Reason}, State};
+                _ -> {reply, ok, State}
+            end
+    end;
+handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
+    {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
+    {reply, Addrs, State};
+
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
+handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
+    {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
+handle_cast({remove_handler, Key}, State=#state{handlers=Handlers}) ->
+    {noreply, State#state{handlers=maps:remove(Key, Handlers)}};
+
+handle_cast({request_target, inbound, WorkerPid}, State=#state{}) ->
+    {noreply, stop_inbound_worker(WorkerPid, State)};
 handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) ->
-    PeerAddrs = [ libp2p_crypto:address_to_p2p(Key)
-                  || Key <- libp2p_peerbook:keys(libp2p_swarm:peerbook(TID)) ],
+    %% Get all th ekeys to a peer. We catch any exceptions in talking
+    %% to peerbook here because during shutdown the peerbook may go
+    %% down before this server does which causes a very noisy crash
+    %% here.
+    PeerKeys = try
+                   libp2p_peerbook:keys(libp2p_swarm:peerbook(TID))
+               catch
+                   _:_ -> []
+               end,
+    PeerAddrs = [ libp2p_crypto:address_to_p2p(Key) || Key <- PeerKeys ],
     %% Get currently connected addresses
-    {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
+    {CurrentAddrs, _} = lists:unzip(connections(all, State)),
     LocalAddr = libp2p_crypto:address_to_p2p(libp2p_swarm:address(TID)),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
@@ -64,41 +122,101 @@ handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) -
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(PeerAddrs),
                                              sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(Kind, WorkerPid, TargetAddrs, State)};
-handle_cast({request_target, Kind=seed, WorkerPid}, State=#state{seed_nodes=SeedAddrs}) ->
-    {CurrentAddrs, _} = lists:unzip(connections(Kind, State)),
-    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs), sets:from_list(CurrentAddrs))),
+handle_cast({request_target, Kind=seed, WorkerPid}, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
+    {CurrentAddrs, _} = lists:unzip(connections(all, State)),
+    LocalAddr = libp2p_crypto:address_to_p2p(libp2p_swarm:address(TID)),
+    %% Exclude the local swarm address from the available addresses
+    ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
+    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
+                                             sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(Kind, WorkerPid, TargetAddrs, State)};
-handle_cast({send, Bin}, State=#state{}) ->
+handle_cast({send, Key, Data}, State=#state{}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
-    lists:foreach(fun(Pid) ->
-                          libp2p_group_worker:send(Pid, ignore, Bin)
-                  end, Pids),
+    %% Catch errors encoding the given arguments to avoid a bad key or
+    %% value taking down the gossip server
+    case (catch libp2p_gossip_stream:encode(Key, Data)) of
+        {'EXIT', Error} ->
+            lager:warning("Error encoding gossip data ~p", [Error]);
+        Msg ->
+            lists:foreach(fun(Pid) ->
+                                  libp2p_group_worker:send(Pid, Key, Msg)
+                          end, Pids)
+    end,
     {noreply, State};
-handle_cast({send_ready, _Ref, _Ready}, State=#state{}) ->
-    {noreply, State};
+handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
+    case lookup_worker(Target, #worker.target, State) of
+        #worker{pid=WorkerPid} ->
+            NewState = maps:fold(fun(Key, {M, S}, Acc) ->
+                                         case (catch M:init_gossip_data(S)) of
+                                             {'EXIT', _} ->
+                                                 Acc#state{handlers=maps:remove(Key, Acc#state.handlers)};
+                                             ok ->
+                                                 Acc;
+                                             {send, Data} ->
+                                                 Msg = libp2p_gossip_stream:encode(Key, Data),
+                                                 libp2p_group_worker:send(WorkerPid, send_ready, Msg),
+                                                 Acc
+                                         end
+                                 end, State, State#state.handlers),
+            {noreply, NewState};
+        _ ->
+            {noreply, State}
+    end;
 handle_cast({send_result, _Ref, _Reason}, State=#state{}) ->
     {noreply, State};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({start_workers, PeerCount, SeedCount}, State=#state{}) ->
-    PeerBookWorkers = [start_child(peerbook, State) || _ <- lists:seq(1, PeerCount)],
-    SeedWorkers = [start_child(seed, State) || _ <- lists:seq(1, SeedCount)],
+handle_info({start_workers, PeerCount, SeedCount}, State=#state{tid=TID}) ->
+    PeerBookWorkers = [start_worker(peerbook, State) || _ <- lists:seq(1, PeerCount)],
+    SeedWorkers = [start_worker(seed, State) || _ <- lists:seq(1, SeedCount)],
+    libp2p_swarm:add_stream_handler(TID, ?GROUP_PATH,
+                                    {libp2p_gossip_stream, server, [?MODULE, self()]}),
     {noreply, State#state{workers=SeedWorkers ++ PeerBookWorkers}};
-handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=DropTimer, workers=Workers}) ->
+handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=DropTimer,
+                                       workers=Workers}) ->
     erlang:cancel_timer(DropTimer),
-    case lists:filter(fun({_, _, MAddr}) -> MAddr =/= undefined end, Workers) of
+    case lists:filter(fun(#worker{target=MAddr}) -> MAddr =/= undefined end, Workers) of
         [] ->  {noreply, State#state{drop_timer=schedule_drop_timer(DropTimeOut)}};
         ConnectedWorkers ->
-            {Kind, WorkerPid, MAddr} = lists:nth(rand:uniform(length(ConnectedWorkers)), ConnectedWorkers),
-            lager:debug("Timeout dropping 1 connection: ~p]", [MAddr]),
-            {noreply, drop_target(Kind, WorkerPid, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
+            Worker = lists:nth(rand:uniform(length(ConnectedWorkers)), ConnectedWorkers),
+            lager:debug("Timeout dropping 1 connection: ~p]", [Worker#worker.target]),
+            {noreply, drop_target(Worker, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
+    end;
+handle_info({handle_identify, {From, _StreamPid}, {error, Error}}, State=#state{}) ->
+    gen_server:reply(From, {error, Error}),
+    {noreply, State};
+handle_info({handle_identify, {From, StreamPid}, {ok, Identify}}, State=#state{}) ->
+    Target = libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
+    %% Check if we already have a worker for this target
+    case lookup_worker(Target, #worker.target, State) of
+        %% If not, we we check if we can accept a random inbound
+        %% connection and start a worker for the inbound stream if ok
+        false ->
+            case count_workers(inbound, State) > State#state.max_inbound_connections of
+                true ->
+                    gen_server:reply(From, {error, too_many}),
+                    {noreply, State};
+                false ->
+                    NewWorkers = [start_inbound_worker(Target, StreamPid, State) | State#state.workers],
+                    gen_server:reply(From, ok),
+                    {noreply, State#state{workers=NewWorkers}}
+            end;
+        %% There's an existing worker for the given address, re-assign
+        %% the worker the new stream.
+        #worker{pid=Worker} ->
+            libp2p_group_worker:assign_stream(Worker, StreamPid),
+            gen_server:reply(From, ok),
+            {noreply, State}
     end;
 handle_info(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+
+terminate(_Reason, #state{tid=TID}) ->
+    libp2p_swarm:remove_stream_handler(TID, ?GROUP_PATH).
 
 
 
@@ -109,41 +227,81 @@ handle_info(Msg, State) ->
 schedule_drop_timer(DropTimeOut) ->
     erlang:send_after(DropTimeOut, self(), drop_timeout).
 
--spec connections(Kind::atom() | all, #state{}) -> [{MAddr::string(), Pid::pid()}].
+-spec connections(libp2p_group_gossip:connection_kind() | all, #state{})
+                 -> [{MAddr::string(), Pid::pid()}].
 connections(Kind, #state{workers=Workers}) ->
-    lists:foldl(fun({_, _, undefined}, Acc) ->
+    lists:foldl(fun(#worker{target=undefined}, Acc) ->
                         Acc;
-                    ({_, Pid, MAddr}, Acc) when Kind == all ->
+                    (#worker{pid=Pid, target=MAddr}, Acc) when Kind == all ->
                         [{MAddr, Pid} | Acc];
-                    ({WorkerKind, Pid, MAddr}, Acc) when WorkerKind == Kind ->
+                    (#worker{kind=WorkerKind, pid=Pid, target=MAddr}, Acc) when WorkerKind == Kind ->
                         [{MAddr, Pid} | Acc];
                    (_, Acc) ->
                         Acc
                 end, [], Workers).
 
 assign_target(Kind, WorkerPid, TargetAddrs, State=#state{workers=Workers}) ->
-    SelectedAddr = case length(TargetAddrs) of
-                       0 -> undefined;
-                       _ -> mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs))
-                   end,
-    libp2p_group_worker:assign_target(WorkerPid, SelectedAddr),
-    NewWorkers = lists:keyreplace(WorkerPid, 2, Workers, {Kind, WorkerPid, SelectedAddr}),
+    case length(TargetAddrs) of
+        0 -> State;
+        _ ->
+            SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
+            ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
+            libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
+            NewWorkers = lists:keyreplace(WorkerPid, #worker.pid, Workers,
+                                          #worker{kind=Kind, pid=WorkerPid, target=SelectedAddr}),
+            State#state{workers=NewWorkers}
+    end.
+
+drop_target(Worker=#worker{pid=WorkerPid}, State=#state{workers=Workers}) ->
+    libp2p_group_worker:clear_target(WorkerPid),
+    NewWorkers = lists:keyreplace(WorkerPid, #worker.pid, Workers,
+                                  Worker#worker{target=undefined}),
     State#state{workers=NewWorkers}.
 
-drop_target(Kind, WorkerPid, State=#state{workers=Workers}) ->
-    libp2p_group_worker:assign_target(WorkerPid, undefined),
-    NewWorkers = lists:keyreplace(WorkerPid, 2, Workers, {Kind, WorkerPid, undefined}),
-    State#state{workers=NewWorkers}.
+lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
+    lists:keyfind(Key, KeyIndex, Workers).
 
--spec start_child(atom(), #state{}) -> worker().
-start_child(Kind, #state{tid=TID, client_spec=ClientSpec, sup=Sup}) ->
+
+-spec count_workers(libp2p_group_gossip:connection_kind(), #state{}) -> non_neg_integer().
+count_workers(Kind, #state{workers=Workers}) ->
+    FilteredWorkers = lists:filter(fun(#worker{kind=WorkerKind}) ->
+                                          WorkerKind == Kind
+                                  end, Workers),
+    length(FilteredWorkers).
+
+-spec start_inbound_worker(string(), pid(), #state{}) ->  #worker{}.
+start_inbound_worker(Target, StreamPid, #state{tid=TID, sup=Sup}) ->
     WorkerSup = libp2p_group_gossip_sup:workers(Sup),
-    ChildSpec = #{ id => make_ref(),
-                   start => {libp2p_group_worker, start_link, [Kind, ClientSpec, self(), ?GROUP_ID, TID]},
-                   restart => permanent
-                 },
-    {ok, WorkerPid} = supervisor:start_child(WorkerSup, ChildSpec),
-    {Kind, WorkerPid, undefined}.
+    {ok, WorkerPid} = supervisor:start_child(
+                        WorkerSup,
+                        #{ id => make_ref(),
+                           start => {libp2p_group_worker, start_link,
+                                     [inbound, StreamPid, self(), ?GROUP_ID, TID]},
+                           restart => temporary
+                         }),
+    #worker{kind=inbound, pid=WorkerPid, target=Target}.
+
+-spec stop_inbound_worker(pid(), #state{}) -> #state{}.
+stop_inbound_worker(StreamPid, State) ->
+    WorkerSup = libp2p_group_gossip_sup:workers(State#state.sup),
+    supervisor:terminate_child(WorkerSup, StreamPid),
+    State#state{workers=lists:keydelete(StreamPid, #worker.pid, State#state.workers)}.
+
+-spec start_worker(atom(), #state{}) -> #worker{}.
+start_worker(Kind, #state{tid=TID, sup=Sup}) ->
+    WorkerSup = libp2p_group_gossip_sup:workers(Sup),
+    {ok, WorkerPid} = supervisor:start_child(
+                        WorkerSup,
+                        #{ id => make_ref(),
+                           start => {libp2p_group_worker, start_link,
+                                     [Kind, self(), ?GROUP_ID, TID]},
+                           restart => transient
+                         }),
+    #worker{kind=Kind, pid=WorkerPid, target=undefined}.
+
+-spec get_opt(libp2p_config:opts(), atom(), any()) -> any().
+get_opt(Opts, Key, Default) ->
+    libp2p_config:get_opt(Opts, [libp2p_group_gossip, Key], Default).
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
     libp2p_crypto:address_to_p2p(Addr);

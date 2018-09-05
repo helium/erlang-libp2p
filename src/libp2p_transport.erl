@@ -11,7 +11,7 @@
 
 -export_type([connection_handler/0]).
 -export([start_link/2, for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
-         start_client_session/3, start_client_session/4, start_server_session/3]).
+         start_client_session/3, start_server_session/3]).
 
 
 start_link(TransportMod, TID) ->
@@ -135,11 +135,6 @@ find_session([Addr | Tail], Options, TID) ->
 -spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
                           -> {ok, pid()} | {error, term()}.
 start_client_session(TID, Addr, Connection) ->
-    start_client_session(TID, Addr, Connection, libp2p_swarm_sup:server(TID)).
-
--spec start_client_session(ets:tab(), string(), libp2p_connection:connection(), pid())
-                          -> {ok, pid()} | {error, term()}.
-start_client_session(TID, Addr, Connection, IdentifyHandler) ->
     Handlers = libp2p_config:lookup_connection_handlers(TID),
     case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
         {error, Error} -> {error, Error};
@@ -155,7 +150,6 @@ start_client_session(TID, Addr, Connection, IdentifyHandler) ->
                 {ok, _} ->
                     libp2p_config:insert_session(TID, Addr, SessionPid),
                     libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
-                    libp2p_identify:spawn_identify(SessionPid, IdentifyHandler, client),
                     {ok, SessionPid};
                 {error, Error} ->
                     lager:error("Changing controlling process for ~p to ~p failed ~p",
@@ -188,5 +182,4 @@ start_server_session(Ref, TID, Connection) ->
     {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
     libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
     libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
-    libp2p_identify:spawn_identify(SessionPid, libp2p_swarm_sup:server(TID), server),
     {ok, SessionPid}.

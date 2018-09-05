@@ -2,20 +2,33 @@
 
 -type opt() :: {peerbook_connections, pos_integer()}
              | {drop_timeout, pos_integer()}
-             | {stream_clients, [libp2p_group:stream_client_spec()]}
+             | {stream_clients, [libp2p_group_worker:stream_client_spec()]}
              | {seed_nodes, [MultiAddr::string()]}.
 
 -export_type([opt/0]).
 
--export([group_agent_spec/2, get_opt/3]).
+-type handler() :: {Module::atom(), State::any()}.
+-type connection_kind() :: peerbook | seed | inbound.
 
--spec group_agent_spec(term(), ets:tab()) -> supervisor:child_spec().
-group_agent_spec(Id, TID) ->
-    #{ id => Id,
-       start => {libp2p_group_gossip_sup, start_link, [TID]},
-       type => supervisor
-     }.
+-export_type([handler/0, connection_kind/0]).
 
--spec get_opt(libp2p_config:opts(), atom(), any()) -> any().
-get_opt(Opts, Key, Default) ->
-    libp2p_config:get_opt(Opts, [?MODULE, Key], Default).
+-export([add_handler/3, remove_handler/2, send/3, connected_addrs/2]).
+
+-spec add_handler(pid(), string(), handler()) -> ok.
+add_handler(Pid, Key, Handler) ->
+    gen_server:cast(Pid, {add_handler, Key, Handler}).
+
+-spec remove_handler(pid(), string()) -> ok.
+remove_handler(Pid, Key) ->
+    gen_server:cast(Pid, {remove_handler, Key}).
+
+%% @doc Send the given data to all members of the group for the given
+%% gossip key. The implementation of the group determines the strategy
+%% used for delivery. Delivery is best effort.
+-spec send(pid(), string(), iodata()) -> ok.
+send(Pid, Key, Data) when is_list(Key), is_binary(Data) ->
+    gen_server:cast(Pid, {send, Key, Data}).
+
+-spec connected_addrs(pid(), connection_kind() | all) -> [string()].
+connected_addrs(Pid, WorkerKind) ->
+    gen_server:call(Pid, {connected_addrs, WorkerKind}).

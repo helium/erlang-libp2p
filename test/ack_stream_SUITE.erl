@@ -1,7 +1,10 @@
 -module(ack_stream_SUITE).
 
+
+-behavior(libp2p_ack_stream).
+
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accept_stream/4, handle_data/3, handle_ack/3]).
+-export([accept_stream/3, handle_data/3, handle_ack/3]).
 -export([ack_test/1, defer_test/1]).
 
 
@@ -55,7 +58,7 @@ defer_test(Config) ->
 
     ok.
 
-accept_stream({Pid, _}, _MAddr, StreamPid, Path) ->
+accept_stream({Pid, _}, StreamPid, Path) ->
     Pid ! {accept_stream, StreamPid, Path},
     {ok, {server, self()}}.
 

@@ -6,7 +6,7 @@
 
 -export_type([stream_handler/0]).
 
--export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1]).
+-export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1, identify/3]).
 
 -export([dial/2, dial_framed_stream/4]).
 
@@ -45,6 +45,10 @@ streams(Pid) ->
 addr_info(Pid) ->
     gen_server:call(Pid, addr_info).
 
+-spec identify(pid(), Handler::pid(), HandlerData::any()) -> ok.
+identify(Pid, Handler, HandlerData) ->
+    Pid ! {identify, Handler, HandlerData},
+    ok.
 
 %%
 %% libp2p_info
@@ -62,7 +66,7 @@ dial(Path, SessionPid) ->
         {error, Error} -> {error, Error};
         {ok, Connection} ->
             Handlers = [{Path, undefined}],
-            try libp2p_multistream_client:negotiate_handler(Handlers, "stream", Connection) of
+            try libp2p_multistream_client:negotiate_handler(Handlers, Path, Connection) of
                 {error, Error} ->
                     lager:debug("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
                     {error, Error};
@@ -75,8 +79,8 @@ dial(Path, SessionPid) ->
     end.
 
 
--spec dial_framed_stream(Path::string(), Session::pid(), Module::atom(), Args::[any()]) ->
-                                {ok, Stream::pid()} | {error, term()} | ignore.
+-spec dial_framed_stream(Path::string(), Session::pid(), Module::atom(), Args::[any()])
+                        -> {ok, Stream::pid()} | {error, term()}.
 dial_framed_stream(Path, SessionPid, Module, Args) ->
     case dial(Path, SessionPid) of
         {error, Error} -> {error, Error};

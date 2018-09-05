@@ -183,9 +183,9 @@ fdclr(#tcp_state{socket=Socket}) ->
 addr_info(#tcp_state{addr_info=AddrInfo}) ->
     AddrInfo.
 
--spec session(tcp_state()) -> {ok, pid()} | undefined.
+-spec session(tcp_state()) -> {ok, pid()} | {error, term()}.
 session(#tcp_state{session=undefined}) ->
-    undefined;
+    {error, no_session};
 session(#tcp_state{session=Session}) ->
     {ok, Session}.
 
@@ -258,9 +258,11 @@ handle_cast(Msg, State) ->
 
 %%  Discover/Stun
 %%
-handle_info(Msg={identify, _Kind, Session, Identify}, State=#state{tid=TID}) ->
-    %% Forward on to swarm server for initial registration
-    libp2p_swarm_sup:server(TID) ! Msg,
+handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
+    {_LocalAddr, PeerAddr} = libp2p_session:addr_info(Session),
+    lager:notice("session identification failed for ~p: ~p", [PeerAddr, Error]),
+    {noreply, State};
+handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) ->
     {LocalAddr, _PeerAddr} = libp2p_session:addr_info(Session),
     RemoteP2PAddr = libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
     {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
@@ -270,7 +272,8 @@ handle_info(Msg={identify, _Kind, Session, Identify}, State=#state{tid=TID}) ->
             ObservedAddr = libp2p_identify:observed_addr(Identify),
             {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
         false ->
-            lager:info("identify response for socket with local address ~p is not a listen addr socket, ignoring", [LocalAddr]),
+            lager:info("identify response with local address ~p that is not a listen addr socket, ignoring",
+                       [LocalAddr]),
             %% this is likely a discovery session we dialed with unique_port
             %% we can't trust this for the purposes of the observed address
             {noreply, State}
@@ -435,7 +438,12 @@ connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
                                       UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
-                    libp2p_transport:start_client_session(TID, Addr, new_connection(Socket), TCPPid);
+                    case libp2p_transport:start_client_session(TID, Addr, new_connection(Socket)) of
+                        {ok, SessionPid} ->
+                            libp2p_session:identify(SessionPid, TCPPid, SessionPid),
+                            {ok, SessionPid};
+                        {error, Reason} -> {error, Reason}
+                    end;
                 {error, Error} ->
                     {error, Error}
             end;
