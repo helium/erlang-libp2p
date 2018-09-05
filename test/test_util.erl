@@ -1,7 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
-         connect_swarms/2, disconnect_swarms/2,
+         connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1]).
 
 setup() ->
@@ -85,6 +85,23 @@ dial_framed_stream(FromSwarm, ToSwarm, Name, Module, Args) ->
     [ToAddr | _] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Stream} = libp2p_swarm:dial_framed_stream(FromSwarm, ToAddr, Name, Module, Args),
     Stream.
+
+
+await_gossip_group(Swarm, Swarms) ->
+    ExpectedAddrs = sets:from_list(lists:delete(
+                                     libp2p_swarm:p2p_address(Swarm),
+                                     [libp2p_swarm:p2p_address(S) || S <- Swarms])),
+    GossipGroup = libp2p_swarm:gossip_group(Swarm),
+    test_util:wait_until(
+      fun() ->
+              GroupAddrs = sets:from_list(libp2p_group_gossip:connected_addrs(GossipGroup, all)),
+              sets:is_subset(ExpectedAddrs, GroupAddrs)
+      end).
+
+await_gossip_groups(Swarms) ->
+    lists:foreach(fun(S) ->
+                          ok = await_gossip_group(S, Swarms)
+                  end, Swarms).
 
 nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];

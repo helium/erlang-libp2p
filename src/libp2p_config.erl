@@ -4,11 +4,11 @@
          base_dir/1, swarm_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2,
-         lookup_sessions/1, lookup_session_addrs/2,
+         lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
-         lookup_stream_handlers/1, insert_stream_handler/2,
+         lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
          insert_group/3, lookup_group/2, remove_group/2,
          insert_relay/2, lookup_relay/1, remove_relay/1,
          insert_proxy/2, lookup_proxy/1, remove_proxy/1]).
@@ -88,6 +88,10 @@ lookup_pids(TID, Kind) ->
 -spec lookup_addrs(ets:tab(), atom(), pid()) -> [string()].
 lookup_addrs(TID, Kind, Pid) ->
     [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, Pid})].
+
+-spec lookup_addrs(ets:tab(), atom()) -> [string()].
+lookup_addrs(TID, Kind) ->
+    [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, '_'})].
 
 -spec remove_pid(ets:tab(), atom(), term()) -> true.
 remove_pid(TID, Kind, Ref) ->
@@ -194,6 +198,9 @@ lookup_sessions(TID) ->
 lookup_session_addrs(TID, Pid) ->
     lookup_addrs(TID, ?SESSION, Pid).
 
+-spec lookup_session_addrs(ets:tab()) -> [string()].
+lookup_session_addrs(TID) ->
+    lookup_addrs(TID, ?SESSION).
 %%
 %% Connections
 %%
@@ -217,6 +224,10 @@ lookup_stream_handlers(TID) ->
 -spec insert_stream_handler(ets:tab(), {string(), libp2p_session:stream_handler()}) -> true.
 insert_stream_handler(TID, {Key, ServerMF}) ->
     ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}).
+
+-spec remove_stream_handler(ets:tab(), string()) -> true.
+remove_stream_handler(TID, Key) ->
+    ets:delete(TID, {?STREAM_HANDLER, Key}).
 
 %%
 %% Groups

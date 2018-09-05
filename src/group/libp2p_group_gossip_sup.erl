@@ -16,12 +16,13 @@ init([TID]) ->
     SupFlags = #{strategy => one_for_all},
     ChildSpecs =
         [
-         #{ id => server,
-            start => {libp2p_group_gossip_server, start_link, [self(), TID]}
-          },
          #{ id => ?WORKERS,
             start => {libp2p_group_worker_sup, start_link, []},
             type => supervisor
+          },
+         #{ id => server,
+            start => {libp2p_group_gossip_server, start_link, [self(), TID]},
+            restart => transient
           }
         ],
     {ok, {SupFlags, ChildSpecs}}.

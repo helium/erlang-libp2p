@@ -29,7 +29,8 @@
                   inet_ext,
                   ecc_compact,
                   bitcask,
-                  splicer
+                  splicer,
+                  backoff
                  ]},
   {env,[]},
 

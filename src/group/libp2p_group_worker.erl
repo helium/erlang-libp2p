@@ -3,225 +3,289 @@
 -behaviour(gen_statem).
 -behavior(libp2p_info).
 
+-type stream_client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
+-export_type([stream_client_spec/0]).
+
 %% API
--export([start_link/5, assign_target/2, assign_stream/3, send/3, send_ack/1, close/1]).
+-export([start_link/4, start_link/5,
+         assign_target/2, clear_target/1,
+         assign_stream/2, send/3, send_ack/1, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
--export([request_target/3, connect/3, closing/3]).
+-export([targeting/3, connecting/3, connected/3, closing/3]).
 
 %% libp2p_info
 -export([info/1]).
 
 -define(SERVER, ?MODULE).
+-define(TRIGGER_TARGETING, {next_event, info, targeting_timeout}).
+-define(TRIGGER_CONNECT_RETRY, {next_event, info, connect_retry_timeout}).
+
+-type target() :: {MAddr::string(), Spec::stream_client_spec()}.
 
 -record(data,
         { tid :: ets:tab(),
           kind :: atom() | pos_integer(),
           group_id :: string(),
           server :: pid(),
-          client_spec=undefined :: undefined | libp2p_group:stream_client_spec(),
-          target=undefined :: undefined | string(),
+          %% Target information
+          target={undefined, undefined} :: target() | {undefined, undefined},
+          target_timer=undefined :: undefined | reference(),
+          target_backoff :: backoff:backoff(),
+          % Connect data
           connect_pid=undefined :: undefined | pid(),
           connect_retry_timer=undefined :: undefined | reference(),
-          session_monitor=undefined :: pid_monitor(),
-          stream_pid=undefined :: pid() | undefined
+          connect_retry_backoff :: backoff:backoff(),
+          %% Stream we're managing
+          stream_pid=undefined :: undefined | pid()
         }).
-
--define(ASSIGN_RETRY, 1000).
--define(CONNECT_RETRY, 1000).
-
--type pid_monitor() :: undefined | {reference(), pid()}.
 
 %% API
 
--spec assign_target(pid(), string() | undefined) -> ok.
-assign_target(Pid, MAddr) ->
-    gen_statem:cast(Pid, {assign_target, MAddr}).
+%% @doc Assign a target to a worker. This causes the worker to go back
+%% to attempting to connect to the given target, dropping it's stream
+%% if it has one. The target is passed as the a tuple consisting of
+%% the crytpo address and the spec of the stream client to start once
+%% the worker is connected to the target.
+-spec assign_target(pid(), target()) -> ok.
+assign_target(Pid, Target) ->
+    gen_statem:cast(Pid, {assign_target, Target}).
 
--spec assign_stream(pid(), libp2p_connection:connection(), pid()) -> ok.
-assign_stream(Pid, Connection, StreamPid) ->
-    gen_statem:cast(Pid, {assign_stream, Connection, StreamPid}).
+%% @doc Clears the current target for the worker. The worker goes back
+%% to target acquisition, after dropping it's streeam if it has one.
+-spec clear_target(pid()) -> ok.
+clear_target(Pid) ->
+    gen_statem:cast(Pid, clear_target).
 
+%% @doc Assigns the given stream to the worker. This does _not_ update
+%% the target of the worker but moves the worker to the `connected'
+%% state and uses it to send data.
+-spec assign_stream(pid(), StreamPid::pid()) -> ok.
+assign_stream(Pid, StreamPid) ->
+    Pid ! {assign_stream, StreamPid},
+    ok.
+
+%% @doc Sends a given `Data' binary on it's stream asynchronously. The given `Ref' is
+%% used to indicate the send result to the server for the worker.
+%%
+%% @see libp2p_group_server:send_result/3
 -spec send(pid(), term(), binary()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
 
+%% @doc Changes the group worker state to `closing' state. Closing
+%% means that a newly assigned stream is still accepted but the worker
+%% will not attempt to re-acquire a target or re-connect.
 -spec close(pid()) -> ok.
 close(Pid) ->
     Pid ! close,
     ok.
 
+%% @doc Used as a convenience for groups using libp2p_ack_stream, this
+%% function sends an ack to the worker's stream if connected.
 -spec send_ack(pid()) -> ok.
 send_ack(Pid) ->
     Pid ! send_ack,
     ok.
 
 %% libp2p_info
+%%
+
+%% @private
 info(Pid) ->
     catch gen_statem:call(Pid, info).
 
 %% gen_statem
 %%
 
--spec start_link(atom(), libp2p_group:stream_client_spec(), pid(), string(), ets:tab()) ->
+-spec start_link(atom(), pid(), string(), ets:tab()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Kind, ClientSpec, Server, GroupID, TID) ->
-    gen_statem:start_link(?MODULE, [Kind, ClientSpec, Server, GroupID, TID], []).
+start_link(Kind, Server, GroupID, TID) ->
+    gen_statem:start_link(?MODULE, [Kind, Server, GroupID, TID], []).
 
+-spec start_link(atom(), Stream::pid(), Server::pid(), string(), ets:tab()) ->
+                        {ok, Pid :: pid()} |
+                        ignore |
+                        {error, Error :: term()}.
+start_link(Kind, StreamPid, Server, GroupID, TID) ->
+    gen_statem:start_link(?MODULE, [Kind, StreamPid, Server, GroupID, TID], []).
 
-callback_mode() -> [state_functions, state_enter].
+callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Kind, ClientSpec, Server, GroupID, TID]) ->
+init([Kind, StreamPid, Server, GroupID, TID]) ->
     process_flag(trap_exit, true),
-    {ok, request_target,
-     update_metadata(#data{tid=TID, server=Server, kind=Kind, group_id=GroupID, client_spec=ClientSpec})}.
+    {ok, connected,
+     update_metadata(#data{tid=TID, server=Server, kind=Kind, group_id=GroupID,
+                          target_backoff=init_targeting_backoff(),
+                          connect_retry_backoff=init_connect_retry_backoff()}),
+    {next_event, info, {assign_stream, StreamPid}}};
+init([Kind, Server, GroupID, TID]) ->
+    process_flag(trap_exit, true),
+    {ok, targeting,
+     update_metadata(#data{tid=TID, server=Server, kind=Kind, group_id=GroupID,
+                          target_backoff=init_targeting_backoff(),
+                          connect_retry_backoff=init_connect_retry_backoff()}),
+     ?TRIGGER_TARGETING}.
 
--spec request_target('enter', Msg :: term(), Data :: term()) ->
-                            gen_statem:state_enter_result(request_target);
-                    (gen_statem:event_type(), Msg :: term(), Data :: term()) ->
-                            gen_statem:event_handler_result(atom()).
-request_target(enter, _, #data{kind=Kind, server=Server}) ->
-    libp2p_group_server:request_target(Server, Kind, self()),
-    {keep_state_and_data, ?ASSIGN_RETRY};
-request_target(timeout, _, #data{}) ->
-    repeat_state_and_data;
-request_target(cast, {assign_target, undefined}, #data{}) ->
-    {keep_state_and_data, ?ASSIGN_RETRY};
-request_target(cast, {assign_target, MAddr}, Data=#data{}) ->
-    {next_state, connect, update_metadata(Data#data{target=MAddr})};
-request_target(cast, {send, Ref, _Bin}, #data{server=Server}) ->
-    libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
-    {keep_state_and_data, ?ASSIGN_RETRY};
-request_target(EventType, Msg, Data) ->
+targeting(cast, clear_target, Data=#data{}) ->
+    {keep_state, start_targeting_timer(Data#data{target={undefined, undefined}})};
+targeting(cast, {assign_target, Target}, Data=#data{}) ->
+    {next_state, connecting, cancel_targeting_timer(Data#data{target=Target}),
+     ?TRIGGER_CONNECT_RETRY};
+targeting(info, targeting_timeout, Data=#data{}) ->
+    libp2p_group_server:request_target(Data#data.server, Data#data.kind, self()),
+    {keep_state, start_targeting_timer(Data)};
+targeting(info, close, Data=#data{}) ->
+    {next_state, closing, cancel_targeting_timer(Data)};
+targeting(info, {assign_stream, StreamPid}, Data=#data{}) ->
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} -> {next_state, connected, cancel_targeting_timer(NewData)};
+        _ -> keep_state_and_data
+    end;
+
+targeting(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
+%%
+%% Connecting - The worker has a target. Attempt to connect and dial
+%% the specified client.
+%%
 
--spec connect('enter', Msg :: term(), Data :: term()) ->
-                     gen_statem:state_enter_result(connect);
-             (gen_statem:event_type(), Msg :: term(), Data :: term()) ->
-                     gen_statem:event_handler_result(atom()).
-connect(enter, _, Data=#data{target=Target, tid=TID, connect_pid=undefined}) ->
+connecting(cast, clear_target, Data=#data{}) ->
+    %% When the target is cleared we stop trying to connect and go
+    %% back to targeting state. Ensure we klll the existing
+    %% connect_pid if any.
+    {next_state, targeting, Data#data{connect_pid=kill_pid(Data#data.connect_pid),
+                                      target={undefined, undefined}},
+     ?TRIGGER_TARGETING};
+connecting(cast, {assign_target, Target}, Data=#data{}) ->
+    %% When the target is set we kill any existint connect_pid and
+    %% cancel a retry timer if set. Then emulate a retry_timeout
+    {keep_state, cancel_connect_retry_timer(Data#data{connect_pid=kill_pid(Data#data.connect_pid),
+                                                      target=Target}),
+     ?TRIGGER_CONNECT_RETRY};
+connecting(info, close, Data=#data{}) ->
+    {next_state, closing, cancel_connect_retry_timer(Data)};
+connecting(info, {assign_stream, StreamPid}, Data=#data{}) ->
+    %% Stream assignment can come in from an externally accepted
+    %% stream or our own connct_pid. Either way we try to handle the
+    %% assignment and leave pending connectes in place to avoid
+    %% killing the resulting stream assignemt of too quick.
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} ->
+            {next_state, connected,
+                          cancel_connect_retry_timer(NewData#data{})};
+        _ -> keep_state_and_data
+    end;
+connecting(info, {connect_error, _}, Data=#data{}) ->
+    %% On a connect error we kick of the retry timer, which will fire
+    %% a connect_retry_timeout at some point.
+    {keep_state, start_connect_retry_timer(Data)};
+connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
+    %% The connect_pid was killed by us. Ignore
+    {keep_state, Data#data{connect_pid=undefined}};
+connecting(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=ConnectPid}) ->
+    %% The connect pid crashed for some other reason. Treat like a connect error
+    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined})};
+connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
+    %% We could end up in a retry timeout with no target when this
+    %% worker was assigned a stream without a target, and that stream
+    %% died. Fallback to targeting.
+    {next_state, targeting,
+     cancel_connect_retry_timer(Data#data{connect_pid=kill_pid(Data#data.connect_pid)}),
+     ?TRIGGER_TARGETING};
+connecting(info, connect_retry_timeout, Data=#data{tid=TID,
+                                                   target={MAddr, {Path, {M, A}}},
+                                                   connect_pid=ConnectPid}) ->
+    %% When the retry timeout fires we kill any exisitng connect_pid
+    %% (just to be sure, this should not be needed). Then we spin up
+    %% another attempt at connecting and dialing a framedstream based
+    %% on the target. We stop, but don't cancel the retry timer since
+    %% we can not tell yet whether we need to back of the retries more
+    %% times if we fail to connect again.
+    kill_pid(ConnectPid),
     Parent = self(),
-    {Pid, _} = spawn_monitor(
-                 fun() ->
-                         case libp2p_transport:connect_to(Target, [], 5000, TID) of
-                             {error, Reason} ->
-                                 Parent ! {error, Reason};
-                             {ok, SessionPid} ->
-                                 Parent ! {assign_session, SessionPid}
-                         end
-                 end),
-    {next_state, connect, Data#data{connect_pid=Pid}};
-connect(enter, _, Data=#data{connect_pid=ConnectPid})  ->
-    {repeat_state, Data#data{connect_pid=kill_pid(ConnectPid)}};
-connect(info, connect_retry, Data=#data{}) ->
-    {repeat_state, Data#data{connect_retry_timer=undefined}};
-connect(cast, {assign_target, undefined}, Data=#data{connect_pid=ConnectPid}) ->
-    {next_state, request_target, Data#data{connect_pid=kill_pid(ConnectPid),
-                                           session_monitor=monitor_session(undefined, Data),
-                                           stream_pid=assign_stream(undefined, Data)}};
-connect(info, {error, _Reason}, Data=#data{}) ->
-    {keep_state, connect_retry(Data)};
-connect(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
-    %% The _stream_ that this worker is linked to went away.
-    %% Try creating the stream again
-    {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
-                                         stream_pid=assign_stream(undefined, Data)})};
-connect(info, {'DOWN', SessionMonitor, process, _Pid, _Reason},
-        Data=#data{session_monitor={SessionMonitor, _}}) ->
-    %% The _session_ that this worker is monitoring went away. Set a
-    %% timer to try again.
-    {keep_state, connect_retry(Data#data{session_monitor=undefined,
-                                         stream_pid=assign_stream(undefined, Data)})};
-connect(info, {'DOWN', _, process, _, normal}, Data=#data{}) ->
-    %% Ignore a normal down for the connect pid, since it completed
-    %% it's work successfully
-    {keep_state, Data#data{connect_pid=undefined}};
-connect(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
-    %% The connect process wend down for a non-normal reason. Set a
-    %% timeout to try again.
-    {keep_state, connect_retry(Data#data{connect_pid=undefined})};
-connect(info, {assign_session, SessionPid},
-        Data=#data{session_monitor=SessionMonitor, stream_pid=_StreamPid}) when SessionMonitor /= undefined ->
-    %% Attempting to assign a session when we already have one. We
-    %% toss a coin to decide if we keep ours (1) or use the new given one.
-    %%
-    %% TODO: Once a proper group_gossip lands ,We can likely stop
-    %% trackign the session altogether since the stream will be the
-    %% only thing we care about
-    case rand:uniform(2) of
-        1 ->
-            %% lager:debug("Trying to assign a session ~p while one is being monitored with stream ~p",
-            %%             [SessionMonitor, _StreamPid]),
-            keep_state_and_data;
-        _ ->
-            connect(info, {assign_session, SessionPid},
-                    Data#data{session_monitor=monitor_session(undefined, Data),
-                              stream_pid=assign_stream(undefined, Data)})
+    Pid = spawn_link(
+            fun() ->
+                    case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
+                        {error, Error} ->
+                            Parent ! {connect_error, Error};
+                        {ok, StreamPid} ->
+                            Parent ! {assign_stream, StreamPid}
+                    end
+            end),
+    {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
+
+connecting(EventType, Msg, Data) ->
+    handle_event(EventType, Msg, Data).
+
+
+%%
+%% Connectd - The worker has an assigned stream
+%%
+
+connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
+    %% A new stream assignment came in. We stay in this state
+    %% regardless of whether we accept the new stream or not.
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} -> {keep_state, NewData};
+        _ -> keep_state_and_data
     end;
-connect(info, {assign_session, SessionPid},
-        Data=#data{session_monitor=undefined, client_spec=undefined}) ->
-    %% Assign a session without a client spec. Just monitor the
-    %% session. Success, no timeout needed.
-    %%
-    %% TODO: REMOVE this once the new group_gossip works
-    {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                           stream_pid=assign_stream(undefined, Data)}};
-connect(info, {assign_session, SessionPid}, Data=#data{target=Target, client_spec={Path, {M, A}}}) ->
-    %% Assign session with a client spec. Start and link client by dialing
-    case libp2p_session:dial_framed_stream(Path, SessionPid, M, A) of
-        {ok, StreamPid} ->
-            {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                                   stream_pid=assign_stream(StreamPid, Data)}};
-        {error, Error} ->
-            lager:notice("Failed to start client on target: ~s path: ~s: ~p", [Target, Path, Error]),
-            {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
-                                                 stream_pid=assign_stream(undefined, Data)})}
-    end;
-connect(info, close, Data) ->
+connected(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
+    %% The stream we're using died. Let's go back to connecting
+    {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
+    ?TRIGGER_CONNECT_RETRY};
+connected(cast, clear_target, Data=#data{}) ->
+    %% When the target is cleared we go back to targeting after
+    %% killing the current stream.
+    {next_state, targeting, Data#data{target={undefined, undefined},
+                                      stream_pid=update_stream(undefined, Data)},
+     ?TRIGGER_TARGETING};
+connected(cast, {assign_target, NewTarget}, Data=#data{target=OldTarget}) when NewTarget /= OldTarget ->
+    %% When the target is changed from what we have we kill the
+    %% current stream and go back to targeting.
+    {next_state, targeting, Data#data{target=NewTarget, stream_pid=update_stream(undefined, Data)},
+     ?TRIGGER_TARGETING};
+connected(info, close, Data=#data{}) ->
+    %% On close we just transition to closing. This keeps the stream
+    %% alive for any pending messages until the server decides to
+    %% terminate this worker.
     {next_state, closing, Data};
-connect(EventType, Msg, Data) ->
+
+connected(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
-
-closing(info, close, #data{}) ->
-    keep_state_and_data;
-closing(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
-    %% The _stream_ that this worker is linked to went away.
-    %% We do _not_ try to re-initiate outbound when we're closing down.
-    %% Inbound streams are accepted. See handle_event({assign_stream, ..}).
-    {keep_state, Data#data{session_monitor=undefined,
-                           stream_pid=assign_stream(undefined, Data)}};
-closing(info, {'DOWN', SessionMonitor, process, _Pid, _Reason},
-        Data=#data{session_monitor={SessionMonitor, _}}) ->
-    %% The _session_ that this worker is monitoring went away. We're
-    %% closing down so let it all go.
-    {keep_state, Data#data{session_monitor=undefined,
-                           stream_pid=assign_stream(undefined, Data)}};
-closing(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
-    %% Ignore a normal or error down for the connect pid, since we're
-    %% already in closing mode completed it's work successfully
-    {keep_state, Data#data{connect_pid=undefined}};
-
-
-closing(EventType, Msg, Data) ->
-    handle_event(EventType, Msg, Data).
-
 
 
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
 terminate(_Reason, _State, Data=#data{connect_pid=Process}) ->
     kill_pid(Process),
-    assign_stream(undefined, Data),
-    monitor_session(undefined, Data).
+    update_stream(undefined, Data).
 
 
+%%
+%% Closing - The worker is trying to shut down. No more connect
+%% attempts are made, but stream assignments are accepted.
+%%
 
-handle_event(cast, {assign_stream, Conn, StreamPid},
-             Data=#data{stream_pid=_CurrentStreamPid}) when StreamPid /= undefined  ->
+closing(info, {assign_stream, StreamPid}, Data=#data{}) ->
+    %% A new stream assignment came in. If we accept it we stay in
+    %% this state. if not we stay put
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} -> {keep_state, NewData};
+        _ -> keep_state_and_data
+    end;
+
+closing(EventType, Msg, Data) ->
+    handle_event(EventType, Msg, Data).
+
+
+handle_assign_stream(StreamPid, Data=#data{stream_pid=undefined}) ->
+    {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})};
+handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
@@ -229,27 +293,15 @@ handle_event(cast, {assign_stream, Conn, StreamPid},
             %%             [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
             %%              _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
-            keep_state_and_data;
+            false;
         _ ->
             %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
             %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
             %%               _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            case libp2p_connection:session(Conn) of
-                {ok, SessionPid} ->
-                    {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                                           stream_pid=assign_stream(StreamPid, Data)}};
-                _ ->
-                    libp2p_framed_stream:close(StreamPid),
-                    keep_state_and_data
-            end
-    end;
-handle_event(cast, {assign_stream, Conn, StreamPid}, Data=#data{}) ->
-    %% Assign a stream. Monitor the session and remember the
-    %% stream. Link the stream right away
-    link(StreamPid),
-    {ok, SessionPid} = libp2p_connection:session(Conn),
-    {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
-                           stream_pid=assign_stream(StreamPid, Data)}};
+            {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
+    end.
+
+
 handle_event(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
@@ -258,25 +310,44 @@ handle_event(cast, {send, Ref, Bin}, #data{server=Server, stream_pid=StreamPid})
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     keep_state_and_data;
+handle_event(cast, clear_target, #data{}) ->
+    %% ignore (handled in all states but `closing')
+    keep_state_and_data;
+handle_event(cast, {assign_target, _Target}, #data{}) ->
+    %% ignore (handled in all states but `closing')
+    keep_state_and_data;
 handle_event(info, send_ack, #data{stream_pid=undefined}) ->
     keep_state_and_data;
 handle_event(info, send_ack, #data{stream_pid=StreamPid}) ->
     StreamPid ! send_ack,
     keep_state_and_data;
-handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
-                                            stream_pid=StreamPid,
-                                            session_monitor=SessionMonitor}) ->
+handle_event(info, targeting_timeout, #data{}) ->
+    %% ignore, handled only by `targeting'
+    keep_state_and_data;
+handle_event(info, connect_retry_timeout, #data{}) ->
+    %% ignore, handled only by `connecting'
+    keep_state_and_data;
+handle_event(info, {connect_error, _}, #data{}) ->
+    %% ignore. handled only by `connecting'
+    keep_state_and_data;
+handle_event(info, close, #data{}) ->
+    % ignore (handled in all states but `closing')
+    keep_state_and_data;
+handle_event(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=ConnectPid}) ->
+    %% The connect_pid completed, was killed, or crashed. Handled only
+    %% by `connecting'.
+    {keep_state, Data#data{connect_pid=undefined}};
+handle_event(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
+    %% The stream_pid copmleted, was killed, or crashed. Handled only
+    %% by `connected'
+    {keep_state, Data#data{stream_pid=update_stream(undefined, Data)}};
+handle_event({call, From}, info, Data=#data{target={Target,_}, stream_pid=StreamPid}) ->
     Info = #{
              module => ?MODULE,
              pid => self(),
-             kind => Kind,
-             server => ServerPid,
+             kind => Data#data.kind,
+             server => Data#data.server,
              target => Target,
-             session =>
-                 case SessionMonitor of
-                     {_, SessPid} -> SessPid;
-                     Other -> Other
-                 end,
              stream_info =>
                  case StreamPid of
                      undefined -> undefined;
@@ -285,58 +356,89 @@ handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=
             },
     {keep_state, Data, [{reply, From, Info}]};
 
-handle_event(enter, _, #data{})  ->
-    %% Ignore out of order enter events since we may already have
-    %% exited the original state.
-    keep_state_and_data;
-handle_event(info, connect_retry, #data{}) ->
-    %% Ignore unhandled connect_retry events. The connect state
-    %% overrides this to deal with actual retries.
-    keep_state_and_data;
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.
 
+
+%%
 %% Utilities
+%%
 
--spec connect_retry(#data{}) -> #data{}.
-connect_retry(Data=#data{connect_retry_timer=undefined}) ->
-    Timer = erlang:send_after(?CONNECT_RETRY, self(), connect_retry),
-    Data#data{connect_retry_timer=Timer};
-connect_retry(Data=#data{}) ->
-    Data.
 
--spec monitor_session(SessionPid::pid() | undefined, #data{}) -> pid_monitor().
-monitor_session(undefined, #data{session_monitor=undefined}) ->
-    undefined;
-monitor_session(undefined, #data{session_monitor={Monitor,_}}) ->
-    erlang:demonitor(Monitor),
-    undefined;
-monitor_session(SessionPid, #data{session_monitor=undefined}) ->
-    {erlang:monitor(process, SessionPid), SessionPid};
-monitor_session(SessionPid, #data{session_monitor={Monitor,_}}) ->
-    erlang:demonitor(Monitor),
-    {erlang:monitor(process, SessionPid), SessionPid}.
+init_targeting_backoff() ->
+    backoff:type(backoff:init(1000, 10000), jitter).
 
-assign_stream(undefined, #data{stream_pid=undefined}) ->
+-spec start_targeting_timer(#data{}) -> #data{}.
+start_targeting_timer(Data=#data{target_timer=undefined}) ->
+    Delay = backoff:get(Data#data.target_backoff),
+    Timer = erlang:send_after(Delay, self(), targeting_timeout),
+    Data#data{target_timer=Timer};
+start_targeting_timer(Data=#data{target_timer=CurrentTimer}) ->
+    erlang:cancel_timer(CurrentTimer),
+    {Delay, NewBackOff} = backoff:fail(Data#data.target_backoff),
+    Timer = erlang:send_after(Delay, self(), targeting_timeout),
+    Data#data{target_timer=Timer, target_backoff=NewBackOff}.
+
+-spec cancel_targeting_timer(#data{}) -> #data{}.
+cancel_targeting_timer(Data=#data{target_timer=undefined}) ->
+    {_, NewBackOff} = backoff:succeed(Data#data.target_backoff),
+    Data#data{target_backoff=NewBackOff};
+cancel_targeting_timer(Data=#data{target_timer=Timer}) ->
+    erlang:cancel_timer(Timer),
+    {_, NewBackOff} = backoff:succeed(Data#data.target_backoff),
+    Data#data{target_backoff=NewBackOff, target_timer=undefined}.
+
+
+init_connect_retry_backoff() ->
+    backoff:type(backoff:init(1000, 10000), jitter).
+
+start_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
+    Delay = backoff:get(Data#data.connect_retry_backoff),
+    Timer = erlang:send_after(Delay, self(), connect_retry_timeout),
+    Data#data{target_timer=Timer};
+start_connect_retry_timer(Data=#data{connect_retry_timer=CurrentTimer}) ->
+    erlang:cancel_timer(CurrentTimer),
+    {Delay, NewBackOff} = backoff:fail(Data#data.connect_retry_backoff),
+    Timer = erlang:send_after(Delay, self(), connect_retry_timeout),
+    Data#data{connect_retry_timer=Timer, connect_retry_backoff=NewBackOff}.
+
+stop_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
+    Data;
+stop_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
+    erlang:cancel_timer(Timer),
+    Data#data{connect_retry_timer=undefined}.
+
+
+cancel_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
+    {_, NewBackOff} = backoff:succeed(Data#data.connect_retry_backoff),
+    Data#data{connect_retry_backoff=NewBackOff};
+cancel_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
+    erlang:cancel_timer(Timer),
+    {_, NewBackOff} = backoff:succeed(Data#data.connect_retry_backoff),
+    Data#data{connect_retry_backoff=NewBackOff, connect_retry_timer=undefined}.
+
+
+
+update_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
-assign_stream(undefined, #data{stream_pid=Pid, kind=Kind, server=Server}) ->
+update_stream(undefined, #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
     catch unlink(Pid),
     libp2p_framed_stream:close(Pid),
-    libp2p_group_server:send_ready(Server, Kind, false),
+    libp2p_group_server:send_ready(Server, MAddr, Kind, false),
     undefined;
-assign_stream(StreamPid, #data{stream_pid=undefined, kind=Kind, server=Server}) ->
+update_stream(StreamPid, #data{stream_pid=undefined, target={MAddr, _}, kind=Kind, server=Server}) ->
     link(StreamPid),
-    libp2p_group_server:send_ready(Server, Kind, true),
+    libp2p_group_server:send_ready(Server, MAddr, Kind, true),
     StreamPid;
-assign_stream(StreamPid, #data{stream_pid=StreamPid}) ->
+update_stream(StreamPid, #data{stream_pid=StreamPid}) ->
     StreamPid;
-assign_stream(StreamPid, #data{stream_pid=Pid, server=Server, kind=Kind}) ->
+update_stream(StreamPid, #data{stream_pid=Pid, target={MAddr, _}, server=Server, kind=Kind}) ->
     link(StreamPid),
     catch unlink(Pid),
     libp2p_framed_stream:close(Pid),
     %% we have a new stream, re-advertise our ready status
-    libp2p_group_server:send_ready(Server, Kind, true),
+    libp2p_group_server:send_ready(Server, MAddr, Kind, true),
     StreamPid.
 
 -spec kill_pid(pid() | undefined) -> undefined.
@@ -345,25 +447,10 @@ kill_pid(undefined) ->
 kill_pid(Pid) ->
     unlink(Pid),
     erlang:exit(Pid, kill),
-    undefined.
+    Pid.
 
+-spec update_metadata(#data{}) -> #data{}.
 update_metadata(Data=#data{}) ->
-    Path = fun(undefined) ->
-                   undefined;
-              ({P, _}) -> P
-           end,
-    SessionRemote = fun(undefined) ->
-                            undefined;
-                       ({_, Pid}) ->
-                            {_, RemoteAddr} = libp2p_session:addr_info(Pid),
-                            RemoteAddr
-                    end,
-    SessionLocal = fun(undefined) ->
-                            undefined;
-                       ({_, Pid}) ->
-                            {LocalAddr, _} = libp2p_session:addr_info(Pid),
-                            LocalAddr
-                    end,
     IndexOrKind = fun(V) when is_atom(V) ->
                           {kind, V};
                      (I) when is_integer(I) ->
@@ -372,10 +459,7 @@ update_metadata(Data=#data{}) ->
     libp2p_lager_metadata:update(
       [
        {target, Data#data.target},
-       {path, Path(Data#data.client_spec)},
        IndexOrKind(Data#data.kind),
-       {group_id, Data#data.group_id},
-       {session_local, SessionLocal(Data#data.session_monitor)},
-       {session_remote, SessionRemote(Data#data.session_monitor)}
+       {group_id, Data#data.group_id}
       ]),
     Data.

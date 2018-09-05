@@ -1,5 +1,8 @@
 -module(peer_SUITE).
 
+-include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -export([all/0]).
 -export([coding_test/1]).
 
@@ -12,26 +15,34 @@ coding_test(_) ->
     SigFun1 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey1) end,
     SigFun2 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey2) end,
 
-    Peer1 = libp2p_peer:new(PubKey1, ["/ip4/8.8.8.8/tcp/1234"], [PubKey2],
-                           static, erlang:system_time(), SigFun1),
+    Peer1Map = #{address => PubKey1,
+                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                 connected => [PubKey2],
+                 nat_type => static},
+    Peer1 = libp2p_peer:from_map(Peer1Map, SigFun1),
 
     DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer1)),
 
-    true = libp2p_peer:address(Peer1) == libp2p_peer:address(DecodedPeer),
-    true = libp2p_peer:timestamp(Peer1) ==  libp2p_peer:timestamp(DecodedPeer),
-    true = libp2p_peer:listen_addrs(Peer1) == libp2p_peer:listen_addrs(DecodedPeer),
-    true = libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer),
-    true = libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer),
+    ?assert(libp2p_peer:address(Peer1) == libp2p_peer:address(DecodedPeer)),
+    ?assert(libp2p_peer:timestamp(Peer1) ==  libp2p_peer:timestamp(DecodedPeer)),
+    ?assert(libp2p_peer:listen_addrs(Peer1) == libp2p_peer:listen_addrs(DecodedPeer)),
+    ?assert(libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer)),
+    ?assert(libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer)),
 
-    InvalidPeer = libp2p_peer:new(PubKey1, ["/ip4/8.8.8.8/tcp/1234"], [PubKey2],
-                                  static, erlang:system_time(), SigFun2),
+    ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
-    {'EXIT', {invalid_signature, _}} = (catch libp2p_peer:decode(libp2p_peer:encode(InvalidPeer))),
+    InvalidPeer = libp2p_peer:from_map(Peer1Map, SigFun2),
+
+    ?assertError(invalid_signature, libp2p_peer:decode(libp2p_peer:encode(InvalidPeer))),
 
     % Check peer list coding
-    Peer2 = libp2p_peer:new(PubKey2, ["/ip4/8.8.8.8/tcp/5678"], [PubKey1],
-                            static, erlang:system_time(), SigFun2),
+    Peer2 = libp2p_peer:from_map(#{address => PubKey2,
+                                   listen_addrs => ["/ip4/8.8.8.8/tcp/5678"],
+                                   connected => [PubKey1],
+                                   nat_type => static},
+                                 SigFun2),
 
-    [Peer1, Peer2] = libp2p_peer:decode_list(libp2p_peer:encode_list([Peer1, Peer2])),
+    ?assert(not libp2p_peer:is_similar(Peer1, Peer2)),
+    ?assertEqual([Peer1, Peer2], libp2p_peer:decode_list(libp2p_peer:encode_list([Peer1, Peer2]))),
 
     ok.

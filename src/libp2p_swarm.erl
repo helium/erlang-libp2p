@@ -1,16 +1,16 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
-         opts/1, name/1, address/1, keys/1, peerbook/1, cache/1, sessions/1,
+         opts/1, name/1, address/1, p2p_address/1, keys/1, peerbook/1, cache/1, sessions/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
          listen/2, listen_addrs/1,
          add_transport_handler/2,
          add_connection_handler/3,
-         add_stream_handler/3, stream_handlers/1,
+         add_stream_handler/3, remove_stream_handler/2, stream_handlers/1,
          register_session/2, register_listener/2,
          add_group/4, remove_group/2,
-         group_agent/1]).
+         gossip_group/1]).
 
 -type swarm_opts() :: [swarm_opt()].
 -type connect_opts() :: [connect_opt()].
@@ -19,7 +19,6 @@
 
 -type swarm_opt() :: {key, {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}}
                    | {base_dir, string()}
-                   | {group_agent, atom()}
                    | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
                    | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}
@@ -113,6 +112,11 @@ address(Sup) when is_pid(Sup) ->
     address(tid(Sup));
 address(TID) ->
     libp2p_swarm_sup:address(TID).
+
+%% @doc Get the p2p address in string form for a swarm
+-spec p2p_address(ets:tab() | pid()) -> string().
+p2p_address(TidOrPid) ->
+    libp2p_crypto:address_to_p2p(address(TidOrPid)).
 
 %% @doc Get the public key and signing function for a swarm
 -spec keys(ets:tab() | pid())
@@ -304,6 +308,13 @@ add_stream_handler(TID, Key, HandlerDef) ->
     libp2p_config:insert_stream_handler(TID, {Key, HandlerDef}),
     ok.
 
+-spec remove_stream_handler(pid() | ets:tab(), string()) -> ok.
+remove_stream_handler(Sup, Key) when is_pid(Sup) ->
+    remove_stream_handler(tid(Sup), Key);
+remove_stream_handler(TID, Key) ->
+    libp2p_config:remove_stream_handler(TID, Key),
+    ok.
+
 -spec stream_handlers(pid() | ets:tab()) -> [{string(), libp2p_session:stream_handler()}].
 stream_handlers(Sup) when is_pid(Sup) ->
     stream_handlers(tid(Sup));
@@ -345,11 +356,11 @@ remove_group(TID, GroupID) ->
     _ = libp2p_config:remove_group(TID, GroupID),
     ok.
 
-%% Session Agent
+%% Gossip Group
 %%
 
--spec group_agent(pid() | ets:tab()) -> pid().
-group_agent(Sup) when is_pid(Sup) ->
-    group_agent(tid(Sup));
-group_agent(TID) ->
-    libp2p_swarm_sup:group_agent(TID).
+-spec gossip_group(pid() | ets:tab()) -> pid().
+gossip_group(Sup) when is_pid(Sup) ->
+    gossip_group(tid(Sup));
+gossip_group(TID) ->
+    libp2p_swarm_sup:gossip_group(TID).

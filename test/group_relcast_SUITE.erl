@@ -13,36 +13,20 @@ all() ->
 
 init_per_testcase(defer_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
-                                       {libp2p_nat, [{nat, false}]}]),
+                                        {libp2p_nat, [{enabled, false}]}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(close_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
-                                       {libp2p_nat, [{nat, false}]}]),
+                                        {libp2p_nat, [{enabled, false}]}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]},
-                                       {libp2p_nat, [{nat, false}]}]),
+                                        {libp2p_nat, [{enabled, false}]}]),
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),
     test_util:teardown_swarms(Swarms).
-
-await_peerbook(Swarm, Swarms) ->
-    Addrs = lists:delete(
-              libp2p_swarm:address(Swarm),
-              [libp2p_swarm:address(S) || S <- Swarms]),
-    PeerBook = libp2p_swarm:peerbook(Swarm),
-    test_util:wait_until(
-      fun() ->
-              lists:all(fun(Addr) -> libp2p_peerbook:is_key(PeerBook, Addr) end,
-                        Addrs)
-      end).
-
-await_peerbooks(Swarms) ->
-    lists:foreach(fun(S) ->
-                          ok = await_peerbook(S, Swarms)
-                  end, Swarms).
 
 unicast_test(Config) ->
     Swarms = [S1, S2, S3] = proplists:get_value(swarms, Config),
@@ -50,7 +34,7 @@ unicast_test(Config) ->
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
 
-    await_peerbooks(Swarms),
+    test_util:await_gossip_groups(Swarms),
 
     Members = [libp2p_swarm:address(S) || S <- Swarms],
 
@@ -77,19 +61,19 @@ unicast_test(Config) ->
     %% Receive input message from G1 as handled by G1
     receive
         {handle_msg, 1, <<"unicast">>} -> ok
-    after 5000 -> error(timeout)
+    after 10000 -> error(timeout)
     end,
 
     %% Receive message from G1 as handled by G2
     receive
         {handle_msg, 1, <<"unicast1">>} -> ok
-    after 5000 -> error(timeout)
+    after 10000 -> error(timeout)
     end,
 
     %% Receive the message from G2 as handled by G3
     receive
         {handle_msg, 2, <<"unicast2">>} -> ok
-    after 5000 -> error(timeout)
+    after 10000 -> error(timeout)
     end,
     ok.
 
@@ -100,7 +84,7 @@ multicast_test(Config) ->
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
 
-    await_peerbooks(Swarms),
+    test_util:await_gossip_groups(Swarms),
 
     Members = [libp2p_swarm:address(S) || S <- Swarms],
 
@@ -132,7 +116,7 @@ defer_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
 
-    await_peerbooks(Swarms),
+    test_util:await_gossip_groups(Swarms),
 
     Members = [libp2p_swarm:address(S) || S <- Swarms],
 
@@ -167,7 +151,7 @@ close_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
 
-    await_peerbooks(Swarms),
+    test_util:await_gossip_groups(Swarms),
 
     Members = [libp2p_swarm:address(S) || S <- Swarms],
 
