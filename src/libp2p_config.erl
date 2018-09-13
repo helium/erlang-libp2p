@@ -70,7 +70,7 @@ swarm_dir(TID, Names) ->
 %% Common pid CRUD
 %%
 
--spec insert_pid(ets:tab(), atom(), term(), pid()) -> true.
+-spec insert_pid(ets:tab(), atom(), term(), pid() | undefined) -> true.
 insert_pid(TID, Kind, Ref, Pid) ->
     ets:insert(TID, {{Kind, Ref}, Pid}).
 
@@ -110,7 +110,7 @@ lookup_handlers(TID, TableKey) ->
 transport() ->
     ?TRANSPORT.
 
--spec insert_transport(ets:tab(), atom(), pid()) -> true.
+-spec insert_transport(ets:tab(), atom(), pid() | undefined) -> true.
 insert_transport(TID, Module, Pid) ->
     insert_pid(TID, ?TRANSPORT, Module, Pid).
 
