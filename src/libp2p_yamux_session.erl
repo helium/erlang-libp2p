@@ -250,7 +250,7 @@ decode_header(<<?VERSION:8/integer-unsigned,
                Flags:16/integer-unsigned-big,
                StreamID:32/integer-unsigned-big,
                Length:32/integer-unsigned-big>>) ->
-    #header{type=Type, flags=Flags, stream_id=StreamID, length=Length};
+    {ok, #header{type=Type, flags=Flags, stream_id=StreamID, length=Length}};
 decode_header(_) ->
     {error, bad_header}.
 

@@ -192,7 +192,7 @@ connect(cast, {assign_stream, Conn, StreamPid},
                 {ok, SessionPid} ->
                     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                                            stream_pid=assign_stream(StreamPid, Data)}};
-                {error, _} ->
+                undefined ->
                     libp2p_framed_stream:close(StreamPid),
                     keep_state_and_data
             end
