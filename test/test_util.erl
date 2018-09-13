@@ -21,7 +21,7 @@ setup_swarms(N, Opts, Acc) ->
                       TmpDir = test_util:nonl(os:cmd("mktemp -d")),
                       BaseDir = libp2p_config:get_opt(Opts, base_dir, TmpDir),
                       NewOpts = lists:keystore(base_dir, 1, Opts, {base_dir, BaseDir})
-                        ++ [{libp2p_transport_tcp, [{nat, false}]}],
+                        ++ [{libp2p_nat, [{nat, false}]}],
                       {ok, Pid} = libp2p_swarm:start(Name, NewOpts),
                       ok = libp2p_swarm:listen(Pid, "/ip4/0.0.0.0/tcp/0"),
                       Pid

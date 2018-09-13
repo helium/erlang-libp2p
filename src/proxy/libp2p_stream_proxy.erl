@@ -108,8 +108,12 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
     lager:info("server got proxy request ~p", [Req]),
     ID = libp2p_proxy_envelope:id(Env),
     AAddress = libp2p_proxy_req:address(Req),
-    ok = libp2p_proxy_server:proxy(Swarm, ID, self(), AAddress),
-    {noreply, State#state{id=ID}};
+    case libp2p_proxy_server:proxy(Swarm, ID, self(), AAddress) of
+        ok ->
+            {noreply, State#state{id=ID}};
+        {error, Reason} ->
+            {stop, Reason, State}
+    end;
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
     {ok, Socket} = dial_back(DialBack, Env),

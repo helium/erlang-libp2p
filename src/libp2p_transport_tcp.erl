@@ -47,7 +47,7 @@
         ]).
 
 %% for tcp sockets
--export([to_multiaddr/1, common_options/0]).
+-export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1]).
 
 -record(tcp_state,
         {
@@ -201,6 +201,27 @@ controlling_process(State=#tcp_state{socket=Socket}, Pid) ->
 common_options() ->
     [binary, {active, false}, {packet, raw}].
 
+-spec tcp_addr(string() | multiaddr:multiaddr())
+              -> {inet:ip_address(), non_neg_integer(), inet | inet6, [any()]} | {error, term()}.
+tcp_addr(MAddr) ->
+    tcp_addr(MAddr, multiaddr:protocols(MAddr)).
+
+%% return RFC1918 mask for IP or false if not in RFC1918 range
+rfc1918({10, _, _, _}) ->
+    8;
+rfc1918({192,168, _, _}) ->
+    16;
+rfc1918(IP={172, _, _, _}) ->
+    %% this one is a /12, not so simple
+    case mask_address({172, 16, 0, 0}, 12) == mask_address(IP, 12) of
+        true ->
+            12;
+        false ->
+            false
+    end;
+rfc1918(_) ->
+    false.
+
 %% gen_server
 %%
 
@@ -219,12 +240,13 @@ init([TID]) ->
 %% libp2p_transport
 %%
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
-    Response = case listen_on(Addr, TID) of
-                   {ok, ListenAddrs, Pid} ->
-                       maybe_spawn_nat_discovery(self(), ListenAddrs, TID),
-                       {ok, ListenAddrs, Pid};
-                   {error, Error} -> {error, Error}
-                   end,
+    Response =
+        case listen_on(Addr, TID) of
+            {ok, ListenAddrs, Pid} ->
+                libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
+                {ok, ListenAddrs, Pid};
+            {error, Error} -> {error, Error}
+        end,
     {reply, Response, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -325,7 +347,7 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             end,
             {noreply, State}
     end;
-handle_info({record_listen_addr, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
+handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
             lager:debug("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
@@ -374,10 +396,10 @@ listen_on(Addr, TID) ->
             % filter out disallowed options and supply default ones
             ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
                                               DefaultListenOpts),
+            Port1 = reuseport0(TID, Type, IP, Port0),
             % Dialyzer severely dislikes ranch_tcp:listen so we
             % emulate it's behavior here
-            Port = reuseport0(TID, Type, IP, Port0),
-            case gen_tcp:listen(Port, [Type | AddrOpts] ++ ListenOpts) of
+            case gen_tcp:listen(Port1, [Type | AddrOpts] ++ ListenOpts) of
                 {ok, Socket} ->
                     ListenAddrs = tcp_listen_addrs(Socket),
 
@@ -461,11 +483,11 @@ tcp_listen_addrs(Socket) ->
     {ok, SockAddr={IP, Port}} = inet:sockname(Socket),
     case lists:all(fun(D) -> D == 0 end, tuple_to_list(IP)) of
         false ->
-            [to_multiaddr(maybe_apply_nat_map(SockAddr))];
+            [to_multiaddr(libp2p_nat:maybe_apply_nat_map(SockAddr))];
         true ->
             % all 0 address, collect all non loopback interface addresses
             Addresses = get_non_local_addrs(),
-            [to_multiaddr(maybe_apply_nat_map({Addr, Port}))
+            [to_multiaddr(libp2p_nat:maybe_apply_nat_map({Addr, Port}))
                 || Addr <- Addresses, size(Addr) == size(IP)]
     end.
 
@@ -541,20 +563,6 @@ filter_ipv4(Addr) ->
 filter_ipv6(Addr) ->
     erlang:size(Addr) == 8
         andalso erlang:element(1, Addr) == 16#fe80.
-
-maybe_apply_nat_map({IP, Port}) ->
-    Map = application:get_env(libp2p, nat_map, #{}),
-    case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
-        {NewIP, NewPort} ->
-            {NewIP, NewPort};
-        NewIP ->
-            {NewIP, Port}
-    end.
-
--spec tcp_addr(string() | multiaddr:multiaddr())
-              -> {inet:ip_address(), non_neg_integer(), inet | inet6, [any()]} | {error, term()}.
-tcp_addr(MAddr) ->
-    tcp_addr(MAddr, multiaddr:protocols(MAddr)).
 
 tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
     Port = list_to_integer(PortStr),
@@ -649,79 +657,9 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
             end
     end.
 
-
-%% Internal: NAT discovery
-%%
-
-maybe_spawn_nat_discovery(Handler, MultiAddrs, TID) ->
-    case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, nat], true) of
-        true ->
-            spawn_nat_discovery(Handler, MultiAddrs);
-        _ ->
-            lager:notice("nat is disabled"),
-            ok
-    end.
-
-spawn_nat_discovery(Handler, MultiAddrs) ->
-    case lists:filtermap(fun(M) -> case tcp_addr(M) of
-                                       {IP, Port, inet, _} ->
-                                           case rfc1918(IP) of
-                                               false -> false;
-                                               _ -> {true, {M, IP, Port}}
-                                           end;
-                                       _ -> false
-                                   end
-                         end, MultiAddrs) of
-        [] -> ok;
-        [Tuple|_] ->
-            %% TODO we should make a port mapping for EACH address
-            %% here, for weird multihomed machines, but natupnp_v1 and
-            %% natpmp don't support issuing a particular request from
-            %% a particular interface yet
-            spawn(fun() -> try_nat(Handler, Tuple) end)
-    end.
-
-try_nat(Handler, {MultiAddr, _IP, Port}) ->
-    case nat:discover() of
-        {ok, Context} ->
-            case nat:add_port_mapping(Context, tcp, Port, Port, 3600) of
-                {ok, _Since, Port, Port, _MappingLifetime} ->
-                    ExternalAddress = nat_external_address(Context),
-                    Handler ! {record_listen_addr, MultiAddr, to_multiaddr({ExternalAddress, Port})},
-                    ok;
-                {error, _Reason} ->
-                    lager:warning("unable to add nat mapping: ~p", [_Reason]),
-                    ok
-            end;
-        _ ->
-            lager:info("no nat discovered"),
-            ok
-    end.
-
-nat_external_address(Context) ->
-    {ok, ExtAddress} = nat:get_external_address(Context),
-    {ok, ParsedExtAddress} = inet_parse:address(ExtAddress),
-    ParsedExtAddress.
-
 %mask_address(_, _) ->
     %% presumably ipv6, don't have a function for that one yet
     %undefined.
-
-%% return RFC1918 mask for IP or false if not in RFC1918 range
-rfc1918({10, _, _, _}) ->
-    8;
-rfc1918({192,168, _, _}) ->
-    16;
-rfc1918(IP={172, _, _, _}) ->
-    %% this one is a /12, not so simple
-    case mask_address({172, 16, 0, 0}, 12) == mask_address(IP, 12) of
-        true ->
-            12;
-        false ->
-            false
-    end;
-rfc1918(_) ->
-    false.
 
 %% @doc Get the subnet mask as an integer, stolen from an old post on
 %%      erlang-questions.
@@ -736,42 +674,6 @@ mask_address(Addr={_, _, _, _}, Maskbits) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-try_nat_success_test() ->
-    meck:new(nat, []),
-    meck:expect(nat, discover, fun() -> {ok, empty} end),
-    meck:expect(nat, add_port_mapping, fun(_, _, P1, P2, T) -> {ok, 0, P1, P2, T} end),
-    meck:expect(nat, get_external_address, fun(_) -> {ok, "11.10.0.89"} end),
-
-    ok = try_nat(self(), {multiaddr, ip, 8080}),
-
-    receive
-        Msg ->
-            ?assertMatch({record_listen_addr, multiaddr, "/ip4/11.10.0.89/tcp/8080"}, Msg)
-    after 100 ->
-        ?assert(false)
-    end,
-
-    ?assert(meck:validate(nat)),
-    meck:unload(nat).
-
-try_nat_fail_test() ->
-    %% TODO: This test doesn't do much right now since relay isn't set
-    %% up until stungun returns. We should fix this to drive the
-    %% stungun responses
-    meck:new(nat, []),
-    meck:expect(nat, discover, fun() -> {error, empty} end),
-
-    meck:new(libp2p_relay, []),
-    %% meck:expect(libp2p_relay, init, fun(_) -> ok end),
-
-    ok = try_nat(self(), {multiaddr, ip, 8080}),
-
-    %% ?assert(meck:called(libp2p_relay, init, [])),
-
-    ?assert(meck:validate(nat)),
-    ?assert(meck:validate(libp2p_relay)),
-    meck:unload(nat).
-
 rfc1918_test() ->
     ?assertEqual(8, rfc1918({10, 0, 0, 0})),
     ?assertEqual(8, rfc1918({10, 20, 0, 0})),
@@ -785,30 +687,6 @@ rfc1918_test() ->
     ?assertEqual(false, rfc1918({11, 0, 0, 0})),
     ?assertEqual(false, rfc1918({192, 169, 10, 1})),
     ?assertEqual(false, rfc1918({172, 254, 100, 0})).
-
-
-nat_external_address_test() ->
-    meck:new(nat, []),
-    meck:expect(nat, get_external_address, fun(_) -> {ok, "11.10.0.89"} end),
-
-    ?assertEqual({11, 10, 0, 89}, nat_external_address(0)),
-
-    ?assert(meck:validate(nat)),
-    meck:unload(nat).
-
-nat_map_test() ->
-    application:load(libp2p),
-    %% no nat map, everything is unchanged
-    ?assertEqual({{192,168,1,10}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
-    application:set_env(libp2p, nat_map, #{
-                                  {192, 168, 1, 10} => {67, 128, 3, 4},
-                                  {{192, 168, 1, 10}, 4567} => {67, 128, 3, 99},
-                                  {192, 168, 1, 11} => {{67, 128, 3, 4}, 1111}
-                                 }),
-    ?assertEqual({{67,128,3,4}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
-    ?assertEqual({{67,128,3,99}, 4567}, maybe_apply_nat_map({{192,168,1,10}, 4567})),
-    ?assertEqual({{67,128,3,4}, 1111}, maybe_apply_nat_map({{192,168,1,11}, 4567})),
-    ok.
 
 sort_addr_test() ->
     Addrs = [

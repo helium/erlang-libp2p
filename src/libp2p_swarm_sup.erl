@@ -92,7 +92,8 @@ init([Name, Opts]) ->
                    worker,
                    [libp2p_relay_server]
                   }
-                 ] ++ group_agent_spec(Opts, TID)
+                 ]
+                 ++ group_agent_spec(Opts, TID)
                  ++ include_proxy(TID, Opts),
     {ok, {SupFlags, ChildSpecs}}.
 

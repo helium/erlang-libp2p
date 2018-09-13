@@ -5,13 +5,13 @@
 
 -export([
     all/0
-    ,groups/0
     ,init_per_testcase/2
     ,end_per_testcase/2
 ]).
 
 -export([
     basic/1
+    ,statem/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -25,17 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [{group, nat}].
-
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%%   Tests groups
-%% @end
-%%--------------------------------------------------------------------
-groups() ->
-    [{nat, [], [basic]}].
-
+    [basic, statem].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -43,10 +33,10 @@ groups() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, Config) ->
+init_per_testcase(_, _Config) ->
     test_util:setup(),
-    {ok, Swarm} = libp2p_swarm:start(test),
-    [{swarm, Swarm} | Config].
+    lager:set_loglevel(lager_console_backend, info),
+    _Config.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -54,9 +44,8 @@ init_per_testcase(_, Config) ->
 %%   Special end config for test case
 %% @end
 %%--------------------------------------------------------------------
-end_per_testcase(_, Config) ->
-    Swarm = proplists:get_value(swarm, Config),
-    test_util:teardown_swarms([Swarm]).
+end_per_testcase(_, _Config) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% TEST CASES
@@ -67,13 +56,13 @@ end_per_testcase(_, Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+basic(_Config) ->
+    {ok, Swarm} = libp2p_swarm:start(nat_basic),
 
     start_tracing(self()),
 
     [] = libp2p_swarm:listen_addrs(Swarm),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/8333"),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
     Traces = gather_traces([]),
 
@@ -87,7 +76,7 @@ basic(Config) ->
                     ok;
                 {natpmp, discover, []} ->
                     ok;
-                {libp2p_transport_tcp, spawn_nat_discovery, _, _} ->
+                {libp2p_nat, spawn_discovery, _, _} ->
                     handle_discovery(L, undefined);
                 {natpmp, add_port_mapping, _} ->
                     handle_natpmp(L, undefined);
@@ -98,17 +87,71 @@ basic(Config) ->
             end
         end
         ,maps:keys(Traces)
-    ).
+    ),
+    ok = dbg:stop(),
+    libp2p_swarm:stop(Swarm).
+
+statem(_Config) ->
+    Self = self(),
+    MockLease = 3000,
+    Since = 0,
+
+    meck:new(nat, [no_link, passthrough]),
+    meck:expect(nat, discover, fun() ->
+        {ok, context}
+    end),
+    meck:expect(nat, add_port_mapping, fun(_Context, tcp, _Port, _ExtPort, 0) ->
+        {error, error};
+                                          (_Context, tcp, Port, ExtPort, _Lease) ->
+        {ok, Since, Port, ExtPort, MockLease}
+    end),
+    meck:expect(nat, get_external_address, fun(_Context) ->
+        {ok, "127.0.0.1"}
+    end),
+    meck:expect(nat, delete_port_mapping, fun(_Context, tcp, _Port, _Port) ->
+        ok
+    end),
+
+    meck:new(libp2p_nat_statem, [no_link, passthrough]),
+    meck:expect(libp2p_nat_statem, start, fun(Args) ->
+        {ok, Pid} = gen_statem:start(libp2p_nat_statem, Args, []),
+        erlang:trace(Pid, true, [{tracer, Self}, 'receive']),
+        {ok, Pid}
+    end),
+
+    {ok, Swarm} = libp2p_swarm:start(nat_statem),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
+
+    statem_rcv(MockLease, Since),
+
+    libp2p_swarm:stop(Swarm),
+
+    ?assert(meck:validate(nat)),
+    meck:unload(nat),
+    ?assert(meck:validate(libp2p_nat_statem)),
+    meck:unload(libp2p_nat_statem).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+statem_rcv(MockLease, Since) ->
+    receive
+        {trace, _, 'receive', renew} ->
+            ok;
+        {trace, _, 'receive', {'$gen_cast', {register, _port, MockLease, Since}}} ->
+            statem_rcv(MockLease, Since);
+        {trace, _, 'receive', {_, meck_passthrough}} ->
+            statem_rcv(MockLease, Since);
+        M ->
+            ct:fail(M)
+    after 4000 -> ct:fail(timeout)
+    end.
 
 -spec handle_discovery(list(), any()) -> ok.
 handle_discovery([], _Meta) -> ok;
-handle_discovery([{libp2p_transport_tcp, spawn_nat_discovery, [_, [Addr|_], _]}|Traces], _Meta) ->
+handle_discovery([{libp2p_nat, spawn_discovery, [_, [Addr|_], _]}|Traces], _Meta) ->
     handle_discovery(Traces, Addr);
-handle_discovery([{libp2p_transport_tcp, handle_info, [{record_listen_addr, Addr, _ExtAddr}, _State]}|Traces], Addr) ->
+handle_discovery([{libp2p_transport_tcp, handle_info, [{nat_discovery, Addr, _ExtAddr}, _State]}|Traces], Addr) ->
     handle_discovery(Traces, Addr).
 
 -spec handle_natpmp(list(), any()) -> ok.
@@ -139,6 +182,7 @@ start_tracing(To) ->
     HandlerSpec = {HandlerFun, ok},
     {ok, _} = dbg:tracer(process, HandlerSpec),
     {ok, _} = dbg:tpl(libp2p_transport_tcp, '_', '_', []),
+    {ok, _} = dbg:tpl(libp2p_nat, '_', '_', []),
     {ok, _} = dbg:tpl(natpmp, '_', '_', []),
     {ok, _} = dbg:tpl(natupnp_v1, '_', '_', []),
     {ok, _} = dbg:p(all, [c]),
@@ -147,13 +191,9 @@ start_tracing(To) ->
 -spec gather_traces(list()) -> map().
 gather_traces(Acc) ->
     receive
-        {trace, Pid, call, {libp2p_transport_tcp, spawn_nat_discovery, _}=Data} ->
+        {trace, Pid, call, {libp2p_nat, spawn_discovery, _}=Data} ->
             gather_traces([{Pid, Data}|Acc]);
-        {trace, Pid, call, {libp2p_transport_tcp, try_nat_pmp, _}=Data} ->
-            gather_traces([{Pid, Data}|Acc]);
-        {trace, Pid, call, {libp2p_transport_tcp, try_natupnp_v1, _}=Data} ->
-            gather_traces([{Pid, Data}|Acc]);
-        {trace, Pid, call, {libp2p_transport_tcp, nat_external_address, _}=Data} ->
+        {trace, Pid, call, {libp2p_nat, add_port_mapping, _}=Data} ->
             gather_traces([{Pid, Data}|Acc]);
         {trace, Pid, call, {libp2p_transport_tcp, handle_info, _}=Data} ->
             gather_traces([{Pid, Data}|Acc]);
