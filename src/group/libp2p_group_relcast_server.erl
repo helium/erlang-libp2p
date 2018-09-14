@@ -218,9 +218,15 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({request_target, Index, WorkerPid}, State=#state{}) ->
-    #worker{target=Target} = lookup_worker(Index, State),
+    {Target, NewState} = case lookup_worker(Index, State) of
+                             Worker = #worker{target=T, pid=OldPid} when WorkerPid /= OldPid ->
+                                 lager:info("Worker for index ~p changed from ~p to ~p", [Index, OldPid, WorkerPid]),
+                                 {T, update_worker(Worker#worker{pid=WorkerPid}, State)};
+                             #worker{target=T} ->
+                                 {T, State}
+               end,
     libp2p_group_worker:assign_target(WorkerPid, Target),
-    {noreply, State};
+    {noreply, NewState};
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
     case Handler:handle_input(Msg, HandlerState) of
         {NewHandlerState, ok} ->

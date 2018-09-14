@@ -192,7 +192,7 @@ connect(cast, {assign_stream, Conn, StreamPid},
                 {ok, SessionPid} ->
                     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                                            stream_pid=assign_stream(StreamPid, Data)}};
-                undefined ->
+                _ ->
                     libp2p_framed_stream:close(StreamPid),
                     keep_state_and_data
             end
@@ -284,10 +284,12 @@ assign_stream(StreamPid, #data{stream_pid=undefined, kind=Kind, server=Server}) 
     StreamPid;
 assign_stream(StreamPid, #data{stream_pid=StreamPid}) ->
     StreamPid;
-assign_stream(StreamPid, #data{stream_pid=Pid}) ->
+assign_stream(StreamPid, #data{stream_pid=Pid, server=Server, kind=Kind}) ->
     link(StreamPid),
     catch unlink(Pid),
     libp2p_framed_stream:close(Pid),
+    %% we have a new stream, re-advertise our ready status
+    libp2p_group_server:send_ready(Server, Kind, true),
     StreamPid.
 
 -spec kill_pid(pid() | undefined) -> undefined.
