@@ -215,12 +215,19 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
-terminate(_Reason, #state{connection=undefined, send_pid=undefined}) ->
-    ok;
 terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
-    fdclr(Connection),
-    erlang:exit(SendPid, Reason),
-    libp2p_connection:close(Connection).
+    case Connection of
+        undefined -> ok;
+        _ ->
+            fdclr(Connection),
+            libp2p_connection:close(Connection)
+    end,
+    case SendPid of
+        undefined -> ok;
+        _ -> erlang:exit(SendPid, Reason)
+    end.
+
+
 
 
 %%
