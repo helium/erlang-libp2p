@@ -368,6 +368,8 @@ handle_send_result({stop, Reason, From, Reply}, ok, State=#state{}) ->
 handle_send_result({stop, Reason, From, Reply}, {error, closed}, State=#state{}) ->
     gen_server:reply(From, Reply),
     {stop, Reason, State};
+handle_send_result(_, {error, timeout}, State=#state{}) ->
+    {stop, normal, State};
 handle_send_result(_, {error, closed}, State=#state{}) ->
     {stop, normal, State};
 handle_send_result(_, {error, Error}, State=#state{})  ->

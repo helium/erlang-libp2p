@@ -57,6 +57,8 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                                              handlers=Handlers,
                                              handler_opt=HandlerOpt}) ->
     case libp2p_multistream:read(Conn) of
+        {error, timeout} ->
+            {stop, normal, State};
         {error, Reason} ->
             {stop, {error, Reason}, State};
         "ls" ->
@@ -83,6 +85,9 @@ handle_info(handshake, State=#state{connection=Conn}) ->
     case handshake(Conn) of
         ok ->
             fdset_return(Conn, State);
+        {error, timeout} ->
+            lager:notice("Timeout handshaking client ~p", [RemoteAddr]),
+            {stop, normal, State};
         {error, Error} ->
             lager:notice("Failed to handshake client ~p: ~p", [RemoteAddr, Error]),
             {stop, {error, Error}, State}
@@ -112,6 +117,7 @@ handle_ls_reply(Conn, Handlers, State) ->
     Keys = [Key || {Key, _} <- Handlers],
     try libp2p_multistream:write_lines(Conn, Keys) of
         ok -> fdset_return(Conn, State);
+        {error, timeout} -> {stop, normal, State};
         {error, Reason} -> {stop, {error, Reason}, State}
     catch
         What:Why -> {stop, {What, Why}, State}
