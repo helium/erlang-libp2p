@@ -1,7 +1,7 @@
 -module(test_util).
 
 -export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
-         connect_swarms/2,
+         connect_swarms/2, disconnect_swarms/2,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1]).
 
 setup() ->
@@ -41,6 +41,15 @@ connect_swarms(Source, Target) ->
     [TargetAddr | _] = libp2p_swarm:listen_addrs(Target),
     {ok, Session} = libp2p_swarm:connect(Source, TargetAddr),
     Session.
+
+disconnect_swarms(Source, Target) ->
+    [TargetAddr | _] = libp2p_swarm:listen_addrs(Target),
+    case libp2p_config:lookup_session(libp2p_swarm:tid(Source), TargetAddr) of
+        false -> ok;
+        {ok, Session} ->
+            libp2p_session:close(Session),
+            ok
+    end.
 
 wait_until(Fun) ->
     wait_until(Fun, 40, 100).

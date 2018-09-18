@@ -1,20 +1,27 @@
 -module(group_relcast_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([unicast_test/1, multicast_test/1, defer_test/1, restart_test/1]).
+-export([unicast_test/1, multicast_test/1, defer_test/1, close_test/1, restart_test/1]).
 
 all() ->
     [ %% restart_test,
       unicast_test,
       multicast_test,
-      defer_test
+      defer_test,
+      close_test
     ].
 
 init_per_testcase(defer_test, Config) ->
-    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]}]),
+    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
+                                       {libp2p_nat, [{nat, false}]}]),
+    [{swarms, Swarms} | Config];
+init_per_testcase(close_test, Config) ->
+    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
+                                       {libp2p_nat, [{nat, false}]}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(_, Config) ->
-    Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]}]),
+    Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]},
+                                       {libp2p_nat, [{nat, false}]}]),
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->
@@ -155,7 +162,42 @@ defer_test(Config) ->
     ok.
 
 
-    %% Then we ack
+close_test(Config) ->
+    Swarms = [S1, S2] = proplists:get_value(swarms, Config),
+
+    test_util:connect_swarms(S1, S2),
+
+    await_peerbooks(Swarms),
+
+    Members = [libp2p_swarm:address(S) || S <- Swarms],
+
+    %% G1 takes input and broadcasts
+    G1Args = [relcast_handler, [Members, input_multicast(), undefined]],
+    {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
+
+    %% G2 handles a message by closing
+    G2Args = [relcast_handler, [Members, undefined, handle_msg({close, 5000})]],
+    {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
+
+    libp2p_group_relcast:handle_input(G1, <<"multicast">>),
+
+    Messages = receive_messages([]),
+    %% Messages are delivered at least once
+    true = length(Messages) >= 1,
+
+    %% G2 hould have indicated close state. Kill the connection
+    %% between S1 and S2. S1 may reconnect to S2 but S2 should not
+    %% attempt to reconnect to S1.
+    test_util:disconnect_swarms(S1, S2),
+
+    test_util:wait_until(
+      fun() ->
+              not erlang:is_process_alive(G2)
+      end),
+
+    false = libp2p_config:lookup_group(libp2p_swarm:tid(S2), "test"),
+
+    ok.
 
 restart_test(_Config) ->
     %% Restarting a relcast group should resend outbound messages that
