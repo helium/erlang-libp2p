@@ -325,7 +325,7 @@ add_group(TID, GroupID, Module, Args) ->
                            start => {Module, start_link, [TID, GroupID, Args]},
                            restart => transient,
                            shutdown => 5000,
-                           type => worker },
+                           type => supervisor },
             case supervisor:start_child(GroupSup, ChildSpec) of
                 {error, Error} -> {error, Error};
                 {ok, GroupPid} ->

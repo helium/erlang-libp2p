@@ -195,6 +195,8 @@ close_test(Config) ->
               not erlang:is_process_alive(G2)
       end),
 
+    false = libp2p_config:lookup_group(libp2p_swarm:tid(S2), "test"),
+
     ok.
 
 restart_test(_Config) ->

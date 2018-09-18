@@ -376,7 +376,7 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index
                                           #{ id => make_ref(),
                                              start => {libp2p_group_worker, start_link,
                                                        [Index, ClientSpec, self(), GroupID, TID]},
-                                             restart => permanent
+                                             restart => transient
                                            }),
                       %% sync on the mailbox having been flushed.
                       sys:get_status(WorkerPid),

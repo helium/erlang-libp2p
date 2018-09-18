@@ -262,8 +262,6 @@ handle_event(info, send_ack, #data{stream_pid=undefined}) ->
 handle_event(info, send_ack, #data{stream_pid=StreamPid}) ->
     StreamPid ! send_ack,
     keep_state_and_data;
-handle_event(info, {'EXIT', _, normal}, #data{}) ->
-    keep_state_and_data;
 handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
                                             stream_pid=StreamPid,
                                             session_monitor=SessionMonitor}) ->
@@ -285,6 +283,7 @@ handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=
                  end
             },
     {keep_state, Data, [{reply, From, Info}]};
+
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.
