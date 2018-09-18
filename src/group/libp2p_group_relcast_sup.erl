@@ -22,7 +22,8 @@ init([TID, GroupID, Args]) ->
             type => supervisor
           },
          #{ id => server,
-            start => {libp2p_group_relcast_server, start_link, [TID, GroupID, Args, self()]}
+            start => {libp2p_group_relcast_server, start_link, [TID, GroupID, Args, self()]},
+            restart => transient
           }
         ],
     {ok, {SupFlags, ChildSpecs}}.
