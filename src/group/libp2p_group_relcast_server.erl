@@ -313,8 +313,9 @@ handle_info({send_ack, Index}, State=#state{}) ->
     {noreply, dispatch_ack(Index, State)};
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
-    %% down the group.
-    {stop, normal, State};
+    %% down the group by exiting the supervisor.
+    exit(State#state.sup, normal),
+    {noreply, State};
 
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),

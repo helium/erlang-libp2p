@@ -312,7 +312,8 @@ stream_handlers(TID) ->
 %% Group
 %%
 
--spec add_group(pid() | ets:tab(), GroupID::string(), Module::atom(), Args::[any()]) -> {ok, pid()} | {error, term()}.
+-spec add_group(pid() | ets:tab(), GroupID::string(), Module::atom(), Args::[any()])
+               -> {ok, pid()} | {error, term()}.
 add_group(Sup, GroupID, Module, Args) when is_pid(Sup) ->
     add_group(tid(Sup), GroupID, Module, Args);
 add_group(TID, GroupID, Module, Args) ->
@@ -322,7 +323,7 @@ add_group(TID, GroupID, Module, Args) ->
             GroupSup = libp2p_swarm_group_sup:sup(TID),
             ChildSpec = #{ id => GroupID,
                            start => {Module, start_link, [TID, GroupID, Args]},
-                           restart => temporary,
+                           restart => transient,
                            shutdown => 5000,
                            type => worker },
             case supervisor:start_child(GroupSup, ChildSpec) of
