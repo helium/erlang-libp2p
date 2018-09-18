@@ -206,6 +206,7 @@ closing(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
     %% already in closing mode completed it's work successfully
     {keep_state, Data#data{connect_pid=undefined}};
 
+
 closing(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
@@ -284,6 +285,14 @@ handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=
             },
     {keep_state, Data, [{reply, From, Info}]};
 
+handle_event(enter, _, #data{})  ->
+    %% Ignore out of order enter events since we may already have
+    %% exited the original state.
+    keeps_state_and_data;
+handle_event(info, connect_retry, #data{}) ->
+    %% Ignore unhandled connect_retry events. The connect state
+    %% overrides this to deal with actual retries.
+    keeps_state_and_data;
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.
