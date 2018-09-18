@@ -27,10 +27,12 @@
          self_index :: pos_integer(),
          workers=[] :: [#worker{}],
          store :: reference(),
+         store_dir :: string(),
          out_keys=[] :: [msg_cache_entry()],
          in_keys=[] :: [msg_cache_entry()],
          handler :: atom(),
-         handler_state :: any()
+         handler_state :: any(),
+         close_state=undefined :: undefined | closing
        }).
 
 -define(INBOUND,  1).
@@ -114,7 +116,8 @@ init([TID, GroupID, [Handler, HandlerArgs], Sup]) ->
                                                         in_keys=InKeys,
                                                         handler=Handler,
                                                         handler_state=RecoveredHandlerState,
-                                                        store=Ref})};
+                                                        store=Ref,
+                                                        store_dir=DataDir})};
                         false ->
                             {stop, {error, {not_found, SelfAddr}}}
                     end
@@ -227,6 +230,8 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{}) ->
                end,
     libp2p_group_worker:assign_target(WorkerPid, Target),
     {noreply, NewState};
+handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
+    {noreply, State};
 handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=HandlerState}) ->
     case Handler:handle_input(Msg, HandlerState) of
         {NewHandlerState, ok} ->
@@ -270,7 +275,7 @@ handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}
     %% one.
     %% lager:debug("~p SEND RESULT TO ~p: ~p ok",
     %%             [_SelfIndex, Index, base58:binary_to_base58(Key)]),
-    NewState = delete_message(Key, State),
+    NewState = close_check(delete_message(Key, State)),
     {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, NewState))};
 handle_cast({send_result, {_Key, Index}, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
     %% For any other result error response we set the worker back to
@@ -286,7 +291,7 @@ handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
     case lookup_worker(Index, State) of
         #worker{msg_key=MsgKey} when is_binary(MsgKey) ->
             %% Delete the outbound message for the given index
-            NewState = delete_message(MsgKey, State),
+            NewState = close_check(delete_message(MsgKey, State)),
             {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, NewState))};
         _ ->
             lager:debug("Unexpected ack for ~p", [Index]),
@@ -306,16 +311,33 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
 handle_info({send_ack, Index}, State=#state{}) ->
     %% lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
     {noreply, dispatch_ack(Index, State)};
+handle_info(force_close, State=#state{}) ->
+    %% The timeout after the handler returned close has fired. Shut
+    %% down the group.
+    {stop, normal, State};
+
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 
+terminate(normal, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
+    bitcask:close(Store),
+    catch rm_rf(StoreDir);
 terminate(_Reason, #state{store=Store}) ->
     bitcask:close(Store).
 
 %% Internal
 %%
+
+-spec rm_rf(file:filename()) -> ok.
+rm_rf(Dir) ->
+    Paths = filelib:wildcard(Dir ++ "/**"),
+    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
+    ok = lists:foreach(fun file:delete/1, Files),
+    Sorted = lists:reverse(lists:sort(Dirs)),
+    ok = lists:foreach(fun file:del_dir/1, Sorted),
+    file:del_dir(Dir).
 
 save_state(_State, _Handler, HandlerState, HandlerState) ->
     ok;
@@ -404,8 +426,32 @@ handle_inbound_message(Index, MsgKey, Msg, State=#state{handler=Handler, handler
             {Action, delete_message(MsgKey, State#state{handler_state=NewHandlerState})};
         {NewHandlerState, {send, Messages}=_Action} ->
             save_state(State, Handler, HandlerState, NewHandlerState),
-            {ok, send_messages(Messages, delete_message(MsgKey, State#state{handler_state=NewHandlerState}))}
+            {ok, send_messages(Messages, delete_message(MsgKey, State#state{handler_state=NewHandlerState}))};
+        {NewHandlerState, {close, Timeout}} ->
+            save_state(State, Handler, HandlerState, NewHandlerState),
+            erlang:send_after(Timeout, self(), force_close),
+            {ok, close_workers(State#state{close_state=closing, handler_state=NewHandlerState})}
     end.
+
+-spec close_workers(#state{}) -> #state{}.
+close_workers(State=#state{workers=Workers}) ->
+    lists:foreach(fun(#worker{pid=self}) ->
+                          ok;
+                     (#worker{pid=Pid}) ->
+                          libp2p_group_worker:close(Pid)
+                  end, Workers),
+    State.
+
+-spec close_check(#state{}) -> #state{}.
+close_check(State=#state{close_state=closing}) ->
+    case count_messages(?OUTBOUND, all, State) of
+        0 -> self() ! force_close;
+        _ -> ok
+    end,
+    State;
+close_check(State) ->
+    State.
+
 
 -spec dispatch_inbound_messages(#state{}) -> #state{}.
 dispatch_inbound_messages(State=#state{store=Store}) ->
@@ -530,6 +576,11 @@ lookup_messages(Kind, Indices, #state{in_keys=InKeys, out_keys=OutKeys}) ->
                          end, Keys)
     end.
 
+-spec count_messages(msg_kind(), [pos_integer()] | all, #state{}) -> non_neg_integer().
+count_messages(Kind, Indices, State=#state{}) ->
+    lists:foldl(fun({_, Keys}, Acc) ->
+                        Acc + length(Keys)
+                end, 0, lookup_messages(Kind, Indices, State)).
 
 -spec efoldl_messages(msg_filter_fun(), Acc::any(), [{pos_integer(), [msg_key()]}]) -> any().
 efoldl_messages(Fun, Acc, Messages) ->

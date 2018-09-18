@@ -4,11 +4,11 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/5, assign_target/2, assign_stream/3, send/3, send_ack/1]).
+-export([start_link/5, assign_target/2, assign_stream/3, send/3, send_ack/1, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
--export([request_target/3, connect/3]).
+-export([request_target/3, connect/3, closing/3]).
 
 %% libp2p_info
 -export([info/1]).
@@ -46,6 +46,11 @@ assign_stream(Pid, Connection, StreamPid) ->
 -spec send(pid(), term(), binary()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
+
+-spec close(pid()) -> ok.
+close(Pid) ->
+    Pid ! close,
+    ok.
 
 -spec send_ack(pid()) -> ok.
 send_ack(Pid) ->
@@ -144,6 +149,10 @@ connect(info, {assign_session, SessionPid},
         Data=#data{session_monitor=SessionMonitor, stream_pid=_StreamPid}) when SessionMonitor /= undefined ->
     %% Attempting to assign a session when we already have one. We
     %% toss a coin to decide if we keep ours (1) or use the new given one.
+    %%
+    %% TODO: Once a proper group_gossip lands ,We can likely stop
+    %% trackign the session altogether since the stream will be the
+    %% only thing we care about
     case rand:uniform(2) of
         1 ->
             %% lager:debug("Trying to assign a session ~p while one is being monitored with stream ~p",
@@ -157,7 +166,9 @@ connect(info, {assign_session, SessionPid},
 connect(info, {assign_session, SessionPid},
         Data=#data{session_monitor=undefined, client_spec=undefined}) ->
     %% Assign a session without a client spec. Just monitor the
-    %% session. Success, no timeout needed
+    %% session. Success, no timeout needed.
+    %%
+    %% TODO: REMOVE this once the new group_gossip works
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                            stream_pid=assign_stream(undefined, Data)}};
 connect(info, {assign_session, SessionPid}, Data=#data{target=Target, client_spec={Path, {M, A}}}) ->
@@ -171,11 +182,45 @@ connect(info, {assign_session, SessionPid}, Data=#data{target=Target, client_spe
             {keep_state, connect_retry(Data#data{session_monitor=monitor_session(undefined, Data),
                                                  stream_pid=assign_stream(undefined, Data)})}
     end;
-connect(info, send_ack, #data{stream_pid=StreamPid}) ->
-    StreamPid ! send_ack,
+connect(info, close, Data) ->
+    {next_state, closing, Data};
+connect(EventType, Msg, Data) ->
+    handle_event(EventType, Msg, Data).
+
+closing(info, close, #data{}) ->
     keep_state_and_data;
-connect(cast, {assign_stream, Conn, StreamPid},
-        Data=#data{stream_pid=_CurrentStreamPid}) when StreamPid /= undefined  ->
+closing(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
+    %% The _stream_ that this worker is linked to went away.
+    %% We do _not_ try to re-initiate outbound when we're closing down.
+    %% Inbound streams are accepted. See handle_event({assign_stream, ..}).
+    {keep_state, Data#data{session_monitor=undefined,
+                           stream_pid=assign_stream(undefined, Data)}};
+closing(info, {'DOWN', SessionMonitor, process, _Pid, _Reason},
+        Data=#data{session_monitor={SessionMonitor, _}}) ->
+    %% The _session_ that this worker is monitoring went away. We're
+    %% closing down so let it all go.
+    {keep_state, Data#data{session_monitor=undefined,
+                           stream_pid=assign_stream(undefined, Data)}};
+closing(info, {'DOWN', _, process, _, _}, Data=#data{}) ->
+    %% Ignore a normal or error down for the connect pid, since we're
+    %% already in closing mode completed it's work successfully
+    {keep_state, Data#data{connect_pid=undefined}};
+
+closing(EventType, Msg, Data) ->
+    handle_event(EventType, Msg, Data).
+
+
+
+-spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
+terminate(_Reason, _State, Data=#data{connect_pid=Process}) ->
+    kill_pid(Process),
+    assign_stream(undefined, Data),
+    monitor_session(undefined, Data).
+
+
+
+handle_event(cast, {assign_stream, Conn, StreamPid},
+             Data=#data{stream_pid=_CurrentStreamPid}) when StreamPid /= undefined  ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
@@ -197,32 +242,26 @@ connect(cast, {assign_stream, Conn, StreamPid},
                     keep_state_and_data
             end
     end;
-connect(cast, {assign_stream, Conn, StreamPid}, Data=#data{}) ->
+handle_event(cast, {assign_stream, Conn, StreamPid}, Data=#data{}) ->
     %% Assign a stream. Monitor the session and remember the
     %% stream. Link the stream right away
     link(StreamPid),
     {ok, SessionPid} = libp2p_connection:session(Conn),
     {keep_state, Data#data{session_monitor=monitor_session(SessionPid, Data),
                            stream_pid=assign_stream(StreamPid, Data)}};
-connect(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}) ->
+handle_event(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-connect(cast, {send, Ref, Bin}, #data{server=Server, stream_pid=StreamPid}) ->
+handle_event(cast, {send, Ref, Bin}, #data{server=Server, stream_pid=StreamPid}) ->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     keep_state_and_data;
-connect(EventType, Msg, Data) ->
-    handle_event(EventType, Msg, Data).
-
-
--spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
-terminate(_Reason, _State, Data=#data{connect_pid=Process}) ->
-    kill_pid(Process),
-    assign_stream(undefined, Data),
-    monitor_session(undefined, Data).
-
-
+handle_event(info, send_ack, #data{stream_pid=undefined}) ->
+    keep_state_and_data;
+handle_event(info, send_ack, #data{stream_pid=StreamPid}) ->
+    StreamPid ! send_ack,
+    keep_state_and_data;
 handle_event(info, {'EXIT', _, normal}, #data{}) ->
     keep_state_and_data;
 handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=Target,
