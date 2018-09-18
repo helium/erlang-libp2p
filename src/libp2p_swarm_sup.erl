@@ -113,8 +113,7 @@ group_agent_spec(Opts, TID) ->
     [AgentModule:group_agent_spec(?GROUP_AGENT, TID)].
 
 include_proxy(TID, Opts) ->
-    case {libp2p_config:get_opt(Opts, [proxy, address], undefined)
-          ,libp2p_config:get_opt(Opts, [proxy, port], undefined)} of
+    case {libp2p_proxy:address(Opts) ,libp2p_proxy:port(Opts)} of
         {undefined, _} -> [];
         {_, undefined} -> [];
         {Address, Port} ->

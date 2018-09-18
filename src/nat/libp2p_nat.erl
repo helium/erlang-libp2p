@@ -19,16 +19,19 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
+-type opt() :: {enabled, boolean()}.
+-export_type([opt/0]).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
 -spec enabled(ets:tab() | list()) -> boolean().
 enabled(Opts) when is_list(Opts) ->
-    libp2p_config:get_opt(Opts, [?MODULE, nat], true);
+    libp2p_config:get_opt(Opts, [?MODULE, enabled], true);
 enabled(TID) ->
     Opts = libp2p_swarm:opts(TID),
-    libp2p_config:get_opt(Opts, [?MODULE, nat], true).
+    libp2p_config:get_opt(Opts, [?MODULE, enabled], true).
 
 %%--------------------------------------------------------------------
 %% @doc

@@ -6,12 +6,38 @@
 -module(libp2p_proxy).
 
 -export([
-    version/0
+    address/1, port/1
+    ,version/0
     ,add_stream_handler/1
     ,dial_framed_stream/3
 ]).
 
 -define(PROXY_VERSION, "proxy/1.0.0").
+
+-type opt() :: {address, string()} | {port, integer()}.
+-export_type([opt/0]).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec address(ets:tab() | list()) -> string() | undefined.
+address(Opts) when is_list(Opts) ->
+    libp2p_config:get_opt(Opts, [?MODULE, address], undefined);
+address(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    libp2p_config:get_opt(Opts, [?MODULE, address], undefined).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec port(ets:tab() | list()) -> integer() | undefined.
+port(Opts) when is_list(Opts) ->
+    libp2p_config:get_opt(Opts, [?MODULE, port], undefined);
+port(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    libp2p_config:get_opt(Opts, [?MODULE, port], undefined).
 
 %%--------------------------------------------------------------------
 %% @doc
