@@ -68,7 +68,7 @@ basic(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ServerSwarm]}
     ),
 
-    Opts = SwarmOpts ++ [{libp2p_proxy_server, [{address, "localhost"}, {port, 18080}]}],
+    Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
     {ok, ProxySwarm} = libp2p_swarm:start(proxy_basic_proxy, Opts),
     ok = libp2p_swarm:listen(ProxySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
@@ -149,7 +149,7 @@ two_proxy(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ServerSwarm]}
     ),
 
-    Opts = SwarmOpts ++ [{libp2p_proxy_server, [{address, "localhost"}, {port, 18080}]}],
+    Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
     {ok, ProxySwarm} = libp2p_swarm:start(proxy_two_proxy, Opts),
     ok = libp2p_swarm:listen(ProxySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(

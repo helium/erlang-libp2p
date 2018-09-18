@@ -25,7 +25,7 @@
                    | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}
                    | {libp2p_group_gossip, [libp2p_group_gossip:opt()]}
                    | {libp2p_nat, [libp2p_nat:opt()]}
-                   | {libp2p_proxy_server, [libp2p_proxy_server:opt()]}.
+                   | {libp2p_proxy, [libp2p_proxy:opt()]}.
 
 -type connect_opt() :: {unique_session, boolean()}
                      | {unique_port, boolean()}.
