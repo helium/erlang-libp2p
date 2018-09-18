@@ -288,11 +288,11 @@ handle_event({call, From}, info, Data=#data{kind=Kind, server=ServerPid, target=
 handle_event(enter, _, #data{})  ->
     %% Ignore out of order enter events since we may already have
     %% exited the original state.
-    keeps_state_and_data;
+    keep_state_and_data;
 handle_event(info, connect_retry, #data{}) ->
     %% Ignore unhandled connect_retry events. The connect state
     %% overrides this to deal with actual retries.
-    keeps_state_and_data;
+    keep_state_and_data;
 handle_event(EventType, Msg, #data{}) ->
     lager:warning("Unhandled event ~p: ~p", [EventType, Msg]),
     keep_state_and_data.
