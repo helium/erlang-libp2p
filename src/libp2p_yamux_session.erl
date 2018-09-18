@@ -158,6 +158,9 @@ handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
 handle_info({timeout_ping, PingID}, State=#state{}) ->
     {noreply, ping_timeout(PingID, State)};
 
+handle_info({stop, Reason}, State=#state{}) ->
+    {stop, Reason, State};
+
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p", [Msg]),
     {stop, unknown, State}.
@@ -215,12 +218,19 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
-terminate(_Reason, #state{connection=undefined, send_pid=undefined}) ->
-    ok;
 terminate(Reason, #state{connection=Connection, send_pid=SendPid}) ->
-    fdclr(Connection),
-    erlang:exit(SendPid, Reason),
-    libp2p_connection:close(Connection).
+    case Connection of
+        undefined -> ok;
+        _ ->
+            libp2p_connection:fdclr(Connection),
+            libp2p_connection:close(Connection)
+    end,
+    case SendPid of
+        undefined -> ok;
+        _ -> erlang:exit(SendPid, Reason)
+    end.
+
+
 
 
 %%
@@ -233,9 +243,6 @@ fdset(Connection, State) ->
         {error, Error} -> error(Error)
     end,
     State.
-
-fdclr(Connection) ->
-    libp2p_connection:fdclr(Connection).
 
 -spec read_header(libp2p_connection:connection()) -> {ok, header()} | {error, term()}.
 read_header(Connection) ->
@@ -332,8 +339,13 @@ ping_receive(#header{length=PingID}, State=#state{pings=Pings}) ->
 %%
 
 -spec goaway_cast(goaway(), #state{}) -> #state{}.
+goaway_cast(Reason=?GOAWAY_NORMAL, State=#state{}) ->
+    session_cast(header_goaway(Reason), State#state{goaway_state=local});
 goaway_cast(Reason, State=#state{}) ->
-    session_cast(header_goaway(Reason), State#state{goaway_state=local}).
+    lager:warning("Session going away because of code: ~p", [Reason]),
+    self() ! {stop, {goaway, Reason}},
+    State.
+
 
 -spec goaway_receive(header(), #state{}) -> {noreply, #state{}} | {stop, term(), #state{}}.
 goaway_receive(#header{length=?GOAWAY_NORMAL}, State=#state{connection=Connection}) ->
