@@ -43,6 +43,8 @@
     ,sockets = [] :: list()
 }).
 
+-type opt() :: {address, string()} | {port, integer()}.
+-export_type([opt/0]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
