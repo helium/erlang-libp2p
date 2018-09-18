@@ -9,7 +9,7 @@
          add_connection_handler/3,
          add_stream_handler/3, stream_handlers/1,
          register_session/2, register_listener/2,
-         add_group/4,
+         add_group/4, remove_group/2,
          group_agent/1]).
 
 -type swarm_opts() :: [swarm_opt()].
@@ -334,6 +334,14 @@ add_group(TID, GroupID, Module, Args) ->
             end
     end.
 
+-spec remove_group(pid() | ets:tab(), GroupID::string()) -> ok | {error, term()}.
+remove_group(Sup, GroupID) when is_pid(Sup) ->
+    remove_group(tid(Sup), GroupID);
+remove_group(TID, GroupID) ->
+    GroupSup = libp2p_swarm_group_sup:sup(TID),
+    _ = supervisor:terminate_child(GroupSup, GroupID),
+    _ = libp2p_config:remove_group(TID, GroupID),
+    ok.
 
 %% Session Agent
 %%

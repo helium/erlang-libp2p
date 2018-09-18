@@ -314,7 +314,7 @@ handle_info({send_ack, Index}, State=#state{}) ->
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
     %% down the group by exiting the supervisor.
-    exit(State#state.sup, normal),
+    libp2p_swarm:remove_group(State#state.tid, State#state.group_id),
     {noreply, State};
 
 handle_info(Msg, State) ->
