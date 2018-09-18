@@ -23,7 +23,9 @@
                    | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
                    | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}
-                   | {libp2p_group_gossip, [libp2p_group_gossip:opt()]}.
+                   | {libp2p_group_gossip, [libp2p_group_gossip:opt()]}
+                   | {libp2p_nat, [libp2p_nat:opt()]}
+                   | {libp2p_proxy, [libp2p_proxy:opt()]}.
 
 -type connect_opt() :: {unique_session, boolean()}
                      | {unique_port, boolean()}.

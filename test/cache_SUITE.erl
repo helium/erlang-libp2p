@@ -53,7 +53,7 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Key = test,
     Value = [1, 2, 3, 4],
 

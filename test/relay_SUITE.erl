@@ -59,7 +59,7 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Version = "relaytest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(relay_basic_server, SwarmOpts),
@@ -137,7 +137,7 @@ basic(_Config) ->
     ok.
 
 init_failed(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     {ok, Swarm} = libp2p_swarm:start(relay_init_failed, SwarmOpts),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
@@ -149,7 +149,7 @@ init_failed(_Config) ->
     ok.
 
 init_success(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Version = "relaytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(relay_init_success_server, SwarmOpts),
@@ -189,7 +189,7 @@ init_success(_Config) ->
 
 
 dead_peer(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{nat, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Version = "relaytest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(relay_dead_peer_server, SwarmOpts),
