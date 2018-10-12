@@ -8,7 +8,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
 -export([client/3, server/3, server/4, send/2, send/3, recv/2,
-         close/1, close_state/1, addr_info/1]).
+         close/1, close_state/1, addr_info/1, connection/1, session/1]).
 %% libp2p_info
 -export([info/1]).
 
@@ -221,6 +221,8 @@ handle_call({send, Data, Timeout}, From, State=#state{kind=Kind, module=Module, 
         false ->
             {noreply, handle_resp_send({reply, From}, Data, Timeout, State)}
     end;
+handle_call(connection, _From, State=#state{connection=Connection}) ->
+    {reply, Connection, State};
 handle_call(info, _From, State=#state{kind=Kind, module=Module}) ->
     Info = #{
              pid => self(),
@@ -273,7 +275,7 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
         false -> ok
     end,
     unlink(SendPid),
-    erlang:exit(SendPid, Reason),
+    erlang:exit(SendPid, kill),
     libp2p_connection:fdclr(Connection),
     libp2p_connection:close(Connection).
 
@@ -310,6 +312,17 @@ send(Pid, Data, Timeout) ->
 addr_info(Pid) ->
     call(Pid, addr_info).
 
+connection(Pid) ->
+    call(Pid, connection).
+
+-spec session(pid()) -> {ok, pid()} | {error, term()}.
+session(Pid) ->
+    case connection(Pid) of
+        {error, Reason} ->
+            {error, Reason};
+        Connection ->
+            libp2p_connection:session(Connection)
+    end.
 
 -spec recv(libp2p_connection:connection(), non_neg_integer()) -> {ok, binary()} | {error, term()}.
 recv(Connection, Timeout) ->

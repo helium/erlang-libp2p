@@ -1,5 +1,8 @@
 -module(identify_SUITE).
 
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([identify_test/1]).
 
@@ -21,25 +24,17 @@ identify_test(Config) ->
 
     % identify S2
     {ok, Session} = libp2p_swarm:connect(S1, S2Addr),
-    libp2p_identify:spawn_identify(Session, self(), ident),
-    Identify = receive
-                   {identify, ident, Session, Ident} -> Ident
-               after 1000 -> error(timeout)
-               end,
-    % check some basic properties
-    "identify/1.0.0" = libp2p_identify:protocol_version(Identify),
+    libp2p_session:identify(Session, self(), my_data),
+    {ok, Identify} = receive
+                         {handle_identify, my_data, R} -> R
+                     after 1000 -> error(timeout)
+                     end,
 
-    true = lists:member(multiaddr:new(S2Addr), libp2p_identify:listen_addrs(Identify)),
-    "erlang-libp2p/" ++  _ = libp2p_identify:agent_version(Identify),
+    %% Compare addresses
+    ?assertEqual(libp2p_swarm:address(S2), libp2p_identify:address(Identify)),
 
-    % Compare observed ip addresses and port.
+    %% Compare observed ip addresses and port.
     S1Addr = libp2p_identify:observed_addr(Identify),
-    true = lists:member(S1Addr, S1Addrs),
-    [S1IP,  S1Port] = multiaddr:protocols(S1Addr),
-    [S1IP, S1Port] = multiaddr:protocols(libp2p_identify:observed_maddr(Identify)),
-
-    %% Compare stream protocols
-    StreamHandlers = lists:sort([Key || {Key, _} <- libp2p_swarm:stream_handlers(S1)]),
-    StreamHandlers = lists:sort(libp2p_identify:protocols(Identify)),
+    ?assert(lists:member(S1Addr, S1Addrs)),
 
     ok.

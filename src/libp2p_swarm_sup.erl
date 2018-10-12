@@ -7,7 +7,7 @@
 % api
 -export([sup/1, opts/1, name/1, address/1,
          register_server/1, server/1,
-         register_group_agent/1, group_agent/1,
+         register_gossip_group/1, gossip_group/1,
          register_peerbook/1, peerbook/1,
          register_cache/1, cache/1
          ]).
@@ -16,7 +16,7 @@
 -define(SERVER, swarm_server).
 -define(PEERBOOK, swarm_peerbook).
 -define(CACHE, swarm_cache).
--define(GROUP_AGENT, swarm_group_agent).
+-define(GOSSIP_GROUP, swarm_gossip_group).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
 -define(OPTS, swarm_opts).
@@ -71,6 +71,13 @@ init([Name, Opts]) ->
                    worker,
                    [libp2p_swarm_server]
                   },
+                  {?GOSSIP_GROUP,
+                   {libp2p_group_gossip_sup, start_link, [TID]},
+                   permanent,
+                   10000,
+                   supervisor,
+                   [libp2p_group_gossip_sup]
+                   },
                   {?PEERBOOK,
                    {libp2p_peerbook, start_link, [TID, SigFun]},
                    permanent,
@@ -92,9 +99,7 @@ init([Name, Opts]) ->
                    worker,
                    [libp2p_relay_server]
                   }
-                 ]
-                 ++ group_agent_spec(Opts, TID)
-                 ++ include_proxy(TID, Opts),
+                 ] ++ include_proxy(TID, Opts),
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -106,11 +111,6 @@ init_keys(Opts) ->
             {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
         {PubKey, SigFun} -> {PubKey, SigFun}
     end.
-
--spec group_agent_spec(libp2p_swarm:swarm_opts(), ets:tab()) -> [supervisor:child_spec()].
-group_agent_spec(Opts, TID) ->
-    AgentModule = libp2p_config:get_opt(Opts, group_agent, libp2p_group_gossip),
-    [AgentModule:group_agent_spec(?GROUP_AGENT, TID)].
 
 include_proxy(TID, Opts) ->
     case {libp2p_proxy:address(Opts) ,libp2p_proxy:port(Opts)} of
@@ -171,9 +171,9 @@ opts(TID) ->
         [] -> []
     end.
 
--spec group_agent(ets:tab()) -> pid().
-group_agent(TID) ->
-    ets:lookup_element(TID, ?GROUP_AGENT, 2).
+-spec gossip_group(ets:tab()) -> pid().
+gossip_group(TID) ->
+    ets:lookup_element(TID, ?GOSSIP_GROUP, 2).
 
-register_group_agent(TID) ->
-    ets:insert(TID, {?GROUP_AGENT, self()}).
+register_gossip_group(TID) ->
+    ets:insert(TID, {?GOSSIP_GROUP, self()}).

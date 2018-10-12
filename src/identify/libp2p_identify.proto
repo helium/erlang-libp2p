@@ -1,25 +1,27 @@
 syntax = "proto3";
 
+import "libp2p_peer.proto";
+
 message identify {
-    string protocol_version = 1;
-
-    // publicKey is this node's public key (which also gives its node.ID)
-    bytes publicKey = 2;
-
-    // listenAddrs are the multiaddrs the sender node listens for open
-    // connections on
-    repeated bytes listen_addrs = 3;
+    // peer is the node's peer information. The only stable part for
+    // the peer info is it's address. The other fields can change over
+    // time. Having the peer information available is useful to
+    // commence peerbook gossiping so we use it even it it may be
+    // stale.
+    signed_peer peer = 1;
 
     // observedAddr is the multiaddr of the remote endpoint that the
     // sender node perceives this is useful information to convey to
     // the other side, as it helps the remote endpoint determine
     // whether its connection to the local peer goes through NAT.
-    bytes observed_addr = 4;
+    bytes observed_addr = 2;
 
-    // protocols are the stream handler services this node is running
-    repeated string protocols = 5;
+    // Nonce is provided by the identify requester. This helps avoid
+    // replay attacks
+    bytes nonce = 3;
+}
 
-    // agent_version is like the User-Agent in the browser.
-    // e.g. "erlang-libp2p/1.0.0"
-    string agent_version = 6;
+message signed_identify {
+    identify identify = 1;
+    bytes signature = 2;
 }

@@ -25,7 +25,7 @@
 -callback fdset(any()) -> ok | {error, term()}.
 -callback fdclr(any()) -> ok.
 -callback addr_info(any()) -> {string(), string()}.
--callback session(any()) -> {ok, pid()} | undefined.
+-callback session(any()) -> {ok, pid()} | {error, term()}.
 -callback controlling_process(any(), pid()) ->  {ok, any()} | {error, closed | not_owner | atom()}.
 
 -define(RECV_TIMEOUT, 5000).
@@ -79,7 +79,7 @@ fdclr(#connection{module=Module, state=State}) ->
 addr_info(#connection{module=Module, state=State}) ->
     Module:addr_info(State).
 
--spec session(connection()) ->  {ok, pid()} | undefined.
+-spec session(connection()) ->  {ok, pid()} | {error, term()}.
 session(#connection{module=Module, state=State}) ->
     Module:session(State).
 

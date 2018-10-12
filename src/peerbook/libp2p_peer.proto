@@ -1,26 +1,26 @@
 syntax = "proto3";
 
 enum nat_type {
-  none = 0;
-  static = 1;
-  restricted = 2;
-  symmetric = 3;
-  unknown = 4;
+    none = 0;
+    static = 1;
+    restricted = 2;
+    symmetric = 3;
+    unknown = 4;
 }
 
 message peer {
-  bytes address = 1;
-  repeated bytes listen_addrs = 2;
-  repeated bytes connected = 3;
-  nat_type nat_type = 4;
-  int64 timestamp = 5;
+    bytes address = 1;
+    repeated bytes listen_addrs = 2;
+    repeated bytes connected = 3;
+    nat_type nat_type = 4;
+    int64 timestamp = 5;
 }
 
 message signed_peer {
-  peer peer = 1;
-  bytes signature = 2;
+    peer peer = 1;
+    bytes signature = 2;
 }
 
 message peer_list {
-  repeated signed_peer peers = 1;
+    repeated signed_peer peers = 1;
 }

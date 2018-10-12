@@ -11,7 +11,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/3, handle_ack/3, accept_stream/4]).
+-export([handle_data/3, handle_ack/3, accept_stream/3]).
 
 -record(worker,
        { target :: string(),
@@ -73,14 +73,16 @@ info(Pid) ->
     catch gen_server:call(Pid, info).
 
 %% libp2p_ack_stream
+%%
+
 handle_data(Pid, Ref, Bin) ->
-    gen_server:call(Pid, {handle_data, Ref, Bin}, timer:seconds(30)).
+    gen_server:call(Pid, {handle_data, Ref, Bin}).
 
 handle_ack(Pid, Ref, Ack) ->
     gen_server:cast(Pid, {handle_ack, Ref, Ack}).
 
-accept_stream(Pid, Connection, StreamPid, Path) ->
-    gen_server:call(Pid, {accept_stream, Connection, StreamPid, Path}).
+accept_stream(Pid, StreamPid, Path) ->
+    gen_server:call(Pid, {accept_stream, StreamPid, Path}).
 
 
 %% gen_server
@@ -152,22 +154,26 @@ sort_and_group_keys(Input) ->
                         end
                 end, [], lists:keysort(1, Input)).
 
-handle_call({accept_stream, _Conn, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
-    {reply, {error, not_ready}, State};
 handle_call(dump_queues, _From, State = #state{store=Store, in_keys=IK, out_keys=OK}) ->
     Map = #{
-      in => [ {Index, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- IK ],
-      out => [ {Index, lists:map(fun(Key) -> {ok, Value} = bitcask:get(Store, Key), Value end, Keys)} || {Index, Keys} <- OK ]
+      in => [ {Index, lists:map(fun(Key) ->
+                                        {ok, Value} = bitcask:get(Store, Key), Value
+                                end, Keys)} || {Index, Keys} <- IK ],
+      out => [ {Index, lists:map(fun(Key) ->
+                                         {ok, Value} = bitcask:get(Store, Key), Value
+                                 end, Keys)} || {Index, Keys} <- OK ]
      },
     {reply, Map, State};
-handle_call({accept_stream, Conn, StreamPid, Path}, _From, State=#state{}) ->
+handle_call({accept_stream, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
+    {reply, {error, not_ready}, State};
+handle_call({accept_stream, StreamPid, Path}, _From, State=#state{}) ->
     case lookup_worker(mk_multiaddr(Path), #worker.target, State) of
         false ->
             {reply, {error, not_found}, State};
         #worker{pid=self} ->
             {reply, {error, bad_arg}, State};
         #worker{index=Index, pid=Worker} ->
-            libp2p_group_worker:assign_stream(Worker, Conn, StreamPid),
+            libp2p_group_worker:assign_stream(Worker, StreamPid),
             {reply, {ok, Index}, State}
     end;
 handle_call({handle_data, Index, Msg}, _From, State=#state{self_index=_SelfIndex}) ->
@@ -228,7 +234,10 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{}) ->
                              #worker{target=T} ->
                                  {T, State}
                end,
-    libp2p_group_worker:assign_target(WorkerPid, Target),
+    Path = lists:flatten([?GROUP_PATH_BASE, State#state.group_id, "/",
+                          libp2p_crypto:address_to_b58(libp2p_swarm:address(State#state.tid))]),
+    ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self()]}},
+    libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),
     {noreply, NewState};
 handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
     {noreply, State};
@@ -244,16 +253,17 @@ handle_cast({handle_input, Msg}, State=#state{handler=Handler, handler_state=Han
         {NewHandlerState, stop, Reason} ->
             {stop, Reason, NewHandlerState}
         end;
-handle_cast({send_ready, Index, Ready}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_ready, _Target, Index, Ready}, State=#state{self_index=_SelfIndex}) ->
     %% Sent by group worker after it gets a stream set up (send just
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
-    %% lager:debug("~p IS READY ~p TO SEND TO ~p", [SelfIndex, Ready, Index]),
+    %% lager:debug("~p IS READY ~p TO SEND TO ~p", [_SelfIndex, Ready, Index]),
     case is_ready_worker(Index, Ready, State) of
         false ->
             case Ready of
                 true ->
-                    {noreply, dispatch_next_messages([Index], ready_worker(Index, undefined, State))};
+                    {noreply, dispatch_next_messages([Index],
+                                                     ready_worker(Index, undefined, State))};
                 false ->
                     {noreply, ready_worker(Index, false, State)}
             end;
@@ -267,7 +277,7 @@ handle_cast({send_result, {_Key, _Index}, defer}, State=#state{self_index=_SelfI
     %% ready. The remote end will dispatch a separate ack to resume
     %% message sends (handled in handle_ack).
     %% lager:debug("~p SEND RESULT TO ~p: ~p defer",
-    %%             [_SelfIndex, Index, base58:binary_to_base58(_Key)]),
+    %%             [_SelfIndex, _Index, base58:binary_to_base58(_Key)]),
     {noreply, State};
 handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}) ->
     %% Send result from sending a message to a remote woker. An ok
@@ -364,20 +374,17 @@ save_state(_State = #state{store=Store}, Handler, _OldHandlerState, NewHandlerSt
 -spec start_workers([string()], #state{}) -> [#worker{}].
 start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index=SelfIndex}) ->
     WorkerSup = libp2p_group_relcast_sup:workers(Sup),
-    Path = lists:flatten([?GROUP_PATH_BASE, GroupID, "/",
-                          libp2p_crypto:address_to_b58(libp2p_swarm:address(TID))]),
     lists:map(fun({Index, Addr}) when Index == SelfIndex ->
                       %% Dispatch a send_ready since there is no group
                       %% worker for self to do so
-                      libp2p_group_server:send_ready(self(), SelfIndex, true),
+                      libp2p_group_server:send_ready(self(), Addr, SelfIndex, true),
                       #worker{target=Addr, index=Index, pid=self};
                   ({Index, Addr}) ->
-                      ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self()]}},
                       {ok, WorkerPid} = supervisor:start_child(
                                           WorkerSup,
                                           #{ id => make_ref(),
                                              start => {libp2p_group_worker, start_link,
-                                                       [Index, ClientSpec, self(), GroupID, TID]},
+                                                       [Index, self(), GroupID, TID]},
                                              restart => transient
                                            }),
                       %% sync on the mailbox having been flushed.
@@ -476,8 +483,8 @@ dispatch_next_messages(Indexes, State=#state{store=Store}) ->
                             #worker{pid=self, msg_key=undefined} ->
                                 %% Dispatch a message to self directly
                                 Parent = self(),
-                                %% lager:debug("~p DISPATCHING TO SELF: ~p",
-                                %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
+                                %% lager:debug("~p DISPATCHING TO SELF: ~p: ~p",
+                                %%             [State#state.self_index, Index, base58:binary_to_base58(Key)]),
                                 spawn(fun() ->
                                               Result = handle_data(Parent, Index, Msg),
                                               libp2p_group_server:send_result(Parent, {Key, Index}, Result),
@@ -487,9 +494,10 @@ dispatch_next_messages(Indexes, State=#state{store=Store}) ->
                                               end
                                       end),
                                 ready_worker(Index, Key, Acc);
-                            #worker{index=Index, pid=Worker, msg_key=undefined} ->
-                                %% lager:debug("~p DISPATCHING TO ~p: ~p",
-                                %%             [SelfIndex, Index, base58:binary_to_base58(Key)]),
+                            #worker{index=Index, pid=Worker, target=_Target, msg_key=undefined} ->
+                                %% lager:debug("~p DISPATCHING TO ~p (~p): ~p",
+                                %%             [State#state.self_index, Index, _Target,
+                                %%              base58:binary_to_base58(Key)]),
                                 libp2p_group_worker:send(Worker, {Key, Index}, Msg),
                                 ready_worker(Index, Key, Acc)
                         end;

@@ -30,8 +30,6 @@ init([TID, SigFun]) ->
     % Register default stream handlers
     libp2p_swarm:add_stream_handler(TID, "identify/1.0.0",
                                     {libp2p_stream_identify, server, []}),
-    libp2p_swarm:add_stream_handler(TID, "peer/1.0.0",
-                                    {libp2p_framed_stream, server, [libp2p_stream_peer, TID]}),
 
     {ok, #state{tid=TID, sig_fun=SigFun}}.
 
@@ -44,18 +42,27 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_info({identify, Kind, Session, Identify}, State=#state{tid=TID}) ->
-    %% Response from a connect_to or accept initiated
-    %% spawn_identify. Register the connection in peerbook
+handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
+    {_, PeerAddr} = libp2p_session:addr_info(Session),
+    lager:warning("ignoring session after failed identify ~p: ~p", [PeerAddr, Error]),
+    {noreply, State};
+handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) ->
+    %% Response from an identify triggered by `register_session.
+    %%
+    %% Store the session in config and tell the peerbook about the
+    %% session change as well as the new identify record.
+    libp2p_config:insert_session(TID,
+                                 libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
+                                 Session),
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:register_session(PeerBook, Session, Identify, Kind),
-    libp2p_config:insert_session(TID, libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)), Session),
+    libp2p_peerbook:register_session(PeerBook, Session, Identify),
+    libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
+    libp2p_config:remove_pid(TID, Pid),
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:unregister_session(PeerBook, Pid),
-    libp2p_config:remove_pid(TID, Pid),
     {noreply, NewState};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
     {stop, Reason, State};
@@ -68,12 +75,17 @@ handle_cast({register, Kind, SessionPid}, State=#state{}) ->
     %% Called with Kind == libp2p_config:session() from listeners
     %% accepting connections. This is called through
     %% libp2p_swarm:register_session, for example, from
-    %% start_server_session and start_client_session. The actual
-    %% peerbook registration doesn't happen until we receive an
-    %% identify message.
+    %% start_server_session and start_client_session.
     %%
     %% Called from listeners getting started with Kind ==
     %% libp2p_config:listener()
+    %%
+    %% The actual peerbook registration doesn't happen
+    %% until we receive an identify message.
+    case Kind == libp2p_config:session() of
+        true -> libp2p_session:identify(SessionPid, self(), SessionPid);
+        _ -> ok
+    end,
     NewState = add_monitor(Kind, SessionPid, State),
     {noreply, NewState};
 
