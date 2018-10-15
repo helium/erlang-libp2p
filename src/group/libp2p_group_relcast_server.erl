@@ -27,6 +27,8 @@
          self_index :: pos_integer(),
          workers=[] :: [#worker{}],
          store :: relcast:relcast_state(),
+         store_dir :: file:filename(),
+         pending = #{} :: #{pos_integer() => binary()},
          close_state=undefined :: undefined | closing
        }).
 
@@ -73,6 +75,7 @@ init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
             self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
             {ok, update_metadata(#state{sup=Sup, tid=TID, group_id=GroupID,
                                         self_index=SelfIndex,
+                                        store_dir=DataDir,
                                         store=Relcast})};
         false ->
             {stop, {error, {not_found, SelfAddr}}}
@@ -97,11 +100,11 @@ handle_call({handle_data, Index, Msg}, _From, State=#state{self_index=_SelfIndex
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     case relcast:deliver(Msg, Index, State#state.store) of
         full ->
-            %% XXX so this is a bit tricky. we've exceeded the defer queueing for this 
+            %% So this is a bit tricky. we've exceeded the defer queueing for this 
             %% peer ID so we need to queue it locally and block more being sent.
             %% We need to put these in a buffer somewhere and keep trying to deliver them
             %% every time we successfully process a message.
-            {reply, defer, State};
+            {reply, defer, State#state{pending=maps:put(Index, Msg, State#state.pending)}};
         {ok, NewRelcast} ->
             {reply, ok, dispatch_next_messages(State#state{store=NewRelcast})};
         {stop, Timeout, NewRelcast} ->
@@ -113,41 +116,40 @@ handle_call(workers, _From, State=#state{workers=Workers}) ->
                                  {Addr, Worker}
                          end, Workers),
     {reply, Response, State};
-handle_call(info, _From, State=#state{group_id=_GroupID, workers=_Workers}) ->
-    %AddWorkerInfo = fun(#worker{pid=self}, Map) ->
-                            %maps:put(info, self, Map);
-                       %(#worker{pid=Pid}, Map) ->
-                            %maps:put(info, libp2p_group_worker:info(Pid), Map)
-                    %end,
+handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
+    AddWorkerInfo = fun(#worker{pid=self}, Map) ->
+                            maps:put(info, self, Map);
+                       (#worker{pid=Pid}, Map) ->
+                            maps:put(info, libp2p_group_worker:info(Pid), Map)
+                    end,
     %QueueLen = fun(false) ->
                        %0;
                   %({_, Elements}) ->
                        %length(Elements)
                %end,
-    %MsgKeyInfo = fun(undefined) -> undefined;
-                    %(false) -> false;
-                    %(MsgKey) -> base58:binary_to_base58(MsgKey)
-                 %end,
-    %WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, msg_key=MsgKey}, Acc) ->
+    MsgKeyInfo = fun(undefined) -> undefined;
+                    (false) -> false;
+                    (MsgKey) -> MsgKey
+                 end,
+    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, msg_key=MsgKey}, Acc) ->
                                       %InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
                                       %OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
-                                      %maps:put(Index,
-                                               %AddWorkerInfo(WorkerInfo,
-                                                             %#{ index => Index,
+                                      maps:put(Index,
+                                               AddWorkerInfo(WorkerInfo,
+                                                             #{ index => Index,
                                                                 %in_keys => InKeys,
                                                                 %out_keys => OutKeys,
-                                                                %msg_key => MsgKeyInfo(MsgKey)}),
-                                               %Acc)
-                              %end, #{}, Workers),
-    %GroupInfo = #{
-                  %module => ?MODULE,
-                  %pid => self(),
-                  %group_id => GroupID,
+                                                                msg_key => MsgKeyInfo(MsgKey)}),
+                                               Acc)
+                              end, #{}, Workers),
+    GroupInfo = #{
+                  module => ?MODULE,
+                  pid => self(),
+                  group_id => GroupID,
                   %handler => Handler,
-                  %worker_info => WorkerInfos
-                 %},
-    %% TODO bring this back
-    {reply, #{}, State};
+                  worker_info => WorkerInfos
+                 },
+    {reply, GroupInfo, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
@@ -253,23 +255,23 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 
-terminate(normal, #state{close_state=closing, store=Store}) ->
-    %% TODO delete the storage
-    relcast:stop(normal, Store);
+terminate(normal, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
+    relcast:stop(normal, Store),
+    rm_rf(StoreDir);
 terminate(Reason, #state{store=Store}) ->
     relcast:stop(Reason, Store).
 
 %% Internal
 %%
 
-%-spec rm_rf(file:filename()) -> ok.
-%rm_rf(Dir) ->
-    %Paths = filelib:wildcard(Dir ++ "/**"),
-    %{Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
-    %ok = lists:foreach(fun file:delete/1, Files),
-    %Sorted = lists:reverse(lists:sort(Dirs)),
-    %ok = lists:foreach(fun file:del_dir/1, Sorted),
-    %file:del_dir(Dir).
+-spec rm_rf(file:filename()) -> ok.
+rm_rf(Dir) ->
+    Paths = filelib:wildcard(Dir ++ "/**"),
+    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
+    ok = lists:foreach(fun file:delete/1, Files),
+    Sorted = lists:reverse(lists:sort(Dirs)),
+    ok = lists:foreach(fun file:del_dir/1, Sorted),
+    file:del_dir(Dir).
 
 -spec start_workers([string()], #state{}) -> [#worker{}].
 start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index=SelfIndex}) ->
@@ -350,21 +352,37 @@ dispatch_ack(Index, State=#state{}) ->
 
 -spec dispatch_next_messages(#state{}) -> #state{}.
 dispatch_next_messages(State) ->
-    case filter_ready_workers(State) of
-        [] ->
-            State;
-        Workers ->
-            lists:foldl(fun(Worker, Acc) ->
-                                case relcast:take(Worker#worker.index, Acc#state.store) of
-                                    {not_found, NewRelcast} ->
-                                        Acc#state{store=NewRelcast};
-                                    {ok, Key, Msg, NewRelcast} ->
-                                        Index = Worker#worker.index,
-                                        libp2p_group_worker:send(Worker#worker.pid, {Key, Index}, Msg),
-                                        ready_worker(Index, Key, Acc#state{store=NewRelcast})
-                                end
-                        end, State, Workers)
-    end.
+    NewState = case filter_ready_workers(State) of
+                   [] ->
+                       State;
+                   Workers ->
+                       lists:foldl(fun(Worker, Acc) ->
+                                           case relcast:take(Worker#worker.index, Acc#state.store) of
+                                               {not_found, NewRelcast} ->
+                                                   Acc#state{store=NewRelcast};
+                                               {ok, Key, Msg, NewRelcast} ->
+                                                   Index = Worker#worker.index,
+                                                   libp2p_group_worker:send(Worker#worker.pid, {Key, Index}, Msg),
+                                                   ready_worker(Index, Key, Acc#state{store=NewRelcast})
+                                           end
+                                   end, State, Workers)
+               end,
+    %% attempt to deliver some stuff in the pending queue
+    maps:fold(fun(Index, Msg, Acc) ->
+                      case relcast:deliver(Msg, Index, Acc#state.store) of
+                          full ->
+                              %% still no room, continue to HODL the message
+                              Acc;
+                          {ok, NR} ->
+                              dispatch_ack(Index, Acc),
+                              Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)};
+                          {stop, Timeout, NR} ->
+                              dispatch_ack(Index, Acc),
+                              erlang:send_after(Timeout, self(), force_close),
+                              Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)}
+                      end
+              end, NewState, NewState#state.pending).
+
 
 -spec filter_ready_workers(#state{}) -> [#worker{}].
 filter_ready_workers(State=#state{}) ->
