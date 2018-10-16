@@ -12,7 +12,7 @@
 start_link(TID, GroupID, Args) ->
     libp2p_group_relcast_sup:start_link(TID, GroupID, Args).
 
--spec handle_input(GroupPid::pid(), Msg::binary()) -> ok.
+-spec handle_input(GroupPid::pid(), Msg::term()) -> ok.
 handle_input(GroupPid, Msg) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
     libp2p_group_relcast_server:handle_input(Server, Msg).
