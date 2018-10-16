@@ -148,7 +148,8 @@ handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
         #worker{pid=WorkerPid} ->
             NewState = maps:fold(fun(Key, {M, S}, Acc) ->
                                          case (catch M:init_gossip_data(S)) of
-                                             {'EXIT', _} ->
+                                             {'EXIT', Reason} ->
+                                                 lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
                                                  Acc#state{handlers=maps:remove(Key, Acc#state.handlers)};
                                              ok ->
                                                  Acc;
