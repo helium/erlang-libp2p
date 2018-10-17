@@ -50,7 +50,7 @@ info(Pid) ->
 %%
 
 handle_data(Pid, Ref, Bin) ->
-    gen_server:call(Pid, {handle_data, Ref, Bin}).
+    gen_server:call(Pid, {handle_data, Ref, Bin}, infinity).
 
 handle_ack(Pid, Ref, Ack) ->
     gen_server:cast(Pid, {handle_ack, Ref, Ack}).
