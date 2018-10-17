@@ -98,7 +98,7 @@ match_addr(Addr, _TID) when is_list(Addr) ->
 
 -spec sort_addrs([string()]) -> [string()].
 sort_addrs(Addrs) ->
-    AddressesForDefaultRoutes = [ A || {ok, A} <- [inet_parse:address(inet_ext:get_internal_address(Addr)) || {_Interface, Addr} <- inet_ext:gateways()]],
+    AddressesForDefaultRoutes = [ A || {ok, A} <- [inet_parse:address(inet_ext:get_internal_address(Addr)) || {_Interface, Addr} <- inet_ext:gateways(), Addr /= []]],
     sort_addrs(Addrs, AddressesForDefaultRoutes).
 
 -spec sort_addrs([string()], [inet:ip_address()]) -> [string()].
