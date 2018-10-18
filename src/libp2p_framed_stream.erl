@@ -295,7 +295,9 @@ call(Pid, Cmd, Timeout) ->
     end.
 
 close(Pid) ->
-    call(Pid, close).
+    %% NOTE: the infinite timeout is just for testing
+    %% We might need to rethink changing it to a cast maybe?
+    call(Pid, close, infinity).
 
 close_state(Pid) ->
     case call(Pid, close_state) of
