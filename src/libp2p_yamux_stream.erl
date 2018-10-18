@@ -315,7 +315,10 @@ terminate(_Reason, _State, Data=#state{}) ->
 
 close_send(#state{stream_id=StreamID, session=Session}) ->
     Header = libp2p_yamux_session:header_update(?RST, StreamID, 0),
-    libp2p_yamux_session:send_header(Session, Header).
+    lager:info("libp2p_yamux_stream, close_send, Session: ~p, Header: ~p", [Session, Header]),
+    Res = libp2p_yamux_session:send_header(Session, Header),
+    lager:info("send_header Res: ~p", [Res]),
+    Res.
 
 %%
 %% Windows
