@@ -192,7 +192,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State=#state{self_index=_SelfIn
             end;
         _ ->
             %% The worker ready state already matches
-            {noreply, State}
+            {noreply, dispatch_next_messages(State)}
     end;
 handle_cast({send_result, {_Key, _Index}, defer}, State=#state{self_index=_SelfIndex}) ->
     %% Send result from sending a message to a remote woker. Since the
@@ -228,7 +228,7 @@ handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
             {noreply, dispatch_next_messages(ready_worker(Index, undefined, State#state{store=NewRelcast}))};
         _ ->
             lager:debug("Unexpected ack for ~p", [Index]),
-            {noreply, State}
+            {noreply, dispatch_next_messages(State)}
     end;
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
