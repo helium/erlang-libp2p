@@ -98,7 +98,8 @@ new_connection(Pid) ->
 
 statem(Pid, Cmd) ->
     try
-        gen_statem:call(Pid, Cmd)
+        %% NOTE: Setting default timeout to be infinity for testing
+        gen_statem:call(Pid, Cmd, infinity)
     catch
         exit:{noproc, _} ->
             {error, closed};
