@@ -97,7 +97,8 @@ handle_info(timeout, State) ->
 
 
 terminate(_Reason, State=#state{connection=Connection}) ->
-    fdclr(Connection, State).
+    fdclr(Connection, State),
+    libp2p_connection:close(Connection).
 
 %%
 %% Internal

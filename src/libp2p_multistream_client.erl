@@ -8,6 +8,7 @@ negotiate_handler(Handlers, Path, Connection) ->
     case libp2p_multistream_client:handshake(Connection) of
         {error, Error} ->
             lager:notice("Client handshake failed for ~p: ~p", [Path, Error]),
+            libp2p_connection:close(Connection),
             {error, Error};
         ok ->
             lager:debug("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
@@ -44,8 +45,9 @@ ls(Connection) ->
 -spec handshake(libp2p_connection:connection()) -> ok | {error, term()}.
 handshake(Connection) ->
     Id = libp2p_multistream:protocol_id(),
+    ok = libp2p_multistream:write(Connection, Id),
     case libp2p_multistream:read(Connection) of
-        Id -> libp2p_multistream:write(Connection, Id);
+        Id -> ok;
         {error, Reason} ->
             {error, Reason};
         ServerId -> {error, {protocol_mismatch, ServerId}}
