@@ -174,7 +174,8 @@ handle_info(timeout_liveness, State=#state{}) ->
     %% No data received.. Send a ping
     {noreply, ping_send(liveness, State)};
 handle_info(liveness_failed, State=#state{}) ->
-    {stop, {error, liveness}, State};
+    lager:notice("Session liveness failure"),
+    {stop, normal, State};
 
 handle_info({stop, Reason}, State=#state{}) ->
     {stop, Reason, State};
@@ -369,7 +370,7 @@ ping_timeout(PingID, State=#state{pings=Pings}) ->
     case maps:take(PingID, Pings) of
         error -> State;
         {{liveness, _, _}, Pings2} ->
-            %% On a livenes ping timeout,the liveness check has
+            %% On a liveness ping timeout,the liveness check has
             %% failed. We send a message back to ourself to handle the
             %% liveness failure.
             self() ! liveness_failed,
@@ -390,7 +391,7 @@ ping_receive(#header{length=PingID}, State=#state{pings=Pings}) ->
         error -> State;
         {{liveness, TimerRef, _}, NewPings} ->
             %% When we receive a ping sent from a liveness check we
-            %% jus tcancel the timer and kick the liveness timer down
+            %% just tcancel the timer and kick the liveness timer down
             %% the road again.
             erlang:cancel_timer(TimerRef),
             kick_liveness_timer(State#state{pings=NewPings});
