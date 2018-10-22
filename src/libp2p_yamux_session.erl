@@ -5,6 +5,7 @@
 -behaviour(gen_server).
 
 -define(TIMEOUT, 5000).
+-define(LIVENESS_TIMEOUT, 30000).
 
 -define(HEADER_SIZE, 12).
 -define(MAX_STREAMID, 4294967295).
@@ -35,6 +36,7 @@
           send_pid=undefined :: pid() | undefined,
           pings=#{} :: #{ping_id() => ping_info()},
           next_ping_id=0 :: ping_id(),
+          liveness_timer :: reference(),
           goaway_state=none :: none | local | remote,
           ident=#ident{} :: #ident{}
          }).
@@ -124,7 +126,9 @@ init({TID, Connection, _Path, NextStreamId, WaitShoot}) ->
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
     State = #state{tid=TID,
                    stream_sup=StreamSup,
-                   next_stream_id=NextStreamId},
+                   next_stream_id=NextStreamId,
+                   liveness_timer=init_liveness_timer()
+                  },
     %% If we're not waiting for a shoot message with a new connection
     %% we fire one to ourselves to kick of the machinery the same way.
     case WaitShoot of
@@ -146,11 +150,13 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
             lager:error("Session header read failed: ~p ", [Reason]),
             {stop, normal, State};
         {ok, Header=#header{type=HeaderType}} ->
+            %% Kick the session liveness timer on inbound data
+            NewState = kick_liveness_timer(State),
             case HeaderType of
-                ?DATA -> {noreply, fdset(Connection, message_receive(Header, State))};
-                ?UPDATE -> {noreply, fdset(Connection, message_receive(Header, State))};
-                ?GOAWAY -> goaway_receive(Header, fdset(Connection, State));
-                ?PING -> {noreply, fdset(Connection, ping_receive(Header, State))}
+                ?DATA -> {noreply, fdset(Connection, message_receive(Header, NewState))};
+                ?UPDATE -> {noreply, fdset(Connection, message_receive(Header, NewState))};
+                ?GOAWAY -> goaway_receive(Header, fdset(Connection, NewState));
+                ?PING -> {noreply, fdset(Connection, ping_receive(Header, NewState))}
             end
     end;
 handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
@@ -164,6 +170,11 @@ handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
 
 handle_info({timeout_ping, PingID}, State=#state{}) ->
     {noreply, ping_timeout(PingID, State)};
+handle_info(timeout_liveness, State=#state{}) ->
+    %% No data received.. Send a ping
+    {noreply, ping_send(liveness, State)};
+handle_info(liveness_failed, State=#state{}) ->
+    {stop, {error, liveness}, State};
 
 handle_info({stop, Reason}, State=#state{}) ->
     {stop, Reason, State};
@@ -212,9 +223,8 @@ handle_call({send, Data, Timeout}, From, State) ->
 
 % Ping
 %
-handle_call(ping, From, State=#state{next_ping_id=NextPingID}) ->
-    {noreply, session_send({ping, From, NextPingID}, header_ping(NextPingID), ?TIMEOUT,
-                           State#state{next_ping_id=NextPingID + 1})};
+handle_call(ping, From, State=#state{}) ->
+    {noreply, ping_send(From, State)};
 
 % Go Away
 %
@@ -275,6 +285,14 @@ fdset(Connection, State) ->
         {error, Error} -> error(Error)
     end,
     State.
+
+init_liveness_timer() ->
+    erlang:send_after(?LIVENESS_TIMEOUT, self(), liveness_timeout).
+
+-spec kick_liveness_timer(#state{}) -> #state{}.
+kick_liveness_timer(State) ->
+    erlang:cancel_timer(State#state.liveness_timer),
+    State#state{liveness_timer=init_liveness_timer()}.
 
 -spec read_header(libp2p_connection:connection()) -> {ok, header()} | {error, term()}.
 read_header(Connection) ->
@@ -341,10 +359,21 @@ handle_send_result({call, From}, Result, State=#state{}) ->
 %% Ping
 %%
 
+-spec ping_send(liveness | term(), #state{}) -> #state{}.
+ping_send(From, State=#state{next_ping_id=NextPingID}) ->
+    session_send({ping, From, NextPingID}, header_ping(NextPingID), ?TIMEOUT,
+                 State#state{next_ping_id=NextPingID + 1}).
+
 -spec ping_timeout(ping_id(), #state{}) -> #state{}.
 ping_timeout(PingID, State=#state{pings=Pings}) ->
     case maps:take(PingID, Pings) of
         error -> State;
+        {{liveness, _, _}, Pings2} ->
+            %% On a livenes ping timeout,the liveness check has
+            %% failed. We send a message back to ourself to handle the
+            %% liveness failure.
+            self() ! liveness_failed,
+            State#state{pings=Pings2};
         {{From, _, _}, Pings2} ->
             gen_server:reply(From, {error, timeout}),
             State#state{pings=Pings2}
@@ -359,6 +388,12 @@ ping_receive(#header{length=PingID}, State=#state{pings=Pings}) ->
     % with the ping time
     case maps:take(PingID, Pings) of
         error -> State;
+        {{liveness, TimerRef, _}, NewPings} ->
+            %% When we receive a ping sent from a liveness check we
+            %% jus tcancel the timer and kick the liveness timer down
+            %% the road again.
+            erlang:cancel_timer(TimerRef),
+            kick_liveness_timer(State#state{pings=NewPings});
         {{From, TimerRef, StartTime}, NewPings} ->
             erlang:cancel_timer(TimerRef),
             gen_server:reply(From, {ok, erlang:system_time(millisecond) - StartTime}),
