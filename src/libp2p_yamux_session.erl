@@ -288,7 +288,7 @@ fdset(Connection, State) ->
     State.
 
 init_liveness_timer() ->
-    erlang:send_after(?LIVENESS_TIMEOUT, self(), liveness_timeout).
+    erlang:send_after(?LIVENESS_TIMEOUT, self(), timeout_liveness).
 
 -spec kick_liveness_timer(#state{}) -> #state{}.
 kick_liveness_timer(State) ->
