@@ -407,8 +407,7 @@ stop_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Data;
 stop_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
     erlang:cancel_timer(Timer),
-    Data#data{connect_retry_timer=undefined}.
-
+    Data.
 
 cancel_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     {_, NewBackOff} = backoff:succeed(Data#data.connect_retry_backoff),
