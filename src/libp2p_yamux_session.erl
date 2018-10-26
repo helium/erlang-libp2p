@@ -346,6 +346,11 @@ handle_send_result({ping, From, PingID}, ok, State=#state{pings=Pings}) ->
     TimerRef = erlang:send_after(?TIMEOUT, self(), {timeout_ping, PingID}),
     NewPings = maps:put(PingID, {From, TimerRef, erlang:system_time(millisecond)}, Pings),
     {noreply, State#state{pings=NewPings}};
+handle_send_result({ping, liveness, _}, _, State=#state{}) ->
+    %% On a falure to send a ping from liveness, we're going to assume
+    %% the connection is bust.
+    self() ! liveness_failed,
+    {noreply, State};
 handle_send_result({ping, From, _}, Error, State=#state{}) ->
     gen_server:reply(From, Error),
     {noreply, State};
@@ -370,9 +375,9 @@ ping_timeout(PingID, State=#state{pings=Pings}) ->
     case maps:take(PingID, Pings) of
         error -> State;
         {{liveness, _, _}, Pings2} ->
-            %% On a liveness ping timeout,the liveness check has
-            %% failed. We send a message back to ourself to handle the
-            %% liveness failure.
+            %% On a liveness ping response timeout,the liveness check
+            %% has failed. We send a message back to ourself to handle
+            %% the liveness failure.
             self() ! liveness_failed,
             State#state{pings=Pings2};
         {{From, _, _}, Pings2} ->
