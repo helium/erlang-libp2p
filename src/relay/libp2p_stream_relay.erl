@@ -199,10 +199,10 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
     case libp2p_relay_resp:error(Resp) of
         undefined ->
             % Relay Step 3: Client A receives a relay response from server R
-            % with p2p-circuit address and inserts it as a new listerner to get
+            % with p2p-circuit address and inserts it as a new listener to get
             % broadcasted by peerbook
             TID = libp2p_swarm:tid(Swarm),
-            lager:info("inserting new listerner ~p, ~p, ~p", [TID, Address, SessionPid]),
+            lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, SessionPid]),
             true = libp2p_config:insert_listener(TID, [Address], SessionPid),
             {noreply, State#state{relay_addr=Address}};
         Error ->
