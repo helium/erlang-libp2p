@@ -71,12 +71,13 @@ init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
     SelfAddr = libp2p_swarm:address(TID),
     case lists:keyfind(SelfAddr, 2, lists:zip(lists:seq(1, length(Addrs)), Addrs)) of
         {SelfIndex, SelfAddr} ->
-            {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler, HandlerArgs, [{data_dir, DataDir}]),
-            self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
+            %% we have to start relcast async because it might
+            %% make a call to the process starting this process
+            %% in its handler
+            self() ! {start_relcast, Handler, HandlerArgs, SelfIndex, Addrs},
             {ok, update_metadata(#state{sup=Sup, tid=TID, group_id=GroupID,
                                         self_index=SelfIndex,
-                                        store_dir=DataDir,
-                                        store=Relcast})};
+                                        store_dir=DataDir})};
         false ->
             {stop, {error, {not_found, SelfAddr}}}
     end.
@@ -247,6 +248,10 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
+handle_info({start_relcast, Handler, HandlerArgs, SelfIndex, Addrs}, State) ->
+    {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler, HandlerArgs, [{data_dir, State#state.store_dir}]),
+    self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
+    {noreply, State#state{store=Relcast}};
 handle_info({send_ack, Index}, State=#state{}) ->
     %% lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
     {noreply, dispatch_ack(Index, State)};
