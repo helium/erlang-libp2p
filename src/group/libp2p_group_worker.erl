@@ -306,10 +306,16 @@ handle_event(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-handle_event(cast, {send, Ref, Bin}, #data{server=Server, stream_pid=StreamPid}) ->
+handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=StreamPid}) ->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
-    keep_state_and_data;
+    case Result of
+        ok ->
+            keep_state_and_data;
+        _ ->
+            {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
+             ?TRIGGER_CONNECT_RETRY}
+    end;
 handle_event(cast, clear_target, #data{}) ->
     %% ignore (handled in all states but `closing')
     keep_state_and_data;

@@ -219,13 +219,10 @@ handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}
     %%             [_SelfIndex, Index, base58:binary_to_base58(Key)]),
     {ok, NewRelcast} = relcast:ack(Index, Key, State#state.store),
     {noreply, dispatch_next_messages(ready_worker(Index, undefined, State#state{store=NewRelcast}))};
-handle_cast({send_result, {_Key, Index}, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
-    %% For any other result error response we set the worker back to
-    %% ready and dispatch the "next" message to it, which is likely
-    %% the same message.
-    %% lager:debug("~p SEND RESULT TO ~p: ~p ERR: ~p ",
-    %%             [_SelfIndex, Index, base58:binary_to_base58(_Key), _Error]),
-    {noreply, dispatch_next_messages(ready_worker(Index, undefined, State))};
+handle_cast({send_result, {_Key, _Index}, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
+    %% For any other result error response we leave the worker busy
+    %% and we wait for it to send us a new ready on a reconnect.
+    {noreply, State};
 handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
     %% Received when a previous message had a send_result of defer.
     %% We don't handle another defer here so it falls through to an
