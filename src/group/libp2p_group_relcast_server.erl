@@ -83,6 +83,14 @@ init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
 
 handle_call(dump_queues, _From, State = #state{store=Store}) ->
     {reply, relcast:status(Store), State};
+handle_call({peek, ActorID}, _From, State = #state{store=Store}) ->
+    Res = case relcast:take(ActorID, Store) of
+        {not_found, _NewRelcast} ->
+            not_found;
+        {ok, _Key, Msg, _NewRelcast} ->
+            Msg
+    end,
+    {reply, Res, State};
 handle_call({accept_stream, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
 handle_call({accept_stream, StreamPid, Path}, _From, State=#state{}) ->
