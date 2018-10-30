@@ -9,11 +9,14 @@
                        nat_type => nat_type()
                      }.
 -type peer() :: #libp2p_signed_peer_pb{}.
+-type metadata() :: [{string(), binary()}].
 -export_type([peer/0, map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
          address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2]).
+%% metadata
+-export([metadata/1, set_metadata/2]).
 
 -spec from_map(peer_map(), fun((binary()) -> binary())) -> peer().
 from_map(Map, SigFun) ->
@@ -56,6 +59,17 @@ nat_type(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{nat_type=NatType}}) ->
 -spec timestamp(peer()) -> integer().
 timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
     Timestamp.
+
+%% @doc Gets the metadata map from the given peer. The metadat for a
+%% peer is `NOT' part of the signed peer since it can be read and
+%% updated by anyone to annotate the given peer with extra information
+-spec metadata(peer()) -> metadata().
+metadata(#libp2p_signed_peer_pb{metadata=Metadata}) ->
+    Metadata.
+
+-spec set_metadata(peer(), metadata()) -> peer().
+set_metadata(Peer=#libp2p_signed_peer_pb{}, Metadata) when is_list(Metadata) ->
+    Peer#libp2p_signed_peer_pb{metadata=Metadata}.
 
 %% @doc Returns whether a given `Target' is more recent than `Other'
 -spec supersedes(Target::peer(), Other::peer()) -> boolean().
