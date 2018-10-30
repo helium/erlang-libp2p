@@ -72,4 +72,9 @@ metadata_test(_) ->
     DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(MPeer)),
     ?assertEqual(Metadata, libp2p_peer:metadata(DecodedPeer)),
 
+    %% But metadata is NOT transmitted as part of an encoded list of
+    %% peers. This avoids metedata being gossipped around. It's
+    %% untrusted, and mostly only locally relevant
+    ?assertEqual([Peer], libp2p_peer:decode_list(libp2p_peer:encode_list([MPeer]))),
+
     ok.

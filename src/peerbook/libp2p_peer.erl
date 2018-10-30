@@ -100,10 +100,13 @@ is_stale(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}, Stal
 encode(Msg=#libp2p_signed_peer_pb{}) ->
     libp2p_peer_pb:encode_msg(Msg).
 
-%% @doc Encodes a given list of peer into a binary form.
+%% @doc Encodes a given list of peer into a binary form. Since
+%% encoding lists is primarily used for gossipping peers around, this
+%% strips metadata from the peers as part of encoding.
 -spec encode_list([peer()]) -> binary().
 encode_list(List) ->
-    libp2p_peer_pb:encode_msg(#libp2p_peer_list_pb{peers=List}).
+    StrippedList = [set_metadata(P, []) || P <- List],
+    libp2p_peer_pb:encode_msg(#libp2p_peer_list_pb{peers=StrippedList}).
 
 %% @doc Decodes a given binary into a list of peers.
 -spec decode_list(binary()) -> [peer()].
