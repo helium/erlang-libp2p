@@ -1,7 +1,7 @@
 -module(peerbook_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accessor_test/1, bad_peer_test/1, put_test/1, gossip_test/1, stale_test/1]).
+-export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1, gossip_test/1, stale_test/1]).
 
 all() ->
     [
@@ -10,11 +10,14 @@ all() ->
      , put_test
      , gossip_test
      , stale_test
+     , blacklist_test
     ].
 
 init_per_testcase(accessor_test, Config) ->
     setup_peerbook(Config, []);
 init_per_testcase(bad_peer_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase(blacklist_test, Config) ->
     setup_peerbook(Config, []);
 init_per_testcase(put_test, Config) ->
     setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}]
@@ -39,6 +42,8 @@ init_per_testcase(stale_test, Config) ->
 end_per_testcase(accessor_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(bad_peer_test, Config) ->
+    teardown_peerbook(Config);
+end_per_testcase(blacklist_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(put_test, Config) ->
     teardown_peerbook(Config);
@@ -99,6 +104,24 @@ bad_peer_test(Config) ->
 
     {'EXIT', {invalid_signature, _}} = (catch libp2p_peerbook:put(PeerBook, [InvalidPeer])),
     false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(InvalidPeer)),
+
+    ok.
+
+
+blacklist_test(Config) ->
+    {PeerBook, _Address} = proplists:get_value(peerbook, Config),
+
+    Peer1 = mk_peer(),
+
+    libp2p_peerbook:put(PeerBook, [Peer1]),
+
+    [ListenAddr | _] = libp2p_peer:listen_addrs(Peer1),
+    PeerAddr = libp2p_peer:address(Peer1),
+    libp2p_peerbook:blacklist_listen_addr(PeerBook, PeerAddr, ListenAddr),
+
+    {ok, GotPeer} = libp2p_peerbook:get(PeerBook, PeerAddr),
+    libp2p_peer:is_blacklisted(GotPeer, ListenAddr),
+    [] = libp2p_peer:cleared_listen_addrs(GotPeer),
 
     ok.
 
