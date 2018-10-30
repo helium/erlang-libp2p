@@ -86,6 +86,12 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
                     libp2p_relay:unreg_addr_sessions(SAddress),
                     {ok, SessionPid2};
+                {error, "server_down"}=Error ->
+                    libp2p_relay:unreg_addr_sessions(SAddress),
+                    MarkedPeerAddr = libp2p_crypto:p2p_to_address(SAddress),
+                    PeerBook = libp2p_swarm:peerbook(Swarm),
+                    ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
+                    Error;
                 {error, _Reason}=Error ->
                     libp2p_relay:unreg_addr_sessions(SAddress),
                     lager:error("no relay sessions ~p", [_Reason]),
