@@ -16,7 +16,11 @@
          address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2]).
 %% metadata
--export([metadata/1, set_metadata/2]).
+-export([metadata/1, metadata_set/2, metadata_put/3, metadata_get/3]).
+%% blacklist
+-export([blacklist/1, is_blacklisted/2,
+         blacklist_set/2, blacklist_add/2,
+         cleared_listen_addrs/1]).
 
 -spec from_map(peer_map(), fun((binary()) -> binary())) -> peer().
 from_map(Map, SigFun) ->
@@ -67,9 +71,27 @@ timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
 metadata(#libp2p_signed_peer_pb{metadata=Metadata}) ->
     Metadata.
 
--spec set_metadata(peer(), metadata()) -> peer().
-set_metadata(Peer=#libp2p_signed_peer_pb{}, Metadata) when is_list(Metadata) ->
+%% @doc Replaces the full metadata for a given peer
+-spec metadata_set(peer(), metadata()) -> peer().
+metadata_set(Peer=#libp2p_signed_peer_pb{}, Metadata) when is_list(Metadata) ->
     Peer#libp2p_signed_peer_pb{metadata=Metadata}.
+
+%% @doc Updates the metadata for a given peer with the given key/value
+%% pair. The `Key' is expected to be a string, while `Value' is
+%% expected to be a binary.
+-spec metadata_put(peer(), string(), binary()) -> peer().
+metadata_put(Peer=#libp2p_signed_peer_pb{}, Key, Value) when is_list(Key), is_binary(Value) ->
+    Metadata = lists:keystore(Key, 1, metadata(Peer), {Key, Value}),
+    metadata_set(Peer, Metadata).
+
+%% @doc Gets the value for a stored `Key' in metadata. If not found,
+%% the `Default' is returned.
+-spec metadata_get(peer(), Key::string(), Default::binary()) -> binary().
+metadata_get(Peer=#libp2p_signed_peer_pb{}, Key, Default) ->
+    case lists:keyfind(Key, 1, metadata(Peer)) of
+        false -> Default;
+        {_, Value} -> Value
+    end.
 
 %% @doc Returns whether a given `Target' is more recent than `Other'
 -spec supersedes(Target::peer(), Other::peer()) -> boolean().
@@ -95,6 +117,52 @@ is_stale(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}, Stal
     Now = erlang:system_time(millisecond),
     (Timestamp + StaleMS) < Now.
 
+%% @doc Gets the blacklist for this peer. This is a metadata based
+%% feature that enables listen addresses to be blacklisted so they
+%% will not be connected to until that address is removed from the
+%% blacklist.
+-spec blacklist(peer()) -> [string()].
+blacklist(#libp2p_signed_peer_pb{metadata=Metadata}) ->
+    case lists:keyfind("blacklist", 1, Metadata) of
+        false -> [];
+        {_, Bin} -> binary_to_term(Bin)
+    end.
+
+%% @doc Returns whether a given address is blacklisted. Note that a
+%% blacklisted address may not actually appear in the listen_addrs for
+%% this peer.
+-spec is_blacklisted(peer(), string()) -> boolean().
+is_blacklisted(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
+   lists:member(ListenAddr, blacklist(Peer)).
+
+%% @doc Sets the blacklist for a given peer. Note that currently no
+%% validation is done against the existing listen addresses stored in
+%% the peer. Blacklisting an address that the peer is not listening to
+%% will have no effect anyway.
+-spec blacklist_set(peer(), [string()]) -> peer().
+blacklist_set(Peer=#libp2p_signed_peer_pb{}, BlackList) when is_list(BlackList) ->
+    metadata_put(Peer, "blacklist", term_to_binary(BlackList)).
+
+%% @doc Add a given listen address to the blacklist for the given
+%% peer.
+blacklist_add(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
+    BlackList = blacklist(Peer),
+    NewBlackList = case lists:member(ListenAddr, BlackList) of
+                       true -> BlackList;
+                       false ->
+                           [ListenAddr | blacklist(Peer)]
+                   end,
+    blacklist_set(Peer, NewBlackList).
+
+%% @doc Returns the listen addrs for this peer filtered using the
+%% blacklist for the peer, if one is present. This is just a
+%% convenience function to clear the listen adddresses for a peer
+%% with the blacklist stored in metadata.
+-spec cleared_listen_addrs(peer()) -> [string()].
+cleared_listen_addrs(Peer=#libp2p_signed_peer_pb{}) ->
+    sets:to_list(sets:subtract(sets:from_list(listen_addrs(Peer)),
+                               sets:from_list(blacklist(Peer)))).
+
 %% @doc Encodes the given peer into its binary form.
 -spec encode(peer()) -> binary().
 encode(Msg=#libp2p_signed_peer_pb{}) ->
@@ -105,7 +173,7 @@ encode(Msg=#libp2p_signed_peer_pb{}) ->
 %% strips metadata from the peers as part of encoding.
 -spec encode_list([peer()]) -> binary().
 encode_list(List) ->
-    StrippedList = [set_metadata(P, []) || P <- List],
+    StrippedList = [metadata_set(P, []) || P <- List],
     libp2p_peer_pb:encode_msg(#libp2p_peer_list_pb{peers=StrippedList}).
 
 %% @doc Decodes a given binary into a list of peers.
