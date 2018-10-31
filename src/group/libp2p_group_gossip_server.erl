@@ -44,7 +44,7 @@ start_link(Sup, TID) ->
 %%
 
 handle_data(Pid, Key, Bin) ->
-    gen_server:call(Pid, {handle_data, Key, Bin}).
+    gen_server:call(Pid, {handle_data, Key, Bin}, 30000).
 
 accept_stream(Pid, SessionPid, StreamPid) ->
     gen_server:call(Pid, {accept_stream, SessionPid, StreamPid}).
