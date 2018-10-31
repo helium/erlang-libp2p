@@ -50,13 +50,21 @@ priority() -> 1.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     Swarm = libp2p_swarm:swarm(TID),
     ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
-    case has_p2p_circuit(ListenAddresses) of
+    case check_peerbook(TID, MAddr) of
+        {error, _Reason} ->
+            %% don't blacklist here, the peerbook update might be coming
+            {error, not_in_peerbook};
         false ->
-            connect_to(Pid, MAddr, Options, Timeout, TID);
+            %% blacklist the relay address, it is stale
+            {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
+            MarkedPeerAddr = libp2p_crypto:p2p_to_address(SAddress),
+            PeerBook = libp2p_swarm:peerbook(Swarm),
+            ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
+            {error, not_in_peerbook};
         true ->
-            case check_peerbook(TID, MAddr) of
+            case has_p2p_circuit(ListenAddresses) of
                 false ->
-                    {error, not_in_peerbook};
+                    connect_to(Pid, MAddr, Options, Timeout, TID);
                 true ->
                     libp2p_transport_proxy:connect(Pid, MAddr, Options, Timeout, TID)
             end
@@ -86,6 +94,12 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
                     libp2p_relay:unreg_addr_sessions(SAddress),
                     {ok, SessionPid2};
+                {error, "server_down"}=Error ->
+                    libp2p_relay:unreg_addr_sessions(SAddress),
+                    MarkedPeerAddr = libp2p_crypto:p2p_to_address(SAddress),
+                    PeerBook = libp2p_swarm:peerbook(Swarm),
+                    ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
+                    Error;
                 {error, _Reason}=Error ->
                     libp2p_relay:unreg_addr_sessions(SAddress),
                     lager:error("no relay sessions ~p", [_Reason]),
@@ -125,30 +139,18 @@ has_p2p_circuit(Addresses) ->
         ,Addresses
     ).
 
--spec check_peerbook(ets:tab(), string()) -> boolean().
+%% returns true or false if the peerbook says this route is possible
+%% returns an error if the peerbook doesn't contain the relay's entry
+-spec check_peerbook(ets:tab(), string()) -> boolean() | {error, term()}.
 check_peerbook(TID, MAddr) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
     Swarm = libp2p_swarm:swarm(TID),
     Peerbook = libp2p_swarm:peerbook(Swarm),
-    lists:foldl(
-        fun(_Peer, true) ->
-            true;
-           (Peer, Acc) ->
-            case p2p_address(Peer) of
-                RAddress ->
-                    ConnectedPeers = [p2p_address(P) || P <- libp2p_peer:connected_peers(Peer)],
-                    lists:member(SAddress, ConnectedPeers);
-                _PeerAddr ->
-                    Acc
-            end
-
-        end
-        ,false
-        ,libp2p_peerbook:values(Peerbook)
-    ).
-
--spec p2p_address(libp2p_peer:peer() | binary()) -> string().
-p2p_address(Address) when is_binary(Address) ->
-    libp2p_crypto:address_to_p2p(Address);
-p2p_address(Peer) ->
-    p2p_address(libp2p_peer:address(Peer)).
+    RelayAddress = libp2p_crypto:p2p_to_address(RAddress),
+    ServerAddress = libp2p_crypto:p2p_to_address(SAddress),
+    case libp2p_peerbook:get(Peerbook, RelayAddress) of
+        {ok, Peer} ->
+            lists:member(ServerAddress, libp2p_peer:connected_peers(Peer));
+        Error ->
+            Error
+    end.

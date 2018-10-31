@@ -5,7 +5,7 @@
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
          join_notify/2, changed_listener/1, update_nat_type/2,
-         register_session/3, unregister_session/2]).
+         register_session/3, unregister_session/2, blacklist_listen_addr/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/2, init_gossip_data/1]).
 
@@ -72,6 +72,11 @@ values(Pid) ->
 -spec remove(pid(), libp2p_crypto:address()) -> ok | {error, no_delete}.
 remove(Pid, ID) ->
     gen_server:call(Pid, {remove, ID}).
+
+-spec blacklist_listen_addr(pid(), libp2p_crypto:address(), ListenAddr::string())
+                           -> ok | {error, not_found}.
+blacklist_listen_addr(Pid, ID, ListenAddr) ->
+    gen_server:call(Pid, {blacklist_listen_addr, ID, ListenAddr}).
 
 -spec join_notify(pid(), pid()) -> ok.
 join_notify(Pid, Joiner) ->
@@ -201,6 +206,15 @@ handle_call({remove, ID}, _From, State=#state{tid=TID}) ->
 handle_call(init_gossip_data, _From, State=#state{}) ->
     Peers = fetch_peers(State),
     {reply, {send, libp2p_peer:encode_list(Peers)}, State};
+handle_call({blacklist_listen_addr, ID, ListenAddr}, _From, State=#state{}) ->
+    case unsafe_fetch_peer(ID, State) of
+        {error, Error} ->
+            {reply, {error, Error}, State};
+        {ok, Peer} ->
+            UpdatedPeer = libp2p_peer:blacklist_add(Peer, ListenAddr),
+            store_peer(UpdatedPeer, State),
+            {reply, ok, State}
+    end;
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -284,8 +298,8 @@ notify_new_peers([], State=#state{}) ->
 notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime,
                                         notify_peers=NotifyPeers, stale_time=_StaleTime}) ->
     %% Cache the new peers to be sent out but make sure that the new
-    %% peers are not stale we only replace already cached versions if
-    %% the new peers supersede existing ones
+    %% peers are not stale.  We do that by only replacing already
+    %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
                                case maps:find(libp2p_peer:address(Peer), Acc) of

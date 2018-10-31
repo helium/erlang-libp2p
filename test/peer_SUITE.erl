@@ -4,10 +4,12 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([all/0]).
--export([coding_test/1]).
+-export([coding_test/1, metadata_test/1, blacklist_test/1]).
 
 all() ->
-    [coding_test].
+    [coding_test,
+     metadata_test,
+     blacklist_test].
 
 coding_test(_) ->
     {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
@@ -28,6 +30,7 @@ coding_test(_) ->
     ?assert(libp2p_peer:listen_addrs(Peer1) == libp2p_peer:listen_addrs(DecodedPeer)),
     ?assert(libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer)),
     ?assert(libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer)),
+    ?assert(libp2p_peer:metadata(Peer1) == libp2p_peer:metadata(DecodedPeer)),
 
     ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
@@ -44,5 +47,54 @@ coding_test(_) ->
 
     ?assert(not libp2p_peer:is_similar(Peer1, Peer2)),
     ?assertEqual([Peer1, Peer2], libp2p_peer:decode_list(libp2p_peer:encode_list([Peer1, Peer2]))),
+
+    ok.
+
+metadata_test(_) ->
+    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
+    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
+
+    PeerMap = #{address => PubKey1,
+                listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                connected => [],
+                nat_type => static},
+    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
+
+    Excludes = ["/ip4/8.8.8.8/tcp/1234"],
+    MPeer = libp2p_peer:metadata_put(Peer, "exclude", term_to_binary(Excludes)),
+
+    ?assertEqual(Excludes, binary_to_term(libp2p_peer:metadata_get(MPeer, "exclude", <<>>))),
+    %% metadat does not affect similarity. Changing this behavior will
+    %% BREAK peer gossiping so be very careful.
+    ?assert(libp2p_peer:is_similar(MPeer, Peer)),
+
+    %% Transmit metadata as part of peer encode/decode
+    DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(MPeer)),
+    ?assertEqual(libp2p_peer:metadata(MPeer), libp2p_peer:metadata(DecodedPeer)),
+
+    %% But metadata is NOT transmitted as part of an encoded list of
+    %% peers. This avoids metedata being gossipped around. It's
+    %% untrusted, and mostly only locally relevant
+    ?assertEqual([Peer], libp2p_peer:decode_list(libp2p_peer:encode_list([MPeer]))),
+
+    ok.
+
+blacklist_test(_) ->
+    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
+    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
+
+    BadListenAddr = "/ip4/8.8.8.8/tcp/1234",
+    GoodListenAddr =  "/ip4/1.1.1.1/tcp/4321",
+    PeerMap = #{address => PubKey1,
+                listen_addrs => [BadListenAddr, GoodListenAddr],
+                connected => [],
+                nat_type => static},
+    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
+
+    MPeer = libp2p_peer:blacklist_add(Peer, BadListenAddr),
+
+    ?assertEqual([BadListenAddr], libp2p_peer:blacklist(MPeer)),
+    ?assert(libp2p_peer:is_blacklisted(MPeer, BadListenAddr)),
+    ?assertEqual([GoodListenAddr], libp2p_peer:cleared_listen_addrs(MPeer)),
 
     ok.

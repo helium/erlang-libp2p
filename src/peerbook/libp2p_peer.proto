@@ -19,6 +19,7 @@ message peer {
 message signed_peer {
     peer peer = 1;
     bytes signature = 2;
+    map<string, bytes> metadata = 3;
 }
 
 message peer_list {
