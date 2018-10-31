@@ -48,7 +48,7 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
         {ok, Addr} ->
             case libp2p_peerbook:get(libp2p_swarm:peerbook(TID), Addr) of
                 {ok, PeerInfo} ->
-                    ListenAddrs = libp2p_peer:listen_addrs(PeerInfo),
+                    ListenAddrs = libp2p_peer:cleared_listen_addrs(PeerInfo),
                     case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
                         {ok, _, SessionPid} ->
                             libp2p_config:insert_session(TID, MAddr, SessionPid),
