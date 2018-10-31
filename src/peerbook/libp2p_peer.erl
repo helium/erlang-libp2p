@@ -64,7 +64,7 @@ nat_type(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{nat_type=NatType}}) ->
 timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
     Timestamp.
 
-%% @doc Gets the metadata map from the given peer. The metadat for a
+%% @doc Gets the metadata map from the given peer. The metadata for a
 %% peer is `NOT' part of the signed peer since it can be read and
 %% updated by anyone to annotate the given peer with extra information
 -spec metadata(peer()) -> metadata().
@@ -150,7 +150,7 @@ blacklist_add(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
     NewBlackList = case lists:member(ListenAddr, BlackList) of
                        true -> BlackList;
                        false ->
-                           [ListenAddr | blacklist(Peer)]
+                           [ListenAddr | BlackList]
                    end,
     blacklist_set(Peer, NewBlackList).
 
