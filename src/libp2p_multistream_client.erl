@@ -3,13 +3,16 @@
 -export([handshake/1, negotiate_handler/3, select/2, select_one/3, ls/1]).
 
 -spec negotiate_handler([{string(), term()}], string(), libp2p_connection:connection())
-                       -> {ok, term()} | {error, term()}.
+                       -> {ok, term()} | server_switch | {error, term()}.
 negotiate_handler(Handlers, Path, Connection) ->
     case libp2p_multistream_client:handshake(Connection) of
         {error, Error} ->
             lager:notice("Client handshake failed for ~p: ~p", [Path, Error]),
             libp2p_connection:close(Connection),
             {error, Error};
+        server_switch ->
+            lager:info("Simultaneous connection detected, elected to server role"),
+            server_switch;
         ok ->
             lager:debug("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
             case libp2p_multistream_client:select_one(Handlers, 1, Connection) of
@@ -42,12 +45,19 @@ ls(Connection) ->
         {error, Error} -> {error, Error}
     end.
 
--spec handshake(libp2p_connection:connection()) -> ok | {error, term()}.
+-spec handshake(libp2p_connection:connection()) -> ok | server_switch | {error, term()}.
 handshake(Connection) ->
     Id = libp2p_multistream:protocol_id(),
-    ok = libp2p_multistream:write(Connection, Id),
-    case libp2p_multistream:read(Connection) of
-        Id -> ok;
+    case libp2p_multistream:read(Connection, rand:uniform(20000) + 5000) of
+        Id ->
+            ok = libp2p_multistream:write(Connection, Id);
+        {error, timeout} ->
+            ok = libp2p_multistream:write(Connection, Id),
+            case handshake(Connection) of
+                ok ->
+                    server_switch;
+                Other -> Other
+            end;
         {error, Reason} ->
             {error, Reason};
         ServerId -> {error, {protocol_mismatch, ServerId}}

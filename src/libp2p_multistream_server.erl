@@ -1,6 +1,6 @@
 -module(libp2p_multistream_server).
 
--export([start_link/4, init/1]).
+-export([start_link/4, start_link/3, init/1]).
 
 -record(state, {
           connection :: libp2p_connection:connection(),
@@ -19,10 +19,18 @@
 start_link(Ref, Connection, Handlers, HandlerOpt) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [{Ref, Connection, Handlers, HandlerOpt}])}.
 
+-spec start_link(libp2p_connection:connection(), [{string(), term()}], any()) -> {ok, pid()}.
+start_link(Connection, Handlers, HandlerOpt) ->
+    {ok, proc_lib:spawn_link(?MODULE, init, [{Connection, Handlers, HandlerOpt}])}.
+
 init({Ref, Connection, Handlers, HandlerOpt}) ->
     ok = libp2p_connection:acknowledge(Connection, Ref),
     self() ! handshake,
+    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt});
+init({Connection, Handlers, HandlerOpt}) ->
+    ok = libp2p_connection:fdset(Connection),
     loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt}).
+
 
 loop(State) ->
     %% XXX to avoid accidentally consuming messages destined for the actual session, once negotiated
