@@ -59,9 +59,5 @@ handle_data(_, Data, State=#state{handler_module=HandlerModule,
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
         libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
 
-    case HandlerModule:handle_data(HandlerState, Key, Bin) of
-        {error, Reason} ->
-            {stop, {error, Reason}, State};
-        ok ->
-            {noreply, State}
-    end.
+    ok = HandlerModule:handle_data(HandlerState, Key, Bin),
+    {noreply, State}.

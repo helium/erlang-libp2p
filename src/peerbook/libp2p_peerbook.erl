@@ -101,7 +101,7 @@ update_nat_type(Pid, NatType) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(binary(), pid()) -> libp2p_group_gossip_handler:handler_result().
+-spec handle_gossip_data(binary(), pid()) -> ok.
 handle_gossip_data(Data, Pid) ->
     DecodedList = libp2p_peer:decode_list(Data),
     libp2p_peerbook:put(Pid, DecodedList).
