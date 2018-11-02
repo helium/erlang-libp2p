@@ -140,7 +140,7 @@ start_client_session(TID, Addr, Connection) ->
         {error, Error} -> {error, Error};
         server_switch ->
             ChildSpec = #{ id => make_ref(),
-                           start => {libp2p_multistream, start_link, [Connection, Handlers, TID]},
+                           start => {libp2p_multistream_server, start_link, [Connection, Handlers, TID]},
                            restart => temporary,
                            shutdown => 5000,
                            type => worker },
