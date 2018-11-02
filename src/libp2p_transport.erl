@@ -146,6 +146,7 @@ start_client_session(TID, Addr, Connection) ->
                            type => worker },
             SessionSup = libp2p_swarm_session_sup:sup(TID),
             {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
+            lager:info("Started simultaneous connection with ~p as ~p", [libp2p_connection:addr_info(Connection), SessionPid]),
             case libp2p_connection:controlling_process(Connection, SessionPid) of
                 {ok, _} ->
                     libp2p_config:insert_session(TID, Addr, SessionPid),

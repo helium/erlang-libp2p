@@ -11,7 +11,7 @@ negotiate_handler(Handlers, Path, Connection) ->
             libp2p_connection:close(Connection),
             {error, Error};
         server_switch ->
-            lager:info("Simultaneous connection detected, elected to server role"),
+            lager:info("Simultaneous connection detected with ~p, elected to server role", [libp2p_connection:addr_info(Connection)]),
             server_switch;
         ok ->
             lager:debug("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
