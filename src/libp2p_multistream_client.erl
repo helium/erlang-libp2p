@@ -48,13 +48,13 @@ ls(Connection) ->
 -spec handshake(libp2p_connection:connection()) -> ok | server_switch | {error, term()}.
 handshake(Connection) ->
     Id = libp2p_multistream:protocol_id(),
-    case libp2p_multistream:read(Connection, rand:uniform(20000) + 5000) of
+    case libp2p_multistream:read(Connection, rand:uniform(20000) + 15000) of
         Id ->
             ok = libp2p_multistream:write(Connection, Id);
         {error, timeout} ->
             ok = libp2p_multistream:write(Connection, Id),
-            case handshake(Connection) of
-                ok ->
+            case libp2p_multistream:read(Connection) of
+                Id ->
                     server_switch;
                 Other -> Other
             end;
