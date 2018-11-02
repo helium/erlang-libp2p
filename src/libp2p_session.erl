@@ -70,6 +70,9 @@ dial(Path, SessionPid) ->
                 {error, Error} ->
                     lager:debug("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
                     {error, Error};
+                server_switch ->
+                    lager:warning("Simultaneous connection with ~p resulted from dial", [libp2p_connection:addr_info(Connection)]),
+                    {error, simultaneous_connection};
                 {ok, _} -> {ok, Connection}
             catch
                 What:Why -> {error, {What, Why}}

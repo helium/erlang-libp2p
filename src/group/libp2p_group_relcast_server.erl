@@ -26,7 +26,7 @@
          group_id :: string(),
          self_index :: pos_integer(),
          workers=[] :: [#worker{}],
-         store :: relcast:relcast_state(),
+         store :: undefined | relcast:relcast_state(),
          store_dir :: file:filename(),
          pending = #{} :: #{pos_integer() => binary()},
          close_state=undefined :: undefined | closing
