@@ -145,18 +145,23 @@ start_client_session(TID, Addr, Connection) ->
                            shutdown => 5000,
                            type => worker },
             SessionSup = libp2p_swarm_session_sup:sup(TID),
-            {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
-            lager:info("Started simultaneous connection with ~p as ~p", [libp2p_connection:addr_info(Connection), SessionPid]),
-            case libp2p_connection:controlling_process(Connection, SessionPid) of
-                {ok, _} ->
-                    libp2p_config:insert_session(TID, Addr, SessionPid),
-                    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
-                    {ok, SessionPid};
-                {error, Error} ->
-                    lager:error("Changing controlling process for ~p to ~p failed ~p",
-                                [Connection, SessionPid, Error]),
-                    libp2p_connection:close(Connection),
-                    {error, Error}
+            case supervisor:start_child(SessionSup, ChildSpec) of
+                {ok, SessionPid} ->
+                    lager:info("Started simultaneous connection with ~p as ~p", [libp2p_connection:addr_info(Connection), SessionPid]),
+                    case libp2p_connection:controlling_process(Connection, SessionPid) of
+                        {ok, _} ->
+                            libp2p_config:insert_session(TID, Addr, SessionPid),
+                            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
+                            {ok, SessionPid};
+                        {error, Error} ->
+                            lager:error("Changing controlling process for ~p to ~p failed ~p",
+                                        [Connection, SessionPid, Error]),
+                            libp2p_connection:close(Connection),
+                            {error, Error}
+                    end;
+                Other ->
+                    lager:warning("failed to start simultaneous connection with ~p : ~p", [libp2p_connection:addr_info(Connection), Other]),
+                    {error, Other}
             end;
         {ok, {_, {M, F}}} ->
             ChildSpec = #{ id => make_ref(),
