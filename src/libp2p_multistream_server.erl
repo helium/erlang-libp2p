@@ -85,7 +85,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                     lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
                     {exec, M, F, [Conn, LineRest, HandlerOpt, A]};
                 error ->
-                    lager:info("Can't find handler for ~p", [Line]),
+                    lager:info("Can't find handler for ~p in ~p", [Line, Handlers]),
                     write(Conn, "na"),
                     fdset_return(Conn, State)
             end
