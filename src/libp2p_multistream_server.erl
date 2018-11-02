@@ -48,6 +48,7 @@ loop(State) ->
     end.
 
 handle_msg(Msg, State) ->
+    lager:info("handle msg ~p", [Msg]),
     case handle_info(Msg, State) of
         {noreply, NewState} ->
             loop(NewState);
@@ -76,14 +77,15 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                 {Key, {M, F}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
-                    lager:debug("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
+                    lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
                     {exec, M, F, [Conn, LineRest, HandlerOpt, []]};
                 {Key, {M, F, A}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
-                    lager:debug("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
+                    lager:info("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
                     {exec, M, F, [Conn, LineRest, HandlerOpt, A]};
                 error ->
+                    lager:info("Can't find handler for ~p", [Line]),
                     write(Conn, "na"),
                     fdset_return(Conn, State)
             end
