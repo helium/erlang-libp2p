@@ -143,6 +143,11 @@ handle_cast({send, Key, Data}, State=#state{}) ->
                           end, Pids)
     end,
     {noreply, State};
+handle_cast({send_ready, _target, _Ref, false}, State=#state{}) ->
+    %% Ignore any not ready messages from group workers. The gossip
+    %% server only reacts to ready messages by sending initial
+    %% gossip_data.
+    {noreply, State};
 handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
     case lookup_worker(Target, #worker.target, State) of
         #worker{pid=WorkerPid} ->
