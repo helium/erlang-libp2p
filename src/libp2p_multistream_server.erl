@@ -5,7 +5,8 @@
 -record(state, {
           connection :: libp2p_connection:connection(),
           handlers :: [{prefix(), handler()}],
-          handler_opt :: any()
+          handler_opt :: any(),
+          timeout :: reference()
          }).
 
 -type prefix() :: string().
@@ -26,10 +27,12 @@ start_link(Connection, Handlers, HandlerOpt) ->
 init({Ref, Connection, Handlers, HandlerOpt}) ->
     ok = libp2p_connection:acknowledge(Connection, Ref),
     self() ! handshake,
-    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt});
+    TimerRef = erlang:send_after(30000, self(), timeout),
+    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt, timeout=TimerRef});
 init({Connection, Handlers, HandlerOpt}) ->
+    TimerRef = erlang:send_after(30000, self(), timeout),
     ok = libp2p_connection:fdset(Connection),
-    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt}).
+    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt, timeout=TimerRef}).
 
 
 loop(State) ->
@@ -53,6 +56,7 @@ handle_msg(Msg, State) ->
         {noreply, NewState} ->
             loop(NewState);
         {exec, M, F, A} ->
+            erlang:cancel_timer(State#state.timeout),
             try erlang:apply(M, F, A) of
                 Result -> Result
             catch
