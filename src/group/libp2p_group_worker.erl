@@ -289,9 +289,9 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
-            %% lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
-            %%             [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-            %%              _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+             lager:info("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
+                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
@@ -429,6 +429,7 @@ update_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
 update_stream(undefined, #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
     catch unlink(Pid),
+    lager:info("group worker stream ~p set to undefined", [Pid]),
     libp2p_framed_stream:close(Pid),
     libp2p_group_server:send_ready(Server, MAddr, Kind, false),
     undefined;
@@ -441,6 +442,7 @@ update_stream(StreamPid, #data{stream_pid=StreamPid}) ->
 update_stream(StreamPid, #data{stream_pid=Pid, target={MAddr, _}, server=Server, kind=Kind}) ->
     link(StreamPid),
     catch unlink(Pid),
+    lager:info("group worker stream ~p replaced with ~p", [Pid, StreamPid]),
     libp2p_framed_stream:close(Pid),
     %% we have a new stream, re-advertise our ready status
     libp2p_group_server:send_ready(Server, MAddr, Kind, true),
