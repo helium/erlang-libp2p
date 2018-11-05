@@ -299,9 +299,9 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
-            %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
-            %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-            %%               _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            lager:info("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
+                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
     end.
 
@@ -315,6 +315,8 @@ handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=Stre
     libp2p_group_server:send_result(Server, Ref, Result),
     case Result of
         ok ->
+            keep_state_and_data;
+        defer ->
             keep_state_and_data;
         _ ->
             lager:info("send failed with reason ~p", [Result]),
