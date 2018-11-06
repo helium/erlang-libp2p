@@ -207,7 +207,7 @@ handle_call(close_state, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:close_state(Connection), State};
 handle_call(close, _From, State=#state{connection=Connection}) ->
     libp2p_connection:close(Connection),
-    {stop, normal, State};
+    {stop, normal, ok, State};
 handle_call(addr_info, _From, State=#state{connection=Connection}) ->
     {reply, libp2p_connection:addr_info(Connection), State};
 handle_call({send, Data, Timeout}, From, State=#state{kind=Kind, module=Module, state=ModuleState0}) ->
