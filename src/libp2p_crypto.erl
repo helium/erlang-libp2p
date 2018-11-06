@@ -11,8 +11,8 @@
 
 -export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
          to_pem/1, from_pem/1, pubkey_to_address/1, address_to_pubkey/1,
-         address_to_b58/1, b58_to_address/1, pubkey_to_b58/1,
-         address_to_p2p/1, p2p_to_address/1,
+         address_to_b58/1, address_to_b58/2, b58_to_address/1, b58_to_version_address/1,
+         pubkey_to_b58/1, address_to_p2p/1, p2p_to_address/1,
          b58_to_pubkey/1, verify/3
         ]).
 
@@ -89,12 +89,21 @@ verify(Bin, Signature, PubKey) ->
 
 -spec address_to_b58(address()) -> string().
 address_to_b58(Addr) ->
-    base58check_encode(<<16#00>>, Addr).
+    address_to_b58(16#00, Addr).
+
+-spec address_to_b58(non_neg_integer(), address()) -> string().
+address_to_b58(Version, Addr) ->
+    base58check_encode(Version, Addr).
 
 -spec b58_to_address(string())-> address().
 b58_to_address(Str) ->
+    {_, Addr} = b58_to_version_address(Str),
+    Addr.
+
+-spec b58_to_version_address(string())-> {Version::non_neg_integer(), address()}.
+b58_to_version_address(Str) ->
     case base58check_decode(Str) of
-        {ok, <<16#00>>, Addr} -> Addr;
+        {ok, <<Version:8/unsigned-integer>>, Addr} -> {Version, Addr};
         {error, Reason} -> error(Reason)
     end.
 
@@ -109,9 +118,9 @@ p2p_to_address(Str) ->
         _ -> error(badarg)
     end.
 
--spec base58check_encode(binary(), binary()) -> string().
-base58check_encode(Version, Payload) ->
-  VPayload = <<Version/binary, Payload/binary>>,
+-spec base58check_encode(non_neg_integer(), binary()) -> string().
+base58check_encode(Version, Payload) when Version >= 0, Version =< 16#FF ->
+  VPayload = <<Version:8/unsigned-integer, Payload/binary>>,
   <<Checksum:4/binary, _/binary>> = crypto:hash(sha256, crypto:hash(sha256, VPayload)),
   Result = <<VPayload/binary, Checksum/binary>>,
   base58:binary_to_base58(Result).
