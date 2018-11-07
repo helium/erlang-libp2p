@@ -316,8 +316,6 @@ handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=Stre
     case Result of
         ok ->
             keep_state_and_data;
-        defer ->
-            keep_state_and_data;
         _ ->
             lager:info("send failed with reason ~p", [Result]),
             {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},

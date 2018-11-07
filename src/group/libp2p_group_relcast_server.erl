@@ -50,7 +50,7 @@ info(Pid) ->
 %%
 
 handle_data(Pid, Ref, Bin) ->
-    gen_server:call(Pid, {handle_data, Ref, Bin}, infinity).
+    gen_server:cast(Pid, {handle_data, Ref, Bin}).
 
 handle_ack(Pid, Ref, Ack) ->
     gen_server:cast(Pid, {handle_ack, Ref, Ack}).
@@ -103,22 +103,6 @@ handle_call({accept_stream, StreamPid, Path}, _From, State=#state{}) ->
         #worker{index=Index, pid=Worker} ->
             libp2p_group_worker:assign_stream(Worker, StreamPid),
             {reply, {ok, Index}, State}
-    end;
-handle_call({handle_data, Index, Msg}, _From, State=#state{self_index=_SelfIndex}) ->
-    %% Incoming message, add to queue
-    %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
-    case relcast:deliver(Msg, Index, State#state.store) of
-        full ->
-            %% So this is a bit tricky. we've exceeded the defer queueing for this 
-            %% peer ID so we need to queue it locally and block more being sent.
-            %% We need to put these in a buffer somewhere and keep trying to deliver them
-            %% every time we successfully process a message.
-            {reply, defer, State#state{pending=maps:put(Index, Msg, State#state.pending)}};
-        {ok, NewRelcast} ->
-            {reply, ok, dispatch_next_messages(State#state{store=NewRelcast})};
-        {stop, Timeout, NewRelcast} ->
-            erlang:send_after(Timeout, self(), force_close),
-            {reply, ok, dispatch_next_messages(State#state{store=NewRelcast})}
     end;
 handle_call(workers, _From, State=#state{workers=Workers}) ->
     Response = lists:map(fun(#worker{target=Addr, pid=Worker}) ->
@@ -235,6 +219,24 @@ handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
         _ ->
             lager:debug("Unexpected ack for ~p", [Index]),
             {noreply, dispatch_next_messages(State)}
+    end;
+handle_cast({handle_data, Index, Msg}, State=#state{self_index=_SelfIndex}) ->
+    %% Incoming message, add to queue
+    %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
+    case relcast:deliver(Msg, Index, State#state.store) of
+        full ->
+            %% So this is a bit tricky. we've exceeded the defer queueing for this 
+            %% peer ID so we need to queue it locally and block more being sent.
+            %% We need to put these in a buffer somewhere and keep trying to deliver them
+            %% every time we successfully process a message.
+            {noreply, State#state{pending=maps:put(Index, Msg, State#state.pending)}};
+        {ok, NewRelcast} ->
+            dispatch_ack(Index, State),
+            {noreply, dispatch_next_messages(State#state{store=NewRelcast})};
+        {stop, Timeout, NewRelcast} ->
+            dispatch_ack(Index, State),
+            erlang:send_after(Timeout, self(), force_close),
+            {noreply, dispatch_next_messages(State#state{store=NewRelcast})}
     end;
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),

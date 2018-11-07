@@ -4,7 +4,7 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok | defer | {error, term()}.
+-callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok.
 -callback accept_stream(State::any(),
                         Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
@@ -56,14 +56,8 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{frame={data, Bin}} ->
             %% Inbound request to handle a message
-            case AckModule:handle_data(AckState, AckRef, Bin) of
-                {error, Reason} ->
-                    {stop, {error, Reason}, State};
-                Response ->
-                    %% Send back an ok or defer message
-                    Ack = #libp2p_ack_frame_pb{frame={ack, Response}},
-                    {noreply, State, libp2p_ack_stream_pb:encode_msg(Ack)}
-            end;
+            AckModule:handle_data(AckState, AckRef, Bin),
+            {noreply, State};
         #libp2p_ack_frame_pb{frame={ack, Ack}} when From /= undefined  ->
             %% When we receive an ack (ok or defer) from the remote side we
             %% unblock the caller and pass the response back.
