@@ -187,7 +187,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State=#state{self_index=_SelfIn
             %% The worker ready state already matches
             {noreply, dispatch_next_messages(State)}
     end;
-handle_cast({send_result, {_Key, _Index}, defer}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_result, {_Key, _Index}, pending}, State=#state{self_index=_SelfIndex}) ->
     %% Send result from sending a message to a remote woker. Since the
     %% message is deferred we do not reset the worker on this side to
     %% ready. The remote end will dispatch a separate ack to resume
@@ -195,14 +195,6 @@ handle_cast({send_result, {_Key, _Index}, defer}, State=#state{self_index=_SelfI
     %% lager:debug("~p SEND RESULT TO ~p: ~p defer",
     %%             [_SelfIndex, _Index, base58:binary_to_base58(_Key)]),
     {noreply, State};
-handle_cast({send_result, {Key, Index}, ok}, State=#state{self_index=_SelfIndex}) ->
-    %% Send result from sending a message to a remote woker. An ok
-    %% send result means we delete the message and dispatch the next
-    %% one.
-    %% lager:debug("~p SEND RESULT TO ~p: ~p ok",
-    %%             [_SelfIndex, Index, base58:binary_to_base58(Key)]),
-    {ok, NewRelcast} = relcast:ack(Index, Key, State#state.store),
-    {noreply, dispatch_next_messages(ready_worker(Index, undefined, State#state{store=NewRelcast}))};
 handle_cast({send_result, {_Key, _Index}, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.

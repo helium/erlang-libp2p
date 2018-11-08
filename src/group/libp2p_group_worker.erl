@@ -314,12 +314,12 @@ handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=Stre
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     case Result of
-        ok ->
-            keep_state_and_data;
-        _ ->
+        {error, _Reason} ->
             lager:info("send failed with reason ~p", [Result]),
             {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
-             ?TRIGGER_CONNECT_RETRY}
+             ?TRIGGER_CONNECT_RETRY};
+        _ ->
+            keep_state_and_data
     end;
 handle_event(cast, clear_target, #data{}) ->
     %% ignore (handled in all states but `closing')
