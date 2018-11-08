@@ -237,20 +237,19 @@ connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
     end;
 connected(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
     %% The stream we're using died. Let's go back to connecting
-    lager:info("stream ~p exited with reason ~p", [StreamPid, _Reason]),
+    lager:notice("Stream ~p exited with reason ~p", [StreamPid, _Reason]),
     {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
     ?TRIGGER_CONNECT_RETRY};
 connected(cast, clear_target, Data=#data{}) ->
     %% When the target is cleared we go back to targeting after
     %% killing the current stream.
-    lager:info("clear_target"),
     {next_state, targeting, Data#data{target={undefined, undefined},
                                       stream_pid=update_stream(undefined, Data)},
      ?TRIGGER_TARGETING};
 connected(cast, {assign_target, NewTarget}, Data=#data{target=OldTarget}) when NewTarget /= OldTarget ->
     %% When the target is changed from what we have we kill the
     %% current stream and go back to targeting.
-    lager:info("changing target from ~p to ~p", [OldTarget, NewTarget]),
+    lager:info("Changing target from ~p to ~p", [OldTarget, NewTarget]),
     {next_state, targeting, Data#data{target=NewTarget, stream_pid=update_stream(undefined, Data)},
      ?TRIGGER_TARGETING};
 connected(info, close, Data=#data{}) ->
@@ -266,7 +265,6 @@ connected(EventType, Msg, Data) ->
 -spec terminate(Reason :: term(), State :: term(), Data :: term()) -> any().
 terminate(_Reason, _State, Data=#data{connect_pid=Process}) ->
     kill_pid(Process),
-    lager:info("terminating"),
     update_stream(undefined, Data).
 
 
@@ -293,15 +291,15 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
-             lager:info("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
-                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+             %lager:info("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
+                         %[StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                          %_CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
-            lager:info("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
-                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            %lager:info("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
+                         %[StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                          %_CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
     end.
 
@@ -315,7 +313,7 @@ handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=Stre
     libp2p_group_server:send_result(Server, Ref, Result),
     case Result of
         {error, _Reason} ->
-            lager:info("send failed with reason ~p", [Result]),
+            %lager:info("send failed with reason ~p", [Result]),
             {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
              ?TRIGGER_CONNECT_RETRY};
         _ ->
@@ -351,7 +349,7 @@ handle_event(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=Connect
 handle_event(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
     %% The stream_pid copmleted, was killed, or crashed. Handled only
     %% by `connected'
-    lager:info("stream pid ~p exited with reason ~p", [StreamPid, _Reason]),
+    lager:notice("Stream pid ~p exited with reason ~p", [StreamPid, _Reason]),
     {keep_state, Data#data{stream_pid=update_stream(undefined, Data)}};
 handle_event({call, From}, info, Data=#data{target={Target,_}, stream_pid=StreamPid}) ->
     Info = #{
@@ -435,7 +433,6 @@ update_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
 update_stream(undefined, #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
     catch unlink(Pid),
-    lager:info("group worker stream ~p set to undefined", [Pid]),
     libp2p_framed_stream:close(Pid),
     libp2p_group_server:send_ready(Server, MAddr, Kind, false),
     undefined;
@@ -448,7 +445,6 @@ update_stream(StreamPid, #data{stream_pid=StreamPid}) ->
 update_stream(StreamPid, #data{stream_pid=Pid, target={MAddr, _}, server=Server, kind=Kind}) ->
     link(StreamPid),
     catch unlink(Pid),
-    lager:info("group worker stream ~p replaced with ~p", [Pid, StreamPid]),
     libp2p_framed_stream:close(Pid),
     %% we have a new stream, re-advertise our ready status
     libp2p_group_server:send_ready(Server, MAddr, Kind, true),
