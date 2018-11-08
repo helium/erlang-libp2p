@@ -8,7 +8,7 @@
 -callback accept_stream(State::any(),
                         Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
--callback handle_ack(State::any(), Ref::any(), Ack::ok | defer) -> ok.
+-callback handle_ack(State::any(), Ref::any()) -> ok.
 
 %% API
 -export([send_ack/1]).
@@ -57,11 +57,11 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             %% Inbound request to handle a message
             AckModule:handle_data(AckState, AckRef, Bin),
             {noreply, State};
-        #libp2p_ack_frame_pb{frame={ack, Ack}} ->
+        #libp2p_ack_frame_pb{frame={ack, ok}} ->
             %% When we receive an ack response (ok or defer) from the
             %% remote side without a blocked caller we call the
             %% handler to deal with it.
-            AckModule:handle_ack(AckState, AckRef, Ack),
+            AckModule:handle_ack(AckState, AckRef),
             {noreply, State};
         _Other ->
             {noreply, State}

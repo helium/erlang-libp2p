@@ -4,7 +4,7 @@
 -behavior(libp2p_ack_stream).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accept_stream/3, handle_data/3, handle_ack/3]).
+-export([accept_stream/3, handle_data/3, handle_ack/2]).
 -export([ack_test/1]).
 
 
@@ -36,7 +36,7 @@ ack_test(Config) ->
     end,
 
     receive
-        {handle_ack, client, ok}-> ok
+        {handle_ack, client}-> ok
     after 1000 -> erlang:exit(timeout_done)
     end,
 
@@ -50,6 +50,6 @@ handle_data({Pid, Response}, Ref, Bin) ->
     Pid ! {handle_data, Ref, Bin},
     Response.
 
-handle_ack(Pid, Ref, Ack) ->
-    Pid ! {handle_ack, Ref, Ack},
+handle_ack(Pid, Ref) ->
+    Pid ! {handle_ack, Ref},
     ok.

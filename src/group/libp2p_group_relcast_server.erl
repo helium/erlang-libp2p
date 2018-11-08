@@ -11,7 +11,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/3, handle_ack/3, accept_stream/3]).
+-export([handle_data/3, handle_ack/2, accept_stream/3]).
 
 -record(worker,
        { target :: string(),
@@ -52,8 +52,8 @@ info(Pid) ->
 handle_data(Pid, Ref, Bin) ->
     gen_server:cast(Pid, {handle_data, Ref, Bin}).
 
-handle_ack(Pid, Ref, Ack) ->
-    gen_server:cast(Pid, {handle_ack, Ref, Ack}).
+handle_ack(Pid, Ref) ->
+    gen_server:cast(Pid, {handle_ack, Ref}).
 
 accept_stream(Pid, StreamPid, Path) ->
     gen_server:call(Pid, {accept_stream, StreamPid, Path}).
@@ -207,7 +207,7 @@ handle_cast({send_result, {_Key, _Index}, {error, _Error}}, State=#state{self_in
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.
     {noreply, State};
-handle_cast({handle_ack, Index, ok}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_ack, Index}, State=#state{self_index=_SelfIndex}) ->
     %% Received when a previous message had a send_result of defer.
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
@@ -225,7 +225,7 @@ handle_cast({handle_data, Index, Msg}, State=#state{self_index=_SelfIndex}) ->
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     case relcast:deliver(Msg, Index, State#state.store) of
         full ->
-            %% So this is a bit tricky. we've exceeded the defer queueing for this 
+            %% So this is a bit tricky. we've exceeded the defer queueing for this
             %% peer ID so we need to queue it locally and block more being sent.
             %% We need to put these in a buffer somewhere and keep trying to deliver them
             %% every time we successfully process a message.
@@ -335,7 +335,7 @@ lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
 dispatch_ack(Index, State=#state{}) ->
     case lookup_worker(Index, State) of
         #worker{pid=self} ->
-            handle_ack(self(), Index, ok),
+            handle_ack(self(), Index),
             State;
         #worker{pid=Worker} ->
             libp2p_group_worker:send_ack(Worker),
@@ -417,4 +417,3 @@ update_metadata(State=#state{group_id=GroupID}) ->
        {group_id, GroupID}
       ]),
     State.
-
