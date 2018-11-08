@@ -28,11 +28,7 @@ end_per_testcase(_, Config) ->
 
 ack_test(Config) ->
     Client = proplists:get_value(client, Config),
-    Parent = self(),
-    spawn_link(fun() ->
-                  ok = libp2p_framed_stream:send(Client, <<"hello">>, 100),
-                  Parent ! done
-          end),
+    pending = libp2p_framed_stream:send(Client, <<"hello">>, 100),
 
     receive
         {handle_data, {server, S}, <<"hello">>} -> libp2p_ack_stream:send_ack(S)
@@ -40,7 +36,7 @@ ack_test(Config) ->
     end,
 
     receive
-        done -> ok
+        {handle_ack, client, ok}-> ok
     after 1000 -> erlang:exit(timeout_done)
     end,
 
