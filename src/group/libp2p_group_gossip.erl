@@ -31,4 +31,4 @@ send(Pid, Key, Data) when is_list(Key), is_binary(Data) ->
 
 -spec connected_addrs(pid(), connection_kind() | all) -> [string()].
 connected_addrs(Pid, WorkerKind) ->
-    gen_server:call(Pid, {connected_addrs, WorkerKind}, 30000).
+    gen_server:call(Pid, {connected_addrs, WorkerKind}, infinity).

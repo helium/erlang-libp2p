@@ -55,6 +55,12 @@ handshake(Connection) ->
             ok = libp2p_multistream:write(Connection, Id),
             case libp2p_multistream:read(Connection) of
                 Id ->
+                    %% So this is a bit tricky, we managed to get a handshake by sending
+                    %% first, which is usually what the server-side does. This means we've
+                    %% likely made a 'simultaneous connection' such that both sides tried to dial
+                    %% each other and they bypassed the listen socket. This happens because of
+                    %% our port reuse trickery but we need to handle this case by promoting
+                    %% one side to a server.
                     server_switch;
                 Other -> Other
             end;

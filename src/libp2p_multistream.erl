@@ -3,6 +3,7 @@
 -export([protocol_id/0, read/1, read/2, read_lines/1, write/2, write_lines/2]).
 
 -define(MAX_LINE_LENGTH, 64 * 1024).
+-define(RECV_TIME, 60000).
 
 
 protocol_id() ->
@@ -23,7 +24,7 @@ write_lines(Connection, Lines) ->
 
 -spec read(libp2p_connection:connection()) -> string() | {error, term()}.
 read(Connection) ->
-    read(Connection, 60000).
+    read(Connection, ?RECV_TIME).
 
 -spec read(libp2p_connection:connection(), pos_integer()) -> string() | {error, term()}.
 read(Connection, Timeout) ->
@@ -44,7 +45,7 @@ read(Connection, Timeout) ->
 
 -spec read_lines(libp2p_connection:connection()) -> [string()] | {error, term()}.
 read_lines(Connection) ->
-    case read_varint(Connection, 60000) of
+    case read_varint(Connection, ?RECV_TIME) of
         {error, Reason} -> {error, Reason};
         {ok, Size} ->
             case libp2p_connection:recv(Connection, Size) of

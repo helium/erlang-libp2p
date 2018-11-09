@@ -291,15 +291,15 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
-             %lager:info("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
-                         %[StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-                          %_CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            %% lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
+            %%             [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+            %%              _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
-            %lager:info("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
-                         %[StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-                          %_CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
+            %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+            %%               _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
     end.
 
@@ -416,6 +416,8 @@ start_connect_retry_timer(Data=#data{connect_retry_timer=CurrentTimer}) ->
 stop_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Data;
 stop_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
+    %% We do not clear the connect_retry_timer to get a future
+    %% start_connect_retry_timer to continue with the backoff
     erlang:cancel_timer(Timer),
     Data.
 

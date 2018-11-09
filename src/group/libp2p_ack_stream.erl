@@ -58,9 +58,8 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             AckModule:handle_data(AckState, AckRef, Bin),
             {noreply, State};
         #libp2p_ack_frame_pb{frame={ack, ok}} ->
-            %% When we receive an ack response (ok or defer) from the
-            %% remote side without a blocked caller we call the
-            %% handler to deal with it.
+            %% When we receive an ack response from the remote side we
+            %% call the handler to deal with it.
             AckModule:handle_ack(AckState, AckRef),
             {noreply, State};
         _Other ->

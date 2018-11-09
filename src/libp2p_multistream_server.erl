@@ -1,5 +1,7 @@
 -module(libp2p_multistream_server).
 
+-define(NEGOTIATION_TIME, 30000).
+
 -export([start_link/4, start_link/3, init/1]).
 
 -record(state, {
@@ -27,10 +29,10 @@ start_link(Connection, Handlers, HandlerOpt) ->
 init({Ref, Connection, Handlers, HandlerOpt}) ->
     ok = libp2p_connection:acknowledge(Connection, Ref),
     self() ! handshake,
-    TimerRef = erlang:send_after(30000, self(), timeout),
+    TimerRef = erlang:send_after(?NEGOTIATION_TIME, self(), timeout),
     loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt, timeout=TimerRef});
 init({Connection, Handlers, HandlerOpt}) ->
-    TimerRef = erlang:send_after(30000, self(), timeout),
+    TimerRef = erlang:send_after(?NEGOTIATION_TIME, self(), timeout),
     ok = libp2p_connection:fdset(Connection),
     loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt, timeout=TimerRef}).
 
