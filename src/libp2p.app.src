@@ -30,7 +30,8 @@
                   ecc_compact,
                   bitcask,
                   splicer,
-                  backoff
+                  backoff,
+                  relcast
                  ]},
   {env,[]},
 

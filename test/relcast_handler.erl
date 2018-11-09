@@ -1,29 +1,50 @@
 -module(relcast_handler).
 
--behavior(libp2p_group_relcast_handler).
+-behavior(relcast).
 
--export([init/1, handle_message/3, handle_input/2, serialize_state/1, deserialize_state/1]).
+-export([init/1, handle_message/3, handle_command/2, callback_message/3, serialize/1, deserialize/1, restore/2]).
 
 -record(state,
         { message_handler,
-          input_handler
+          input_handler,
+          skip_handler=false
        }).
 
-init([Members, InputHandler, MessageHandler]) ->
-    {ok, Members, #state{message_handler=MessageHandler, input_handler=InputHandler}}.
+init([_Members, InputHandler, MessageHandler]) ->
+    {ok, #state{message_handler=MessageHandler, input_handler=InputHandler}}.
 
-handle_message(_Index, _Msg, State=#state{message_handler=undefined}) ->
-    {State, ok};
-handle_message(Index, Msg, State=#state{message_handler=Handler}) ->
-    {State, Handler(Index, Msg)}.
+handle_message(_Msg, _Index, State=#state{message_handler=undefined}) ->
+    ct:pal("handle_message no handler", []),
+    {State, []};
+handle_message(_Msg, _Index, State = #state{skip_handler=true}) ->
+    ct:pal("skipping message ~p", [_Msg]),
+    {State#state{skip_handler=false}, []};
+handle_message(Msg, Index, State=#state{message_handler=Handler}) ->
+    ct:pal("handle_message with handler ~p(~p, ~p) -> ~p", [Handler, Index, Msg, Handler(Index, Msg)]),
+    case Handler(Index, Msg) of
+        defer -> defer;
+        ignore -> ignore;
+        Res ->
+            {State, Res}
+    end.
 
-handle_input(_Msg, State=#state{input_handler=undefined}) ->
-    {State, ok};
-handle_input(Msg, State=#state{input_handler=Handler}) ->
-    {State, Handler(Msg)}.
+handle_command(_Msg, #state{input_handler=undefined}) ->
+    ct:pal("handle_command no handler", []),
+    {reply, ok, ignore};
+handle_command(undefer, State) ->
+    {reply, ok, [], State#state{skip_handler=true}};
+handle_command(Msg, State=#state{input_handler=Handler}) ->
+    ct:pal("handle_command with handler ~p(~p) -> ~p", [Handler, Msg, Handler(Msg)]),
+    {reply, ok, Handler(Msg), State}.
 
-serialize_state(State) ->
+callback_message(_, _, _) ->
+    none.
+
+serialize(State) ->
     term_to_binary(State).
 
-deserialize_state(State) ->
+deserialize(State) ->
     binary_to_term(State).
+
+restore(OldState, _NewState) ->
+    OldState.

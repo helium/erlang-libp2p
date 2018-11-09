@@ -4,13 +4,12 @@
 -behavior(libp2p_ack_stream).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accept_stream/3, handle_data/3, handle_ack/3]).
--export([ack_test/1, defer_test/1]).
+-export([accept_stream/3, handle_data/3, handle_ack/2]).
+-export([ack_test/1]).
 
 
 all() ->
-    [ack_test,
-    defer_test].
+    [ack_test].
 
 setup_swarms(HandleDataResponse, Config) ->
     Swarms = [S1, S2] = test_util:setup_swarms(),
@@ -21,9 +20,7 @@ setup_swarms(HandleDataResponse, Config) ->
     [{swarms, Swarms}, {client, Stream} | Config].
 
 init_per_testcase(ack_test, Config) ->
-    setup_swarms(ok, Config);
-init_per_testcase(defer_test, Config) ->
-    setup_swarms(defer, Config).
+    setup_swarms(ok, Config).
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),
@@ -31,29 +28,16 @@ end_per_testcase(_, Config) ->
 
 ack_test(Config) ->
     Client = proplists:get_value(client, Config),
-    ok = libp2p_framed_stream:send(Client, <<"hello">>, 100),
+    pending = libp2p_framed_stream:send(Client, <<"hello">>, 100),
 
     receive
-        {handle_data, {server, _}, <<"hello">>} -> ok
+        {handle_data, {server, S}, <<"hello">>} -> libp2p_ack_stream:send_ack(S)
     after 1000 -> erlang:exit(timeout_data)
     end,
 
-    ok.
-
-defer_test(Config) ->
-    Client = proplists:get_value(client, Config),
-    defer = libp2p_framed_stream:send(Client, <<"hello">>, 100),
-
-    Server = receive
-                 {handle_data, {server, S}, <<"hello">>} -> S
-             after 1000 -> erlang:exit(timeout_data)
-             end,
-
-    libp2p_ack_stream:send_ack(Server),
-
     receive
-        {handle_ack, client, ok} -> ok
-    after 1000 -> erlang:exit(timeout_ack)
+        {handle_ack, client}-> ok
+    after 1000 -> erlang:exit(timeout_done)
     end,
 
     ok.
@@ -66,6 +50,6 @@ handle_data({Pid, Response}, Ref, Bin) ->
     Pid ! {handle_data, Ref, Bin},
     Response.
 
-handle_ack(Pid, Ref, Ack) ->
-    Pid ! {handle_ack, Ref, Ack},
+handle_ack(Pid, Ref) ->
+    Pid ! {handle_ack, Ref},
     ok.

@@ -4,11 +4,11 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok | defer | {error, term()}.
+-callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok.
 -callback accept_stream(State::any(),
                         Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
--callback handle_ack(State::any(), Ref::any(), Ack::ok | defer) -> ok.
+-callback handle_ack(State::any(), Ref::any()) -> ok.
 
 %% API
 -export([send_ack/1]).
@@ -20,8 +20,7 @@
         { connection :: libp2p_connection:connection(),
           ack_module :: atom(),
           ack_state :: any(),
-          ack_ref :: any(),
-          send_from=undefined :: term() | undefined
+          ack_ref :: any()
         }).
 
 %% API
@@ -52,28 +51,16 @@ init(client, Connection, [AckRef, AckModule, AckState]) ->
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
-handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState, send_from=From}) ->
+handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{frame={data, Bin}} ->
             %% Inbound request to handle a message
-            case AckModule:handle_data(AckState, AckRef, Bin) of
-                {error, Reason} ->
-                    {stop, {error, Reason}, State};
-                Response ->
-                    %% Send back an ok or defer message
-                    Ack = #libp2p_ack_frame_pb{frame={ack, Response}},
-                    {noreply, State, libp2p_ack_stream_pb:encode_msg(Ack)}
-            end;
-        #libp2p_ack_frame_pb{frame={ack, Ack}} when From /= undefined  ->
-            %% When we receive an ack (ok or defer) from the remote side we
-            %% unblock the caller and pass the response back.
-            gen_server:reply(From, Ack),
-            {noreply, State#state{send_from=undefined}};
-        #libp2p_ack_frame_pb{frame={ack, Ack}} ->
-            %% When we receive an ack response (ok or defer) from the
-            %% remote side without a blocked caller we call the
-            %% handler to deal with it.
-            AckModule:handle_ack(AckState, AckRef, Ack),
+            AckModule:handle_data(AckState, AckRef, Bin),
+            {noreply, State};
+        #libp2p_ack_frame_pb{frame={ack, ok}} ->
+            %% When we receive an ack response from the remote side we
+            %% call the handler to deal with it.
+            AckModule:handle_ack(AckState, AckRef),
             {noreply, State};
         _Other ->
             {noreply, State}
@@ -81,7 +68,7 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
 
 handle_send(_Kind, From, Data, Timeout, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{frame={data, Data}},
-    {ok, noreply, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{send_from=From}}.
+    {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
 
 handle_info(_Kind, send_ack, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{frame={ack, ok}},

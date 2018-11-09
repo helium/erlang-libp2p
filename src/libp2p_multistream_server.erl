@@ -1,11 +1,14 @@
 -module(libp2p_multistream_server).
 
--export([start_link/4, init/1]).
+-define(NEGOTIATION_TIME, 30000).
+
+-export([start_link/4, start_link/3, init/1]).
 
 -record(state, {
           connection :: libp2p_connection:connection(),
           handlers :: [{prefix(), handler()}],
-          handler_opt :: any()
+          handler_opt :: any(),
+          timeout :: reference()
          }).
 
 -type prefix() :: string().
@@ -19,10 +22,20 @@
 start_link(Ref, Connection, Handlers, HandlerOpt) ->
     {ok, proc_lib:spawn_link(?MODULE, init, [{Ref, Connection, Handlers, HandlerOpt}])}.
 
+-spec start_link(libp2p_connection:connection(), [{string(), term()}], any()) -> {ok, pid()}.
+start_link(Connection, Handlers, HandlerOpt) ->
+    {ok, proc_lib:spawn_link(?MODULE, init, [{Connection, Handlers, HandlerOpt}])}.
+
 init({Ref, Connection, Handlers, HandlerOpt}) ->
     ok = libp2p_connection:acknowledge(Connection, Ref),
     self() ! handshake,
-    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt}).
+    TimerRef = erlang:send_after(?NEGOTIATION_TIME, self(), timeout),
+    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt, timeout=TimerRef});
+init({Connection, Handlers, HandlerOpt}) ->
+    TimerRef = erlang:send_after(?NEGOTIATION_TIME, self(), timeout),
+    ok = libp2p_connection:fdset(Connection),
+    loop(#state{connection=Connection, handlers=Handlers, handler_opt=HandlerOpt, timeout=TimerRef}).
+
 
 loop(State) ->
     %% XXX to avoid accidentally consuming messages destined for the actual session, once negotiated
@@ -44,6 +57,7 @@ handle_msg(Msg, State) ->
         {noreply, NewState} ->
             loop(NewState);
         {exec, M, F, A} ->
+            erlang:cancel_timer(State#state.timeout),
             try erlang:apply(M, F, A) of
                 Result -> Result
             catch
@@ -76,6 +90,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                     lager:debug("Negotiated server handler for ~p: ~p", [RemoteAddr, Key]),
                     {exec, M, F, [Conn, LineRest, HandlerOpt, A]};
                 error ->
+                    lager:debug("Can't find handler for ~p in ~p", [Line, Handlers]),
                     write(Conn, "na"),
                     fdset_return(Conn, State)
             end
@@ -97,7 +112,8 @@ handle_info(timeout, State) ->
 
 
 terminate(_Reason, State=#state{connection=Connection}) ->
-    fdclr(Connection, State).
+    fdclr(Connection, State),
+    libp2p_connection:close(Connection).
 
 %%
 %% Internal
