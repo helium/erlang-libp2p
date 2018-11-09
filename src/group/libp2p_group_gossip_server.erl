@@ -44,7 +44,7 @@ start_link(Sup, TID) ->
 %%
 
 handle_data(Pid, Key, Bin) ->
-    gen_server:call(Pid, {handle_data, Key, Bin}).
+    gen_server:cast(Pid, {handle_data, Key, Bin}).
 
 accept_stream(Pid, SessionPid, StreamPid) ->
     gen_server:call(Pid, {accept_stream, SessionPid, StreamPid}).
@@ -74,19 +74,6 @@ handle_call({accept_stream, _Session, _StreamPid}, _From, State=#state{workers=[
 handle_call({accept_stream, Session, StreamPid}, From, State=#state{}) ->
     libp2p_session:identify(Session, self(), {From, StreamPid}),
     {noreply, State};
-handle_call({handle_data, Key, Msg}, _From, State=#state{}) ->
-    %% Incoming message from a gossip stream for a given key
-    case maps:find(Key, State#state.handlers) of
-        error -> {reply, ok, State};
-        {ok, {M, S}} ->
-            %% Catch the callback response. This avoids a crash in the
-            %% handler taking down the gossip_server itself.
-            case (catch M:handle_gossip_data(Msg, S)) of
-                {'EXIT', Err} -> {reply, {error, Err}, State};
-                {error, Reason} -> {reply, {error, Reason}, State};
-                _ -> {reply, ok, State}
-            end
-    end;
 handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
     {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
     {reply, Addrs, State};
@@ -94,6 +81,18 @@ handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
+
+
+handle_cast({handle_data, Key, Msg}, State=#state{}) ->
+    %% Incoming message from a gossip stream for a given key
+    case maps:find(Key, State#state.handlers) of
+        error -> {noreply, State};
+        {ok, {M, S}} ->
+            %% Catch the callback response. This avoids a crash in the
+            %% handler taking down the gossip_server itself.
+            catch M:handle_gossip_data(Msg, S),
+            {noreply, State}
+    end;
 
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
@@ -143,12 +142,18 @@ handle_cast({send, Key, Data}, State=#state{}) ->
                           end, Pids)
     end,
     {noreply, State};
+handle_cast({send_ready, _target, _Ref, false}, State=#state{}) ->
+    %% Ignore any not ready messages from group workers. The gossip
+    %% server only reacts to ready messages by sending initial
+    %% gossip_data.
+    {noreply, State};
 handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
     case lookup_worker(Target, #worker.target, State) of
         #worker{pid=WorkerPid} ->
             NewState = maps:fold(fun(Key, {M, S}, Acc) ->
                                          case (catch M:init_gossip_data(S)) of
-                                             {'EXIT', _} ->
+                                             {'EXIT', Reason} ->
+                                                 lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
                                                  Acc#state{handlers=maps:remove(Key, Acc#state.handlers)};
                                              ok ->
                                                  Acc;

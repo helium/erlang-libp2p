@@ -2,7 +2,6 @@ syntax = "proto3";
 
 enum status {
   ok = 0;
-  defer = 1;
 }
 
 message ack_frame {

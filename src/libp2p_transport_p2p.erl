@@ -33,7 +33,7 @@ sort_addrs(Addrs) ->
 -spec priority() -> integer().
 priority() -> 2.
 
-match_protocols([A={"p2p", _} | _]) ->
+match_protocols([A={"p2p", _}]) ->
     {ok, multiaddr:to_string([A])};
 match_protocols(_) ->
     false.

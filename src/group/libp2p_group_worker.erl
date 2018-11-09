@@ -237,6 +237,7 @@ connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
     end;
 connected(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
     %% The stream we're using died. Let's go back to connecting
+    lager:notice("Stream ~p exited with reason ~p", [StreamPid, _Reason]),
     {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
     ?TRIGGER_CONNECT_RETRY};
 connected(cast, clear_target, Data=#data{}) ->
@@ -248,6 +249,7 @@ connected(cast, clear_target, Data=#data{}) ->
 connected(cast, {assign_target, NewTarget}, Data=#data{target=OldTarget}) when NewTarget /= OldTarget ->
     %% When the target is changed from what we have we kill the
     %% current stream and go back to targeting.
+    lager:info("Changing target from ~p to ~p", [OldTarget, NewTarget]),
     {next_state, targeting, Data#data{target=NewTarget, stream_pid=update_stream(undefined, Data)},
      ?TRIGGER_TARGETING};
 connected(info, close, Data=#data{}) ->
@@ -306,10 +308,17 @@ handle_event(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-handle_event(cast, {send, Ref, Bin}, #data{server=Server, stream_pid=StreamPid}) ->
+handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=StreamPid}) ->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
-    keep_state_and_data;
+    case Result of
+        {error, _Reason} ->
+            %lager:info("send failed with reason ~p", [Result]),
+            {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
+             ?TRIGGER_CONNECT_RETRY};
+        _ ->
+            keep_state_and_data
+    end;
 handle_event(cast, clear_target, #data{}) ->
     %% ignore (handled in all states but `closing')
     keep_state_and_data;
@@ -340,6 +349,7 @@ handle_event(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=Connect
 handle_event(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
     %% The stream_pid copmleted, was killed, or crashed. Handled only
     %% by `connected'
+    lager:notice("Stream pid ~p exited with reason ~p", [StreamPid, _Reason]),
     {keep_state, Data#data{stream_pid=update_stream(undefined, Data)}};
 handle_event({call, From}, info, Data=#data{target={Target,_}, stream_pid=StreamPid}) ->
     Info = #{
@@ -406,9 +416,10 @@ start_connect_retry_timer(Data=#data{connect_retry_timer=CurrentTimer}) ->
 stop_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Data;
 stop_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
+    %% We do not clear the connect_retry_timer to get a future
+    %% start_connect_retry_timer to continue with the backoff
     erlang:cancel_timer(Timer),
-    Data#data{connect_retry_timer=undefined}.
-
+    Data.
 
 cancel_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     {_, NewBackOff} = backoff:succeed(Data#data.connect_retry_backoff),

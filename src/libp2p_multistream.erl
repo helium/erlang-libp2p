@@ -1,8 +1,9 @@
 -module(libp2p_multistream).
 
--export([protocol_id/0, read/1, read_lines/1, write/2, write_lines/2]).
+-export([protocol_id/0, read/1, read/2, read_lines/1, write/2, write_lines/2]).
 
 -define(MAX_LINE_LENGTH, 64 * 1024).
+-define(RECV_TIME, 60000).
 
 
 protocol_id() ->
@@ -23,13 +24,17 @@ write_lines(Connection, Lines) ->
 
 -spec read(libp2p_connection:connection()) -> string() | {error, term()}.
 read(Connection) ->
-    case read_varint(Connection) of
+    read(Connection, ?RECV_TIME).
+
+-spec read(libp2p_connection:connection(), pos_integer()) -> string() | {error, term()}.
+read(Connection, Timeout) ->
+    case read_varint(Connection, Timeout) of
         {error, Error} ->
             {error, Error};
         {ok, Size} when Size > ?MAX_LINE_LENGTH ->
             {error, {line_too_long, Size}};
         {ok, Size} ->
-            case libp2p_connection:recv(Connection, Size) of
+            case libp2p_connection:recv(Connection, Size, Timeout) of
                 {error, Error} -> {error, Error};
                 {ok, <<Data:Size/binary>>} ->
                     {Line, <<>>} = decode_line_body(Data, Size),
@@ -37,9 +42,10 @@ read(Connection) ->
             end
     end.
 
+
 -spec read_lines(libp2p_connection:connection()) -> [string()] | {error, term()}.
 read_lines(Connection) ->
-    case read_varint(Connection) of
+    case read_varint(Connection, ?RECV_TIME) of
         {error, Reason} -> {error, Reason};
         {ok, Size} ->
             case libp2p_connection:recv(Connection, Size) of
@@ -83,14 +89,14 @@ decode_line_body(Bin, Size) ->
         <<Data:Size/binary>> -> {error, {missing_terminator, Data}}
     end.
 
--spec read_varint(libp2p_connection:connection()) -> {ok, non_neg_integer()} | {error, term()}.
-read_varint(Connection) ->
-    read_varint(Connection, 0, 0).
+-spec read_varint(libp2p_connection:connection(), pos_integer()) -> {ok, non_neg_integer()} | {error, term()}.
+read_varint(Connection, Timeout) ->
+    read_varint(Connection, Timeout, 0, 0).
 
-read_varint(Connection, Position, Acc) ->
+read_varint(Connection, Timeout, Position, Acc) ->
     case libp2p_connection:recv(Connection, 1) of
         {ok, <<1:1, Number:7>>} ->
-            read_varint(Connection, Position + 7, (Number bsl Position) + Acc);
+            read_varint(Connection, Timeout, Position + 7, (Number bsl Position) + Acc);
         {ok, <<0:1, Number:7>>} ->
             {ok, (Number bsl Position) + Acc};
         {error, Error} -> {error, Error}

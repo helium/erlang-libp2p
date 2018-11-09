@@ -101,7 +101,7 @@ update_nat_type(Pid, NatType) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(binary(), pid()) -> libp2p_group_gossip_handler:handler_result().
+-spec handle_gossip_data(binary(), pid()) -> ok.
 handle_gossip_data(Data, Pid) ->
     DecodedList = libp2p_peer:decode_list(Data),
     libp2p_peerbook:put(Pid, DecodedList).
@@ -222,8 +222,7 @@ handle_call(Msg, _From, State) ->
 
 handle_cast(changed_listener, State=#state{}) ->
     {noreply, update_this_peer(State)};
-handle_cast({update_nat_type, UpdatedNatType},
-            State=#state{nat_type=NatType}) when UpdatedNatType /= NatType->
+handle_cast({update_nat_type, UpdatedNatType}, State=#state{}) ->
     {noreply, update_this_peer(State#state{nat_type=UpdatedNatType})};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
