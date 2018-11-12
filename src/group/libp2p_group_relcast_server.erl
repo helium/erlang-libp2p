@@ -1,7 +1,5 @@
 -module(libp2p_group_relcast_server).
 
--include_lib("bitcask/include/bitcask.hrl").
-
 -behavior(gen_server).
 -behavior(libp2p_ack_stream).
 -behavior(libp2p_info).
