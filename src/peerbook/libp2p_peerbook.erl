@@ -1,7 +1,5 @@
 -module(libp2p_peerbook).
 
--include_lib("bitcask/include/bitcask.hrl").
-
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
          join_notify/2, changed_listener/1, update_nat_type/2,
@@ -19,7 +17,7 @@
 
 -record(state,
         { tid :: ets:tab(),
-          store :: reference(),
+          store :: rocksdb:db_handle(),
           nat_type = unknown :: libp2p_peer:nat_type(),
           peer_time :: pos_integer(),
           peer_timer :: undefined | reference(),
@@ -118,11 +116,6 @@ init_gossip_data(Pid) ->
 start_link(TID, SigFun) ->
     gen_server:start_link(?MODULE, [TID, SigFun], []).
 
-%% bitcask:open does not pass dialyzer correctly so we turn of the
-%% using init/1 function and this_peer since it's only used in
-%% init_peer/1
--dialyzer({nowarn_function, [init/1]}).
-
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_peerbook(TID),
@@ -141,12 +134,12 @@ init([TID, SigFun]) ->
                           libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, self()}),
                           G
                   end,
-    case bitcask:open(DataDir, [read_write, {expiry_secs, 2 * StaleTime / 1000}]) of
+    case rocksdb:open_with_ttl(DataDir, [{create_if_missing, true}], (2 * StaleTime) div 1000, false) of
         {error, Reason} -> {stop, Reason};
-        Ref ->
+        {ok, DB} ->
             PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
             NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
-            {ok, update_this_peer(#state{tid=TID, store=Ref, notify_group=Group, sigfun=SigFun,
+            {ok, update_this_peer(#state{tid=TID, store=DB, notify_group=Group, sigfun=SigFun,
                                          peer_time=PeerTime, notify_time=NotifyTime,
                                          stale_time=StaleTime, gossip_group=GossipGroup})}
     end.
@@ -249,7 +242,7 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{store=Store}) ->
-    bitcask:close(Store).
+    rocksdb:close(Store).
 
 
 %%
@@ -345,7 +338,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
 unsafe_fetch_peer(ID, #state{store=Store}) ->
-    case bitcask:get(Store, ID) of
+    case rocksdb:get(Store, ID, []) of
         {ok, Bin} -> {ok, libp2p_peer:decode(Bin)};
         not_found -> {error, not_found}
     end.
@@ -364,13 +357,21 @@ fetch_peer(ID, State=#state{stale_time=StaleTime}) ->
 
 
 fold_peers(Fun, Acc0, #state{store=Store, stale_time=StaleTime}) ->
-    bitcask:fold(Store, fun(Key, Bin, Acc) ->
-                                Peer = libp2p_peer:decode(Bin),
-                                case libp2p_peer:is_stale(Peer, StaleTime) of
-                                    true -> Acc;
-                                    false -> Fun(Key, Peer, Acc)
-                                end
-                        end, Acc0).
+    {ok, Iterator} = rocksdb:iterator(Store, []),
+    fold(Iterator, rocksdb:iterator_move(Iterator, first),
+         fun(Key, Bin, Acc) ->
+                 Peer = libp2p_peer:decode(Bin),
+                 case libp2p_peer:is_stale(Peer, StaleTime) of
+                     true -> Acc;
+                     false -> Fun(Key, Peer, Acc)
+                 end
+         end, Acc0).
+
+fold(Iterator, {error, _}, _Fun, Acc) ->
+    rocksdb:iterator_close(Iterator),
+    Acc;
+fold(Iterator, {ok, Key, Value}, Fun, Acc) ->
+    fold(Iterator, rocksdb:iterator_move(Iterator, next), Fun, Fun(Key, Value, Acc)).
 
 -spec fetch_keys(#state{}) -> [libp2p_crypto:address()].
 fetch_keys(State=#state{}) ->
@@ -382,14 +383,14 @@ fetch_peers(State=#state{}) ->
 
 -spec store_peer(libp2p_peer:peer(), #state{}) -> ok | {error, term()}.
 store_peer(Peer, #state{store=Store}) ->
-    case bitcask:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer)) of
+    case rocksdb:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
         ok -> ok
     end.
 
 -spec delete_peer(libp2p_crypto:address(), #state{}) -> ok.
 delete_peer(ID, #state{store=Store}) ->
-    bitcask:delete(Store, ID).
+    rocksdb:delete(Store, ID, []).
 
 -spec group_create(atom()) -> atom().
 group_create(SwarmName) ->
