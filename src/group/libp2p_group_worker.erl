@@ -417,7 +417,11 @@ start_connect_retry_timer(Data=#data{connect_retry_timer=CurrentTimer}) ->
     Data#data{connect_retry_timer=Timer, connect_retry_backoff=NewBackOff}.
 
 stop_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
-    Data;
+    %% If we don't have a time we can cancel we make up a ref so that
+    %% the next start_timer behaves as if the backoff needs to
+    %% happen. This is required at the targeting->connecting
+    %% transition where the timer is not initialized yet.
+    Data#data{connect_retry_timer=make_ref()};
 stop_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
     %% We do not clear the connect_retry_timer to get a future
     %% start_connect_retry_timer to continue with the backoff
