@@ -30,10 +30,11 @@
 
 -record(state, {
     tid :: ets:tab() | undefined
-    ,peers = []
+    ,peers = [] :: [libp2p_peer:peer()]
     ,peer_index = 1
     ,flap_count = 0
     ,swarm :: pid() | undefined
+    ,address :: libp2p_crypto:address() | undefined
     ,started = false :: boolean()
 }).
 
@@ -70,15 +71,25 @@ connection_lost(Swarm) ->
 %% ------------------------------------------------------------------
 init(TID) ->
     lager:info("~p init with ~p", [?MODULE, TID]),
-    true = libp2p_config:insert_relay(TID, self()),
     Swarm = libp2p_swarm:swarm(TID),
+    true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID, swarm=Swarm}}.
 
-handle_call(init_relay, _From, #state{swarm=Swarm}=State0) ->
-    State = State0#state{peers=sort_peers(Swarm)},
-    Peerbook = libp2p_swarm:peerbook(Swarm),
-    ok = libp2p_peerbook:join_notify(Peerbook, self()),
-    lager:info("joined peerbook ~p notifications", [Peerbook]),
+handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
+    SwarmAddr = libp2p_swarm:address(Swarm),
+    Peers = case State0#state.peers of
+                [] ->
+                    Peerbook = libp2p_swarm:peerbook(Swarm),
+                    ok = libp2p_peerbook:join_notify(Peerbook, self()),
+                    lager:info("joined peerbook ~p notifications", [Peerbook]),
+                    Peers0 = libp2p_peerbook:values(Peerbook),
+                    lists:filter(fun(E) ->
+                                         libp2p_peer:address(E) /= SwarmAddr
+                                 end, Peers0);
+                _ ->
+                    State0#state.peers
+            end,
+    State = State0#state{peers=sort_peers(Peers, SwarmAddr), address=SwarmAddr},
     case int_relay(State) of
         {ok, _}=Resp ->
             lager:info("relay started successfuly"),
@@ -88,6 +99,8 @@ handle_call(init_relay, _From, #state{swarm=Swarm}=State0) ->
             erlang:send_after(2500, self(), try_relay),
             {reply, _Error, next_peer(State)}
     end;
+handle_call(init_relay, _From, State) ->
+    {reply, {error, already_started}, State};
 handle_call(_Msg, _From, State) ->
     lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -100,11 +113,11 @@ handle_cast(_Msg, State) ->
     lager:debug("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({new_peers, _}, #state{started=true}=State) ->
-    {noreply, State#state{peers=sort_peers(State#state.swarm), peer_index=1}};
-handle_info({new_peers, _}, #state{swarm=Swarm, started=false}=State) ->
+handle_info({new_peers, NewPeers}, #state{started=true}=State) ->
+    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), State#state.address), peer_index=1}};
+handle_info({new_peers, NewPeers}, #state{started=false}=State) ->
     self() ! try_relay,
-    {noreply, State#state{peers=sort_peers(Swarm)}};
+    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), State#state.address)}};
 handle_info(try_relay, State = #state{started=false}) ->
     case int_relay(State) of
         {ok, _} ->
@@ -160,11 +173,8 @@ int_relay(State=#state{swarm=Swarm}) ->
     lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
     libp2p_relay:dial_framed_stream(Swarm, Address, []).
 
--spec sort_peers(pid()) -> [libp2p_peer:peer()].
-sort_peers(Swarm) ->
-    Peerbook = libp2p_swarm:peerbook(Swarm),
-    Peers0 = libp2p_peerbook:values(Peerbook),
-    SwarmAddr = libp2p_swarm:address(Swarm),
+-spec sort_peers([libp2p_peer:peer()], libp2p_crypto:address()) -> [libp2p_peer:peer()].
+sort_peers(Peers0, SwarmAddr) ->
     Peers = lists:filter(fun(E) ->
         libp2p_peer:address(E) /= SwarmAddr
     end, Peers0),
@@ -190,6 +200,11 @@ sort_peers_fun(A, B) ->
         _ ->
             true
     end.
+
+%% merge new peers into old peers based on their address
+merge_peers(NewPeers, OldPeers) ->
+    maps:values(maps:merge(maps:from_list([{libp2p_peer:address(P), P} || P <- NewPeers]),
+                           maps:from_list([{libp2p_peer:address(P), P} || P <- OldPeers]))).
 
 -spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
