@@ -399,5 +399,10 @@ group_create(SwarmName) ->
     Name.
 
 group_join(Group, Pid) ->
-    ok = pg2:join(Group, Pid),
-    ok.
+    %% only allow a pid to join once
+    case lists:member(Pid, pg2:get_members(Group)) of
+        false ->
+            ok = pg2:join(Group, Pid);
+        true ->
+            ok
+    end.
