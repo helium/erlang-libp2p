@@ -170,20 +170,22 @@ connecting(cast, {assign_target, Target}, Data=#data{}) ->
      ?TRIGGER_CONNECT_RETRY};
 connecting(info, close, Data=#data{}) ->
     {next_state, closing, cancel_connect_retry_timer(Data)};
-connecting(info, {assign_stream, StreamPid}, Data=#data{}) ->
+connecting(info, {assign_stream, StreamPid}, Data=#data{target={MAddr, _}}) ->
     %% Stream assignment can come in from an externally accepted
     %% stream or our own connct_pid. Either way we try to handle the
     %% assignment and leave pending connectes in place to avoid
     %% killing the resulting stream assignemt of too quick.
     case handle_assign_stream(StreamPid, Data) of
         {ok, NewData} ->
+            lager:debug("Assigning stream for ~p", [MAddr]),
             {next_state, connected,
-                          cancel_connect_retry_timer(NewData#data{})};
+             cancel_connect_retry_timer(NewData#data{})};
         _ -> keep_state_and_data
     end;
-connecting(info, {connect_error, _}, Data=#data{}) ->
+connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     %% On a connect error we kick of the retry timer, which will fire
     %% a connect_retry_timeout at some point.
+    lager:debug("Failed to connect to ~p: ~p", [MAddr, Error]),
     {keep_state, start_connect_retry_timer(Data)};
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
@@ -195,6 +197,7 @@ connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
     %% We could end up in a retry timeout with no target when this
     %% worker was assigned a stream without a target, and that stream
     %% died. Fallback to targeting.
+    lager:debug("No target and connect retry. Going to targeting"),
     {next_state, targeting,
      cancel_connect_retry_timer(Data#data{connect_pid=kill_pid(Data#data.connect_pid)}),
      ?TRIGGER_TARGETING};
