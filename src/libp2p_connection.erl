@@ -100,24 +100,33 @@ controlling_process(Conn=#connection{module=Module, state=State}, Pid) ->
 
 -spec mk_async_sender(pid(), libp2p_connection:connection()) -> fun().
 mk_async_sender(Handler, Connection) ->
-    fun Fun() ->
-            receive
-                {send, Ref, Data} ->
-                    case (catch libp2p_connection:send(Connection, Data)) of
-                        {'EXIT', Error} ->
-                            lager:notice("Failed sending on connection for ~p: ~p", [Handler, Error]),
-                            Handler ! {send_result, Ref, {error, Error}};
-                        Result ->
-                            Handler ! {send_result, Ref, Result}
-                    end,
-                    Fun();
-                {cast, Data} ->
-                    case (catch libp2p_connection:send(Connection, Data)) of
-                        {'EXIT', Error} ->
-                            lager:notice("Failed casting on connection for ~p: ~p", [Handler, Error]);
-                        _ ->
-                            ok
-                    end,
-                    Fun()
-            end
+    Parent = self(),
+    Sender = fun Fun() ->
+                     receive
+                         {'DOWN', _, process, Parent, _} ->
+                             ok;
+                         {send, Ref, Data} ->
+                             case (catch libp2p_connection:send(Connection, Data)) of
+                                 {'EXIT', Error} ->
+                                     lager:notice("Failed sending on connection for ~p: ~p",
+                                                  [Handler, Error]),
+                                     Handler ! {send_result, Ref, {error, Error}};
+                                 Result ->
+                                     Handler ! {send_result, Ref, Result}
+                             end,
+                             Fun();
+                         {cast, Data} ->
+                             case (catch libp2p_connection:send(Connection, Data)) of
+                                 {'EXIT', Error} ->
+                                     lager:notice("Failed casting on connection for ~p: ~p",
+                                                  [Handler, Error]);
+                                 _ ->
+                                     ok
+                             end,
+                             Fun()
+                     end
+             end,
+    fun() ->
+            erlang:monitor(process, Parent),
+            Sender()
     end.
