@@ -195,17 +195,9 @@ connecting(info, {assign_stream, StreamPid}, Data=#data{target={MAddr, _}}) ->
     end;
 connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     %% On a connect error we kick of the retry timer, which will fire
-    %% a connect_retry_timeout at some point. If we've hit the max
-    %% backoff we go back to targeting to request a new target.
+    %% a connect_retry_timeout at some point.
     lager:debug("Failed to connect to ~p: ~p", [MAddr, Error]),
-    case is_max_connect_retry_timer(Data) of
-        false ->
-            {keep_state, start_connect_retry_timer(Data)};
-        true ->
-            lager:debug("Max connect retries exceeded, going back to targeting"),
-            {next_state, targeting, cancel_connect_retry_timer(Data),
-             ?TRIGGER_TARGETING}
-    end;
+    {keep_state, start_connect_retry_timer(Data)};
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
     {keep_state, Data#data{connect_pid=undefined}};
