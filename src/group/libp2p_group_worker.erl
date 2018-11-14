@@ -22,6 +22,12 @@
 -define(TRIGGER_TARGETING, {next_event, info, targeting_timeout}).
 -define(TRIGGER_CONNECT_RETRY, {next_event, info, connect_retry_timeout}).
 
+-define(MIN_CONNECT_RETRY_TIMEOUT, 1000).
+-define(MAX_CONNECT_RETRY_TIMEOUT, 10000).
+
+-define(MIN_TARGETING_RETRY_TIMEOUT, 1000).
+-define(MAX_TARGETING_RETRY_TIMEOUT, 10000).
+
 -type target() :: {MAddr::string(), Spec::stream_client_spec()}.
 
 -record(data,
@@ -186,7 +192,13 @@ connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     %% On a connect error we kick of the retry timer, which will fire
     %% a connect_retry_timeout at some point.
     lager:debug("Failed to connect to ~p: ~p", [MAddr, Error]),
-    {keep_state, start_connect_retry_timer(Data)};
+    case is_max_connect_retry_timer(Data) of
+        false ->
+            {keep_state, start_connect_retry_timer(Data)};
+        true ->
+            {next_state, targeting, cancel_connect_retry_timer(Data),
+             ?TRIGGER_TARGETING}
+    end;
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
     {keep_state, Data#data{connect_pid=undefined}};
@@ -380,7 +392,8 @@ handle_event(EventType, Msg, #data{}) ->
 
 
 init_targeting_backoff() ->
-    backoff:type(backoff:init(1000, 10000), jitter).
+    backoff:type(backoff:init(?MIN_TARGETING_RETRY_TIMEOUT,
+                              ?MAX_TARGETING_RETRY_TIMEOUT), jitter).
 
 -spec start_targeting_timer(#data{}) -> #data{}.
 start_targeting_timer(Data=#data{target_timer=undefined}) ->
@@ -404,7 +417,8 @@ cancel_targeting_timer(Data=#data{target_timer=Timer}) ->
 
 
 init_connect_retry_backoff() ->
-    backoff:type(backoff:init(1000, 10000), jitter).
+    backoff:type(backoff:init(?MIN_CONNECT_RETRY_TIMEOUT,
+                              ?MAX_CONNECT_RETRY_TIMEOUT), jitter).
 
 start_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Delay = backoff:get(Data#data.connect_retry_backoff),
@@ -436,6 +450,10 @@ cancel_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
     {_, NewBackOff} = backoff:succeed(Data#data.connect_retry_backoff),
     Data#data{connect_retry_backoff=NewBackOff, connect_retry_timer=undefined}.
 
+
+is_max_connect_retry_timer(Data=#data{}) ->
+    Delay = backoff:get(Data#data.connect_retry_backoff),
+    Delay >= ?MAX_CONNECT_RETRY_TIMEOUT.
 
 
 update_stream(undefined, #data{stream_pid=undefined}) ->
