@@ -202,6 +202,7 @@ connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
         false ->
             {keep_state, start_connect_retry_timer(Data)};
         true ->
+            lager:debug("Max connect retries exceeded, going back to targeting"),
             {next_state, targeting, cancel_connect_retry_timer(Data),
              ?TRIGGER_TARGETING}
     end;
@@ -247,6 +248,7 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
                     end),
             {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
         true ->
+            lager:debug("Max connect retries exceeded, going back to targeting"),
             {next_state, targeting, cancel_connect_retry_timer(Data),
              ?TRIGGER_TARGETING}
     end;
