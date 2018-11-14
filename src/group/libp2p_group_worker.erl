@@ -228,18 +228,28 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
     %% on the target. We stop, but don't cancel the retry timer since
     %% we can not tell yet whether we need to back of the retries more
     %% times if we fail to connect again.
+    %%
+    %% We first check whether we've hit or max connect back of delay
+    %% and go back to targeting to see if we can acquire a better
+    %% target.
     kill_pid(ConnectPid),
-    Parent = self(),
-    Pid = spawn_link(
-            fun() ->
-                    case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
-                        {error, Error} ->
-                            Parent ! {connect_error, Error};
-                        {ok, StreamPid} ->
-                            Parent ! {assign_stream, StreamPid}
+    case is_max_connect_retry_timer(Data) of
+        false ->
+            Parent = self(),
+            Pid = spawn_link(
+                    fun() ->
+                            case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
+                                {error, Error} ->
+                                    Parent ! {connect_error, Error};
+                                {ok, StreamPid} ->
+                                    Parent ! {assign_stream, StreamPid}
                     end
-            end),
-    {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
+                    end),
+            {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
+        true ->
+            {next_state, targeting, cancel_connect_retry_timer(Data),
+             ?TRIGGER_TARGETING}
+    end;
 
 connecting(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
