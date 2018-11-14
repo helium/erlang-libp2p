@@ -257,11 +257,13 @@ connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
         _ -> keep_state_and_data
     end;
 connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, target={MAddr, _}}) ->
-    %% The stream we're using died. Let's go back to connecting
+    %% The stream we're using died. Let's go back to connecting, but
+    %% do not trigger a connect retry right away, (re-)start the
+    %% connect retry timer.
     lager:notice("Stream ~p with target ~p exited with reason ~p",
                  [StreamPid, MAddr, Reason]),
-    {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
-    ?TRIGGER_CONNECT_RETRY};
+    {next_state, connecting,
+     start_connect_retry_timer(Data#data{stream_pid=update_stream(undefined, Data)})};
 connected(cast, clear_target, Data=#data{}) ->
     %% When the target is cleared we go back to targeting after
     %% killing the current stream.
