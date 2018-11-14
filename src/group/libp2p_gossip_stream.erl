@@ -46,9 +46,11 @@ init(server, Connection, [HandlerModule, HandlerState]) ->
     %% noisily in the logs. This catch avoids that noise
     case (catch HandlerModule:accept_stream(HandlerState, Session, self())) of
         ok -> {ok, State};
-        {error, Reason} -> {stop, {error, Reason}, State};
+        {error, Reason} ->
+            lager:warning("Stopping on accept stream error: ~p", Reason),
+            {stop, {error, Reason}, State};
         Exit={'EXIT', _} ->
-            lager:warning("Stopping on accept_stream error: ~s",
+            lager:warning("Stopping on accept_stream exit: ~s",
                           [error_logger_lager_h:format_reason(Exit)]),
             {stop, normal, State}
     end;

@@ -189,7 +189,8 @@ handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=Drop
             lager:debug("Timeout dropping 1 connection: ~p]", [Worker#worker.target]),
             {noreply, drop_target(Worker, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
     end;
-handle_info({handle_identify, {From, _StreamPid}, {error, Error}}, State=#state{}) ->
+handle_info({handle_identify, {From, StreamPid}, {error, Error}}, State=#state{}) ->
+    lager:notice("Failed to identify stream ~p: ~p", [StreamPid, Error]),
     gen_server:reply(From, {error, Error}),
     {noreply, State};
 handle_info({handle_identify, {From, StreamPid}, {ok, Identify}}, State=#state{}) ->
@@ -201,6 +202,8 @@ handle_info({handle_identify, {From, StreamPid}, {ok, Identify}}, State=#state{}
         false ->
             case count_workers(inbound, State) > State#state.max_inbound_connections of
                 true ->
+                    lager:notice("Too many inbound workers: ~p",
+                                 [State#state.max_inbound_connections]),
                     gen_server:reply(From, {error, too_many}),
                     {noreply, State};
                 false ->
