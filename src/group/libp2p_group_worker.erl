@@ -280,6 +280,7 @@ connected(info, close, Data=#data{}) ->
     %% terminate this worker.
     {next_state, closing, Data};
 connected(info, connect_retry_cancel_timeout, Data=#data{}) ->
+    lager:debug("Cancel connect retry backoff in connected"),
     {keep_state, cancel_connect_retry_timer(Data)};
 
 connected(EventType, Msg, Data) ->
