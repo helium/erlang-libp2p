@@ -56,4 +56,5 @@ handle_data(client, Data, State=#state{}) ->
 
 handle_info(client, identify_timeout, State=#state{}) ->
     State#state.handler ! {handle_identify, State#state.session, {error, timeout}},
+    lager:notice("Identify timed out"),
     {stop, normal, State}.

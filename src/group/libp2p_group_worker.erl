@@ -22,8 +22,9 @@
 -define(TRIGGER_TARGETING, {next_event, info, targeting_timeout}).
 -define(TRIGGER_CONNECT_RETRY, {next_event, info, connect_retry_timeout}).
 
--define(MIN_CONNECT_RETRY_TIMEOUT, 1000).
--define(MAX_CONNECT_RETRY_TIMEOUT, 10000).
+-define(MIN_CONNECT_RETRY_TIMEOUT, 5000).
+-define(MAX_CONNECT_RETRY_TIMEOUT, 20000).
+-define(CONNECT_RETRY_CANCEL_TIMEOUT, 10000).
 
 -define(MIN_TARGETING_RETRY_TIMEOUT, 1000).
 -define(MAX_TARGETING_RETRY_TIMEOUT, 10000).
@@ -43,6 +44,7 @@
           connect_pid=undefined :: undefined | pid(),
           connect_retry_timer=undefined :: undefined | reference(),
           connect_retry_backoff :: backoff:backoff(),
+          connect_retry_cancel_timer=undefined :: undefined | reference(),
           %% Stream we're managing
           stream_pid=undefined :: undefined | pid()
         }).
@@ -179,26 +181,23 @@ connecting(info, close, Data=#data{}) ->
 connecting(info, {assign_stream, StreamPid}, Data=#data{target={MAddr, _}}) ->
     %% Stream assignment can come in from an externally accepted
     %% stream or our own connct_pid. Either way we try to handle the
-    %% assignment and leave pending connectes in place to avoid
+    %% assignment and leave pending connects in place to avoid
     %% killing the resulting stream assignemt of too quick.
     case handle_assign_stream(StreamPid, Data) of
         {ok, NewData} ->
             lager:debug("Assigning stream for ~p", [MAddr]),
             {next_state, connected,
-             cancel_connect_retry_timer(NewData#data{})};
+             %% Go the the connected state but delay the reset of the
+             %% backoff until we've been in the connected state for
+             %% some period of time.
+             delayed_cancel_connect_retry_timer(stop_connect_retry_timer(NewData))};
         _ -> keep_state_and_data
     end;
 connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     %% On a connect error we kick of the retry timer, which will fire
     %% a connect_retry_timeout at some point.
     lager:debug("Failed to connect to ~p: ~p", [MAddr, Error]),
-    case is_max_connect_retry_timer(Data) of
-        false ->
-            {keep_state, start_connect_retry_timer(Data)};
-        true ->
-            {next_state, targeting, cancel_connect_retry_timer(Data),
-             ?TRIGGER_TARGETING}
-    end;
+    {keep_state, start_connect_retry_timer(Data)};
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
     {keep_state, Data#data{connect_pid=undefined}};
@@ -222,18 +221,29 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
     %% on the target. We stop, but don't cancel the retry timer since
     %% we can not tell yet whether we need to back of the retries more
     %% times if we fail to connect again.
+    %%
+    %% We first check whether we've hit or max connect back of delay
+    %% and go back to targeting to see if we can acquire a better
+    %% target.
     kill_pid(ConnectPid),
-    Parent = self(),
-    Pid = spawn_link(
-            fun() ->
-                    case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
-                        {error, Error} ->
-                            Parent ! {connect_error, Error};
-                        {ok, StreamPid} ->
-                            Parent ! {assign_stream, StreamPid}
+    case is_max_connect_retry_timer(Data) of
+        false ->
+            Parent = self(),
+            Pid = spawn_link(
+                    fun() ->
+                            case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
+                                {error, Error} ->
+                                    Parent ! {connect_error, Error};
+                                {ok, StreamPid} ->
+                                    Parent ! {assign_stream, StreamPid}
                     end
-            end),
-    {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
+                    end),
+            {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
+        true ->
+            lager:debug("Max connect retries exceeded, going back to targeting"),
+            {next_state, targeting, cancel_connect_retry_timer(Data),
+             ?TRIGGER_TARGETING}
+    end;
 
 connecting(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
@@ -250,11 +260,14 @@ connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
         {ok, NewData} -> {keep_state, NewData};
         _ -> keep_state_and_data
     end;
-connected(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
-    %% The stream we're using died. Let's go back to connecting
-    lager:notice("Stream ~p exited with reason ~p", [StreamPid, _Reason]),
-    {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
-    ?TRIGGER_CONNECT_RETRY};
+connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, target={MAddr, _}}) ->
+    %% The stream we're using died. Let's go back to connecting, but
+    %% do not trigger a connect retry right away, (re-)start the
+    %% connect retry timer.
+    lager:notice("Stream ~p with target ~p exited with reason ~p",
+                 [StreamPid, MAddr, Reason]),
+    {next_state, connecting,
+     start_connect_retry_timer(Data#data{stream_pid=update_stream(undefined, Data)})};
 connected(cast, clear_target, Data=#data{}) ->
     %% When the target is cleared we go back to targeting after
     %% killing the current stream.
@@ -272,6 +285,9 @@ connected(info, close, Data=#data{}) ->
     %% alive for any pending messages until the server decides to
     %% terminate this worker.
     {next_state, closing, Data};
+connected(info, connect_retry_cancel_timeout, Data=#data{}) ->
+    lager:debug("Cancel connect retry backoff in connected"),
+    {keep_state, cancel_connect_retry_timer(Data)};
 
 connected(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
@@ -306,9 +322,9 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     %% If send_pid known we have an existing stream. Do not replace.
     case rand:uniform(2) of
         1 ->
-            %% lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
-            %%             [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-            %%              _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
+                        [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                         _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
@@ -350,6 +366,9 @@ handle_event(info, targeting_timeout, #data{}) ->
     keep_state_and_data;
 handle_event(info, connect_retry_timeout, #data{}) ->
     %% ignore, handled only by `connecting'
+    keep_state_and_data;
+handle_event(info, connect_retry_cancel_timeout, #data{}) ->
+    %% ignore, handled only by `connected'
     keep_state_and_data;
 handle_event(info, {connect_error, _}, #data{}) ->
     %% ignore. handled only by `connecting'
@@ -393,7 +412,7 @@ handle_event(EventType, Msg, #data{}) ->
 
 init_targeting_backoff() ->
     backoff:type(backoff:init(?MIN_TARGETING_RETRY_TIMEOUT,
-                              ?MAX_TARGETING_RETRY_TIMEOUT), jitter).
+                              ?MAX_TARGETING_RETRY_TIMEOUT), normal).
 
 -spec start_targeting_timer(#data{}) -> #data{}.
 start_targeting_timer(Data=#data{target_timer=undefined}) ->
@@ -418,7 +437,7 @@ cancel_targeting_timer(Data=#data{target_timer=Timer}) ->
 
 init_connect_retry_backoff() ->
     backoff:type(backoff:init(?MIN_CONNECT_RETRY_TIMEOUT,
-                              ?MAX_CONNECT_RETRY_TIMEOUT), jitter).
+                              ?MAX_CONNECT_RETRY_TIMEOUT), normal).
 
 start_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Delay = backoff:get(Data#data.connect_retry_backoff),
@@ -449,6 +468,17 @@ cancel_connect_retry_timer(Data=#data{connect_retry_timer=Timer}) ->
     erlang:cancel_timer(Timer),
     {_, NewBackOff} = backoff:succeed(Data#data.connect_retry_backoff),
     Data#data{connect_retry_backoff=NewBackOff, connect_retry_timer=undefined}.
+
+
+delayed_cancel_connect_retry_timer(Data=#data{connect_retry_cancel_timer=undefined}) ->
+    Timer = erlang:send_after(?CONNECT_RETRY_CANCEL_TIMEOUT,
+                              self(), connect_retry_cancel_timeout),
+    Data#data{connect_retry_cancel_timer=Timer};
+delayed_cancel_connect_retry_timer(Data=#data{connect_retry_cancel_timer=CurrentTimer}) ->
+    erlang:cancel_timer(CurrentTimer),
+    Timer = erlang:send_after(?CONNECT_RETRY_CANCEL_TIMEOUT,
+                              self(), connect_retry_cancel_timeout),
+    Data#data{connect_retry_cancel_timer=Timer}.
 
 
 is_max_connect_retry_timer(Data=#data{}) ->

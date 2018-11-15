@@ -218,6 +218,7 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
             {keep_state, Data#state{close_state=pending}};
         false ->
             %% No more data to deliver, shut down
+            lager:debug("Remote end closed and no more receivable data, stopping"),
             {stop, normal, notify_inert(Data)}
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
