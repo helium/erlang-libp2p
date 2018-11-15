@@ -412,7 +412,7 @@ handle_event(EventType, Msg, #data{}) ->
 
 init_targeting_backoff() ->
     backoff:type(backoff:init(?MIN_TARGETING_RETRY_TIMEOUT,
-                              ?MAX_TARGETING_RETRY_TIMEOUT), jitter).
+                              ?MAX_TARGETING_RETRY_TIMEOUT), normal).
 
 -spec start_targeting_timer(#data{}) -> #data{}.
 start_targeting_timer(Data=#data{target_timer=undefined}) ->
@@ -437,7 +437,7 @@ cancel_targeting_timer(Data=#data{target_timer=Timer}) ->
 
 init_connect_retry_backoff() ->
     backoff:type(backoff:init(?MIN_CONNECT_RETRY_TIMEOUT,
-                              ?MAX_CONNECT_RETRY_TIMEOUT), jitter).
+                              ?MAX_CONNECT_RETRY_TIMEOUT), normal).
 
 start_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Delay = backoff:get(Data#data.connect_retry_backoff),
