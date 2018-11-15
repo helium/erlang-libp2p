@@ -72,6 +72,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
                                              handler_opt=HandlerOpt}) ->
     case libp2p_multistream:read(Conn) of
         {error, timeout} ->
+            lager:debug("Timeout reading from multistream"),
             {stop, normal, State};
         {error, Reason} ->
             {stop, {error, Reason}, State};
