@@ -37,7 +37,7 @@ info(GroupPid) ->
     gen_server:call(Server, info).
 
 %% @doc Get the messages queued in the relcast server.
--spec queues(pid()) -> map().
+-spec queues(pid()) -> relcast:status().
 queues(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
     gen_server:call(Server, dump_queues).
