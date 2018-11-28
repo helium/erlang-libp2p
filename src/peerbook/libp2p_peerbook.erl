@@ -332,7 +332,8 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
     State#state{notify_peers=#{}}.
 
 
-
+%% rocksdb has a bad spec that doesn't list corruption as a valid return
+%% so this is here until that gets fixed
 -dialyzer({nowarn_function, unsafe_fetch_peer/2}).
 -spec unsafe_fetch_peer(libp2p_crypto:address() | undefined, #state{})
                        -> {ok, libp2p_peer:peer()} | {error, term()}.
