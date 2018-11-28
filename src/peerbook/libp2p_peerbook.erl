@@ -333,6 +333,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 
 
 
+-dialyzer({nowarn_function, unsafe_fetch_peer/2}).
 -spec unsafe_fetch_peer(libp2p_crypto:address() | undefined, #state{})
                        -> {ok, libp2p_peer:peer()} | {error, term()}.
 unsafe_fetch_peer(undefined, _) ->
@@ -340,6 +341,9 @@ unsafe_fetch_peer(undefined, _) ->
 unsafe_fetch_peer(ID, #state{store=Store}) ->
     case rocksdb:get(Store, ID, []) of
         {ok, Bin} -> {ok, libp2p_peer:decode(Bin)};
+        %% we can get 'corruption' when the system time is not at least 05/09/2013:5:40PM GMT-8
+        %% https://github.com/facebook/rocksdb/blob/4decff6fa8c4d46e905a66d439394c4bfb889a69/utilities/ttl/db_ttl_impl.cc#L154
+        corruption -> {error, not_found};
         not_found -> {error, not_found}
     end.
 
