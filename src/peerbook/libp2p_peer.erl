@@ -6,19 +6,20 @@
 -type peer_map() :: #{ address => libp2p_crypto:address(),
                        listen_addrs => [string()],
                        connected => [binary()],
-                       nat_type => nat_type()
+                       nat_type => nat_type(),
+                       associations => [association()]
                      }.
 -type peer() :: #libp2p_signed_peer_pb{}.
 -type association() :: #libp2p_association_pb{}.
 -type metadata() :: [{string(), binary()}].
--export_type([peer/0, map/0, nat_type/0]).
+-export_type([peer/0, association/0, peer_map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
          address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2]).
 %% associations
 -export([associations/1, mk_association/3, association_verify/2,
-         association_address/1, association_signature/1]).
+         is_association/2, association_address/1, association_signature/1]).
 %% metadata (unsigned!)
 -export([metadata/1, metadata_set/2, metadata_put/3, metadata_get/3]).
 %% blacklist (unsigned!)
@@ -180,16 +181,24 @@ cleared_listen_addrs(Peer=#libp2p_signed_peer_pb{}) ->
 associations(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) ->
     Assocs.
 
+%% @doc Checks whether a given peer has an association stored with the
+%% given assocation address
+-spec is_association(peer(), libp2p_crypto:address()) -> boolean().
+is_association(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}, Addr) ->
+    lists:any(fun(Assoc) ->
+                      association_address(Assoc) == Addr
+              end, Assocs).
 
 %% @doc Make an association for a given peer address. The returned
-%% association contains the given public key and the given peer
-%% address signed with the passed in signature function.
--spec mk_association(PubKey::libp2p_crypto:address(),
+%% association contains the given assocation address and the given
+%% peer address signed with the passed in association provided
+%% signature function.
+-spec mk_association(AssocAddr::libp2p_crypto:address(),
                      PeerAddr::libp2p_crypto:address(),
-                     SigFun::libp2p_crypto:sig_fun()) -> association().
-mk_association(PubKey, PeerAddr, SigFun) ->
-    #libp2p_association_pb{address=PubKey,
-                           signature=SigFun(PeerAddr)
+                     AssocSigFun::libp2p_crypto:sig_fun()) -> association().
+mk_association(AssocAddr, PeerAddr, AssocSigFun) ->
+    #libp2p_association_pb{address=AssocAddr,
+                           signature=AssocSigFun(PeerAddr)
                           }.
 
 -spec association_address(association()) -> libp2p_crypto:address().
@@ -200,11 +209,10 @@ association_address(#libp2p_association_pb{address=Address}) ->
 association_signature(#libp2p_association_pb{signature=Signature}) ->
     Signature.
 
--spec association_verify(association(), peer()) -> boolean().
-association_verify(Assoc=#libp2p_association_pb{}, Peer=#libp2p_signed_peer_pb{}) ->
+-spec association_verify(association(), libp2p_crypto:address()) -> boolean().
+association_verify(Assoc=#libp2p_association_pb{}, Address) ->
     PubKey = libp2p_crypto:address_to_pubkey(association_address(Assoc)),
-    Data = address(Peer),
-    case public_key:verify(Data, sha256, association_signature(Assoc), PubKey) of
+    case public_key:verify(Address, sha256, association_signature(Assoc), PubKey) of
         true -> true;
         false -> error(invalid_association_signature)
     end.
@@ -238,11 +246,11 @@ decode(Bin) ->
 -spec verify(peer()) -> peer().
 verify(Msg=#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{}, signature=Signature}) ->
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
-    PubKey = libp2p_crypto:address_to_pubkey(Peer#libp2p_peer_pb.address),
+    PubKey = libp2p_crypto:address_to_pubkey(address(Msg)),
     case public_key:verify(EncodedPeer, sha256, Signature, PubKey) of
         true ->
             lists:all(fun(Assoc) ->
-                              association_verify(Assoc, Msg)
+                              association_verify(Assoc, address(Msg))
                       end, associations(Msg)),
             Msg;
         false -> error(invalid_signature)

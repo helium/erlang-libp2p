@@ -3,7 +3,8 @@
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
          join_notify/2, changed_listener/1, update_nat_type/2,
-         register_session/3, unregister_session/2, blacklist_listen_addr/3]).
+         register_session/3, unregister_session/2, blacklist_listen_addr/3,
+         add_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/2, init_gossip_data/1]).
 
@@ -28,6 +29,7 @@
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:address() => libp2p_peer:peer()},
           sessions=[] :: [{libp2p_crypto:address(), pid()}],
+          associations=[] :: [libp2p_peer:association()],
           sigfun :: fun((binary()) -> binary())
         }).
 
@@ -94,6 +96,11 @@ changed_listener(Pid) ->
 -spec update_nat_type(pid(), libp2p_peer:nat_type()) -> ok.
 update_nat_type(Pid, NatType) ->
     gen_server:cast(Pid, {update_nat_type, NatType}).
+
+-spec add_association(pid(), AssocAddress::libp2p_crypto:address(),
+                      AssocSigFun::libp2p_crypto:sig_fun()) -> ok.
+add_association(Pid, Address, SigFun) ->
+    gen_server:cast(Pid, {add_association, Address, SigFun}).
 
 %%
 %% Gossip Group
@@ -217,6 +224,17 @@ handle_cast(changed_listener, State=#state{}) ->
     {noreply, update_this_peer(State)};
 handle_cast({update_nat_type, UpdatedNatType}, State=#state{}) ->
     {noreply, update_this_peer(State#state{nat_type=UpdatedNatType})};
+handle_cast({add_association, AssocAddress, AssocSigFun}, State=#state{associations=Associations}) ->
+    SwarmAddr = libp2p_swarm:address(State#state.tid),
+    case lists:any(fun(Assoc) ->
+                           libp2p_peer:association_address(Assoc) == AssocAddress
+                   end, Associations) of
+        true ->
+            {noreply, State};
+        false ->
+            NewAssoc = libp2p_peer:mk_association(AssocAddress, SwarmAddr, AssocSigFun),
+            {noreply, update_this_peer(State#state{associations=[NewAssoc | Associations]})}
+    end;
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
@@ -254,10 +272,12 @@ mk_this_peer(State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:address(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
+    Associations = State#state.associations,
     libp2p_peer:from_map(#{ address => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
-                            nat_type => State#state.nat_type},
+                            nat_type => State#state.nat_type,
+                            associations => Associations},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.

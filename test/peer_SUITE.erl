@@ -118,17 +118,17 @@ association_test(_) ->
                 nat_type => static},
 
     {ok, AssocPrivKey1, AssocPubKey1} = ecc_compact:generate_key(),
-    ValidAssociations = [libp2p_peer:mk_association(AssocPubKey1, PubKey1,
-                                                    libp2p_crypto:mk_sig_fun(AssocPrivKey1))
-                        ],
-    ValidPeer = libp2p_peer:from_map(PeerMap#{associations => ValidAssociations}, SigFun1),
+    ValidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1,
+                                            libp2p_crypto:mk_sig_fun(AssocPrivKey1)),
+    ValidPeer = libp2p_peer:from_map(PeerMap#{associations => [ValidAssoc]}, SigFun1),
 
-    ?assertEqual(ValidAssociations, libp2p_peer:associations(ValidPeer)),
+    ?assert(libp2p_peer:is_association(ValidPeer, AssocPubKey1)),
+    ?assert(not libp2p_peer:is_association(ValidPeer, PubKey1)),
+    ?assertEqual([ValidAssoc], libp2p_peer:associations(ValidPeer)),
 
     %% Make an association signed with the wrong private key
-     InvalidAssociations = [libp2p_peer:mk_association(AssocPubKey1, PubKey1, SigFun1)
-                        ],
-    InvalidPeer = libp2p_peer:from_map(PeerMap#{associations => InvalidAssociations}, SigFun1),
+     InvalidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1, SigFun1),
+    InvalidPeer = libp2p_peer:from_map(PeerMap#{associations => [InvalidAssoc]}, SigFun1),
 
     ?assertError(invalid_association_signature, libp2p_peer:verify(InvalidPeer)),
 
