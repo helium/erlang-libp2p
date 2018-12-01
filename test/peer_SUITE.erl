@@ -4,12 +4,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([all/0]).
--export([coding_test/1, metadata_test/1, blacklist_test/1]).
+-export([coding_test/1, metadata_test/1, blacklist_test/1, association_test/1]).
 
 all() ->
     [coding_test,
      metadata_test,
-     blacklist_test].
+     blacklist_test,
+     association_test
+    ].
 
 coding_test(_) ->
     {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
@@ -17,10 +19,16 @@ coding_test(_) ->
     SigFun1 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey1) end,
     SigFun2 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey2) end,
 
+    {ok, AssocPrivKey1, AssocPubKey1} = ecc_compact:generate_key(),
+    AssocSigFun1 = fun(Bin) -> public_key:sign(Bin, sha256, AssocPrivKey1) end,
+    Associations = [libp2p_peer:mk_association(AssocPubKey1, PubKey1, AssocSigFun1)
+                   ],
     Peer1Map = #{address => PubKey1,
                  listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                  connected => [PubKey2],
-                 nat_type => static},
+                 nat_type => static,
+                 associations => Associations
+                },
     Peer1 = libp2p_peer:from_map(Peer1Map, SigFun1),
 
     DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer1)),
@@ -31,6 +39,7 @@ coding_test(_) ->
     ?assert(libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer)),
     ?assert(libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer)),
     ?assert(libp2p_peer:metadata(Peer1) == libp2p_peer:metadata(DecodedPeer)),
+    ?assert(libp2p_peer:associations(Peer1) == libp2p_peer:associations(DecodedPeer)),
 
     ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
@@ -96,5 +105,31 @@ blacklist_test(_) ->
     ?assertEqual([BadListenAddr], libp2p_peer:blacklist(MPeer)),
     ?assert(libp2p_peer:is_blacklisted(MPeer, BadListenAddr)),
     ?assertEqual([GoodListenAddr], libp2p_peer:cleared_listen_addrs(MPeer)),
+
+    ok.
+
+association_test(_) ->
+    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
+    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
+
+    PeerMap = #{address => PubKey1,
+                listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                connected => [],
+                nat_type => static},
+
+    {ok, AssocPrivKey1, AssocPubKey1} = ecc_compact:generate_key(),
+    ValidAssociations = [libp2p_peer:mk_association(AssocPubKey1, PubKey1,
+                                                    libp2p_crypto:mk_sig_fun(AssocPrivKey1))
+                        ],
+    ValidPeer = libp2p_peer:from_map(PeerMap#{associations => ValidAssociations}, SigFun1),
+
+    ?assertEqual(ValidAssociations, libp2p_peer:associations(ValidPeer)),
+
+    %% Make an association signed with the wrong private key
+     InvalidAssociations = [libp2p_peer:mk_association(AssocPubKey1, PubKey1, SigFun1)
+                        ],
+    InvalidPeer = libp2p_peer:from_map(PeerMap#{associations => InvalidAssociations}, SigFun1),
+
+    ?assertError(invalid_association_signature, libp2p_peer:verify(InvalidPeer)),
 
     ok.

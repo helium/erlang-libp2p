@@ -9,15 +9,19 @@
                        nat_type => nat_type()
                      }.
 -type peer() :: #libp2p_signed_peer_pb{}.
+-type association() :: #libp2p_association_pb{}.
 -type metadata() :: [{string(), binary()}].
 -export_type([peer/0, map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
          address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2]).
-%% metadata
+%% associations
+-export([associations/1, mk_association/3, association_verify/2,
+         association_address/1, association_signature/1]).
+%% metadata (unsigned!)
 -export([metadata/1, metadata_set/2, metadata_put/3, metadata_get/3]).
-%% blacklist
+%% blacklist (unsigned!)
 -export([blacklist/1, is_blacklisted/2,
          blacklist_set/2, blacklist_add/2,
          cleared_listen_addrs/1]).
@@ -28,11 +32,14 @@ from_map(Map, SigFun) ->
                     no_entry -> erlang:system_time(millisecond);
                     V -> V
                 end,
+    %% NOTE: When you add fields to the peer definition ensure a
+    %% corresponding update to is_similar/2
     Peer = #libp2p_peer_pb{address=maps:get(address, Map),
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
                            connected = maps:get(connected, Map),
                            nat_type=maps:get(nat_type, Map),
-                           timestamp=Timestamp},
+                           timestamp=Timestamp,
+                           associations=maps:get(associations, Map, [])},
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
     Signature = SigFun(EncodedPeer),
     #libp2p_signed_peer_pb{peer=Peer, signature=Signature}.
@@ -100,7 +107,7 @@ supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}}
     ThisTimestamp > OtherTimestamp.
 
 %% @doc Returns whether a given `Target` is mostly equal to an `Other`
-%% peer. Similarity means equality foro all fields, except for the
+%% peer. Similarity means equality for all fields, except for the
 %% timestamp of the peers.
 -spec is_similar(Target::peer(), Other::peer()) -> boolean().
 is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
@@ -108,7 +115,8 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
     address(Target) == address(Other)
         andalso nat_type(Target) == nat_type(Other)
         andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
-        andalso sets:from_list(connected_peers(Target)) == sets:from_list(connected_peers(Other)).
+        andalso sets:from_list(connected_peers(Target)) == sets:from_list(connected_peers(Other))
+        andalso sets:from_list(associations(Target)) == sets:from_list(associations(Other)).
 
 %% @doc Returns whether a given peer is stale relative to a given
 %% stale delta time in milliseconds.
@@ -163,6 +171,44 @@ cleared_listen_addrs(Peer=#libp2p_signed_peer_pb{}) ->
     sets:to_list(sets:subtract(sets:from_list(listen_addrs(Peer)),
                                sets:from_list(blacklist(Peer)))).
 
+%% @doc Returns the associations for this peer. An association
+%% associates a public key (crypto-address) with a signature of the
+%% swarm address in the peer, using the private ke yof that public
+%% keyof the swarm. This association proves that the given address has
+%% control of the private associated with that given address.
+-spec associations(peer()) -> [association()].
+associations(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) ->
+    Assocs.
+
+
+%% @doc Make an association for a given peer address. The returned
+%% association contains the given public key and the given peer
+%% address signed with the passed in signature function.
+-spec mk_association(PubKey::libp2p_crypto:address(),
+                     PeerAddr::libp2p_crypto:address(),
+                     SigFun::libp2p_crypto:sig_fun()) -> association().
+mk_association(PubKey, PeerAddr, SigFun) ->
+    #libp2p_association_pb{address=PubKey,
+                           signature=SigFun(PeerAddr)
+                          }.
+
+-spec association_address(association()) -> libp2p_crypto:address().
+association_address(#libp2p_association_pb{address=Address}) ->
+    Address.
+
+-spec association_signature(association()) -> binary().
+association_signature(#libp2p_association_pb{signature=Signature}) ->
+    Signature.
+
+-spec association_verify(association(), peer()) -> boolean().
+association_verify(Assoc=#libp2p_association_pb{}, Peer=#libp2p_signed_peer_pb{}) ->
+    PubKey = libp2p_crypto:address_to_pubkey(association_address(Assoc)),
+    Data = address(Peer),
+    case public_key:verify(Data, sha256, association_signature(Assoc), PubKey) of
+        true -> true;
+        false -> error(invalid_association_signature)
+    end.
+
 %% @doc Encodes the given peer into its binary form.
 -spec encode(peer()) -> binary().
 encode(Msg=#libp2p_signed_peer_pb{}) ->
@@ -194,6 +240,10 @@ verify(Msg=#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{}, signature=Signatu
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
     PubKey = libp2p_crypto:address_to_pubkey(Peer#libp2p_peer_pb.address),
     case public_key:verify(EncodedPeer, sha256, Signature, PubKey) of
-        true -> Msg;
+        true ->
+            lists:all(fun(Assoc) ->
+                              association_verify(Assoc, Msg)
+                      end, associations(Msg)),
+            Msg;
         false -> error(invalid_signature)
     end.
