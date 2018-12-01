@@ -97,6 +97,11 @@ changed_listener(Pid) ->
 update_nat_type(Pid, NatType) ->
     gen_server:cast(Pid, {update_nat_type, NatType}).
 
+%% @doc Associates a given crypto address with the peerbook entry for
+%% the swarm this peerbook is part of. An association contain a
+%% signature over the swarm address to attest that the given
+%% `AssocAddress' owns the assoicated private key. Associations are
+%% gossiped with the peer record for the swarm.
 -spec add_association(pid(), AssocAddress::libp2p_crypto:address(),
                       AssocSigFun::libp2p_crypto:sig_fun()) -> ok.
 add_association(Pid, Address, SigFun) ->
