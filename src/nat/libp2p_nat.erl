@@ -145,9 +145,9 @@ add_port_mapping(_Context, _Port, 0) ->
 add_port_mapping(Context, Port, Retry) ->
     {Lease0, ExtPort} = retry_matrix(Retry, Port),
     case nat:add_port_mapping(Context, tcp, Port, ExtPort, Lease0) of
-        {ok, Since, Port, ExtPort, Lease1} ->
+        {ok, Since, Port, ExtPort1, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
-            {ok, ExternalAddress, ExtPort, Lease1, Since};
+            {ok, ExternalAddress, ExtPort1, Lease1, Since};
         {error, _Reason} ->
             lager:warning("failed to add port mapping for ~p: ~p", [{ExtPort, Lease0}, _Reason]),
             add_port_mapping(Context, Port, Retry-1)
