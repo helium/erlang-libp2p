@@ -14,7 +14,11 @@ message peer {
     repeated bytes connected = 3;
     nat_type nat_type = 4;
     int64 timestamp = 5;
-    repeated association associations = 6;
+    map<string, association_list> associations = 6;
+}
+
+message association_list {
+    repeated association associations = 1;
 }
 
 message association {

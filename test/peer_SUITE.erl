@@ -27,7 +27,7 @@ coding_test(_) ->
                  listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                  connected => [PubKey2],
                  nat_type => static,
-                 associations => Associations
+                 associations => [{"wallet", Associations}]
                 },
     Peer1 = libp2p_peer:from_map(Peer1Map, SigFun1),
 
@@ -39,7 +39,7 @@ coding_test(_) ->
     ?assert(libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer)),
     ?assert(libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer)),
     ?assert(libp2p_peer:metadata(Peer1) == libp2p_peer:metadata(DecodedPeer)),
-    ?assert(libp2p_peer:associations(Peer1) == libp2p_peer:associations(DecodedPeer)),
+    ?assert(libp2p_peer:association_addrs(Peer1) == libp2p_peer:association_addrs(DecodedPeer)),
 
     ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
@@ -120,15 +120,25 @@ association_test(_) ->
     {ok, AssocPrivKey1, AssocPubKey1} = ecc_compact:generate_key(),
     ValidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1,
                                             libp2p_crypto:mk_sig_fun(AssocPrivKey1)),
-    ValidPeer = libp2p_peer:from_map(PeerMap#{associations => [ValidAssoc]}, SigFun1),
+    ValidPeer = libp2p_peer:from_map(PeerMap#{associations => [{"wallet", [ValidAssoc]}]}, SigFun1),
 
-    ?assert(libp2p_peer:is_association(ValidPeer, AssocPubKey1)),
-    ?assert(not libp2p_peer:is_association(ValidPeer, PubKey1)),
-    ?assertEqual([ValidAssoc], libp2p_peer:associations(ValidPeer)),
+    ?assert(libp2p_peer:is_association(ValidPeer, "wallet", AssocPubKey1)),
+    ?assert(not libp2p_peer:is_association(ValidPeer, "wallet", PubKey1)),
+    ?assert(not libp2p_peer:is_association(ValidPeer, "no_such_type", PubKey1)),
+    ?assertEqual([{"wallet", [AssocPubKey1]}], libp2p_peer:association_addrs(ValidPeer)),
+    ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer, "wallet")),
+    ?assertEqual([{"wallet", [ValidAssoc]}], libp2p_peer:associations(ValidPeer)),
+    ?assert(libp2p_peer:verify(ValidPeer)),
+
+    %% Setting the same association dedupes
+    ValidPeer2 = libp2p_peer:associations_put(ValidPeer, "wallet", ValidAssoc, SigFun1),
+    ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer2, "wallet")),
 
     %% Make an association signed with the wrong private key
-     InvalidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1, SigFun1),
-    InvalidPeer = libp2p_peer:from_map(PeerMap#{associations => [InvalidAssoc]}, SigFun1),
+    InvalidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1, SigFun1),
+    InvalidPeer = libp2p_peer:associations_put(ValidPeer, "wallet", InvalidAssoc, SigFun1),
+    ?assert(libp2p_peer:is_association(InvalidPeer, "wallet", AssocPubKey1)),
+    ?assertEqual([InvalidAssoc], libp2p_peer:associations_get(InvalidPeer, "wallet")),
 
     ?assertError(invalid_association_signature, libp2p_peer:verify(InvalidPeer)),
 
