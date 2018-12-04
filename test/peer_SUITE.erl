@@ -130,6 +130,9 @@ association_test(_) ->
     ?assertEqual([{"wallet", [ValidAssoc]}], libp2p_peer:associations(ValidPeer)),
     ?assert(libp2p_peer:verify(ValidPeer)),
 
+    EncodedValidAssoc = libp2p_peer:association_encode(ValidAssoc),
+    ?assertEqual(ValidAssoc, libp2p_peer:association_decode(EncodedValidAssoc, PubKey1)),
+
     %% Setting the same association dedupes
     ValidPeer2 = libp2p_peer:associations_put(ValidPeer, "wallet", ValidAssoc, SigFun1),
     ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer2, "wallet")),
