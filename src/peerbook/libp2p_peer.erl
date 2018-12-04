@@ -21,7 +21,8 @@
 %% associations
 -export([associations/1, association_addrs/1, associations_set/4, associations_get/2, associations_put/4,
          is_association/3, association_address/1, association_signature/1,
-         mk_association/3, association_verify/2]).
+         mk_association/3, association_verify/2,
+         association_encode/1, association_decode/2]).
 %% metadata (unsigned!)
 -export([metadata/1, metadata_set/2, metadata_put/3, metadata_get/3]).
 %% blacklist (unsigned!)
@@ -201,6 +202,19 @@ association_verify(Assoc=#libp2p_association_pb{}, Address) ->
         true -> true;
         false -> error(invalid_association_signature)
     end.
+
+%% @doc Encodes the given association to it's binary form
+-spec association_encode(association()) -> binary().
+association_encode(Msg=#libp2p_association_pb{}) ->
+    libp2p_peer_pb:encode_msg(Msg).
+
+%% @doc Decodes the given binary to an association and verifies it
+%% against the given peer address.
+-spec association_decode(binary(), PeerAddr::libp2p_crypto:address()) -> binary().
+association_decode(Bin, PeerAddr) ->
+    Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_association_pb),
+    true = association_verify(Msg,PeerAddr),
+    Msg.
 
 %% @doc Returns whether a given `Target' is more recent than `Other'
 -spec supersedes(Target::peer(), Other::peer()) -> boolean().

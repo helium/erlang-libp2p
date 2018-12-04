@@ -140,14 +140,15 @@ association_test(Config) ->
 
     {ok, AssocPrivKey, AssocPubKey} = ecc_compact:generate_key(),
     AssocSigFun = libp2p_crypto:mk_sig_fun(AssocPrivKey),
+    Assoc = libp2p_peer:mk_association(AssocPubKey, Address, AssocSigFun),
 
-    ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", AssocPubKey, AssocSigFun)),
+    ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
 
     {ok, ThisPeer} = libp2p_peerbook:get(PeerBook, Address),
     ?assert(libp2p_peer:is_association(ThisPeer, "wallet", AssocPubKey)),
 
     %% Adding the same association twice should dedupe
-    ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", AssocPubKey, AssocSigFun)),
+    ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
     {ok, ThisPeer2} = libp2p_peerbook:get(PeerBook, Address),
     ?assertEqual(1, length(libp2p_peer:associations_get(ThisPeer2, "wallet"))),
 

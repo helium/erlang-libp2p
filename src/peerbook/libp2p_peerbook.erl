@@ -4,7 +4,7 @@
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
-         add_association/4, lookup_association/3]).
+         add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/2, init_gossip_data/1]).
 
@@ -96,19 +96,18 @@ changed_listener(Pid) ->
 update_nat_type(Pid, NatType) ->
     gen_server:cast(Pid, {update_nat_type, NatType}).
 
-%% @doc Associates a given crypto address of a given type, with the
-%% peerbook entry for the swarm this peerbook is part of. An
-%% association contain a signature over the swarm address to attest
-%% that the given `AssocAddress' owns the assoicated private
-%% key. Associations are gossiped with the peer record for the swarm.
+%% @doc Adds an association under the given type to for the swarm this
+%% peerbook is part of. Note that the association _must_ have its
+%% signature be valid for the address of the swarm this peerbook is
+%% part of.
+%%
+%% Associations are gossiped with the peer record for the swarm.
 %%
 %% Note that the given association will replace an existing
-%% association with the given type and address.
--spec add_association(pid(), AssocType::atom(),
-                      AssocAddress::libp2p_crypto:address(),
-                      AssocSigFun::libp2p_crypto:sig_fun()) -> ok.
-add_association(Pid, AssocType, Address, SigFun) ->
-    gen_server:cast(Pid, {add_association, AssocType, Address, SigFun}).
+%% association with the given type and address of the association.
+-spec add_association(pid(), AssocType::atom(), Assoc::libp2p_peer:association()) -> ok.
+add_association(Pid, AssocType, Assoc) ->
+    gen_server:cast(Pid, {add_association, AssocType, Assoc}).
 
 -spec lookup_association(pid(), AssocType::atom(), AssocAddress::libp2p_crypto:address())
                         -> [libp2p_peer:peer()].
@@ -245,12 +244,11 @@ handle_cast(changed_listener, State=#state{}) ->
     {noreply, update_this_peer(State)};
 handle_cast({update_nat_type, UpdatedNatType}, State=#state{}) ->
     {noreply, update_this_peer(State#state{nat_type=UpdatedNatType})};
-handle_cast({add_association, AssocType, AssocAddress, AssocSigFun}, State=#state{}) ->
+handle_cast({add_association, AssocType, Assoc}, State=#state{}) ->
     %% Fetch our peer record
     SwarmAddr = libp2p_swarm:address(State#state.tid),
     {ok, ThisPeer} = unsafe_fetch_peer(SwarmAddr, State),
     %% Create the new associatin and put it in the peer
-    Assoc = libp2p_peer:mk_association(AssocAddress, SwarmAddr, AssocSigFun),
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
