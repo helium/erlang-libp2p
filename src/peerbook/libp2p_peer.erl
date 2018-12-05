@@ -232,7 +232,7 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
         andalso nat_type(Target) == nat_type(Other)
         andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
         andalso sets:from_list(connected_peers(Target)) == sets:from_list(connected_peers(Other))
-        %% We only comparet the {type, assoc_adddress} parts of an
+        %% We only compare the {type, assoc_adddress} parts of an
         %% association as multiple signatures over the same value will
         %% differ
         andalso sets:from_list(association_addrs(Target)) == sets:from_list(association_addrs(Other)).
