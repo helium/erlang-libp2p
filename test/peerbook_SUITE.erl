@@ -1,16 +1,21 @@
 -module(peerbook_SUITE).
 
+-include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1, gossip_test/1, stale_test/1]).
+-export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1,
+         association_test/1, gossip_test/1, stale_test/1]).
 
 all() ->
     [
-     accessor_test
-     , bad_peer_test
-     , put_test
-     , gossip_test
-     , stale_test
-     , blacklist_test
+     accessor_test,
+     bad_peer_test,
+     put_test,
+     gossip_test,
+     stale_test,
+     blacklist_test,
+     association_test
     ].
 
 init_per_testcase(accessor_test, Config) ->
@@ -18,6 +23,8 @@ init_per_testcase(accessor_test, Config) ->
 init_per_testcase(bad_peer_test, Config) ->
     setup_peerbook(Config, []);
 init_per_testcase(blacklist_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase(association_test, Config) ->
     setup_peerbook(Config, []);
 init_per_testcase(put_test, Config) ->
     setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}]
@@ -44,6 +51,8 @@ end_per_testcase(accessor_test, Config) ->
 end_per_testcase(bad_peer_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(blacklist_test, Config) ->
+    teardown_peerbook(Config);
+end_per_testcase(association_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(put_test, Config) ->
     teardown_peerbook(Config);
@@ -125,6 +134,25 @@ blacklist_test(Config) ->
 
     ok.
 
+
+association_test(Config) ->
+    {PeerBook, Address} = proplists:get_value(peerbook, Config),
+
+    {ok, AssocPrivKey, AssocPubKey} = ecc_compact:generate_key(),
+    AssocSigFun = libp2p_crypto:mk_sig_fun(AssocPrivKey),
+    Assoc = libp2p_peer:mk_association(AssocPubKey, Address, AssocSigFun),
+
+    ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
+
+    {ok, ThisPeer} = libp2p_peerbook:get(PeerBook, Address),
+    ?assert(libp2p_peer:is_association(ThisPeer, "wallet", AssocPubKey)),
+
+    %% Adding the same association twice should dedupe
+    ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
+    {ok, ThisPeer2} = libp2p_peerbook:get(PeerBook, Address),
+    ?assertEqual(1, length(libp2p_peer:associations_get(ThisPeer2, "wallet"))),
+
+    ok.
 
 put_test(Config) ->
     {PeerBook, Address} = proplists:get_value(peerbook, Config),
@@ -281,6 +309,7 @@ mk_peer() ->
                          libp2p_crypto:mk_sig_fun(PrivKey)).
 
 setup_peerbook(Config, Opts) ->
+    test_util:setup(),
     Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
     TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {swarm_name, Name}),

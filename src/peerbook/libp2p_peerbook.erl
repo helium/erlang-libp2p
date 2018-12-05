@@ -3,7 +3,8 @@
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
          join_notify/2, changed_listener/1, update_nat_type/2,
-         register_session/3, unregister_session/2, blacklist_listen_addr/3]).
+         register_session/3, unregister_session/2, blacklist_listen_addr/3,
+         add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/2, init_gossip_data/1]).
 
@@ -48,8 +49,8 @@
 
 -spec put(pid(), [libp2p_peer:peer()]) -> ok | {error, term()}.
 put(Pid, PeerList) ->
-    VerifiedList = [libp2p_peer:verify(L) || L <- PeerList],
-    gen_server:call(Pid, {put, VerifiedList, self()}).
+    lists:foreach(fun libp2p_peer:verify/1, PeerList),
+    gen_server:call(Pid, {put, PeerList, self()}).
 
 -spec get(pid(), libp2p_crypto:address()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(Pid, ID) ->
@@ -94,6 +95,26 @@ changed_listener(Pid) ->
 -spec update_nat_type(pid(), libp2p_peer:nat_type()) -> ok.
 update_nat_type(Pid, NatType) ->
     gen_server:cast(Pid, {update_nat_type, NatType}).
+
+%% @doc Adds an association under the given type to for the swarm this
+%% peerbook is part of. Note that the association _must_ have its
+%% signature be valid for the address of the swarm this peerbook is
+%% part of.
+%%
+%% Associations are gossiped with the peer record for the swarm.
+%%
+%% Note that the given association will replace an existing
+%% association with the given type and address of the association.
+-spec add_association(pid(), AssocType::atom(), Assoc::libp2p_peer:association()) -> ok.
+add_association(Pid, AssocType, Assoc) ->
+    gen_server:cast(Pid, {add_association, AssocType, Assoc}).
+
+%% @doc Look up all the peers that have a given association type
+%% `AssocTyp' and address `AssocAddress' in their associations.
+-spec lookup_association(pid(), AssocType::atom(), AssocAddress::libp2p_crypto:address())
+                        -> [libp2p_peer:peer()].
+lookup_association(Pid, AssocType, AssocAddress) ->
+    gen_server:call(Pid, {lookup_association, AssocType, AssocAddress}).
 
 %%
 %% Gossip Group
@@ -208,6 +229,14 @@ handle_call({blacklist_listen_addr, ID, ListenAddr}, _From, State=#state{}) ->
             store_peer(UpdatedPeer, State),
             {reply, ok, State}
     end;
+handle_call({lookup_association, AssocType, AssocAddress}, _From, State=#state{}) ->
+    Peers = fold_peers(fun(_Key, Peer, Acc) ->
+                               case libp2p_peer:is_association(Peer, AssocType, AssocAddress) of
+                                   true -> [Peer | Acc];
+                                   false -> Acc
+                               end
+                       end, [], State),
+    {reply, Peers, State};
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -217,6 +246,13 @@ handle_cast(changed_listener, State=#state{}) ->
     {noreply, update_this_peer(State)};
 handle_cast({update_nat_type, UpdatedNatType}, State=#state{}) ->
     {noreply, update_this_peer(State#state{nat_type=UpdatedNatType})};
+handle_cast({add_association, AssocType, Assoc}, State=#state{}) ->
+    %% Fetch our peer record
+    SwarmAddr = libp2p_swarm:address(State#state.tid),
+    {ok, ThisPeer} = unsafe_fetch_peer(SwarmAddr, State),
+    %% Create the new association and put it in the peer
+    UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
+    {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
@@ -232,8 +268,10 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(peer_timeout, State=#state{}) ->
-    {noreply, update_this_peer(mk_this_peer(State), State)};
+handle_info(peer_timeout, State=#state{tid=TID}) ->
+    SwarmAddr = libp2p_swarm:address(TID),
+    {ok, CurrentPeer} = unsafe_fetch_peer(SwarmAddr, State),
+    {noreply, update_this_peer(mk_this_peer(CurrentPeer, State), State)};
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
 
@@ -249,25 +287,34 @@ terminate(_Reason, #state{store=Store}) ->
 %% Internal
 %%
 
--spec mk_this_peer(#state{}) -> libp2p_peer:peer().
-mk_this_peer(State=#state{tid=TID}) ->
+-spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> libp2p_peer:peer().
+mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:address(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
+    %% Copy data from current peer
+    case CurrentPeer of
+        undefined ->
+            Associations = [];
+        _ ->
+            Associations = libp2p_peer:associations(CurrentPeer)
+    end,
     libp2p_peer:from_map(#{ address => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
-                            nat_type => State#state.nat_type},
+                            nat_type => State#state.nat_type,
+                            associations => Associations},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:address(TID),
-    NewPeer = mk_this_peer(State),
     case unsafe_fetch_peer(SwarmAddr, State) of
         {error, not_found} ->
+            NewPeer = mk_this_peer(undefined, State),
             update_this_peer(NewPeer, State);
         {ok, OldPeer} ->
+            NewPeer = mk_this_peer(OldPeer, State),
             case libp2p_peer:is_similar(NewPeer, OldPeer) of
                 true -> State;
                 false -> update_this_peer(NewPeer, State)
