@@ -105,7 +105,7 @@ update_nat_type(Pid, NatType) ->
 %%
 %% Note that the given association will replace an existing
 %% association with the given type and address of the association.
--spec add_association(pid(), AssocType::atom(), Assoc::libp2p_peer:association()) -> ok.
+-spec add_association(pid(), AssocType::string(), Assoc::libp2p_peer:association()) -> ok.
 add_association(Pid, AssocType, Assoc) ->
     gen_server:cast(Pid, {add_association, AssocType, Assoc}).
 
