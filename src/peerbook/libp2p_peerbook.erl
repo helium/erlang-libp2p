@@ -248,7 +248,7 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{}) ->
     %% Fetch our peer record
     SwarmAddr = libp2p_swarm:address(State#state.tid),
     {ok, ThisPeer} = unsafe_fetch_peer(SwarmAddr, State),
-    %% Create the new associatin and put it in the peer
+    %% Create the new association and put it in the peer
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
