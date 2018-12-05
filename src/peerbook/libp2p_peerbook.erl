@@ -111,7 +111,7 @@ add_association(Pid, AssocType, Assoc) ->
 
 %% @doc Look up all the peers that have a given association type
 %% `AssocTyp' and address `AssocAddress' in their associations.
--spec lookup_association(pid(), AssocType::atom(), AssocAddress::libp2p_crypto:address())
+-spec lookup_association(pid(), AssocType::string(), AssocAddress::libp2p_crypto:address())
                         -> [libp2p_peer:peer()].
 lookup_association(Pid, AssocType, AssocAddress) ->
     gen_server:call(Pid, {lookup_association, AssocType, AssocAddress}).
