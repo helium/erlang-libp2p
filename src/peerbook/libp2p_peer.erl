@@ -213,7 +213,7 @@ association_encode(Msg=#libp2p_association_pb{}) ->
 -spec association_decode(binary(), PeerAddr::libp2p_crypto:address()) -> association().
 association_decode(Bin, PeerAddr) ->
     Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_association_pb),
-    true = association_verify(Msg,PeerAddr),
+    association_verify(Msg,PeerAddr),
     Msg.
 
 %% @doc Returns whether a given `Target' is more recent than `Other'
@@ -314,12 +314,12 @@ decode_list(Bin) ->
 -spec decode(binary()) -> peer().
 decode(Bin) ->
     Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_signed_peer_pb),
-    true = verify(Msg),
+    verify(Msg),
     Msg.
 
 
 %% @doc Cryptographically verifies a given peer and it's
-%% associations. Returns trus if the given peer can be verified or
+%% associations. Returns true if the given peer can be verified or
 %% throws an error if the peer or one of it's associations can't be
 %% verified
 -spec verify(peer()) -> true.
