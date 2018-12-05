@@ -210,7 +210,7 @@ association_encode(Msg=#libp2p_association_pb{}) ->
 
 %% @doc Decodes the given binary to an association and verifies it
 %% against the given peer address.
--spec association_decode(binary(), PeerAddr::libp2p_crypto:address()) -> binary().
+-spec association_decode(binary(), PeerAddr::libp2p_crypto:address()) -> association().
 association_decode(Bin, PeerAddr) ->
     Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_association_pb),
     true = association_verify(Msg,PeerAddr),
