@@ -158,11 +158,34 @@ handle_client_data(_Data, _Env, State) ->
 -spec dial_back(libp2p_proxy_dial_back:proxy_dial_back()
                 ,libp2p_proxy_envelope:proxy_envelope()) -> {ok, inet:socket()}.
 dial_back(DialBack, Env) ->
+    % TODO_PROXY: Dial Back should be empty, Client should find out best IP/PORT
+    % to connect to proxy
     ID = libp2p_proxy_envelope:id(Env),
     PAddress = libp2p_proxy_dial_back:address(DialBack),
     Port = libp2p_proxy_dial_back:port(DialBack),
     Opts = libp2p_transport_tcp:common_options(),
     {ok, Socket} = gen_tcp:connect(PAddress, Port, Opts),
+    % TODO_PROXY: Do not send ID but negotiate handler via `libp2p_multistream_client:negotiate_handler`
+    % with the new proxy/1.0.0 (create connection with `libp2p_transport_tcp:new_connection`).
+    % Still need a way to pass the ID somehow.
+    %  ChildSpec = #{ id => make_ref(),
+    %                        start => {M, F, [Connection, [], TID]},
+    %                        restart => temporary,
+    %                        shutdown => 5000,
+    %                        type => worker },
+    %         SessionSup = libp2p_swarm_session_sup:sup(TID),
+    %         {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
+    %         case libp2p_connection:controlling_process(Connection, SessionPid) of
+    %             {ok, _} ->
+    %                 libp2p_config:insert_session(TID, Addr, SessionPid),
+    %                 libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
+    %                 {ok, SessionPid};
+    %             {error, Error} ->
+    %                 lager:error("Changing controlling process for ~p to ~p failed ~p",
+    %                             [Connection, SessionPid, Error]),
+    %                 libp2p_connection:close(Connection),
+    %                 {error, Error}
+    %         end
     ok = gen_tcp:send(Socket, ID),
     {ok, Socket}.
 

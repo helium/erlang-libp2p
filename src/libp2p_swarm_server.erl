@@ -27,6 +27,7 @@ init([TID, SigFun]) ->
     libp2p_swarm:add_connection_handler(TID, "yamux/1.0.0",
                                         {{libp2p_yamux_session, start_server},
                                          {libp2p_yamux_session, start_client}}),
+    % TODO_PROXY: Add connection_handler proxy/1.0.0 here
     % Register default stream handlers
     libp2p_swarm:add_stream_handler(TID, "identify/1.0.0",
                                     {libp2p_stream_identify, server, []}),

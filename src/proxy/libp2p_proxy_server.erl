@@ -164,6 +164,7 @@ terminate(_Reason, _State) ->
 %% ------------------------------------------------------------------
 -spec setup_listener(integer()) -> ok.
 setup_listener(Port) ->
+    % TODO_PROXY: No need for this anymore
     Server = self(),
     _Pid = erlang:spawn_link(fun() ->
         Opts = libp2p_transport_tcp:common_options(),
