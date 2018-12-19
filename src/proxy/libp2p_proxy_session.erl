@@ -11,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_server/4, start_client/3,
+    start_server/4,
     start_link/1
 ]).
 
@@ -41,14 +41,6 @@ start_server(Connection, Path, TID, []) ->
     %% already assigned the controlling process, there is no need to
     %% wait for a shoot message
     init([server, Connection, Path, TID]).
-
--spec start_client(libp2p_connection:connection(), string(), ets:tab()) -> {ok, pid()}.
-start_client(Connection, Path, TID) ->
-    %% In libp2p_swarm the client needs to spawn a new process. Since
-    %% this is a new process, start_client_session (in
-    %% libp2p_transport) will assign the controlling process. Wait for
-    %% a shoot message.
-    ?MODULE:start_link([client, Connection, Path, TID]).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
