@@ -101,7 +101,7 @@ init([Name, Opts]) ->
                   },
                   {
                     proxy
-                    ,{libp2p_proxy_server, start_link, [[TID]]}
+                    ,{libp2p_proxy_server, start_link, [[TID, libp2p_proxy:limit(Opts)]]}
                     ,permanent
                     ,10000
                     ,worker

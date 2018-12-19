@@ -11,34 +11,36 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
-    ,proxy/4
-    ,connection/3
+    start_link/1,
+    proxy/4,
+    connection/3
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,handle_call/3
-    ,handle_cast/2
-    ,handle_info/2
-    ,terminate/2
-    ,code_change/3
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
 ]).
 
 -record(state, {
-    tid :: ets:tab() | undefined
-    ,swarm :: pid() | undefined
-    ,data = maps:new() :: map()
+    tid :: ets:tab() | undefined,
+    swarm :: pid() | undefined,
+    data = maps:new() :: map(),
+    limit :: integer(),
+    size = 0 :: integer()
 }).
 
 -record(pstate, {
-    id :: binary() | undefined
-    ,server_stream :: pid() | undefined
-    ,client_stream :: pid() | undefined
-    ,connections = [] :: [libp2p_connection:connection()]
+    id :: binary() | undefined,
+    server_stream :: pid() | undefined,
+    client_stream :: pid() | undefined,
+    connections = [] :: [libp2p_connection:connection()]
 }).
 
 %% ------------------------------------------------------------------
@@ -80,13 +82,15 @@ connection(TID, Connection, ID) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([TID]=Args) ->
+init([TID, Limit]=Args) ->
     lager:info("~p init with ~p", [?MODULE, Args]),
     true = libp2p_config:insert_proxy(TID, self()),
     Swarm = libp2p_swarm:swarm(TID),
-    {ok, #state{tid=TID, swarm=Swarm}}.
+    {ok, #state{tid=TID, swarm=Swarm, limit=Limit}}.
 
-handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data}=State) ->
+handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data, 
+                                                                    limit=Limit,
+                                                                    size=Size}=State) when Size =< Limit ->
     PState = #pstate{
         id=ID
         ,server_stream=ServerStream
@@ -94,22 +98,25 @@ handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data}=S
     Data1 = maps:put(ID, PState, Data),
     self() ! {post_init, ID, SAddress},
     {reply, ok, State#state{data=Data1}};
+handle_call({init_proxy, ID, _ServerStream, SAddress}, _From, State) ->
+    lager:warning("cannot process proxy request for ~p, ~p. Limit exceeded", [ID, SAddress]),
+    {reply, {error, limit_exceeded}, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast({connection, Connection, ID0}, #state{data=Data}=State) ->
+handle_cast({connection, Connection, ID0}, #state{data=Data, size=Size}=State) ->
     %% possibly reverse the ID if we got it from the client
     ID = get_id(ID0, Data),
-    Data1 = case maps:get(ID, Data, undefined) of
+    case maps:get(ID, Data, undefined) of
         undefined ->
             lager:warning("got unknown ID ~p closing ~p", [ID, Connection]),
             _ = libp2p_connection:close(Connection),
-            Data;
+            {noreply, State};
         #pstate{connections=[]}=PState ->
             lager:info("got first Connection ~p", [Connection]),
             PState1 = PState#pstate{connections=[Connection]},
-            maps:put(ID, PState1, Data);
+            {noreply, State#state{data=maps:put(ID, PState1, Data)}};
         #pstate{connections=[Connection1|[]]
                 ,server_stream=ServerStream
                 ,client_stream=ClientStream} ->
@@ -132,9 +139,8 @@ handle_cast({connection, Connection, ID0}, #state{data=Data}=State) ->
                 end,
             ok = splice(Connection1, Connection),
             ok = proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream),
-            maps:remove(ID, Data)
-    end,
-    {noreply,State#state{data=Data1}};
+            {noreply, State#state{data=maps:remove(ID, Data), size=Size+1}}
+    end;
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -153,9 +159,9 @@ handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data}=State) ->
         _ ->
             {noreply, State}
     end;
-handle_info({'DOWN', _Ref, process, Who, Reason}, State) ->
+handle_info({'DOWN', _Ref, process, Who, Reason}, #state{size=Size}=State) ->
     lager:warning("splice process ~p went down: ~p", [Who, Reason]),
-    {noreply, State};
+    {noreply, State#state{size=Size-1}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
