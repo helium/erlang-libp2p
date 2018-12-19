@@ -12,17 +12,17 @@
 %% ------------------------------------------------------------------
 
 -export([
-    server/4
-    ,client/2
+    server/4,
+    client/2
 ]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/3
-    ,handle_data/3
-    ,handle_info/3
+    init/3,
+    handle_data/3,
+    handle_info/3
 ]).
 
 -ifdef(TEST).
@@ -120,7 +120,6 @@ handle_server_data({dial_back, DialBack}, Env, State) ->
     {ok, Connection} = dial_back(Env, State),
     {noreply, State#state{raw_connection=Connection}};
 handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connection}=State) ->
-    % TODO_PROXY: Is this still useful?
     Socket = libp2p_connection:socket(Connection),
     Conn = libp2p_transport_tcp:new_connection(Socket, libp2p_proxy_resp:multiaddr(Resp)),
     Ref = erlang:make_ref(),

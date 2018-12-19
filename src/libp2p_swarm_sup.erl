@@ -100,12 +100,12 @@ init([Name, Opts]) ->
                    [libp2p_relay_server]
                   },
                   {
-                    proxy
-                    ,{libp2p_proxy_server, start_link, [[TID, libp2p_proxy:limit(Opts)]]}
-                    ,permanent
-                    ,10000
-                    ,worker
-                    ,[libp2p_proxy_server]
+                    proxy,
+                    {libp2p_proxy_server, start_link, [[TID, libp2p_proxy:limit(Opts)]]},
+                    permanent,
+                    10000,
+                    worker,
+                    [libp2p_proxy_server]
                   }
                  ],
     {ok, {SupFlags, ChildSpecs}}.
