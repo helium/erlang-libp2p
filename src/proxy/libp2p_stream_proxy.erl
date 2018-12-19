@@ -116,7 +116,7 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
     end;
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
-    {ok, Connection} = dial_back(DialBack, Env),
+    {ok, Connection} = dial_back(Env, State),
     {noreply, State#state{connection=Connection}};
 handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, connection=Connection}=State) ->
     % TODO_PROXY: Is this still useful?
@@ -141,7 +141,7 @@ handle_client_data(Bin, State) ->
 
 handle_client_data({dial_back, DialBack}, Env, State) ->
     lager:info("client got dial back request ~p", [DialBack]),
-    {ok, Connection} = dial_back(DialBack, Env),
+    {ok, Connection} = dial_back(Env, State),
     {noreply, State#state{connection=Connection}};
 handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
                                               connection=Connection}=State) ->
@@ -158,16 +158,14 @@ handle_client_data(_Data, _Env, State) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 
--spec dial_back(libp2p_proxy_dial_back:proxy_dial_back(),
-                libp2p_proxy_envelope:proxy_envelope()) -> {ok, libp2p_connection:connection()}.
-dial_back(_DialBack, Env) ->
-    % TODO_PROXY: Dial Back should be empty, Client should find out best IP/PORT
-    % to connect to proxy
+-spec dial_back(libp2p_proxy_envelope:proxy_envelope(), state()) -> {ok, libp2p_connection:connection()}.
+dial_back(Env, #state{connection=Connection}) ->
+    {_, MultiAddrStr} = libp2p_connection:addr_info(Connection),
+    MultiAddr = multiaddr:new(MultiAddrStr),
+    [{"ip4", PAddress}, {"tcp", Port}] = multiaddr:protocols(MultiAddr),
     ID = libp2p_proxy_envelope:id(Env),
-    PAddress = "127.0.0.1",
-    Port = 8080,
     Opts = libp2p_transport_tcp:common_options(),
-    {ok, Socket} = gen_tcp:connect(PAddress, Port, Opts),
+    {ok, Socket} = gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts),
     Handlers = [],
     Path = "proxy/1.0.0/" ++ erlang:binary_to_list(ID),
     Connection = libp2p_transport_tcp:new_connection(Socket),
