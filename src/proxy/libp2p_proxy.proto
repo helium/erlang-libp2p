@@ -7,10 +7,7 @@ message proxy_resp {
     optional bytes multiaddr = 2;
 }
 
-message proxy_dial_back {
-    required string address = 1;
-    required int32 port = 2;
-}
+message proxy_dial_back {}
 
 message proxy_envelope {
     required bytes id = 1;

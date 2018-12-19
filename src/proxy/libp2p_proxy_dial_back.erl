@@ -7,9 +7,7 @@
 -module(libp2p_proxy_dial_back).
 
 -export([
-    create/2
-    ,address/1
-    ,port/1
+    create/0
 ]).
 
 -include("pb/libp2p_proxy_pb.hrl").
@@ -27,27 +25,9 @@
 %% Create an proxy request
 %% @end
 %%--------------------------------------------------------------------
--spec create(string(), integer()) -> proxy_dial_back().
-create(Address, Port) ->
-    #libp2p_proxy_dial_back_pb{address=Address, port=Port}.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Getter
-%% @end
-%%--------------------------------------------------------------------
--spec address(proxy_dial_back()) -> string().
-address(DialBack) ->
-    DialBack#libp2p_proxy_dial_back_pb.address.
-
-%%--------------------------------------------------------------------
-%% @doc
-%% Getter
-%% @end
-%%--------------------------------------------------------------------
--spec port(proxy_dial_back()) -> integer().
-port(DialBack) ->
-    DialBack#libp2p_proxy_dial_back_pb.port.
+-spec create() -> proxy_dial_back().
+create() ->
+    #libp2p_proxy_dial_back_pb{}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -59,11 +39,6 @@ port(DialBack) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_proxy_dial_back_pb{address="456", port=9090}, create("456", 9090)).
-
-get_test() ->
-    DialBack = create("456", 9090),
-    ?assertEqual("456", address(DialBack)),
-    ?assertEqual(9090, port(DialBack)).
+    ?assertEqual(#libp2p_proxy_dial_back_pb{}, create()).
 
 -endif.
