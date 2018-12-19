@@ -35,7 +35,8 @@
     id :: binary() | undefined,
     transport :: pid() | undefined,
     swarm :: pid() | undefined,
-    connection :: libp2p_connection:connection() | undefined
+    connection :: libp2p_connection:connection(),
+    raw_connection :: libp2p_connection:connection() | undefined
 }).
 
 -type state() :: #state{}.
@@ -55,17 +56,17 @@ client(Connection, Args) ->
 init(server, Conn, [_, _Pid, TID]=Args) ->
     lager:info("init proxy server with ~p", [{Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
-    {ok, #state{swarm=Swarm}};
+    {ok, #state{swarm=Swarm, connection=Conn}};
 init(client, Conn, Args) ->
     lager:info("init proxy client with ~p", [{Conn, Args}]),
     ID = proplists:get_value(id, Args),
     case proplists:get_value(p2p_circuit, Args) of
         undefined ->
-            {ok, #state{id=ID}};
+            {ok, #state{id=ID, connection=Conn}};
         P2PCircuit ->
             TransportPid = proplists:get_value(transport, Args),
             self() ! {proxy_req_send, P2PCircuit},
-            {ok, #state{id=ID, transport=TransportPid}}
+            {ok, #state{id=ID, transport=TransportPid, connection=Conn}}
 
     end.
 
@@ -117,8 +118,8 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
     {ok, Connection} = dial_back(Env, State),
-    {noreply, State#state{connection=Connection}};
-handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, connection=Connection}=State) ->
+    {noreply, State#state{raw_connection=Connection}};
+handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connection}=State) ->
     % TODO_PROXY: Is this still useful?
     Socket = libp2p_connection:socket(Connection),
     Conn = libp2p_transport_tcp:new_connection(Socket, libp2p_proxy_resp:multiaddr(Resp)),
@@ -142,9 +143,9 @@ handle_client_data(Bin, State) ->
 handle_client_data({dial_back, DialBack}, Env, State) ->
     lager:info("client got dial back request ~p", [DialBack]),
     {ok, Connection} = dial_back(Env, State),
-    {noreply, State#state{connection=Connection}};
+    {noreply, State#state{raw_connection=Connection}};
 handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
-                                              connection=Connection}=State) ->
+                                              raw_connection=Connection}=State) ->
     lager:info("client got proxy resp ~p", [Resp]),
     {ok, Connection1} = libp2p_connection:controlling_process(Connection, TransportPid),
     Socket = libp2p_connection:socket(Connection1),
@@ -168,9 +169,9 @@ dial_back(Env, #state{connection=Connection}) ->
     {ok, Socket} = gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts),
     Handlers = [],
     Path = "proxy/1.0.0/" ++ base58:binary_to_base58(ID),
-    Connection = libp2p_transport_tcp:new_connection(Socket),
-    {ok, _} = libp2p_multistream_client:negotiate_handler(Handlers, Path, Connection),
-    {ok, Connection}.
+    RawConnection = libp2p_transport_tcp:new_connection(Socket),
+    {ok, _} = libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection),
+    {ok, RawConnection}.
 
 -ifdef(TEST).
 -endif.
