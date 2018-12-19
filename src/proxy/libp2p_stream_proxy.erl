@@ -167,8 +167,8 @@ dial_back(Env, #state{connection=Connection}) ->
     ID = libp2p_proxy_envelope:id(Env),
     Opts = libp2p_transport_tcp:common_options(),
     {ok, Socket} = gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts),
-    Handlers = [],
     Path = "proxy/1.0.0/" ++ base58:binary_to_base58(ID),
+    Handlers = [{Path, <<"success">>}],
     RawConnection = libp2p_transport_tcp:new_connection(Socket),
     {ok, _} = libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection),
     {ok, RawConnection}.
