@@ -40,7 +40,8 @@ start_server(Connection, Path, TID, []) ->
     %% since it's fired of synchronously by a multistream. Since ranch
     %% already assigned the controlling process, there is no need to
     %% wait for a shoot message
-    init([server, Connection, Path, TID]).
+    {ok, State} = init([server, Connection, Path, TID]),
+    gen_server:enter_loop(?MODULE, [], State).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -68,7 +69,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(transfer_socket, #state{type=server, connection=Connection, path=Path, tid=TID}=State) ->
-    <<"proxy/1.0.0/", ID0/binary>> = erlang:list_to_binary(Path),
+    lager:info("doing socket transfer"),
+    <<"/", ID0/binary>> = erlang:list_to_binary(Path),
     ID1 = base58:base58_to_binary(erlang:binary_to_list(ID0)),
     ok = libp2p_proxy_server:connection(TID, Connection, ID1),
     {noreply, State};
