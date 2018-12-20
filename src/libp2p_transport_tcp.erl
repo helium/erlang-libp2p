@@ -43,7 +43,7 @@
 %% libp2p_connection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
-         session/1, fdset/1, fdclr/1
+         session/1, fdset/1, socket/1, fdclr/1
         ]).
 
 %% for tcp sockets
@@ -171,6 +171,10 @@ fdset(#tcp_state{socket=Socket}) ->
         {error, Error} -> {error, Error};
         {ok, FD} -> inert:fdset(FD)
     end.
+
+-spec socket(tcp_state()) -> gen_tcp:socket().
+socket(#tcp_state{socket=Socket}) ->
+    Socket.
 
 -spec fdclr(tcp_state()) -> ok.
 fdclr(#tcp_state{socket=Socket}) ->

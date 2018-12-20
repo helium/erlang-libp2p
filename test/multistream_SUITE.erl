@@ -32,7 +32,7 @@ client_ls_test(Config) ->
     Connection = proplists:get_value(connection, Config),
 
     ok = libp2p_multistream_client:handshake(Connection),
-    ["yamux/1.0.0" | _] = libp2p_multistream_client:ls(Connection),
+    true = lists:member("yamux/1.0.0", libp2p_multistream_client:ls(Connection)),
     ok =  libp2p_multistream_client:select("yamux/1.0.0", Connection),
 
     ok.

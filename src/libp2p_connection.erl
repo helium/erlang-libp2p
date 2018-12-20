@@ -12,7 +12,7 @@
 
 -export([new/2, send/2, send/3,
          recv/1, recv/2, recv/3,
-         acknowledge/2, fdset/1, fdclr/1,
+         acknowledge/2, fdset/1, socket/1, fdclr/1,
          addr_info/1, close/1, close_state/1,
          controlling_process/2, session/1]).
 -export([mk_async_sender/2]).
@@ -70,6 +70,10 @@ close_state(#connection{module=Module, state=State}) ->
 -spec fdset(connection()) -> ok | {error, term()}.
 fdset(#connection{module=Module, state=State}) ->
     Module:fdset(State).
+
+-spec socket(connection()) -> any().
+socket(#connection{module=Module, state=State}) ->
+    Module:socket(State).
 
 -spec fdclr(connection()) -> ok | {error, term()}.
 fdclr(#connection{module=Module, state=State}) ->

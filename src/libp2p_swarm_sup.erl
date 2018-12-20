@@ -98,8 +98,16 @@ init([Name, Opts]) ->
                    10000,
                    worker,
                    [libp2p_relay_server]
+                  },
+                  {
+                    proxy,
+                    {libp2p_proxy_server, start_link, [[TID, libp2p_proxy:limit(Opts)]]},
+                    permanent,
+                    10000,
+                    worker,
+                    [libp2p_proxy_server]
                   }
-                 ] ++ include_proxy(TID, Opts),
+                 ],
     {ok, {SupFlags, ChildSpecs}}.
 
 
@@ -110,21 +118,6 @@ init_keys(Opts) ->
             {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
             {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
         {PubKey, SigFun} -> {PubKey, SigFun}
-    end.
-
-include_proxy(TID, Opts) ->
-    case {libp2p_proxy:address(Opts) ,libp2p_proxy:port(Opts)} of
-        {undefined, _} -> [];
-        {_, undefined} -> [];
-        {Address, Port} ->
-            [{
-                proxy
-                ,{libp2p_proxy_server, start_link, [[TID, Address, Port]]}
-                ,permanent
-                ,10000
-                ,worker
-                ,[libp2p_proxy_server]
-            }]
     end.
 
 -spec sup(ets:tab()) -> pid().
