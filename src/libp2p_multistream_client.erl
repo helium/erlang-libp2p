@@ -4,8 +4,12 @@
 
 -spec negotiate_handler([{string(), term()}], string(), libp2p_connection:connection())
                        -> {ok, term()} | server_switch | {error, term()}.
-negotiate_handler(Handlers, Path, Connection) ->
-    case libp2p_multistream_client:handshake(Connection) of
+negotiate_handler(Handlers0, Path, Connection) ->
+    %% filter out any handlers where the client side is undefined, eg. proxy
+    Handlers = lists:filter(fun({_Name, {_ServerDef, undefined}}) -> false;
+                                   (_) -> true
+                            end, Handlers0),
+    case ?MODULE:handshake(Connection) of
         {error, Error} ->
             lager:notice("Client handshake failed for ~p: ~p", [Path, Error]),
             libp2p_connection:close(Connection),
@@ -15,7 +19,7 @@ negotiate_handler(Handlers, Path, Connection) ->
             server_switch;
         ok ->
             lager:debug("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
-            case libp2p_multistream_client:select_one(Handlers, 1, Connection) of
+            case ?MODULE:select_one(Handlers, 1, Connection) of
                 {error, Error} ->
                     lager:notice("Failed to negotiate handler for ~p: ~p", [Path, Error]),
                     {error, Error};

@@ -12,17 +12,17 @@
 %% ------------------------------------------------------------------
 
 -export([
-    server/4
-    ,client/2
+    server/4,
+    client/2
 ]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/3
-    ,handle_data/3
-    ,handle_info/3
+    init/3,
+    handle_data/3,
+    handle_info/3
 ]).
 
 -ifdef(TEST).
@@ -32,10 +32,11 @@
 -include("pb/libp2p_proxy_pb.hrl").
 
 -record(state, {
-    id :: binary() | undefined
-    ,transport :: pid() | undefined
-    ,swarm :: pid() | undefined
-    ,socket :: inet:socket() | undefined
+    id :: binary() | undefined,
+    transport :: pid() | undefined,
+    swarm :: pid() | undefined,
+    connection :: libp2p_connection:connection(),
+    raw_connection :: libp2p_connection:connection() | undefined
 }).
 
 -type state() :: #state{}.
@@ -55,17 +56,17 @@ client(Connection, Args) ->
 init(server, Conn, [_, _Pid, TID]=Args) ->
     lager:info("init proxy server with ~p", [{Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
-    {ok, #state{swarm=Swarm}};
+    {ok, #state{swarm=Swarm, connection=Conn}};
 init(client, Conn, Args) ->
     lager:info("init proxy client with ~p", [{Conn, Args}]),
     ID = proplists:get_value(id, Args),
     case proplists:get_value(p2p_circuit, Args) of
         undefined ->
-            {ok, #state{id=ID}};
+            {ok, #state{id=ID, connection=Conn}};
         P2PCircuit ->
             TransportPid = proplists:get_value(transport, Args),
             self() ! {proxy_req_send, P2PCircuit},
-            {ok, #state{id=ID, transport=TransportPid}}
+            {ok, #state{id=ID, transport=TransportPid, connection=Conn}}
 
     end.
 
@@ -76,8 +77,8 @@ handle_data(client, Bin, State) ->
 
 % STEP 2
 handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
-    {ok, {_, AAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),
-    Req = libp2p_proxy_req:create(AAddress),
+    {ok, {_, SAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),
+    Req = libp2p_proxy_req:create(SAddress),
     Env = libp2p_proxy_envelope:create(ID, Req),
     {noreply, State, libp2p_proxy_envelope:encode(Env)};
 handle_info(_Type, {transfer, Data}, State) ->
@@ -107,8 +108,8 @@ handle_server_data(Bin, State) ->
 handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
     lager:info("server got proxy request ~p", [Req]),
     ID = libp2p_proxy_envelope:id(Env),
-    AAddress = libp2p_proxy_req:address(Req),
-    case libp2p_proxy_server:proxy(Swarm, ID, self(), AAddress) of
+    SAddress = libp2p_proxy_req:address(Req),
+    case libp2p_proxy_server:proxy(Swarm, ID, self(), SAddress) of
         ok ->
             {noreply, State#state{id=ID}};
         {error, Reason} ->
@@ -116,9 +117,10 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
     end;
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
-    {ok, Socket} = dial_back(DialBack, Env),
-    {noreply, State#state{socket=Socket}};
-handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, socket=Socket}=State) ->
+    {ok, Connection} = dial_back(Env, State),
+    {noreply, State#state{raw_connection=Connection}};
+handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connection}=State) ->
+    Socket = libp2p_connection:socket(Connection),
     Conn = libp2p_transport_tcp:new_connection(Socket, libp2p_proxy_resp:multiaddr(Resp)),
     Ref = erlang:make_ref(),
     TID = libp2p_swarm:tid(Swarm),
@@ -139,12 +141,13 @@ handle_client_data(Bin, State) ->
 
 handle_client_data({dial_back, DialBack}, Env, State) ->
     lager:info("client got dial back request ~p", [DialBack]),
-    {ok, Socket} = dial_back(DialBack, Env),
-    {noreply, State#state{socket=Socket}};
-handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid
-                                              ,socket=Socket}=State) ->
+    {ok, Connection} = dial_back(Env, State),
+    {noreply, State#state{raw_connection=Connection}};
+handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
+                                              raw_connection=Connection}=State) ->
     lager:info("client got proxy resp ~p", [Resp]),
-    ok = gen_tcp:controlling_process(Socket, TransportPid),
+    {ok, Connection1} = libp2p_connection:controlling_process(Connection, TransportPid),
+    Socket = libp2p_connection:socket(Connection1),
     TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)},
     {noreply, State};
 handle_client_data(_Data, _Env, State) ->
@@ -155,16 +158,19 @@ handle_client_data(_Data, _Env, State) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 
--spec dial_back(libp2p_proxy_dial_back:proxy_dial_back()
-                ,libp2p_proxy_envelope:proxy_envelope()) -> {ok, inet:socket()}.
-dial_back(DialBack, Env) ->
+-spec dial_back(libp2p_proxy_envelope:proxy_envelope(), state()) -> {ok, libp2p_connection:connection()}.
+dial_back(Env, #state{connection=Connection}) ->
+    {_, MultiAddrStr} = libp2p_connection:addr_info(Connection),
+    MultiAddr = multiaddr:new(MultiAddrStr),
+    [{"ip4", PAddress}, {"tcp", Port}] = multiaddr:protocols(MultiAddr),
     ID = libp2p_proxy_envelope:id(Env),
-    PAddress = libp2p_proxy_dial_back:address(DialBack),
-    Port = libp2p_proxy_dial_back:port(DialBack),
     Opts = libp2p_transport_tcp:common_options(),
-    {ok, Socket} = gen_tcp:connect(PAddress, Port, Opts),
-    ok = gen_tcp:send(Socket, ID),
-    {ok, Socket}.
+    {ok, Socket} = gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts),
+    Path = libp2p_proxy:version() ++  "/" ++ base58:binary_to_base58(ID),
+    Handlers = [{Path, <<"success">>}],
+    RawConnection = libp2p_transport_tcp:new_connection(Socket),
+    {ok, _} = libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection),
+    {ok, RawConnection}.
 
 -ifdef(TEST).
 -endif.
