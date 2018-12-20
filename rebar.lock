@@ -5,7 +5,7 @@
   {git,"https://github.com/helium/cuttlefish",
        {ref,"8672838e8f4ef61602aee6e4ff97ec9be54031dc"}},
   0},
- {<<"ecc_compact">>,{pkg,<<"ecc_compact">>,<<"1.0.2">>},0},
+ {<<"ecc_compact">>,{pkg,<<"ecc_compact">>,<<"1.0.3">>},0},
  {<<"erl_base58">>,{pkg,<<"erl_base58">>,<<"0.0.1">>},0},
  {<<"getopt">>,{pkg,<<"getopt">>,<<"1.0.1">>},1},
  {<<"goldrush">>,{pkg,<<"goldrush">>,<<"0.1.9">>},1},
@@ -46,7 +46,7 @@
 {pkg_hash,[
  {<<"backoff">>, <<"83B72ED2108BA1EE8F7D1C22E0B4A00CFE3593A67DBC792799E8CCE9F42F796B">>},
  {<<"base32">>, <<"044F6DC95709727CA2176F3E97A41DDAA76B5BC690D3536908618C0CB32616A2">>},
- {<<"ecc_compact">>, <<"E0798DA70DB6C79528C5E33A9E282E23076D879FB03C1B1681C6E3F56EC786CE">>},
+ {<<"ecc_compact">>, <<"0CA32C6A4E7ED69DE9D9E1ABD3530E4BDBB38271A43A8C7FAD7A449FE948C6A6">>},
  {<<"erl_base58">>, <<"37710854461D71DF338E73C65776302DB41C4BAB4674D2EC134ED7BCFC7B5552">>},
  {<<"getopt">>, <<"C73A9FA687B217F2FF79F68A3B637711BB1936E712B521D8CE466B29CBF7808A">>},
  {<<"goldrush">>, <<"F06E5D5F1277DA5C413E84D5A2924174182FB108DABB39D5EC548B27424CD106">>},
