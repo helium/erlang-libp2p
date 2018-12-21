@@ -20,7 +20,8 @@ handle_message(_Msg, _Index, State = #state{skip_handler=true}) ->
     ct:pal("skipping message ~p", [_Msg]),
     {State#state{skip_handler=false}, []};
 handle_message(Msg, Index, State=#state{message_handler=Handler}) ->
-    ct:pal("handle_message with handler ~p(~p, ~p) -> ~p", [Handler, Index, Msg, Handler(Index, Msg)]),
+    ct:pal("~p handle_message with handler ~p(~p, ~p) -> ~p",
+           [self(), Handler, Index, Msg, Handler(Index, Msg)]),
     case Handler(Index, Msg) of
         defer -> defer;
         ignore -> ignore;
@@ -34,7 +35,8 @@ handle_command(_Msg, #state{input_handler=undefined}) ->
 handle_command(undefer, State) ->
     {reply, ok, [], State#state{skip_handler=true}};
 handle_command(Msg, State=#state{input_handler=Handler}) ->
-    ct:pal("handle_command with handler ~p(~p) -> ~p", [Handler, Msg, Handler(Msg)]),
+    ct:pal("~p handle_command with handler ~p(~p) -> ~p",
+           [self(), Handler, Msg, Handler(Msg)]),
     {reply, ok, Handler(Msg), State}.
 
 callback_message(_, _, _) ->

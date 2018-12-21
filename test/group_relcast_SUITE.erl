@@ -31,6 +31,8 @@ end_per_testcase(_, Config) ->
 unicast_test(Config) ->
     Swarms = [S1, S2, S3] = proplists:get_value(swarms, Config),
 
+    ct:pal("self ~p", [self()]),
+
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
 
@@ -50,7 +52,7 @@ unicast_test(Config) ->
     G2Args = [relcast_handler, [Members, undefined, handle_msg([{unicast, 3, <<"unicast2">>}])]],
     {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
-    %% G3 handles a messages by just aknowledging it
+    %% G3 handles a messages by just acknowledging it
     G3Args = [relcast_handler, [Members, undefined, handle_msg([])]],
     {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
 
@@ -196,7 +198,7 @@ restart_test(_Config) ->
 
 input_unicast(Index) ->
     fun(Msg) ->
-            ct:pal("~p unicast ~p ~p", [self(), Index, Msg]),
+            ct:pal("command ~p unicast ~p ~p", [self(), Index, Msg]),
            [{unicast, Index, Msg}]
     end.
 
@@ -208,7 +210,7 @@ input_multicast() ->
 handle_msg(Resp) ->
     Parent = self(),
     fun(Index, Msg) ->
-            ct:pal("~p ~p ! ~p ~p", [self(), Parent, Index, Msg]),
+            ct:pal("message ~p ! ~p: ~p ~p", [self(), Parent, Index, Msg]),
             Parent ! {handle_msg, Index, Msg},
             Resp
     end.

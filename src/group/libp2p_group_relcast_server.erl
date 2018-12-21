@@ -83,12 +83,14 @@ init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
 handle_call(dump_queues, _From, State = #state{store=Store}) ->
     {reply, relcast:status(Store), State};
 handle_call({peek, ActorID}, _From, State = #state{store=Store}) ->
-    Res = case relcast:take(ActorID, Store) of
-        {not_found, _NewRelcast} ->
-            not_found;
-        {ok, _Key, Msg, _NewRelcast} ->
-            Msg
-    end,
+    %% take is no longer referentially transparent
+    Res =
+        case relcast:peek(ActorID, Store) of
+            not_found ->
+                not_found;
+            {ok, Msg} ->
+                Msg
+        end,
     {reply, Res, State};
 handle_call({accept_stream, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
@@ -168,11 +170,14 @@ handle_cast({handle_input, Msg}, State=#state{store=Relcast}) ->
             erlang:send_after(Timeout, self(), force_close),
             {noreply, dispatch_next_messages(State#state{store=NewRelcast})}
         end;
-handle_cast({send_ready, _Target, Index, Ready}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfIndex,
+                                                               store=Relcast}) ->
     %% Sent by group worker after it gets a stream set up (send just
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
     %% lager:debug("~p IS READY ~p TO SEND TO ~p", [_SelfIndex, Ready, Index]),
+    {ok, Relcast1} = relcast:reset_actor(Index, Relcast),
+    State = State0#state{store = Relcast1},
     case is_ready_worker(Index, Ready, State) of
         false ->
             case Ready of
@@ -186,7 +191,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State=#state{self_index=_SelfIn
             {noreply, dispatch_next_messages(State)}
     end;
 handle_cast({send_result, {_Key, _Index}, pending}, State=#state{self_index=_SelfIndex}) ->
-    %% Send result from sending a message to a remote woker. Since the
+    %% Send result from sending a message to a remote worker. Since the
     %% message is deferred we do not reset the worker on this side to
     %% ready. The remote end will dispatch a separate ack to resume
     %% message sends (handled in handle_ack).
@@ -352,21 +357,29 @@ dispatch_ack(Index, State=#state{}) ->
 %close_check(State) ->
     %State.
 
+take_while(Worker, State) ->
+    Index = Worker#worker.index,
+    case relcast:take(Index, State#state.store) of
+        {pipeline_full, NewRelcast} ->
+            State#state{store = NewRelcast};
+        {not_found, NewRelcast} ->
+            State#state{store = NewRelcast};
+        {ok, Key, Msg, NewRelcast} ->
+            libp2p_group_worker:send(Worker#worker.pid, {Key, Index}, Msg),
+            State1 = ready_worker(Index,
+                                  Key,
+                                  State#state{store = NewRelcast}),
+            take_while(Worker, State1)
+    end.
+
 -spec dispatch_next_messages(#state{}) -> #state{}.
 dispatch_next_messages(State) ->
     NewState = case filter_ready_workers(State) of
                    [] ->
                        State;
                    Workers ->
-                       lists:foldl(fun(Worker, Acc) ->
-                                           case relcast:take(Worker#worker.index, Acc#state.store) of
-                                               {not_found, NewRelcast} ->
-                                                   Acc#state{store=NewRelcast};
-                                               {ok, Key, Msg, NewRelcast} ->
-                                                   Index = Worker#worker.index,
-                                                   libp2p_group_worker:send(Worker#worker.pid, {Key, Index}, Msg),
-                                                   ready_worker(Index, Key, Acc#state{store=NewRelcast})
-                                           end
+                       lists:foldl(fun(Worker, St) ->
+                                           take_while(Worker, St)
                                    end, State, Workers)
                end,
     %% attempt to deliver some stuff in the pending queue
