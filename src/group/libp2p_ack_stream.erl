@@ -4,14 +4,14 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), Ref::any(), Msg::binary()) -> ok.
+-callback handle_data(State::any(), Ref::any(), {Msg::binary(), Seq::pos_integer()}) -> ok.
 -callback accept_stream(State::any(),
                         Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
--callback handle_ack(State::any(), Ref::any()) -> ok.
+-callback handle_ack(State::any(), Ref::any(), Seq::pos_integer(), Reset::boolean(), Range::boolean()) -> ok.
 
 %% API
--export([send_ack/1]).
+-export([send_ack/4]).
 %% libp2p_framed_stream
 -export([server/4, client/2, init/3, handle_data/3, handle_send/5, handle_info/3]).
 
@@ -26,9 +26,9 @@
 %% API
 %%
 
--spec send_ack(pid()) -> ok.
-send_ack(Pid) ->
-    Pid ! send_ack,
+-spec send_ack(pid(), pos_integer(), boolean(), boolean()) -> ok.
+send_ack(Pid, Seq, Reset, Range) ->
+    Pid ! {send_ack, Seq, Reset, Range},
     ok.
 
 %% libp2p_framed_stream
@@ -53,23 +53,23 @@ init(client, Connection, [AckRef, AckModule, AckState]) ->
 
 handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
-        #libp2p_ack_frame_pb{frame={data, Bin}} ->
+        #libp2p_ack_frame_pb{data=Bin, seq=Seq, last_or_range_ack=Last} when Bin /= <<>> ->
             %% Inbound request to handle a message
-            AckModule:handle_data(AckState, AckRef, Bin),
+            AckModule:handle_data(AckState, AckRef, {Bin, Seq, Last == true}),
             {noreply, State};
-        #libp2p_ack_frame_pb{frame={ack, ok}} ->
+        #libp2p_ack_frame_pb{seq=Seq, reset=Reset, last_or_range_ack=Range} ->
             %% When we receive an ack response from the remote side we
             %% call the handler to deal with it.
-            AckModule:handle_ack(AckState, AckRef),
+            AckModule:handle_ack(AckState, AckRef, Seq, Reset == true, Range == true),
             {noreply, State};
         _Other ->
             {noreply, State}
     end.
 
-handle_send(_Kind, From, Data, Timeout, State=#state{}) ->
-    Msg = #libp2p_ack_frame_pb{frame={data, Data}},
+handle_send(_Kind, From, {Data, Seq, Last}, Timeout, State=#state{}) ->
+    Msg = #libp2p_ack_frame_pb{data=Data, seq=Seq, last_or_range_ack=Last == true},
     {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
 
-handle_info(_Kind, send_ack, State=#state{}) ->
-    Msg = #libp2p_ack_frame_pb{frame={ack, ok}},
+handle_info(_Kind, {send_ack, Seq, Reset, Range}, State=#state{}) ->
+    Msg = #libp2p_ack_frame_pb{seq=Seq, reset=Reset, last_or_range_ack=Range},
     {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.
