@@ -1,12 +1,8 @@
 syntax = "proto3";
 
-enum status {
-  ok = 0;
-}
-
 message ack_frame {
-  oneof frame {
-    status ack = 1;
+    uint32 seq = 1;
     bytes data = 2;
-  }
+    bool reset = 3;
+    bool last_or_range_ack = 4;
 }
