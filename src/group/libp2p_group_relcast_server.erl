@@ -365,6 +365,7 @@ take_while(Worker, State) ->
         {not_found, NewRelcast} ->
             State#state{store = NewRelcast};
         {ok, Key, Msg, NewRelcast} ->
+            ct:pal("sending ~p", [Msg]),
             libp2p_group_worker:send(Worker#worker.pid, {Key, Index}, Msg),
             State1 = ready_worker(Index,
                                   Key,
