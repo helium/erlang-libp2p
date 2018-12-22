@@ -1,14 +1,22 @@
 -module(group_relcast_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([unicast_test/1, multicast_test/1, defer_test/1, close_test/1, restart_test/1]).
+-export([
+         unicast_test/1,
+         multicast_test/1,
+         defer_test/1,
+         close_test/1,
+         restart_test/1,
+         pipeline_test/1
+        ]).
 
 all() ->
     [ %% restart_test,
       unicast_test,
       multicast_test,
       defer_test,
-      close_test
+      close_test,
+      pipeline_test
     ].
 
 init_per_testcase(defer_test, Config) ->
@@ -186,6 +194,62 @@ close_test(Config) ->
 
     ok.
 
+pipeline_test(Config) ->
+    [S1, S2, _S3] = proplists:get_value(swarms, Config),
+
+    Swarms = [S1, S2],
+
+    ct:pal("self ~p", [self()]),
+
+    test_util:connect_swarms(S1, S2),
+
+    test_util:await_gossip_groups(Swarms),
+
+    Members = [libp2p_swarm:address(S) || S <- Swarms],
+
+    %% g1 handles input by sending a lot of messages
+    G1Args = [relcast_handler,
+              [Members, many_messages(20, {unicast, 2, <<"unicast1">>}),
+               handle_msg([])]],
+    {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
+
+    %% G2 handles a message by acknowledging it
+    G2Args = [relcast_handler, [Members, undefined, handle_msg([])]],
+    {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
+
+    libp2p_group_relcast:handle_input(G2, {limit, 10}),
+
+    %% Give G1 some input. This should end up getting to G2 who then
+    %% sends a message to G3.
+    libp2p_group_relcast:handle_input(G1, <<"unicast">>),
+
+    %% add some sequence numbers to make sure we're getting stuff in
+    %% the expected order.
+    [receive
+         {handle_msg, 1, <<"unicast1">>} -> ok;
+         Unexpected -> error({unexpected, N, Unexpected})
+     after 2000 ->
+             error({timeout, N})
+     end
+     || N <- lists:seq(1, 11)],
+
+    %% look for one more message, we should time out because the
+    %% remote receiver has stopped
+    receive
+        {handle_msg, 1, <<"unicast1">>} ->
+            error(should_timeout)
+    after 2000 ->
+            ok
+    end,
+
+    %% here we should check to make sure that we have some pending
+    %% messages
+
+    %% here we should restart G2 to make sure that everything gets
+    %% resent
+    ok.
+
+
 restart_test(_Config) ->
     %% Restarting a relcast group should resend outbound messages that
     %% were not acknowledged, and re-deliver inbould messages to the
@@ -205,6 +269,12 @@ input_unicast(Index) ->
 input_multicast() ->
     fun(Msg) ->
             [{multicast, Msg}]
+    end.
+
+many_messages(Count, Msg) ->
+    fun(_) ->
+            ct:pal("sending ~p copies of ~p", [Count, Msg]),
+            lists:duplicate(Count, Msg)
     end.
 
 handle_msg(Resp) ->
