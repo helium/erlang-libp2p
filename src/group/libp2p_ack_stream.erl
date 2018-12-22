@@ -67,6 +67,7 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
     end.
 
 handle_send(_Kind, From, Data, Timeout, State=#state{}) ->
+    ct:pal("send ~p ~p ~p", [_Kind, From, Data]),
     Msg = #libp2p_ack_frame_pb{frame={data, Data}},
     {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
 
