@@ -4,7 +4,7 @@
 -behavior(libp2p_ack_stream).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accept_stream/3, handle_data/3, handle_ack/2]).
+-export([accept_stream/3, handle_data/4, handle_ack/3]).
 -export([ack_test/1]).
 
 
@@ -31,12 +31,12 @@ ack_test(Config) ->
     pending = libp2p_framed_stream:send(Client, <<"hello">>, 100),
 
     receive
-        {handle_data, {server, S}, <<"hello">>} -> libp2p_ack_stream:send_ack(S)
+        {handle_data, {server, S}, <<"hello">>, _} -> libp2p_ack_stream:send_ack(S)
     after 1000 -> erlang:exit(timeout_data)
     end,
 
     receive
-        {handle_ack, client}-> ok
+        {handle_ack, client, _Seq}-> ok
     after 1000 -> erlang:exit(timeout_done)
     end,
 
@@ -46,10 +46,10 @@ accept_stream({Pid, _}, StreamPid, Path) ->
     Pid ! {accept_stream, StreamPid, Path},
     {ok, {server, self()}}.
 
-handle_data({Pid, Response}, Ref, Bin) ->
-    Pid ! {handle_data, Ref, Bin},
+handle_data({Pid, Response}, Ref, Bin, Seq) ->
+    Pid ! {handle_data, Ref, Bin, Seq},
     Response.
 
-handle_ack(Pid, Ref) ->
-    Pid ! {handle_ack, Ref},
+handle_ack(Pid, Ref, Seq) ->
+    Pid ! {handle_ack, Ref, Seq},
     ok.
