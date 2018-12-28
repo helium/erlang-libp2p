@@ -15,7 +15,8 @@
        { target :: string(),
          index :: pos_integer(),
          pid :: pid() | self,
-         msg_key=false :: reference() | undefined | false
+         ready = false :: boolean(),
+         in_flight = 0
        }).
 
 -record(state,
@@ -120,19 +121,14 @@ handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
                   %({_, Elements}) ->
                        %length(Elements)
                %end,
-    MsgKeyInfo = fun(undefined) -> undefined;
-                    (false) -> false;
-                    (MsgKey) -> MsgKey
-                 end,
-    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, msg_key=MsgKey}, Acc) ->
+    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, in_flight=InFlight, ready=Ready}, Acc) ->
                                       %InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
                                       %OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
                                       maps:put(Index,
                                                AddWorkerInfo(WorkerInfo,
                                                              #{ index => Index,
-                                                                %in_keys => InKeys,
-                                                                %out_keys => OutKeys,
-                                                                msg_key => MsgKeyInfo(MsgKey)}),
+                                                                in_flight => InFlight,
+                                                                ready => Ready}),
                                                Acc)
                               end, #{}, Workers),
     GroupInfo = #{
@@ -182,7 +178,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfI
         false ->
             case Ready of
                 true ->
-                    {noreply, dispatch_next_messages(ready_worker(Index, undefined, State))};
+                    {noreply, dispatch_next_messages(ready_worker(Index, true, State))};
                 false ->
                     {noreply, ready_worker(Index, false, State)}
             end;
@@ -208,7 +204,10 @@ handle_cast({handle_ack, Index, Seq}, State=#state{self_index=_SelfIndex}) ->
     %% unhandled cast below.
     %% Delete the outbound message for the given index
     {ok, NewRelcast} = relcast:ack(Index, Seq, State#state.store),
-    {noreply, dispatch_next_messages(ready_worker(Index, undefined, State#state{store=NewRelcast}))};
+    Worker = lookup_worker(Index, State),
+    InFlight = relcast:in_flight(Index, NewRelcast),
+    State1 = update_worker(Worker#worker{in_flight=InFlight}, State),
+    {noreply, dispatch_next_messages(State1#state{store=NewRelcast})};
 handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex}) ->
     %% Incoming message, add to queue
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
@@ -297,15 +296,13 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index
 
 is_ready_worker(Index, Ready, State=#state{}) ->
     case lookup_worker(Index, State) of
-        #worker{msg_key=undefined} when Ready == true -> true;
-        #worker{msg_key=MsgKey} when MsgKey /= undefined, Ready == false -> true;
-        _ -> false
+        #worker{ready=R} -> R == Ready
     end.
 
--spec ready_worker(pos_integer(), reference() | undefined | false, #state{}) -> #state{}.
+-spec ready_worker(pos_integer(), boolean(), #state{}) -> #state{}.
 ready_worker(Index, Ready, State=#state{}) ->
     case lookup_worker(Index, State) of
-        Worker=#worker{} -> update_worker(Worker#worker{msg_key=Ready}, State);
+        Worker=#worker{} -> update_worker(Worker#worker{ready=Ready}, State);
         false -> State
     end.
 
@@ -360,9 +357,8 @@ take_while(Worker, State) ->
             State#state{store = NewRelcast};
         {ok, Seq, Msg, NewRelcast} ->
             libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq}),
-            State1 = ready_worker(Index,
-                                  Seq,
-                                  State#state{store = NewRelcast}),
+            InFlight = relcast:in_flight(Index, NewRelcast),
+            State1 = update_worker(Worker#worker{in_flight=InFlight}, State#state{store=NewRelcast}),
             take_while(Worker, State1)
     end.
 
@@ -398,7 +394,7 @@ filter_ready_workers(State=#state{}) ->
     lists:filter(fun(Worker) ->
                      case Worker of
                          #worker{pid=self} -> false;
-                         #worker{msg_key=undefined} -> true;
+                         #worker{ready=true} -> true;
                          _ -> false
                      end
                  end, State#state.workers).
