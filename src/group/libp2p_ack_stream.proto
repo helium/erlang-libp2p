@@ -1,6 +1,6 @@
 syntax = "proto3";
 
 message ack_frame {
-    int32 seq = 1;
+    uint32 seq = 1;
     bytes data = 2;
 }

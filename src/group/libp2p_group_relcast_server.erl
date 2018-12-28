@@ -190,7 +190,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfI
             %% The worker ready state already matches
             {noreply, dispatch_next_messages(State)}
     end;
-handle_cast({send_result, {_Key, _Index}, pending}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_result, _Index, pending}, State=#state{self_index=_SelfIndex}) ->
     %% Send result from sending a message to a remote worker. Since the
     %% message is deferred we do not reset the worker on this side to
     %% ready. The remote end will dispatch a separate ack to resume
