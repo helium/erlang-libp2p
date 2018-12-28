@@ -9,7 +9,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/4, handle_ack/3, accept_stream/3]).
+-export([handle_data/3, handle_ack/3, accept_stream/3]).
 
 -record(worker,
        { target :: string(),
@@ -47,7 +47,7 @@ info(Pid) ->
 %% libp2p_ack_stream
 %%
 
-handle_data(Pid, Ref, Bin, Seq) ->
+handle_data(Pid, Ref, {Bin, Seq}) ->
     gen_server:cast(Pid, {handle_data, Ref, Bin, Seq}).
 
 handle_ack(Pid, Ref, Seq) ->
@@ -358,11 +358,11 @@ take_while(Worker, State) ->
             State#state{store = NewRelcast};
         {not_found, NewRelcast} ->
             State#state{store = NewRelcast};
-        {ok, Key, Msg, NewRelcast} ->
-            ct:pal("sending ~p", [Msg]),
-            libp2p_group_worker:send(Worker#worker.pid, {Key, Index}, Msg),
+        {ok, Seq, Msg, NewRelcast} ->
+            ct:pal("sending ~p ~p", [Seq, Msg]),
+            libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq}),
             State1 = ready_worker(Index,
-                                  Key,
+                                  Seq,
                                   State#state{store = NewRelcast}),
             take_while(Worker, State1)
     end.
