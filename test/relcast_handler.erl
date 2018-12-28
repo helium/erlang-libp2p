@@ -9,8 +9,8 @@
          message_handler,
          input_handler,
          skip_handler = false,
-         seen,
-         limit = 0
+         seen = 0,
+         limit = infinity
         }).
 
 init([_Members, InputHandler, MessageHandler]) ->
@@ -37,7 +37,7 @@ handle_message(Msg, Index, State=#state{seen = Seen0,
                     {State#state{seen = Seen}, Res};
                 _ ->
                     ct:pal("hit limit, stopping"),
-                    {State, {stop, 1000}}
+                    {State, [{stop, 1000}]}
             end
     end.
 
