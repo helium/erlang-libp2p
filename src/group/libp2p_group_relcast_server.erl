@@ -348,21 +348,23 @@ dispatch_ack(Index, Seq, State=#state{}) ->
 %close_check(State) ->
     %State.
 
-take_while(Worker, State) ->
+%% deliver to the workers in a round-robin fashion
+%% until all the workers have run out of messages or filled
+%% their pipelines
+take_while([], State) ->
+    State;
+take_while([Worker|Workers], State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
         {pipeline_full, NewRelcast} ->
-            lager:info("pipeline full for ~p", [Worker#worker.index]),
-            State#state{store = NewRelcast};
+            take_while(Workers, State#state{store = NewRelcast});
         {not_found, NewRelcast} ->
-            lager:info("pipeline empty for ~p", [Worker#worker.index]),
-            State#state{store = NewRelcast};
+            take_while(Workers, State#state{store = NewRelcast});
         {ok, Seq, Msg, NewRelcast} ->
-            lager:info("took ~p for ~p", [Seq, Worker#worker.index]),
             libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq}),
             InFlight = relcast:in_flight(Index, NewRelcast),
             State1 = update_worker(Worker#worker{in_flight=InFlight}, State#state{store=NewRelcast}),
-            take_while(Worker, State1)
+            take_while(Workers ++ Worker, State1)
     end.
 
 -spec dispatch_next_messages(#state{}) -> #state{}.
@@ -371,9 +373,7 @@ dispatch_next_messages(State) ->
                    [] ->
                        State;
                    Workers ->
-                       lists:foldl(fun(Worker, St) ->
-                                           take_while(Worker, St)
-                                   end, State, Workers)
+                       take_while(Workers, State)
                end,
     %% attempt to deliver some stuff in the pending queue
     maps:fold(fun(Index, {Seq, Msg}, Acc) ->
