@@ -364,7 +364,7 @@ take_while([Worker|Workers], State) ->
             libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq}),
             InFlight = relcast:in_flight(Index, NewRelcast),
             State1 = update_worker(Worker#worker{in_flight=InFlight}, State#state{store=NewRelcast}),
-            take_while(Workers ++ Worker, State1)
+            take_while(Workers ++ [Worker], State1)
     end.
 
 -spec dispatch_next_messages(#state{}) -> #state{}.
