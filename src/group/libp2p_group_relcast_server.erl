@@ -180,7 +180,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfI
                 true ->
                     {noreply, dispatch_next_messages(ready_worker(Index, true, State))};
                 false ->
-                    {noreply, ready_worker(Index, false, State)}
+                    {noreply, dispatch_next_messages(ready_worker(Index, false, State))}
             end;
         _ ->
             %% The worker ready state already matches
@@ -217,7 +217,7 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
             %% peer ID so we need to queue it locally and block more being sent.
             %% We need to put these in a buffer somewhere and keep trying to deliver them
             %% every time we successfully process a message.
-            {noreply, State#state{pending=maps:put(Index, {Seq, Msg}, State#state.pending)}};
+            {noreply, dispatch_next_messages(State#state{pending=maps:put(Index, {Seq, Msg}, State#state.pending)})};
         {ok, NewRelcast} ->
             dispatch_ack(Index, Seq, State),
             {noreply, dispatch_next_messages(State#state{store=NewRelcast})};
