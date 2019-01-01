@@ -352,10 +352,13 @@ take_while(Worker, State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
         {pipeline_full, NewRelcast} ->
+            lager:info("pipeline full for ~p", [Worker#worker.index]),
             State#state{store = NewRelcast};
         {not_found, NewRelcast} ->
+            lager:info("pipeline empty for ~p", [Worker#worker.index]),
             State#state{store = NewRelcast};
         {ok, Seq, Msg, NewRelcast} ->
+            lager:info("took ~p for ~p", [Seq, Worker#worker.index]),
             libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq}),
             InFlight = relcast:in_flight(Index, NewRelcast),
             State1 = update_worker(Worker#worker{in_flight=InFlight}, State#state{store=NewRelcast}),
