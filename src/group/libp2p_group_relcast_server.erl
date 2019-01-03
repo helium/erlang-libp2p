@@ -16,7 +16,9 @@
          index :: pos_integer(),
          pid :: pid() | self,
          ready = false :: boolean(),
-         in_flight = 0
+         in_flight = 0 :: non_neg_integer(),
+         connects = 0 :: non_neg_integer(),
+         last_take = unknown :: atom()
        }).
 
 -record(state,
@@ -121,13 +123,15 @@ handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
                   %({_, Elements}) ->
                        %length(Elements)
                %end,
-    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, in_flight=InFlight, ready=Ready}, Acc) ->
+    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, in_flight=InFlight, ready=Ready, connects=Connections, last_take=LastTake}, Acc) ->
                                       %InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
                                       %OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
                                       maps:put(Index,
                                                AddWorkerInfo(WorkerInfo,
                                                              #{ index => Index,
                                                                 in_flight => InFlight,
+                                                                connects => Connections,
+                                                                last_take => LastTake,
                                                                 ready => Ready}),
                                                Acc)
                               end, #{}, Workers),
@@ -302,9 +306,14 @@ is_ready_worker(Index, Ready, State=#state{}) ->
 -spec ready_worker(pos_integer(), boolean(), #state{}) -> #state{}.
 ready_worker(Index, Ready, State=#state{}) ->
     case lookup_worker(Index, State) of
-        Worker=#worker{} -> update_worker(Worker#worker{ready=Ready}, State);
+        Worker=#worker{} -> update_worker(Worker#worker{ready=Ready, connects=inc_connects(Worker#worker.connects, Ready)}, State);
         false -> State
     end.
+
+inc_connects(N, true) ->
+    N + 1;
+inc_connects(N, false) ->
+    N.
 
 -spec update_worker(#worker{}, #state{}) -> #state{}.
 update_worker(Worker=#worker{index=Index}, State=#state{workers=Workers}) ->
@@ -357,14 +366,15 @@ take_while([Worker|Workers], State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
         {pipeline_full, NewRelcast} ->
-            take_while(Workers, State#state{store = NewRelcast});
+            take_while(Workers, update_worker(Worker#worker{last_take=pipeline_full}, State#state{store = NewRelcast}));
         {not_found, NewRelcast} ->
-            take_while(Workers, State#state{store = NewRelcast});
+            take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
         {ok, Seq, Msg, NewRelcast} ->
             libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq}),
             InFlight = relcast:in_flight(Index, NewRelcast),
-            State1 = update_worker(Worker#worker{in_flight=InFlight}, State#state{store=NewRelcast}),
-            take_while(Workers ++ [Worker], State1)
+            NewWorker = Worker#worker{in_flight=InFlight, last_take=ok},
+            State1 = update_worker(NewWorker, State#state{store=NewRelcast}),
+            take_while(Workers ++ [NewWorker], State1)
     end.
 
 -spec dispatch_next_messages(#state{}) -> #state{}.
