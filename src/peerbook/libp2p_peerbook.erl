@@ -114,7 +114,7 @@ add_association(Pid, AssocType, Assoc) ->
 -spec lookup_association(pid(), AssocType::string(), AssocAddress::libp2p_crypto:address())
                         -> [libp2p_peer:peer()].
 lookup_association(Pid, AssocType, AssocAddress) ->
-    gen_server:call(Pid, {lookup_association, AssocType, AssocAddress}).
+    gen_server:call(Pid, {lookup_association, AssocType, AssocAddress}, infinity).
 
 %%
 %% Gossip Group
