@@ -249,7 +249,7 @@ register_listener(Sup, SessionPid) ->
 %
 -spec add_connection_handler(pid() | ets:tab(), string(),
                              {libp2p_transport:connection_handler(),
-                              libp2p_transport:connection_handler()}) -> ok.
+                              libp2p_transport:connection_handler() | undefined}) -> ok.
 add_connection_handler(Sup, Key, {ServerMF, ClientMF}) when is_pid(Sup) ->
     add_connection_handler(tid(Sup), Key, {ServerMF, ClientMF});
 add_connection_handler(TID, Key, {ServerMF, ClientMF}) ->
