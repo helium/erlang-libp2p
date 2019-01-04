@@ -68,7 +68,8 @@ end_per_testcase(stale_test, Config) ->
 %%
 
 accessor_test(Config) ->
-    {PeerBook, Address} = proplists:get_value(peerbook, Config),
+    {_PeerBook, Address} = proplists:get_value(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
     Peer1 = mk_peer(),
     Peer2 = mk_peer(),
@@ -97,7 +98,7 @@ accessor_test(Config) ->
     ok.
 
 bad_peer_test(Config) ->
-    {PeerBook, _Address} = proplists:get_value(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
     {ok, _PrivKey1, PubKey1} = ecc_compact:generate_key(),
     {ok, PrivKey2, PubKey2} = ecc_compact:generate_key(),
@@ -118,7 +119,8 @@ bad_peer_test(Config) ->
 
 
 blacklist_test(Config) ->
-    {PeerBook, _Address} = proplists:get_value(peerbook, Config),
+    {_PeerBook, _Address} = proplists:get_value(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
     Peer1 = mk_peer(),
 
@@ -136,13 +138,16 @@ blacklist_test(Config) ->
 
 
 association_test(Config) ->
-    {PeerBook, Address} = proplists:get_value(peerbook, Config),
+    {_PeerBook, Address} = proplists:get_value(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
     {ok, AssocPrivKey, AssocPubKey} = ecc_compact:generate_key(),
     AssocSigFun = libp2p_crypto:mk_sig_fun(AssocPrivKey),
     Assoc = libp2p_peer:mk_association(AssocPubKey, Address, AssocSigFun),
 
     ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
+
+    timer:sleep(100),
 
     {ok, ThisPeer} = libp2p_peerbook:get(PeerBook, Address),
     ?assert(libp2p_peer:is_association(ThisPeer, "wallet", AssocPubKey)),
@@ -155,7 +160,8 @@ association_test(Config) ->
     ok.
 
 put_test(Config) ->
-    {PeerBook, Address} = proplists:get_value(peerbook, Config),
+    {_PeerBook, Address} = proplists:get_value(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
     PeerList1 = [mk_peer() || _ <- lists:seq(1, 5)],
 
@@ -318,7 +324,7 @@ setup_peerbook(Config, Opts) ->
     TmpDir = test_util:nonl(os:cmd("mktemp -d")),
     ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, TmpDir})}),
     {ok, Pid} = libp2p_peerbook:start_link(TID, libp2p_crypto:mk_sig_fun(PrivKey)),
-    [{peerbook, {Pid, CompactKey}} | Config].
+    [{peerbook, {Pid, CompactKey}}, {tid, TID} | Config].
 
 teardown_peerbook(Config) ->
     {Pid, _} = proplists:get_value(peerbook, Config),
