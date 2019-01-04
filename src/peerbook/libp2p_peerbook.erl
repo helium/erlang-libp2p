@@ -206,8 +206,8 @@ init([TID, SigFun]) ->
                     Handle = #peerbook{store=DB, tid=TID, stale_time=StaleTime},
                     PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
                     NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
-                    ets:insert(TID, {peerbook_db, Handle}),
                     GossipGroup = install_gossip_handler(TID, Handle),
+                    libp2p_swarm:store_peerbook(TID, Handle),
                     {ok, update_this_peer(#state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
                                                  peer_time=PeerTime, notify_time=NotifyTime,
                                                  gossip_group=GossipGroup})}
