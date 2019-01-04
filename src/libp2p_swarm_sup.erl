@@ -25,6 +25,7 @@ start_link(Args) ->
     supervisor:start_link(?MODULE, Args).
 
 init([Name, Opts]) ->
+    inert:start(),
     TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {?SUP, self()}),
     ets:insert(TID, {?NAME, Name}),
