@@ -16,11 +16,10 @@
 -behviour(gen_server).
 -behavior(libp2p_group_gossip_handler).
 
--record(peerbook_handle, {
-          tid :: ets:tab(),
-          store :: rocksdb:db_handle(),
-          stale_time :: pos_integer()
-         }).
+-record(peerbook_handle, { tid :: ets:tab(),
+                           store :: rocksdb:db_handle(),
+                           stale_time :: pos_integer()
+                         }).
 -type peerbook_handle() :: #peerbook_handle{}.
 
 -export_type([peerbook_handle/0]).
@@ -77,10 +76,7 @@ put(#peerbook_handle{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     lists:foreach(fun(P) -> store_peer(P, Handle) end, NewPeers),
     % Notify group of new peers
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers}),
-    ok;
-put(Pid, PeerList) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    ?MODULE:put(Handle, PeerList).
+    ok.
 
 -spec get(peerbook_handle(), libp2p_crypto:address()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook_handle{tid=TID}=Handle, ID) ->
@@ -93,46 +89,29 @@ get(#peerbook_handle{tid=TID}=Handle, ID) ->
             {error, Error};
         {ok, Peer} ->
             {ok, Peer}
-    end;
-get(Pid, ID) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    get(Handle, ID).
+    end.
 
 -spec is_key(peerbook_handle(), libp2p_crypto:address()) -> boolean().
 is_key(Handle=#peerbook_handle{}, ID) ->
     case get(Handle, ID) of
         {error, _} -> false;
         {ok, _} -> true
-    end;
-is_key(Pid, ID) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    is_key(Handle, ID).
+    end.
 
 -spec keys(peerbook_handle()) -> [libp2p_crypto:address()].
 keys(Handle=#peerbook_handle{}) ->
-    fetch_keys(Handle);
-keys(Pid) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    keys(Handle).
-
+    fetch_keys(Handle).
 
 -spec values(peerbook_handle()) -> [libp2p_peer:peer()].
 values(Handle=#peerbook_handle{}) ->
-    fetch_peers(Handle);
-values(Pid) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    values(Handle).
+    fetch_peers(Handle).
 
 -spec remove(peerbook_handle(), libp2p_crypto:address()) -> ok | {error, no_delete}.
 remove(#peerbook_handle{tid=TID}=Handle, ID) ->
      case ID == libp2p_swarm:address(TID) of
          true -> {error, no_delete};
          false -> delete_peer(ID, Handle)
-     end;
-remove(Pid, ID) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    remove(Handle, ID).
-
+     end.
 
 -spec blacklist_listen_addr(peerbook_handle(), libp2p_crypto:address(), ListenAddr::string())
                            -> ok | {error, not_found}.
@@ -143,39 +122,26 @@ blacklist_listen_addr(Handle=#peerbook_handle{}, ID, ListenAddr) ->
         {ok, Peer} ->
             UpdatedPeer = libp2p_peer:blacklist_add(Peer, ListenAddr),
             store_peer(UpdatedPeer, Handle)
-    end;
-blacklist_listen_addr(Pid, ID, ListenAddr) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    blacklist_listen_addr(Handle, ID, ListenAddr).
+    end.
 
--spec join_notify(peerbook_handle() | pid(), pid()) -> ok.
+-spec join_notify(peerbook_handle(), pid()) -> ok.
 join_notify(#peerbook_handle{tid=TID}, Joiner) ->
-    join_notify(libp2p_swarm:peerbook_pid(TID), Joiner);
-join_notify(Pid, Joiner) ->
-    gen_server:cast(Pid, {join_notify, Joiner}).
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {join_notify, Joiner}).
 
--spec register_session(peerbook_handle() | pid(), pid(), libp2p_identify:identify()) -> ok.
+-spec register_session(peerbook_handle(), pid(), libp2p_identify:identify()) -> ok.
 register_session(#peerbook_handle{tid=TID}, SessionPid, Identify) ->
-    register_session(libp2p_swarm:peerbook_pid(TID), SessionPid, Identify);
-register_session(Pid, SessionPid, Identify) ->
-    gen_server:cast(Pid, {register_session, SessionPid, Identify}).
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {register_session, SessionPid, Identify}).
 
--spec unregister_session(peerbook_handle() | pid(), pid()) -> ok.
+-spec unregister_session(peerbook_handle(), pid()) -> ok.
 unregister_session(#peerbook_handle{tid=TID}, SessionPid) ->
-    unregister_session(libp2p_swarm:peerbook_pid(TID), SessionPid);
-unregister_session(Pid, SessionPid) ->
-    gen_server:cast(Pid, {unregister_session, SessionPid}).
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {unregister_session, SessionPid}).
 
 changed_listener(#peerbook_handle{tid=TID}) ->%
-    changed_listener(libp2p_swarm:peerbook_pid(TID));
-changed_listener(Pid) ->
-    gen_server:cast(Pid, changed_listener).
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), changed_listener).
 
--spec update_nat_type(peerbook_handle() | pid(), libp2p_peer:nat_type()) -> ok.
+-spec update_nat_type(peerbook_handle(), libp2p_peer:nat_type()) -> ok.
 update_nat_type(#peerbook_handle{tid=TID}, NatType) ->%
-    update_nat_type(libp2p_swarm:peerbook_pid(TID), NatType);
-update_nat_type(Pid, NatType) ->
-    gen_server:cast(Pid, {update_nat_type, NatType}).
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {update_nat_type, NatType}).
 
 %% @doc Adds an association under the given type to for the swarm this
 %% peerbook is part of. Note that the association _must_ have its
@@ -186,11 +152,9 @@ update_nat_type(Pid, NatType) ->
 %%
 %% Note that the given association will replace an existing
 %% association with the given type and address of the association.
--spec add_association(peerbook_handle() | pid(), AssocType::string(), Assoc::libp2p_peer:association()) -> ok.
+-spec add_association(peerbook_handle(), AssocType::string(), Assoc::libp2p_peer:association()) -> ok.
 add_association(#peerbook_handle{tid=TID}, AssocType, Assoc) ->
-    add_association(libp2p_swarm:peerbook_pid(TID), AssocType, Assoc);
-add_association(Pid, AssocType, Assoc) ->
-    gen_server:cast(Pid, {add_association, AssocType, Assoc}).
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {add_association, AssocType, Assoc}).
 
 %% @doc Look up all the peers that have a given association type
 %% `AssocTyp' and address `AssocAddress' in their associations.
@@ -202,10 +166,7 @@ lookup_association(Handle=#peerbook_handle{}, AssocType, AssocAddress) ->
                            true -> [Peer | Acc];
                            false -> Acc
                        end
-               end, [], Handle);
-lookup_association(Pid, AssocType, AssocAddress) when is_pid(Pid) ->
-    Handle = gen_server:call(Pid, get_handle, infinity),
-    lookup_association(Handle, AssocType, AssocAddress).
+               end, [], Handle).
 
 %%
 %% Gossip Group
@@ -263,8 +224,6 @@ init([TID, SigFun]) ->
 
 handle_call(update_this_peer, _From, State) ->
     {reply, update_this_peer(State), State};
-handle_call(get_handle, _From, State) ->
-    {reply, State#state.peerbook_handle, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
