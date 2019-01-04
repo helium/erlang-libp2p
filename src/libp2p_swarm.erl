@@ -133,30 +133,14 @@ keys(TID) ->
 peerbook(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook(TID) ->
-    case ets:lookup(TID, peerbook_db) of
-        [{peerbook_db, DB}] -> DB;
-        [] -> false
-    end.
-
--spec store_peerbook(ets:tab() | pid(), libp2p_peerbook:peerbook()) -> true.
-store_peerbook(Sup, Handle) when is_pid(Sup) ->
-    store_peerbook(tid(Sup), Handle);
-store_peerbook(TID, Handle) ->
-    ets:insert(TID, {peerbook_db, Handle}).
-
-%% @doc Get the peerbook pid for a swarm.
--spec peerbook_pid(ets:tab() | pid()) -> pid().
-peerbook_pid(Sup) when is_pid(Sup) ->
-    peerbook(tid(Sup));
-peerbook_pid(TID) ->
-    libp2p_swarm_sup:peerbook(TID).
+    libp2p_swarm_simple_sup:peerbook(TID).
 
 %% @doc Get the cache for a swarm.
 -spec cache(ets:tab() | pid()) -> pid().
 cache(Sup) when is_pid(Sup) ->
     cache(tid(Sup));
 cache(TID) ->
-    libp2p_swarm_sup:cache(TID).
+    libp2p_swarm_simple_sup:cache(TID).
 
 %% @doc Get the options a swarm was started with.
 -spec opts(ets:tab() | pid()) -> swarm_opts() | any().
