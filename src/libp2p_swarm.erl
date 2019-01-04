@@ -128,7 +128,7 @@ keys(TID) ->
     gen_server:call(Server, keys).
 
 %% @doc get the peerbook db handle for a swarm
--spec peerbook(ets:tab() | pid()) -> libp2p_peerbook:peerbook_handle() | false.
+-spec peerbook(ets:tab() | pid()) -> libp2p_peerbook:peerbook() | false.
 peerbook(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook(TID) ->
