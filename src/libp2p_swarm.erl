@@ -1,7 +1,8 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
-         opts/1, name/1, address/1, p2p_address/1, keys/1, peerbook/1, cache/1, sessions/1,
+         opts/1, name/1, address/1, p2p_address/1, keys/1,
+         store_peerbook/2, peerbook/1, peerbook_pid/1, cache/1, sessions/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
          listen/2, listen_addrs/1,
@@ -127,11 +128,27 @@ keys(TID) ->
     Server = libp2p_swarm_sup:server(TID),
     gen_server:call(Server, keys).
 
-%% @doc Get the peerbook for a swarm.
--spec peerbook(ets:tab() | pid()) -> pid().
+%% @doc get the peerbook db handle for a swarm
+-spec peerbook(ets:tab() | pid()) -> libp2p_peerbook:peerbook() | false.
 peerbook(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook(TID) ->
+    case ets:lookup(TID, peerbook_db) of
+        [{peerbook_db, DB}] -> DB;
+        [] -> false
+    end.
+
+-spec store_peerbook(ets:tab() | pid(), libp2p_peerbook:peerbook()) -> true.
+store_peerbook(Sup, Handle) when is_pid(Sup) ->
+    store_peerbook(tid(Sup), Handle);
+store_peerbook(TID, Handle) ->
+    ets:insert(TID, {peerbook_db, Handle}).
+
+%% @doc Get the peerbook pid for a swarm.
+-spec peerbook_pid(ets:tab() | pid()) -> pid().
+peerbook_pid(Sup) when is_pid(Sup) ->
+    peerbook(tid(Sup));
+peerbook_pid(TID) ->
     libp2p_swarm_sup:peerbook(TID).
 
 %% @doc Get the cache for a swarm.
@@ -239,7 +256,7 @@ register_listener(Sup, SessionPid) ->
 %
 -spec add_connection_handler(pid() | ets:tab(), string(),
                              {libp2p_transport:connection_handler(),
-                              libp2p_transport:connection_handler()}) -> ok.
+                              libp2p_transport:connection_handler() | undefined}) -> ok.
 add_connection_handler(Sup, Key, {ServerMF, ClientMF}) when is_pid(Sup) ->
     add_connection_handler(tid(Sup), Key, {ServerMF, ClientMF});
 add_connection_handler(TID, Key, {ServerMF, ClientMF}) ->

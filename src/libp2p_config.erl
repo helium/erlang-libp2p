@@ -205,11 +205,11 @@ lookup_session_addrs(TID) ->
 %% Connections
 %%
 
--spec lookup_connection_handlers(ets:tab()) -> [{string(), {handler(), handler()}}].
+-spec lookup_connection_handlers(ets:tab()) -> [{string(), {handler(), handler() | undefined}}].
 lookup_connection_handlers(TID) ->
     lookup_handlers(TID, ?CONNECTION_HANDLER).
 
--spec insert_connection_handler(ets:tab(), {string(), handler(), handler()}) -> true.
+-spec insert_connection_handler(ets:tab(), {string(), handler(), handler() | undefined}) -> true.
 insert_connection_handler(TID, {Key, ServerMF, ClientMF}) ->
     ets:insert(TID, {{?CONNECTION_HANDLER, Key}, {ServerMF, ClientMF}}).
 
