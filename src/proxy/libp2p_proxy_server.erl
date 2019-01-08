@@ -74,7 +74,7 @@ connection(TID, Connection, ID) ->
         false ->
             {error, no_proxy};
         {ok, Pid} ->
-            lager:info("handling proxy connection ~p from ~p to ~p ~p", [Connection, ID, Pid]),
+            lager:info("handling proxy connection ~p from ~p to ~p", [Connection, ID, Pid]),
             {ok, _} = libp2p_connection:controlling_process(Connection, Pid),
             gen_server:cast(Pid, {connection, Connection, ID})
     end.
