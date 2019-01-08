@@ -148,6 +148,9 @@ add_port_mapping(Context, Port, Retry) ->
         {ok, Since, Port, ExtPort1, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
             {ok, ExternalAddress, ExtPort1, Lease1, Since};
+        timeout ->
+            lager:warning("failed to add port mapping for ~p: timeout", [{ExtPort, Lease0}]),
+            add_port_mapping(Context, Port, Retry-1);
         {error, _Reason} ->
             lager:warning("failed to add port mapping for ~p: ~p", [{ExtPort, Lease0}, _Reason]),
             add_port_mapping(Context, Port, Retry-1)
