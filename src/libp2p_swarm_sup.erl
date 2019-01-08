@@ -7,7 +7,8 @@
     start_link/1,
     sup/1, opts/1, name/1, address/1,
     register_server/1, server/1,
-    register_gossip_group/1, gossip_group/1
+    register_gossip_group/1, gossip_group/1,
+    register_peerbook/1, peerbook/1
 ]).
 
 %% Supervisor callbacks
@@ -16,6 +17,7 @@
 -define(SUP, swarm_sup).
 -define(SERVER, swarm_server).
 -define(GOSSIP_GROUP, swarm_gossip_group).
+-define(PEERBOOK, swarm_peerbook).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
 -define(OPTS, swarm_opts).
@@ -62,6 +64,14 @@ gossip_group(TID) ->
 
 register_gossip_group(TID) ->
     ets:insert(TID, {?GOSSIP_GROUP, self()}).
+
+register_peerbook(TID) ->
+    ets:insert(TID, {?PEERBOOK, self()}).
+
+-spec peerbook(ets:tab()) -> pid().
+peerbook(TID) ->
+    ets:lookup_element(TID, ?PEERBOOK, 2).
+
 
 %%====================================================================
 %% Supervisor callbacks
@@ -120,12 +130,19 @@ init([Name, Opts]) ->
             supervisor,
             [libp2p_group_gossip_sup]
         },
-        {libp2p_swarm_simple_sup,
-            {libp2p_swarm_simple_sup, start_link, [[TID, SigFun, Opts]]},
+        {?PEERBOOK,
+            {libp2p_peerbook, start_link, [TID, SigFun]},
             permanent,
             10000,
             supervisor,
-            [libp2p_swarm_simple_sup]
+            [libp2p_peerbook]
+        },
+        {libp2p_swarm_auxiliary_sup,
+            {libp2p_swarm_auxiliary_sup, start_link, [[TID, Opts]]},
+            permanent,
+            10000,
+            supervisor,
+            [libp2p_swarm_auxiliary_sup]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

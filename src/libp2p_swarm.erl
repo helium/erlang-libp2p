@@ -149,14 +149,14 @@ store_peerbook(TID, Handle) ->
 peerbook_pid(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook_pid(TID) ->
-    libp2p_swarm_simple_sup:peerbook(TID).
+    libp2p_swarm_sup:peerbook(TID).
 
 %% @doc Get the cache for a swarm.
 -spec cache(ets:tab() | pid()) -> pid().
 cache(Sup) when is_pid(Sup) ->
     cache(tid(Sup));
 cache(TID) ->
-    libp2p_swarm_simple_sup:cache(TID).
+    libp2p_swarm_auxiliary_sup:cache(TID).
 
 %% @doc Get the options a swarm was started with.
 -spec opts(ets:tab() | pid()) -> swarm_opts() | any().
