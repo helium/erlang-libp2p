@@ -165,11 +165,65 @@ close_state(#tcp_state{socket=Socket}) ->
 acknowledge(#tcp_state{}, Ref) ->
     ranch:accept_ack(Ref).
 
+fdset_loop(Socket, Parent, Count) ->
+    %% this may screw up TLS sockets...
+    Event = case gen_tcp:recv(Socket, 1, 1000) of
+                {ok, P} ->
+                    ok = gen_tcp:unrecv(Socket, P),
+                    true;
+                {error, timeout} ->
+                    %% timeouts are not an event, they're just a way to handle fdclrs
+                    false;
+                {error, _R} ->
+                    true
+            end,
+    receive {Ref, clear} ->
+                Parent ! {Ref, ok};
+            {Ref, fdset} ->
+                Parent ! {Ref, {error, already_fdset}}
+    after 0 ->
+              case Event of
+                  false ->
+                      %% resume waiting
+                      fdset_loop(Socket, Parent, Count);
+                  true ->
+                      Parent ! {inert_read, Count, Socket},
+                      receive {Ref, fdset} ->
+                                  Parent ! {Ref, ok},
+                                  fdset_loop(Socket, Parent, Count + 1);
+                              {Ref, clear} ->
+                                  Parent ! {Ref, ok}
+                      end
+              end
+    end.
+
 -spec fdset(tcp_state()) -> ok | {error, term()}.
-fdset(#tcp_state{socket=Socket}) ->
-    case inet:getfd(Socket) of
-        {error, Error} -> {error, Error};
-        {ok, FD} -> inert:fdset(FD)
+fdset(#tcp_state{socket=Socket}=State) ->
+    %% XXX This is a temporary fix to remove inert while we rework connections to be
+    %% event driven and not use recv at all
+    Parent = self(),
+    case erlang:get(fdset_pid) of
+        undefined ->
+            Pid = spawn(fun() ->
+                                fdset_loop(Socket, Parent, 1)
+                        end),
+            erlang:put(fdset_pid, Pid),
+            ok;
+        Pid ->
+            case is_process_alive(Pid) of
+                true ->
+                    Ref = erlang:monitor(process, Pid),
+                    Pid ! {Ref, fdset},
+                    receive {Ref, Return} ->
+                                erlang:demonitor(Ref, [flush]),
+                                Return;
+                            {'DOWN', Ref, process, Pid, Reason} ->
+                                {error, Reason}
+                    end;
+                false ->
+                    erlang:put(fdset_pid, undefined),
+                    fdset(State)
+            end
     end.
 
 -spec socket(tcp_state()) -> gen_tcp:socket().
@@ -178,9 +232,33 @@ socket(#tcp_state{socket=Socket}) ->
 
 -spec fdclr(tcp_state()) -> ok.
 fdclr(#tcp_state{socket=Socket}) ->
-    case inet:getfd(Socket) of
-        {error, Error} -> {error, Error};
-        {ok, FD} -> inert:fdclr(FD)
+    case erlang:get(fdset_pid) of
+        undefined ->
+            ok;
+        Pid ->
+            case is_process_alive(Pid) of
+                true ->
+                    Ref = erlang:monitor(process, Pid),
+                    Pid ! {Ref, clear},
+                    receive {Ref, Return} ->
+                                erlang:demonitor(Ref, [flush]),
+                                %% consume any messages of this form in the mailbox
+                                receive
+                                    {inert_read, _N, Socket} ->
+                                        ok
+                                after 0 ->
+                                          ok
+                                end,
+                                erlang:put(fdset_pid, undefined),
+                                Return;
+                            {'DOWN', Ref, process, Pid, Reason} ->
+                                erlang:put(fdset_pid, undefined),
+                                {error, Reason}
+                    end;
+                false ->
+                    erlang:put(fdset_pid, undefined),
+                    ok
+            end
     end.
 
 -spec addr_info(tcp_state()) -> {string(), string()}.
