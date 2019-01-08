@@ -83,6 +83,7 @@ connection(TID, Connection, ID) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([TID, Limit]=Args) ->
+    erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?MODULE, Args]),
     true = libp2p_config:insert_proxy(TID, self()),
     Swarm = libp2p_swarm:swarm(TID),
@@ -159,7 +160,7 @@ handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data}=State) ->
         _ ->
             {noreply, State}
     end;
-handle_info({'DOWN', _Ref, process, Who, Reason}, #state{size=Size}=State) ->
+handle_info({'EXIT', Who, Reason}, #state{size=Size}=State) ->
     lager:warning("splice process ~p went down: ~p", [Who, Reason]),
     {noreply, State#state{size=Size-1}};
 handle_info(_Msg, State) ->
@@ -188,7 +189,7 @@ dial_back(ID, ServerStream, ClientStream) ->
 
 -spec splice(libp2p_connection:connection(), libp2p_connection:connection()) -> ok.
 splice(Connection1, Connection2) ->
-    {Pid, _Ref} = erlang:spawn_monitor(fun() ->
+    Pid = erlang:spawn_link(fun() ->
         receive control_given -> ok end,
         Socket1 = libp2p_connection:socket(Connection1),
         {ok, FD1} = inet:getfd(Socket1),
