@@ -209,9 +209,7 @@ listen(Sup, Addr) when is_pid(Sup) ->
 listen(TID, Addr) ->
     case libp2p_transport:for_addr(TID, Addr) of
         {ok, ListenAddr, {Transport, TransportPid}} ->
-            %% XXX the already_listening case here will rarely match because for listen addresses
-            %% like 0.0.0.0/0 that 'original' listen address is not stored in the listeners
-            case libp2p_config:lookup_listener(TID, Addr) of
+            case libp2p_config:lookup_listen_socket_by_addr(TID, Addr) of
                 {ok, _} -> {error, already_listening};
                 false ->
                     case Transport:start_listener(TransportPid, ListenAddr) of
