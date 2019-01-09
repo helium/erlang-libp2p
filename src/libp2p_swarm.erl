@@ -209,13 +209,12 @@ listen(Sup, Addr) when is_pid(Sup) ->
 listen(TID, Addr) ->
     case libp2p_transport:for_addr(TID, Addr) of
         {ok, ListenAddr, {Transport, TransportPid}} ->
-            case libp2p_config:lookup_listener(TID, Addr) of
+            case libp2p_config:lookup_listen_socket_by_addr(TID, Addr) of
                 {ok, _} -> {error, already_listening};
                 false ->
                     case Transport:start_listener(TransportPid, ListenAddr) of
                         {ok, TransportAddrs, ListenPid} ->
                             lager:info("Started Listener on ~p", [TransportAddrs]),
-                            libp2p_config:insert_listener(TID, TransportAddrs, ListenPid),
                             register_listener(swarm(TID), ListenPid);
                         {error, Error={{shutdown, _}, _}} ->
                             % We don't log shutdown errors to avoid cluttering the logs

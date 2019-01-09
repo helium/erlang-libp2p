@@ -317,6 +317,26 @@ init([TID]) ->
                                     {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
     libp2p_relay:add_stream_handler(TID),
     libp2p_proxy:add_stream_handler(TID),
+
+    %% find all the listen addrs owned by this transport
+    ListenAddrs = [ LA || LA <- libp2p_config:listen_addrs(TID), match_addr(LA, TID) /= false ],
+    %% find the distinct list if listen pids
+    ListenPids = lists:foldl(fun(LA, Acc) ->
+                                     case libp2p_config:lookup_listener(TID, LA) of
+                                         {ok, Pid} ->
+                                             case lists:member(Pid, Acc) of
+                                                 true ->
+                                                     Acc;
+                                                 false ->
+                                                     [Pid | Acc]
+                                             end;
+                                         false ->
+                                             Acc
+                                     end
+                             end, [], ListenAddrs),
+    %% monitor all the listen pids
+    [ erlang:monitor(process, Pid) || Pid <- ListenPids],
+
     {ok, #state{tid=TID}}.
 
 %% libp2p_transport
@@ -324,8 +344,11 @@ init([TID]) ->
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
     Response =
         case listen_on(Addr, TID) of
-            {ok, ListenAddrs, Pid} ->
+            {ok, ListenAddrs, Socket, Pid} ->
+                erlang:monitor(process, Pid),
                 libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
+                libp2p_config:insert_listener(TID, ListenAddrs, Pid),
+                libp2p_config:insert_listen_socket(TID, Pid, Addr, Socket),
                 {ok, ListenAddrs, Pid};
             {error, Error} -> {error, Error}
         end,
@@ -354,11 +377,51 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
             ObservedAddr = libp2p_identify:observed_addr(Identify),
             {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
         false ->
-            lager:info("identify response with local address ~p that is not a listen addr socket, ignoring",
-                       [LocalAddr]),
-            %% this is likely a discovery session we dialed with unique_port
-            %% we can't trust this for the purposes of the observed address
-            {noreply, State}
+            %% check if our listen addrs have changed
+            %% find all the listen addrs owned by this transport
+            MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
+            %% find the distinct list of listen addrs for each listen socket
+            NewListenAddrsWithPid = lists:foldl(fun(LA, Acc) ->
+                                             case libp2p_config:lookup_listener(TID, LA) of
+                                                 {ok, Pid} ->
+                                                     case lists:keymember(Pid, 2, Acc) of
+                                                         true ->
+                                                             Acc;
+                                                         false ->
+                                                             case libp2p_config:lookup_listen_socket(TID, Pid) of
+                                                                 {ok, {_ListenAddr, S}} ->
+                                                                     [{tcp_listen_addrs(S), Pid} | Acc];
+                                                                 false ->
+                                                                     Acc
+                                                             end
+                                                     end;
+                                                 false ->
+                                                     Acc
+                                             end
+                                     end, [], MyListenAddrs),
+            %% don't use lists flatten here as it flattens too much
+            NewListenAddrs = lists:foldl(fun(E, A) -> E ++ A end, [], (element(1, lists:unzip(NewListenAddrsWithPid)))),
+            case lists:member(LocalAddr, NewListenAddrs) of
+                true ->
+                    %% they have changed, add any new ones and remove any old ones
+                    ObservedAddr = libp2p_identify:observed_addr(Identify),
+                    %% find listen addresses for this transport
+                    MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
+                    RemovedListenAddrs = MyListenAddrs -- NewListenAddrs,
+                    lager:info("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
+                    [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
+                    %% we can simply re-add all of the addresses again, overrides are fine
+                    [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
+                    PB = libp2p_swarm:peerbook(TID),
+                    libp2p_peerbook:changed_listener(PB),
+                    {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
+                false ->
+                    lager:info("identify response with local address ~p that is not a listen addr socket ~p, ignoring",
+                               [LocalAddr, NewListenAddrs]),
+                    %% this is likely a discovery session we dialed with unique_port
+                    %% we can't trust this for the purposes of the observed address
+                    {noreply, State}
+            end
     end;
 handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns=StunTxns}) ->
     case most_observed_addr(Addrs) of
@@ -442,6 +505,29 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
         _ ->
             {noreply, State}
     end;
+handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
+    %% check if this is a listen socket pid
+    case libp2p_config:lookup_listen_socket(TID, Pid) of
+        {ok, {ListenAddr, Socket}} ->
+            libp2p_config:remove_listen_socket(TID, Pid),
+            %% we should restart the listener here because we have not been told to *not*
+            %% listen on this address
+            case listen_on(ListenAddr, TID) of
+                {ok, ListenAddrs, Socket, Pid} ->
+                    lager:info("restarted listener for ~p as ~p", [ListenAddr, Pid]),
+                    erlang:monitor(process, Pid),
+                    libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
+                    libp2p_config:insert_listener(TID, ListenAddrs, Pid),
+                    libp2p_config:insert_listen_socket(TID, Pid, ListenAddr, Socket),
+                    Server = libp2p_swarm_sup:server(TID),
+                    gen_server:cast(Server, {register, libp2p_config:listener(), Pid});
+                {error, Error} ->
+                    lager:error("unable to restart listener for ~p : ~p", [ListenAddr, Error])
+            end;
+        false ->
+            ok
+    end,
+    {noreply, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled message ~p", [Msg]),
     {noreply, State}.
@@ -470,7 +556,7 @@ listen_options(IP, TID) ->
     end.
 
 
--spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
+-spec listen_on(string(), ets:tab()) -> {ok, [string()], gen_tcp:socket(), pid()} | {error, term()}.
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
@@ -497,7 +583,7 @@ listen_on(Addr, TID) ->
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
                             ok = gen_tcp:controlling_process(Socket, Pid),
-                            {ok, ListenAddrs, Pid};
+                            {ok, ListenAddrs, Socket, Pid};
                         {error, Reason} ->
                             gen_tcp:close(Socket),
                             {error, Reason}
