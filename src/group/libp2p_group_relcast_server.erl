@@ -198,7 +198,7 @@ handle_cast({send_result, _Index, pending}, State=#state{self_index=_SelfIndex})
     %% lager:debug("~p SEND RESULT TO ~p: ~p defer",
     %%             [_SelfIndex, _Index, base58:binary_to_base58(_Key)]),
     {noreply, State};
-handle_cast({send_result, {_Key, _Index}, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({send_result, _Index, {error, _Error}}, State=#state{self_index=_SelfIndex}) ->
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.
     {noreply, State};
