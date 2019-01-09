@@ -72,7 +72,7 @@ delete(Pid, Key) ->
 %% ------------------------------------------------------------------
 init([TID]) ->
     erlang:process_flag(trap_exit, true),
-    libp2p_swarm_sup:register_cache(TID),
+    libp2p_swarm_auxiliary_sup:register_cache(TID),
     SwarmName = libp2p_swarm:name(TID),
     DataDir = libp2p_config:base_dir(TID),
     Opts = [{file, filename:join([DataDir, SwarmName, "cache.dets"])}],

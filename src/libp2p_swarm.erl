@@ -156,7 +156,7 @@ peerbook_pid(TID) ->
 cache(Sup) when is_pid(Sup) ->
     cache(tid(Sup));
 cache(TID) ->
-    libp2p_swarm_sup:cache(TID).
+    libp2p_swarm_auxiliary_sup:cache(TID).
 
 %% @doc Get the options a swarm was started with.
 -spec opts(ets:tab() | pid()) -> swarm_opts() | any().

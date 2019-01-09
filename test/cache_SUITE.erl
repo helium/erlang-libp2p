@@ -61,7 +61,7 @@ basic(_Config) ->
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
     TID = libp2p_swarm:tid(Swarm),
-    Cache = libp2p_swarm_sup:cache(TID),
+    Cache = libp2p_swarm_auxiliary_sup:cache(TID),
     ok = libp2p_cache:insert(Cache, Key, Value),
     Value = libp2p_cache:lookup(Cache, Key),
 
@@ -72,7 +72,7 @@ basic(_Config) ->
     ok = libp2p_swarm:listen(Swarm2, "/ip4/0.0.0.0/tcp/0"),
 
     TID2 = libp2p_swarm:tid(Swarm2),
-    Cache2 = libp2p_swarm_sup:cache(TID2),
+    Cache2 = libp2p_swarm_auxiliary_sup:cache(TID2),
     Value = libp2p_cache:lookup(Cache2, Key),
 
     ok = libp2p_swarm:stop(Swarm2),
