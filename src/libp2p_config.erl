@@ -7,6 +7,7 @@
          lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
+         listen_socket/0, lookup_listen_socket/2, insert_listen_socket/4, remove_listen_socket/2,
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
          insert_group/3, lookup_group/2, remove_group/2,
@@ -18,6 +19,7 @@
 -define(TRANSPORT, transport).
 -define(SESSION, session).
 -define(LISTENER, listener).
+-define(LISTEN_SOCKET, listen_socket).
 -define(GROUP, group).
 -define(RELAY, relay).
 -define(PROXY, proxy).
@@ -160,6 +162,31 @@ remove_listener(TID, Addr) ->
 -spec listen_addrs(ets:tab()) -> [string()].
 listen_addrs(TID) ->
     [ Addr || [Addr] <- ets:match(TID, {{?LISTENER, '$1'}, '_'})].
+
+
+%%
+%% Listen sockets
+%%
+-spec listen_socket() -> ?LISTEN_SOCKET.
+listen_socket() ->
+    ?LISTEN_SOCKET.
+
+-spec insert_listen_socket(ets:tab(), pid(), string(), gen_tcp:socket()) -> true.
+insert_listen_socket(TID, Pid, ListenAddr, Socket) ->
+    ets:insert(TID, {{?LISTEN_SOCKET, Pid}, {ListenAddr, Socket}}),
+    true.
+
+-spec lookup_listen_socket(ets:tab(), pid()) -> {ok, {string(), gen_tcp:socket()}} | false.
+lookup_listen_socket(TID, Pid) ->
+    case ets:lookup(TID, {?LISTEN_SOCKET, Pid}) of
+        [{_, Sock}] -> {ok, Sock};
+        [] -> false
+    end.
+
+-spec remove_listen_socket(ets:tab(), pid()) -> true.
+remove_listen_socket(TID, Pid) ->
+    ets:delete(TID, {?LISTEN_SOCKET, Pid}),
+    true.
 
 %%
 %% Sessions
