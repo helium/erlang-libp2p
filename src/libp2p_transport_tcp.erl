@@ -347,8 +347,8 @@ handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
             {ok, ListenAddrs, Socket, Pid} ->
                 erlang:monitor(process, Pid),
                 libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
-                libp2p_config:insert_listener(TID, [Addr|ListenAddrs], Pid),
-                libp2p_config:insert_listen_socket(TID, Pid, {Addr, Socket}),
+                libp2p_config:insert_listener(TID, ListenAddrs, Pid),
+                libp2p_config:insert_listen_socket(TID, Pid, Addr, Socket),
                 {ok, ListenAddrs, Pid};
             {error, Error} -> {error, Error}
         end,
@@ -384,13 +384,13 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
             NewListenAddrsWithPid = lists:foldl(fun(LA, Acc) ->
                                              case libp2p_config:lookup_listener(TID, LA) of
                                                  {ok, Pid} ->
-                                                     case lists:member(Pid, 2, Acc) of
+                                                     case lists:keymember(Pid, 2, Acc) of
                                                          true ->
                                                              Acc;
                                                          false ->
                                                              case libp2p_config:lookup_listen_socket(TID, Pid) of
-                                                                 {ok, {ListenAddr, S}} ->
-                                                                     [{[ListenAddr|tcp_listen_addrs(S)], Pid} | Acc];
+                                                                 {ok, {_ListenAddr, S}} ->
+                                                                     [{tcp_listen_addrs(S), Pid} | Acc];
                                                                  false ->
                                                                      Acc
                                                              end
@@ -514,10 +514,11 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Re
             %% listen on this address
             case listen_on(ListenAddr, TID) of
                 {ok, ListenAddrs, Socket, Pid} ->
+                    lager:info("restarted listener for ~p as ~p", [ListenAddr, Pid]),
                     erlang:monitor(process, Pid),
                     libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
-                    libp2p_config:insert_listener(TID, [ListenAddr|ListenAddrs], Pid),
-                    libp2p_config:insert_listen_socket(TID, Pid, {ListenAddr, Socket}),
+                    libp2p_config:insert_listener(TID, ListenAddrs, Pid),
+                    libp2p_config:insert_listen_socket(TID, Pid, ListenAddr, Socket),
                     Server = libp2p_swarm_sup:server(TID),
                     gen_server:cast(Server, {register, libp2p_config:listener(), Pid});
                 {error, Error} ->
@@ -555,7 +556,7 @@ listen_options(IP, TID) ->
     end.
 
 
--spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
+-spec listen_on(string(), ets:tab()) -> {ok, [string()], gen_tcp:socket(), pid()} | {error, term()}.
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
