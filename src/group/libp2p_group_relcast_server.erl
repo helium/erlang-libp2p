@@ -177,7 +177,7 @@ handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfI
     %% the place to send more messages.
     %% lager:debug("~p IS READY ~p TO SEND TO ~p", [_SelfIndex, Ready, Index]),
     {ok, Relcast1} = relcast:reset_actor(Index, Relcast),
-    State = State0#state{store = Relcast1},
+    State = State0#state{store = Relcast1, pending=maps:remove(Index, Acc#state.pending)},
     case is_ready_worker(Index, Ready, State) of
         false ->
             case Ready of
