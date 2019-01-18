@@ -211,7 +211,7 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
     {ok, NewRelcast0} = relcast:ack(Index, Seq, State#state.store),
     NewRelcast = case Reset of
                      true ->
-                         lager:info("Reset actor ~p because of ACK/Reset", [Index]),
+                         lager:info("Reset actor ~p with seq ~p because of ACK/Reset", [Index, Seq]),
                          {ok, R} = relcast:reset_actor(Index, NewRelcast0),
                          R;
                      false ->
@@ -237,11 +237,11 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
             case State#state.pending of
                 %% already have something, drop.
                 #{Index := {_Seq2, _Msg2}} ->
-                    lager:notice("Dropping packet from ~p because of full", [Index]),
+                    lager:notice("Dropping packet from ~p with seq because of full", [Index, Seq]),
                     {noreply, dispatch_next_messages(State)};
                 %% either not present or undefined, add a new one
                 _ ->
-                    lager:notice("Saving canary packet from ~p because of full", [Index]),
+                    lager:notice("Saving canary packet from ~p with seq ~p because of full", [Index, Seq]),
                     Pending = maps:put(Index, {Seq, Msg}, State#state.pending),
                     {noreply, dispatch_next_messages(State#state{pending = Pending})}
             end; 
@@ -416,11 +416,11 @@ dispatch_next_messages(State) ->
                               %% still no room, continue to HODL the message
                               Acc;
                           {ok, NR} ->
-                              lager:notice("Processed canary packet for ~p, sending ACK/reset", [Index]),
+                              lager:notice("Processed canary packet for ~p with seq ~p, sending ACK/reset", [Index, Seq]),
                               dispatch_ack(Index, Seq, true, Acc),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)};
                           {stop, Timeout, NR} ->
-                              lager:notice("Processed canary packet for ~p, sending ACK/reset", [Index]),
+                              lager:notice("Processed canary packet for ~p with seq ~p, sending ACK/reset", [Index, Seq]),
                               dispatch_ack(Index, Seq, true, Acc),
                               erlang:send_after(Timeout, self(), force_close),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)}
