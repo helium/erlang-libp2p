@@ -202,12 +202,19 @@ handle_cast({send_result, _Index, {error, _Error}}, State=#state{self_index=_Sel
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.
     {noreply, State};
-handle_cast({handle_ack, Index, Seq, _Reset}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}) ->
     %% Received when a previous message had a send_result of defer.
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
     %% Delete the outbound message for the given index
-    {ok, NewRelcast} = relcast:ack(Index, Seq, State#state.store),
+    {ok, NewRelcast0} = relcast:ack(Index, Seq, State#state.store),
+    NewRelcast = case Reset of
+                     true ->
+                         {ok, R} = relcast:reset_actor(Index, NewRelcast0),
+                         R;
+                     false ->
+                         NewRelcast0
+                 end,
     Worker = lookup_worker(Index, State),
     InFlight = relcast:in_flight(Index, NewRelcast),
     State1 = update_worker(Worker#worker{in_flight=InFlight}, State),
@@ -221,7 +228,19 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
             %% peer ID so we need to queue it locally and block more being sent.
             %% We need to put these in a buffer somewhere and keep trying to deliver them
             %% every time we successfully process a message.
-            {noreply, dispatch_next_messages(State#state{pending=maps:put(Index, {Seq, Msg}, State#state.pending)})};
+
+            %% Once we've hit this, we drop subsequent messages and send an actor reset
+            %% when we do finally manage to deliver our pending canary.
+
+            case State#state.pending of
+                %% already have something, drop.
+                #{Index := {_Seq2, _Msg2}} ->
+                    {noreply, dispatch_next_messages(State)};
+                %% either not present or undefined, add a new one
+                _ ->
+                    Pending = maps:put(Index, {Seq, Msg}, State#state.pending),
+                    {noreply, dispatch_next_messages(State#state{pending = Pending})}
+            end; 
         {ok, NewRelcast} ->
             dispatch_ack(Index, Seq, false, State),
             {noreply, dispatch_next_messages(State#state{store=NewRelcast})};
