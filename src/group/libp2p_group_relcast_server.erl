@@ -224,34 +224,34 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
 handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex}) ->
     %% Incoming message, add to queue
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
-    case relcast:deliver(Msg, Index, State#state.store) of
-        full ->
-            %% So this is a bit tricky. we've exceeded the defer queueing for this
-            %% peer ID so we need to queue it locally and block more being sent.
-            %% We need to put these in a buffer somewhere and keep trying to deliver them
-            %% every time we successfully process a message.
+    case State#state.pending of
+        %% already have something pending, drop.
+        #{Index := {_Seq2, _Msg2}} ->
+            lager:notice("Dropping packet from ~p with seq because of full", [Index, Seq]),
+            {noreply, dispatch_next_messages(State)};
+        %% either not present or undefined, try to process it
+        _ ->
+            case relcast:deliver(Msg, Index, State#state.store) of
+                full ->
+                    %% So this is a bit tricky. we've exceeded the defer queueing for this
+                    %% peer ID so we need to queue it locally and block more being sent.
+                    %% We need to put these in a buffer somewhere and keep trying to deliver them
+                    %% every time we successfully process a message.
 
-            %% Once we've hit this, we drop subsequent messages and send an actor reset
-            %% when we do finally manage to deliver our pending canary.
+                    %% Once we've hit this, we drop subsequent messages and send an actor reset
+                    %% when we do finally manage to deliver our pending canary.
 
-            case State#state.pending of
-                %% already have something, drop.
-                #{Index := {_Seq2, _Msg2}} ->
-                    lager:notice("Dropping packet from ~p with seq because of full", [Index, Seq]),
-                    {noreply, dispatch_next_messages(State)};
-                %% either not present or undefined, add a new one
-                _ ->
                     lager:notice("Saving canary packet from ~p with seq ~p because of full", [Index, Seq]),
                     Pending = maps:put(Index, {Seq, Msg}, State#state.pending),
-                    {noreply, dispatch_next_messages(State#state{pending = Pending})}
-            end; 
-        {ok, NewRelcast} ->
-            dispatch_ack(Index, Seq, false, State),
-            {noreply, dispatch_next_messages(State#state{store=NewRelcast})};
-        {stop, Timeout, NewRelcast} ->
-            dispatch_ack(Index, Seq, false, State),
-            erlang:send_after(Timeout, self(), force_close),
-            {noreply, dispatch_next_messages(State#state{store=NewRelcast})}
+                    {noreply, dispatch_next_messages(State#state{pending = Pending})};
+                {ok, NewRelcast} ->
+                    dispatch_ack(Index, Seq, false, State),
+                    {noreply, dispatch_next_messages(State#state{store=NewRelcast})};
+                {stop, Timeout, NewRelcast} ->
+                    dispatch_ack(Index, Seq, false, State),
+                    erlang:send_after(Timeout, self(), force_close),
+                    {noreply, dispatch_next_messages(State#state{store=NewRelcast})}
+            end
     end;
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
