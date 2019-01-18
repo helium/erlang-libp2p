@@ -45,18 +45,32 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
         {transport, self()},
         {id, ID}
     ],
-    case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
-        {error, Reason} ->
-            lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
-            {error, fail_dial_proxy};
-        {ok, _} ->
-            receive
-                {proxy_negotiated, Socket, MultiAddr} ->
-                    Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
-                    lager:info("proxy successful ~p", [Conn]),
-                    libp2p_transport:start_client_session(TID, MAddr, Conn)
-            after 8000 ->
-                {error, timeout_relay_session}
+    case libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_crypto:p2p_to_address(PAddress)) of
+        {error, _}=Error ->
+            Error;
+        {ok, PeerInfo} ->
+            HasRelayAddress = lists:any(
+                fun libp2p_relay:is_p2p_circuit/1,
+                libp2p_peer:cleared_listen_addrs(PeerInfo)
+            ),
+            case HasRelayAddress of
+                true ->
+                    {error, invalid_proxy};
+                false ->
+                    case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
+                        {error, Reason} ->
+                            lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
+                            {error, fail_dial_proxy};
+                        {ok, _} ->
+                            receive
+                                {proxy_negotiated, Socket, MultiAddr} ->
+                                    Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
+                                    lager:info("proxy successful ~p", [Conn]),
+                                    libp2p_transport:start_client_session(TID, MAddr, Conn)
+                            after 8000 ->
+                                {error, timeout_relay_session}
+                            end
+                    end
             end
     end.
 
