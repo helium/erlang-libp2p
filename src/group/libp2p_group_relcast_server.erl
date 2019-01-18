@@ -5,11 +5,11 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, handle_input/2, send_ack/3, info/1]).
+-export([start_link/4, handle_input/2, send_ack/4, info/1]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/3, handle_ack/3, accept_stream/3]).
+-export([handle_data/3, handle_ack/4, accept_stream/3]).
 
 -record(worker,
        { target :: string(),
@@ -41,8 +41,8 @@
 handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
 
-send_ack(Pid, Index, Seq) ->
-    Pid ! {send_ack, Index, Seq}.
+send_ack(Pid, Index, Seq, Reset) ->
+    Pid ! {send_ack, Index, Seq, Reset}.
 
 info(Pid) ->
     catch gen_server:call(Pid, info).
@@ -53,8 +53,8 @@ info(Pid) ->
 handle_data(Pid, Ref, {Bin, Seq}) ->
     gen_server:cast(Pid, {handle_data, Ref, Bin, Seq}).
 
-handle_ack(Pid, Ref, Seq) ->
-    gen_server:cast(Pid, {handle_ack, Ref, Seq}).
+handle_ack(Pid, Ref, Seq, Reset) ->
+    gen_server:cast(Pid, {handle_ack, Ref, Seq, Reset}).
 
 accept_stream(Pid, StreamPid, Path) ->
     gen_server:call(Pid, {accept_stream, StreamPid, Path}).
@@ -202,7 +202,7 @@ handle_cast({send_result, _Index, {error, _Error}}, State=#state{self_index=_Sel
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.
     {noreply, State};
-handle_cast({handle_ack, Index, Seq}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_ack, Index, Seq, _Reset}, State=#state{self_index=_SelfIndex}) ->
     %% Received when a previous message had a send_result of defer.
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
@@ -223,10 +223,10 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
             %% every time we successfully process a message.
             {noreply, dispatch_next_messages(State#state{pending=maps:put(Index, {Seq, Msg}, State#state.pending)})};
         {ok, NewRelcast} ->
-            dispatch_ack(Index, Seq, State),
+            dispatch_ack(Index, Seq, false, State),
             {noreply, dispatch_next_messages(State#state{store=NewRelcast})};
         {stop, Timeout, NewRelcast} ->
-            dispatch_ack(Index, Seq, State),
+            dispatch_ack(Index, Seq, false, State),
             erlang:send_after(Timeout, self(), force_close),
             {noreply, dispatch_next_messages(State#state{store=NewRelcast})}
     end;
@@ -243,9 +243,9 @@ handle_info({start_relcast, Handler, HandlerArgs, SelfIndex, Addrs}, State) ->
     {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler, HandlerArgs, [{data_dir, State#state.store_dir}]),
     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
     {noreply, State#state{store=Relcast}};
-handle_info({send_ack, Index, Seq}, State=#state{}) ->
+handle_info({send_ack, Index, Seq, Reset}, State=#state{}) ->
     %% lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
-    {noreply, dispatch_ack(Index, Seq, State)};
+    {noreply, dispatch_ack(Index, Seq, Reset, State)};
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
     %% down the group by exiting the supervisor.
@@ -326,14 +326,14 @@ lookup_worker(Index, State=#state{}) ->
 lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
     lists:keyfind(Key, KeyIndex, Workers).
 
--spec dispatch_ack(pos_integer(), pos_integer(), #state{}) -> #state{}.
-dispatch_ack(Index, Seq, State=#state{}) ->
+-spec dispatch_ack(pos_integer(), pos_integer(), boolean(), #state{}) -> #state{}.
+dispatch_ack(Index, Seq, Reset, State=#state{}) ->
     case lookup_worker(Index, State) of
         #worker{pid=self} ->
-            handle_ack(self(), Index, Seq),
+            handle_ack(self(), Index, Seq, Reset),
             State;
         #worker{pid=Worker} ->
-            libp2p_group_worker:send_ack(Worker, Seq),
+            libp2p_group_worker:send_ack(Worker, Seq, Reset),
             State
     end.
 
@@ -392,10 +392,10 @@ dispatch_next_messages(State) ->
                               %% still no room, continue to HODL the message
                               Acc;
                           {ok, NR} ->
-                              dispatch_ack(Index, Seq, Acc),
+                              dispatch_ack(Index, Seq, true, Acc),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)};
                           {stop, Timeout, NR} ->
-                              dispatch_ack(Index, Seq, Acc),
+                              dispatch_ack(Index, Seq, true, Acc),
                               erlang:send_after(Timeout, self(), force_close),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)}
                       end

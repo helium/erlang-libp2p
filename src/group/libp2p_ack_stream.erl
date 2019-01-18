@@ -8,10 +8,10 @@
 -callback accept_stream(State::any(),
                         Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.
--callback handle_ack(State::any(), Ref::any(), Seq::pos_integer()) -> ok.
+-callback handle_ack(State::any(), Ref::any(), Seq::pos_integer(), Reset::boolean()) -> ok.
 
 %% API
--export([send_ack/2]).
+-export([send_ack/3]).
 %% libp2p_framed_stream
 -export([server/4, client/2, init/3, handle_data/3, handle_send/5, handle_info/3]).
 
@@ -26,9 +26,9 @@
 %% API
 %%
 
--spec send_ack(pid(), pos_integer()) -> ok.
-send_ack(Pid, Seq) ->
-    Pid ! {send_ack, Seq},
+-spec send_ack(pid(), pos_integer(), boolean()) -> ok.
+send_ack(Pid, Seq, Reset) ->
+    Pid ! {send_ack, Seq, Reset},
     ok.
 
 %% libp2p_framed_stream
@@ -57,10 +57,10 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             %% Inbound request to handle a message
             AckModule:handle_data(AckState, AckRef, {Bin, Seq}),
             {noreply, State};
-        #libp2p_ack_frame_pb{seq=Seq} ->
+        #libp2p_ack_frame_pb{seq=Seq, reset=Reset} ->
             %% When we receive an ack response from the remote side we
             %% call the handler to deal with it.
-            AckModule:handle_ack(AckState, AckRef, Seq),
+            AckModule:handle_ack(AckState, AckRef, Seq, Reset == true),
             {noreply, State};
         _Other ->
             {noreply, State}
@@ -70,6 +70,6 @@ handle_send(_Kind, From, {Data, Seq}, Timeout, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{data=Data, seq=Seq},
     {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
 
-handle_info(_Kind, {send_ack, Seq}, State=#state{}) ->
-    Msg = #libp2p_ack_frame_pb{seq=Seq},
+handle_info(_Kind, {send_ack, Seq, Reset}, State=#state{}) ->
+    Msg = #libp2p_ack_frame_pb{seq=Seq, reset=Reset},
     {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.

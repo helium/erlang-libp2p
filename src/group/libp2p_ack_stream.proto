@@ -3,4 +3,5 @@ syntax = "proto3";
 message ack_frame {
     uint32 seq = 1;
     bytes data = 2;
+    bool reset = 3;
 }

@@ -9,7 +9,7 @@
 %% API
 -export([start_link/4, start_link/5,
          assign_target/2, clear_target/1,
-         assign_stream/2, send/3, send_ack/2, close/1]).
+         assign_stream/2, send/3, send_ack/3, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -92,9 +92,9 @@ close(Pid) ->
 
 %% @doc Used as a convenience for groups using libp2p_ack_stream, this
 %% function sends an ack to the worker's stream if connected.
--spec send_ack(pid(), pos_integer()) -> ok.
-send_ack(Pid, Seq) ->
-    Pid ! {send_ack, Seq},
+-spec send_ack(pid(), pos_integer(), boolean()) -> ok.
+send_ack(Pid, Seq, Reset) ->
+    Pid ! {send_ack, Seq, Reset},
     ok.
 
 %% libp2p_info
@@ -356,10 +356,10 @@ handle_event(cast, clear_target, #data{}) ->
 handle_event(cast, {assign_target, _Target}, #data{}) ->
     %% ignore (handled in all states but `closing')
     keep_state_and_data;
-handle_event(info, {send_ack, _Seq}, #data{stream_pid=undefined}) ->
+handle_event(info, {send_ack, _Seq, _Reset}, #data{stream_pid=undefined}) ->
     keep_state_and_data;
-handle_event(info, {send_ack, Seq}, #data{stream_pid=StreamPid}) ->
-    StreamPid ! {send_ack, Seq},
+handle_event(info, {send_ack, Seq, Reset}, #data{stream_pid=StreamPid}) ->
+    StreamPid ! {send_ack, Seq, Reset},
     keep_state_and_data;
 handle_event(info, targeting_timeout, #data{}) ->
     %% ignore, handled only by `targeting'
