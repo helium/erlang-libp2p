@@ -102,7 +102,7 @@ send_ack(Pid, Seq, Reset) ->
 
 %% @private
 info(Pid) ->
-    catch gen_statem:call(Pid, info).
+    catch gen_statem:call(Pid, info, 10000).
 
 %% gen_statem
 %%
