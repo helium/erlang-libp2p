@@ -176,8 +176,9 @@ handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfI
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
     %% lager:debug("~p IS READY ~p TO SEND TO ~p", [_SelfIndex, Ready, Index]),
+    lager:notice("Reset actor ~p because of reconnect", [Index]),
     {ok, Relcast1} = relcast:reset_actor(Index, Relcast),
-    State = State0#state{store = Relcast1, pending=maps:remove(Index, Acc#state.pending)},
+    State = State0#state{store = Relcast1, pending=maps:remove(Index, State0#state.pending)},
     case is_ready_worker(Index, Ready, State) of
         false ->
             case Ready of
@@ -210,6 +211,7 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
     {ok, NewRelcast0} = relcast:ack(Index, Seq, State#state.store),
     NewRelcast = case Reset of
                      true ->
+                         lager:info("Reset actor ~p because of ACK/Reset", [Index]),
                          {ok, R} = relcast:reset_actor(Index, NewRelcast0),
                          R;
                      false ->
@@ -235,9 +237,11 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
             case State#state.pending of
                 %% already have something, drop.
                 #{Index := {_Seq2, _Msg2}} ->
+                    lager:notice("Dropping packet from ~p because of full", [Index]),
                     {noreply, dispatch_next_messages(State)};
                 %% either not present or undefined, add a new one
                 _ ->
+                    lager:notice("Saving canary packet from ~p because of full", [Index]),
                     Pending = maps:put(Index, {Seq, Msg}, State#state.pending),
                     {noreply, dispatch_next_messages(State#state{pending = Pending})}
             end; 
@@ -408,12 +412,15 @@ dispatch_next_messages(State) ->
     maps:fold(fun(Index, {Seq, Msg}, Acc) ->
                       case relcast:deliver(Msg, Index, Acc#state.store) of
                           full ->
+                              lager:notice("Still not able to process canary packet for ~p", [Index]),
                               %% still no room, continue to HODL the message
                               Acc;
                           {ok, NR} ->
+                              lager:notice("Processed canary packet for ~p, sending ACK/reset", [Index]),
                               dispatch_ack(Index, Seq, true, Acc),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)};
                           {stop, Timeout, NR} ->
+                              lager:notice("Processed canary packet for ~p, sending ACK/reset", [Index]),
                               dispatch_ack(Index, Seq, true, Acc),
                               erlang:send_after(Timeout, self(), force_close),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)}
