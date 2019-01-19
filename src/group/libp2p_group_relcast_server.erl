@@ -176,7 +176,6 @@ handle_cast({send_ready, _Target, Index, Ready}, State0=#state{self_index=_SelfI
     %% once per assigned stream). On normal cases use send_result as
     %% the place to send more messages.
     %% lager:debug("~p IS READY ~p TO SEND TO ~p", [_SelfIndex, Ready, Index]),
-    lager:notice("Reset actor ~p because of reconnect", [Index]),
     {ok, Relcast1} = relcast:reset_actor(Index, Relcast),
     State = State0#state{store = Relcast1, pending=maps:remove(Index, State0#state.pending)},
     case is_ready_worker(Index, Ready, State) of
@@ -241,7 +240,6 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
                     %% Once we've hit this, we drop subsequent messages and send an actor reset
                     %% when we do finally manage to deliver our pending canary.
 
-                    lager:notice("Saving canary packet from ~p with seq ~p because of full", [Index, Seq]),
                     Pending = maps:put(Index, {Seq, Msg}, State#state.pending),
                     {noreply, dispatch_next_messages(State#state{pending = Pending})};
                 {ok, NewRelcast} ->
@@ -412,15 +410,12 @@ dispatch_next_messages(State) ->
     maps:fold(fun(Index, {Seq, Msg}, Acc) ->
                       case relcast:deliver(Msg, Index, Acc#state.store) of
                           full ->
-                              lager:notice("Still not able to process canary packet for ~p", [Index]),
                               %% still no room, continue to HODL the message
                               Acc;
                           {ok, NR} ->
-                              lager:notice("Processed canary packet for ~p with seq ~p, sending ACK/reset", [Index, Seq]),
                               dispatch_ack(Index, Seq, true, Acc),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)};
                           {stop, Timeout, NR} ->
-                              lager:notice("Processed canary packet for ~p with seq ~p, sending ACK/reset", [Index, Seq]),
                               dispatch_ack(Index, Seq, true, Acc),
                               erlang:send_after(Timeout, self(), force_close),
                               Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)}
