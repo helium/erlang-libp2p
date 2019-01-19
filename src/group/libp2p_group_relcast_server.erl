@@ -210,7 +210,6 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
     {ok, NewRelcast0} = relcast:ack(Index, Seq, State#state.store),
     NewRelcast = case Reset of
                      true ->
-                         lager:info("Reset actor ~p with seq ~p because of ACK/Reset", [Index, Seq]),
                          {ok, R} = relcast:reset_actor(Index, NewRelcast0),
                          R;
                      false ->
