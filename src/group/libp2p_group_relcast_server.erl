@@ -226,7 +226,6 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
     case State#state.pending of
         %% already have something pending, drop.
         #{Index := {_Seq2, _Msg2}} ->
-            lager:notice("Dropping packet from ~p with seq because of full", [Index, Seq]),
             {noreply, dispatch_next_messages(State)};
         %% either not present or undefined, try to process it
         _ ->
