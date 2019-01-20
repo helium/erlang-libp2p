@@ -71,19 +71,25 @@ unicast_test(Config) ->
     %% Receive input message from G1 as handled by G1
     receive
         {handle_msg, 1, <<"unicast">>} -> ok
-    after 10000 -> error(timeout)
+    after 10000 ->
+              ct:pal("Messages: ~p", [erlang:process_info(self(), [messages])]),
+              error(timeout)
     end,
 
     %% Receive message from G1 as handled by G2
     receive
         {handle_msg, 1, <<"unicast1">>} -> ok
-    after 10000 -> error(timeout)
+    after 10000 ->
+              ct:pal("Messages: ~p", [erlang:process_info(self(), [messages])]),
+              error(timeout)
     end,
 
     %% Receive the message from G2 as handled by G3
     receive
         {handle_msg, 2, <<"unicast2">>} -> ok
-    after 10000 -> error(timeout)
+    after 10000 ->
+              ct:pal("Messages: ~p", [erlang:process_info(self(), [messages])]),
+              error(timeout)
     end,
     ok.
 
