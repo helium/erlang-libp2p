@@ -19,7 +19,8 @@
          in_flight = 0 :: non_neg_integer(),
          connects = 0 :: non_neg_integer(),
          last_take = unknown :: atom(),
-         last_in_seq :: undefined | pos_integer()
+         last_in_seq :: undefined | pos_integer(),
+         last_ack = 0 :: pos_integer()
        }).
 
 -record(state,
@@ -124,13 +125,14 @@ handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
                   %({_, Elements}) ->
                        %length(Elements)
                %end,
-    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, in_flight=InFlight, ready=Ready, connects=Connections, last_take=LastTake}, Acc) ->
+    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, in_flight=InFlight, last_ack=LastAck, ready=Ready, connects=Connections, last_take=LastTake}, Acc) ->
                                       %InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
                                       %OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
                                       maps:put(Index,
                                                AddWorkerInfo(WorkerInfo,
                                                              #{ index => Index,
                                                                 in_flight => InFlight,
+                                                                last_ack => LastAck,
                                                                 connects => Connections,
                                                                 last_take => LastTake,
                                                                 ready => Ready}),
@@ -225,7 +227,7 @@ handle_cast({handle_ack, Index, Seq, Reset, Range}, State=#state{self_index=_Sel
                  end,
     Worker = lookup_worker(Index, State),
     InFlight = relcast:in_flight(Index, NewRelcast),
-    State1 = update_worker(Worker#worker{in_flight=InFlight}, State),
+    State1 = update_worker(Worker#worker{in_flight=InFlight, last_ack=erlang:system_time(second)}, State),
     {noreply, dispatch_next_messages(State1#state{store=NewRelcast})};
 handle_cast({handle_data, Index, Msg, Seq, Last}, State=#state{self_index=_SelfIndex}) ->
     Worker = lookup_worker(Index, State),
