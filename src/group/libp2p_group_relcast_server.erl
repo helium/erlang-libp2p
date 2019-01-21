@@ -427,7 +427,7 @@ dispatch_ack(Index, Seq, Reset, Range, State=#state{}) ->
 %% their pipelines
 take_while([], State) ->
     State;
-take_while([{Last, Worker}|Workers], State) ->
+take_while([{Last, Sent, Worker}|Workers], State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
         {pipeline_full, NewRelcast} ->
@@ -437,11 +437,12 @@ take_while([{Last, Worker}|Workers], State) ->
             maybe_send_last(Worker, Index, Last, true),
             take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
         {ok, Seq, Msg, NewRelcast} ->
-            maybe_send_last(Worker, Index, Last, false),
+            %% send a 'last' packet every 5 packets so the pipeline doesn't run dry
+            maybe_send_last(Worker, Index, Last, Sent == 5),
             InFlight = relcast:in_flight(Index, NewRelcast),
             NewWorker = Worker#worker{in_flight=InFlight, last_take=ok},
             State1 = update_worker(NewWorker, State#state{store=NewRelcast}),
-            take_while(Workers ++ [{{Msg, Seq}, NewWorker}], State1)
+            take_while(Workers ++ [{{Msg, Seq}, (Sent rem 5) + 1, NewWorker}], State1)
     end.
 
 %% send the last taken message with a flag indicating if it's the last or more are
@@ -457,7 +458,7 @@ dispatch_next_messages(State) ->
                    [] ->
                        State;
                    Workers ->
-                       take_while([{undefined, W} || W <- Workers], State)
+                       take_while([{undefined, 0, W} || W <- Workers], State)
                end,
     %% attempt to deliver some stuff in the pending queue
     maps:fold(fun(Index, {Seq, Msg}, Acc) ->
