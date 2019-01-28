@@ -27,7 +27,7 @@ match_addr(Addr, TID) when is_list(Addr) ->
     Protocols = multiaddr:protocols(Addr),
    case match_protocols(Protocols) of
        {ok, _} = Result ->
-           SwarmAddress = libp2p_crypto:address_to_b58(libp2p_swarm:address(TID)),
+           SwarmAddress = libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(TID)),
            case Protocols of
                [{"p2p", SwarmAddress}|_] ->
                    lager:info("can't match a relay address for ourselves"),
@@ -57,7 +57,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         false ->
             %% blacklist the relay address, it is stale
             {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
-            MarkedPeerAddr = libp2p_crypto:p2p_to_address(SAddress),
+            MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
             PeerBook = libp2p_swarm:peerbook(Swarm),
             ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
             {error, not_in_peerbook};
@@ -96,7 +96,7 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
                     {ok, SessionPid2};
                 {error, "server_down"}=Error ->
                     libp2p_relay:unreg_addr_sessions(SAddress),
-                    MarkedPeerAddr = libp2p_crypto:p2p_to_address(SAddress),
+                    MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
                     PeerBook = libp2p_swarm:peerbook(Swarm),
                     ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
                     Error;
@@ -146,8 +146,8 @@ check_peerbook(TID, MAddr) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
     Swarm = libp2p_swarm:swarm(TID),
     Peerbook = libp2p_swarm:peerbook(Swarm),
-    RelayAddress = libp2p_crypto:p2p_to_address(RAddress),
-    ServerAddress = libp2p_crypto:p2p_to_address(SAddress),
+    RelayAddress = libp2p_crypto:p2p_to_pubkey_bin(RAddress),
+    ServerAddress = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
     case libp2p_peerbook:get(Peerbook, RelayAddress) of
         {ok, Peer} ->
             lists:member(ServerAddress, libp2p_peer:connected_peers(Peer));

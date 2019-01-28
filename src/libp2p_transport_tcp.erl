@@ -369,8 +369,8 @@ handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
     {noreply, State};
 handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) ->
     {LocalAddr, _PeerAddr} = libp2p_session:addr_info(Session),
-    RemoteP2PAddr = libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
-    {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
+    RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:address(Identify)),
+    {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
     ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
     case lists:member(LocalAddr, ListenAddrs) of
         true ->
@@ -428,8 +428,8 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
         {ok, ObservedAddr} ->
             {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
             %% choose a random connected peer to do stungun with
-            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
-            MyConnectedPeers = [libp2p_crypto:address_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
+            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
+            MyConnectedPeers = [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
             PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
             lager:info("retrying stungun with peer ~p", [PeerAddr]),
             case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of

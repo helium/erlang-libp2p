@@ -25,7 +25,7 @@ from_map(Map, SigFun) ->
 peer(#libp2p_signed_identify_pb{identify=#libp2p_identify_pb{peer=Peer}}) ->
     Peer.
 
--spec address(identify()) -> libp2p_crypto:address().
+-spec address(identify()) -> libp2p_crypto:pubkey_bin().
 address(Identify=#libp2p_signed_identify_pb{}) ->
     libp2p_peer:address(peer(Identify)).
 
@@ -59,8 +59,8 @@ decode(Bin) ->
 -spec verify(identify()) -> {ok, identify()} | {error, term()}.
 verify(Msg=#libp2p_signed_identify_pb{identify=Ident=#libp2p_identify_pb{}, signature=Signature}) ->
     EncodedIdentify = libp2p_identify_pb:encode_msg(Ident),
-    PubKey = libp2p_crypto:address_to_pubkey(address(Msg)),
-    case public_key:verify(EncodedIdentify, sha256, Signature, PubKey) of
+    PubKey = libp2p_crypto:bin_to_pubkey(address(Msg)),
+    case libp2p_crypto:verify(EncodedIdentify, Signature, PubKey) of
         true -> {ok, Msg};
         false -> {error, invalid_signature}
     end.

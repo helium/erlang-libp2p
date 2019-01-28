@@ -85,7 +85,7 @@ handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
             lager:info("no listen addresses for ~p, relay disabled", [Swarm]),
             {stop, no_listen_address, State};
         [_|_] ->
-            Address = craft_p2p_address(Swarm),
+            Address = libp2p_swarm:p2p_address(Swarm),
             Req = libp2p_relay_req:create(Address),
             EnvReq = libp2p_relay_envelope:create(Req),
             {noreply, State#state{type=client}, libp2p_relay_envelope:encode(EnvReq)}
@@ -152,7 +152,7 @@ handle_server_data(Bin, State) ->
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
     true = libp2p_relay:reg_addr_stream(Address, self()),
-    LocalP2PAddress = craft_p2p_address(Swarm),
+    LocalP2PAddress = libp2p_swarm:p2p_address(Swarm),
     Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalP2PAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
@@ -223,10 +223,6 @@ handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.
-
--spec craft_p2p_address(pid()) -> string().
-craft_p2p_address(Swarm) ->
-    libp2p_crypto:address_to_p2p(libp2p_swarm:address(Swarm)).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

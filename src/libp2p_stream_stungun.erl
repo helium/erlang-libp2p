@@ -66,7 +66,7 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% trying from an unrelated IP we can't distinguish Find
             %% an entry in the peerbook for a peer not connected to
             %% the target that we can use to distinguish
-            case find_verifier(TID, libp2p_swarm:address(TID), find_p2p_addr(TID, SessionPid)) of
+            case find_verifier(TID, libp2p_swarm:pubkey_bin(TID), find_p2p_addr(TID, SessionPid)) of
                 {ok, VerifierAddr} ->
                     lager:info("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
@@ -181,24 +181,24 @@ find_verifier(TID, FromAddr, TargetAddr) ->
     lager:info("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
     PeerBook = libp2p_swarm:peerbook(TID),
     {ok, FromEntry} = libp2p_peerbook:get(PeerBook, FromAddr),
-    TargetCryptoAddr = libp2p_crypto:p2p_to_address(TargetAddr),
+    TargetCryptoAddr = libp2p_crypto:p2p_to_pubkey_bin(TargetAddr),
     lager:info("Target crypto addr ~p", [TargetCryptoAddr]),
     %% Gets the peers connected to the given FromAddr
     FromConnected = libp2p_peer:connected_peers(FromEntry),
-    lager:info("Our peers: ~p", [[libp2p_crypto:address_to_p2p(F) || F <- FromConnected]]),
+    lager:info("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(F) || F <- FromConnected]]),
     case lists:filter(fun(P) ->
                               %% Get the entry for the connected peer
                               {ok, Peer} = libp2p_peerbook:get(PeerBook, P),
                               Res = not (lists:member(TargetCryptoAddr,
                                                libp2p_peer:connected_peers(Peer)) orelse libp2p_peer:address(Peer) == TargetCryptoAddr),
-                              lager:info("peer ~p connected to ~p ? ~p", [libp2p_crypto:address_to_p2p(libp2p_peer:address(Peer)),
-                                                                     [libp2p_crypto:address_to_p2p(F) || F <- libp2p_peer:connected_peers(Peer)], Res]),
+                              lager:info("peer ~p connected to ~p ? ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:address(Peer)),
+                                                                     [libp2p_crypto:pubkey_bin_to_p2p(F) || F <- libp2p_peer:connected_peers(Peer)], Res]),
                               Res
                       end, FromConnected) of
         [] -> {error, not_found};
         Candidates ->
             Candidate = lists:nth(rand:uniform(length(Candidates)), Candidates),
-            {ok, libp2p_crypto:address_to_p2p(Candidate)}
+            {ok, libp2p_crypto:pubkey_bin_to_p2p(Candidate)}
     end.
 
 reply_path(TxnID) ->

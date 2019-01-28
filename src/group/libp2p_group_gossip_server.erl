@@ -102,7 +102,7 @@ handle_cast({remove_handler, Key}, State=#state{handlers=Handlers}) ->
 handle_cast({request_target, inbound, WorkerPid}, State=#state{}) ->
     {noreply, stop_inbound_worker(WorkerPid, State)};
 handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) ->
-    %% Get all th ekeys to a peer. We catch any exceptions in talking
+    %% Get all the keys to a peer. We catch any exceptions in talking
     %% to peerbook here because during shutdown the peerbook may go
     %% down before this server does which causes a very noisy crash
     %% here.
@@ -111,10 +111,10 @@ handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) -
                catch
                    _:_ -> []
                end,
-    PeerAddrs = [ libp2p_crypto:address_to_p2p(Key) || Key <- PeerKeys ],
+    PeerAddrs = [ libp2p_crypto:pubkey_bin_to_p2p(Key) || Key <- PeerKeys ],
     %% Get currently connected addresses
     {CurrentAddrs, _} = lists:unzip(connections(all, State)),
-    LocalAddr = libp2p_crypto:address_to_p2p(libp2p_swarm:address(TID)),
+    LocalAddr = libp2p_swarm:p2p_address(TID),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
     %% Remove the current addrs from all possible peer addresses
@@ -123,7 +123,7 @@ handle_cast({request_target, Kind=peerbook, WorkerPid}, State=#state{tid=TID}) -
     {noreply, assign_target(Kind, WorkerPid, TargetAddrs, State)};
 handle_cast({request_target, Kind=seed, WorkerPid}, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
     {CurrentAddrs, _} = lists:unzip(connections(all, State)),
-    LocalAddr = libp2p_crypto:address_to_p2p(libp2p_swarm:address(TID)),
+    LocalAddr = libp2p_swarm:p2p_address(TID),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
@@ -194,7 +194,7 @@ handle_info({handle_identify, {From, StreamPid}, {error, Error}}, State=#state{}
     gen_server:reply(From, {error, Error}),
     {noreply, State};
 handle_info({handle_identify, {From, StreamPid}, {ok, Identify}}, State=#state{}) ->
-    Target = libp2p_crypto:address_to_p2p(libp2p_identify:address(Identify)),
+    Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:address(Identify)),
     %% Check if we already have a worker for this target
     case lookup_worker(Target, #worker.target, State) of
         %% If not, we we check if we can accept a random inbound
@@ -312,7 +312,7 @@ get_opt(Opts, Key, Default) ->
     libp2p_config:get_opt(Opts, [libp2p_group_gossip, Key], Default).
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
-    libp2p_crypto:address_to_p2p(Addr);
+    libp2p_crypto:pubkey_bin_to_p2p(Addr);
 mk_multiaddr(Value) ->
     Value.
 

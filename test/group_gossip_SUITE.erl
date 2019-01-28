@@ -66,14 +66,14 @@ connection_test(Config) ->
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() ->
-                                      libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1))
+                                      libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:pubkey_bin(S1))
                               end),
     %% And that the S1 gossip group is "conneted" to S2.
     ?assert(lists:member(libp2p_swarm:p2p_address(S2),
                          libp2p_group_gossip:connected_addrs(S1Group, peerbook))),
 
     %% Make S1 forget about S2
-    libp2p_peerbook:remove(S1PeerBook, libp2p_swarm:address(S2)),
+    libp2p_peerbook:remove(S1PeerBook, libp2p_swarm:pubkey_bin(S2)),
 
     %% And fake a timeout to ensure that the group forgets about S2
     S1Group ! drop_timeout,
@@ -113,7 +113,7 @@ seed_test(Config) ->
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() ->
-                                      libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:address(S1))
+                                      libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:pubkey_bin(S1))
                               end),
 
     %% And the S1 has a session to S2
@@ -134,6 +134,6 @@ handle_gossip_data(Msg, Parent) ->
 
 get_peer(Swarm) ->
     PeerBook = libp2p_swarm:peerbook(Swarm),
-    Addr = libp2p_swarm:address(Swarm),
+    Addr = libp2p_swarm:pubkey_bin(Swarm),
     {ok, Peer} = libp2p_peerbook:get(PeerBook, Addr),
     Peer.

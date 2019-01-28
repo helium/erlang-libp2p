@@ -1,7 +1,7 @@
 -module(libp2p_swarm).
 
 -export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
-         opts/1, name/1, address/1, p2p_address/1, keys/1,
+         opts/1, name/1, pubkey_bin/1, p2p_address/1, keys/1,
          store_peerbook/2, peerbook/1, peerbook_pid/1, cache/1, sessions/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
@@ -18,7 +18,7 @@
 
 -export_type([swarm_opts/0, connect_opts/0]).
 
--type swarm_opt() :: {key, {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}}
+-type swarm_opt() :: {key, {libp2p_crypto:pubkey(), libp2p_crypto:sig_fun()}}
                    | {base_dir, string()}
                    | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
@@ -108,20 +108,19 @@ name(TID) ->
     libp2p_swarm_sup:name(TID).
 
 %% @doc Get cryptographic address for a swarm.
--spec address(ets:tab() | pid()) -> libp2p_crypto:address().
-address(Sup) when is_pid(Sup) ->
-    address(tid(Sup));
-address(TID) ->
-    libp2p_swarm_sup:address(TID).
+-spec pubkey_bin(ets:tab() | pid()) -> libp2p_crypto:pubkey_bin().
+pubkey_bin(Sup) when is_pid(Sup) ->
+    pubkey_bin(tid(Sup));
+pubkey_bin(TID) ->
+    libp2p_swarm_sup:pubkey_bin(TID).
 
 %% @doc Get the p2p address in string form for a swarm
 -spec p2p_address(ets:tab() | pid()) -> string().
 p2p_address(TidOrPid) ->
-    libp2p_crypto:address_to_p2p(address(TidOrPid)).
+    libp2p_crypto:pubkey_bin_to_p2p(pubkey_bin(TidOrPid)).
 
 %% @doc Get the public key and signing function for a swarm
--spec keys(ets:tab() | pid())
-          -> {ok, libp2p_crypto:public_key(), libp2p_crypto:sig_fun()} | {error, term()}.
+-spec keys(ets:tab() | pid()) -> {ok, libp2p_crypto:pubkey(), libp2p_crypto:sig_fun()} | {error, term()}.
 keys(Sup) when is_pid(Sup) ->
     keys(tid(Sup));
 keys(TID) ->

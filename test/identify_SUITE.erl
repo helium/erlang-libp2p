@@ -31,7 +31,7 @@ identify_test(Config) ->
                      end,
 
     %% Compare addresses
-    ?assertEqual(libp2p_swarm:address(S2), libp2p_identify:address(Identify)),
+    ?assertEqual(libp2p_swarm:pubkey_bin(S2), libp2p_identify:address(Identify)),
 
     %% Compare observed ip addresses and port.
     S1Addr = libp2p_identify:observed_addr(Identify),

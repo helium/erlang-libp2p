@@ -28,6 +28,7 @@
                   nat,
                   inet_ext,
                   ecc_compact,
+                  enacl,
                   splicer,
                   backoff,
                   relcast

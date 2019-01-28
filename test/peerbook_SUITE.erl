@@ -100,14 +100,14 @@ accessor_test(Config) ->
 bad_peer_test(Config) ->
     PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
-    {ok, _PrivKey1, PubKey1} = ecc_compact:generate_key(),
-    {ok, PrivKey2, PubKey2} = ecc_compact:generate_key(),
+    #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
 
-    SigFun2 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey2) end,
+    SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
 
-    InvalidPeer = libp2p_peer:from_map(#{address => PubKey1,
+    InvalidPeer = libp2p_peer:from_map(#{address => libp2p_crypto:pubkey_to_bin(PubKey1),
                                          listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
-                                         connected => [PubKey2],
+                                         connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                                          nat_type => static,
                                          timestamp => erlang:system_time(millisecond)},
                                        SigFun2),
@@ -141,16 +141,16 @@ association_test(Config) ->
     {_PeerBook, Address} = proplists:get_value(peerbook, Config),
     PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
 
-    {ok, AssocPrivKey, AssocPubKey} = ecc_compact:generate_key(),
+    #{secret := AssocPrivKey, public := AssocPubKey} = libp2p_crypto:generate_keys(ecc_compact),
     AssocSigFun = libp2p_crypto:mk_sig_fun(AssocPrivKey),
-    Assoc = libp2p_peer:mk_association(AssocPubKey, Address, AssocSigFun),
+    Assoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey), Address, AssocSigFun),
 
     ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
 
     timer:sleep(100),
 
     {ok, ThisPeer} = libp2p_peerbook:get(PeerBook, Address),
-    ?assert(libp2p_peer:is_association(ThisPeer, "wallet", AssocPubKey)),
+    ?assert(libp2p_peer:is_association(ThisPeer, "wallet", libp2p_crypto:pubkey_to_bin(AssocPubKey))),
 
     %% Adding the same association twice should dedupe
     ?assertEqual(ok, libp2p_peerbook:add_association(PeerBook, "wallet", Assoc)),
@@ -207,8 +207,8 @@ gossip_test(Config) ->
 
     S1PeerBook = libp2p_swarm:peerbook(S1),
     S2PeerBook = libp2p_swarm:peerbook(S2),
-    S1Addr = libp2p_swarm:address(S1),
-    S2Addr = libp2p_swarm:address(S2),
+    S1Addr = libp2p_swarm:pubkey_bin(S1),
+    S2Addr = libp2p_swarm:pubkey_bin(S2),
 
 
     S1Group = libp2p_swarm:gossip_group(S1),
@@ -252,7 +252,7 @@ stale_test(Config) ->
     [S1] = proplists:get_value(swarms, Config),
 
     PeerBook = libp2p_swarm:peerbook(S1),
-    S1Addr = libp2p_swarm:address(S1),
+    S1Addr = libp2p_swarm:pubkey_bin(S1),
     {ok, S1First} = libp2p_peerbook:get(PeerBook, S1Addr),
 
     Peer1 = mk_peer(),
@@ -302,14 +302,14 @@ stale_test(Config) ->
 %%
 
 peer_keys(PeerList) ->
-    [libp2p_crypto:address_to_b58(libp2p_peer:address(P)) || P <- PeerList].
+    [libp2p_crypto:bin_to_b58(libp2p_peer:address(P)) || P <- PeerList].
 
 mk_peer() ->
-    {ok, PrivKey, PubKey} = ecc_compact:generate_key(),
-    {ok, _, PubKey2} = ecc_compact:generate_key(),
-    libp2p_peer:from_map(#{address => PubKey,
+    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{ public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    libp2p_peer:from_map(#{address => libp2p_crypto:pubkey_to_bin(PubKey),
                            listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
-                           connected => [PubKey2],
+                           connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                            nat_type => static,
                            timestamp => erlang:system_time(millisecond)},
                          libp2p_crypto:mk_sig_fun(PrivKey)).
@@ -319,7 +319,8 @@ setup_peerbook(Config, Opts) ->
     Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
     TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {swarm_name, Name}),
-    {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
+    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    CompactKey = libp2p_crypto:pubkey_to_bin(PubKey),
     ets:insert(TID, {swarm_address, CompactKey}),
     TmpDir = test_util:nonl(os:cmd("mktemp -d")),
     ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, TmpDir})}),
