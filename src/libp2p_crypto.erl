@@ -72,18 +72,16 @@ save_keys(KeysMap, FileName) when is_list(FileName) ->
 
 -spec keys_to_bin(key_map()) -> binary().
 keys_to_bin(#{secret := {ecc_compact, PrivKey}, public := {ecc_compact, _PubKey}}) ->
-    PemEntry = public_key:pem_entry_encode('ECPrivateKey', PrivKey),
-    <<?KEYTYPE_ECC_COMPACT:8, (public_key:pem_encode([PemEntry]))/binary>>;
+    #'ECPrivateKey'{privateKey=PrivKeyBin, publicKey=PubKeyBin} = PrivKey,
+    <<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>;
 keys_to_bin(#{secret := {ed25519, PrivKey}, public := {ed25519, PubKey}}) ->
-    io:format("PUB ~p PRIV: ~p", [byte_size(PubKey), byte_size(PrivKey)]),
     <<?KEYTYPE_ED25519:8, PrivKey:64/binary, PubKey:32/binary>>.
 
 -spec keys_from_bin(binary()) -> key_map().
-keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, PemBin/binary>>) ->
-    [PemEntry] = public_key:pem_decode(PemBin),
-    PrivKey = public_key:pem_entry_decode(PemEntry),
-    #'ECPrivateKey'{parameters=Params, publicKey=PubPoint} = PrivKey,
-    PubKey = {#'ECPoint'{point=PubPoint}, Params},
+keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>) ->
+    Params = {namedCurve, ?secp256r1},
+    PrivKey = #'ECPrivateKey'{version=1, parameters=Params, privateKey=PrivKeyBin, publicKey=PubKeyBin},
+    PubKey = {#'ECPoint'{point=PubKeyBin}, Params},
     #{secret => {ecc_compact, PrivKey}, public => {ecc_compact, PubKey}};
 keys_from_bin(<<?KEYTYPE_ED25519, PrivKey:64/binary, PubKey:32/binary>>) ->
     #{secret => {ed25519, PrivKey}, public => {ed25519, PubKey}}.
