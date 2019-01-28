@@ -190,9 +190,13 @@ find_verifier(TID, FromAddr, TargetAddr) ->
                               %% Get the entry for the connected peer
                               {ok, Peer} = libp2p_peerbook:get(PeerBook, P),
                               Res = not (lists:member(TargetCryptoAddr,
-                                               libp2p_peer:connected_peers(Peer)) orelse libp2p_peer:address(Peer) == TargetCryptoAddr),
-                              lager:info("peer ~p connected to ~p ? ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:address(Peer)),
-                                                                     [libp2p_crypto:pubkey_bin_to_p2p(F) || F <- libp2p_peer:connected_peers(Peer)], Res]),
+                                                      libp2p_peer:connected_peers(Peer))
+                                         orelse libp2p_peer:pubkey_bin(Peer) == TargetCryptoAddr),
+                              lager:info("peer ~p connected to ~p ? ~p",
+                                         [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
+                                          [libp2p_crypto:pubkey_bin_to_p2p(F)
+                                           || F <- libp2p_peer:connected_peers(Peer)],
+                                          Res]),
                               Res
                       end, FromConnected) of
         [] -> {error, not_found};

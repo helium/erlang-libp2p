@@ -53,7 +53,7 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
     %% Store the session in config and tell the peerbook about the
     %% session change as well as the new identify record.
     libp2p_config:insert_session(TID,
-                                 libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:address(Identify)),
+                                 libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
                                  Session),
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:register_session(PeerBook, Session, Identify),

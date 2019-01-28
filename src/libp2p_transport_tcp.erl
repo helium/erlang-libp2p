@@ -369,7 +369,7 @@ handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
     {noreply, State};
 handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) ->
     {LocalAddr, _PeerAddr} = libp2p_session:addr_info(Session),
-    RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:address(Identify)),
+    RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
     ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
     case lists:member(LocalAddr, ListenAddrs) of

@@ -10,7 +10,7 @@
                          }.
 -export_type([identify/0, identify_map/0]).
 -export([from_map/2, encode/1, decode/1, verify/1,
-         address/1, peer/1, observed_maddr/1, observed_addr/1, nonce/1]).
+         pubkey_bin/1, peer/1, observed_maddr/1, observed_addr/1, nonce/1]).
 
 -spec from_map(identify_map(), libp2p_crypto:sig_fun()) -> identify().
 from_map(Map, SigFun) ->
@@ -25,9 +25,9 @@ from_map(Map, SigFun) ->
 peer(#libp2p_signed_identify_pb{identify=#libp2p_identify_pb{peer=Peer}}) ->
     Peer.
 
--spec address(identify()) -> libp2p_crypto:pubkey_bin().
-address(Identify=#libp2p_signed_identify_pb{}) ->
-    libp2p_peer:address(peer(Identify)).
+-spec pubkey_bin(identify()) -> libp2p_crypto:pubkey_bin().
+pubkey_bin(Identify=#libp2p_signed_identify_pb{}) ->
+    libp2p_peer:pubkey_bin(peer(Identify)).
 
 -spec observed_addr(identify()) -> string().
 observed_addr(Identify=#libp2p_signed_identify_pb{}) ->
@@ -59,7 +59,7 @@ decode(Bin) ->
 -spec verify(identify()) -> {ok, identify()} | {error, term()}.
 verify(Msg=#libp2p_signed_identify_pb{identify=Ident=#libp2p_identify_pb{}, signature=Signature}) ->
     EncodedIdentify = libp2p_identify_pb:encode_msg(Ident),
-    PubKey = libp2p_crypto:bin_to_pubkey(address(Msg)),
+    PubKey = libp2p_crypto:bin_to_pubkey(pubkey_bin(Msg)),
     case libp2p_crypto:verify(EncodedIdentify, Signature, PubKey) of
         true -> {ok, Msg};
         false -> {error, invalid_signature}

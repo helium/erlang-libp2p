@@ -9,7 +9,7 @@ enum nat_type {
 }
 
 message peer {
-    bytes address = 1;
+    bytes pubkey = 1;
     repeated bytes listen_addrs = 2;
     repeated bytes connected = 3;
     nat_type nat_type = 4;
@@ -22,7 +22,7 @@ message association_list {
 }
 
 message association {
-    bytes address = 1;
+    bytes pubkey = 1;
     bytes signature = 2;
 }
 

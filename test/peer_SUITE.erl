@@ -25,7 +25,7 @@ coding_test(_) ->
                                                libp2p_crypto:pubkey_to_bin(PubKey1),
                                                AssocSigFun1)
                    ],
-    Peer1Map = #{address => libp2p_crypto:pubkey_to_bin(PubKey1),
+    Peer1Map = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                  listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                  connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                  nat_type => static,
@@ -35,13 +35,13 @@ coding_test(_) ->
 
     DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer1)),
 
-    ?assert(libp2p_peer:address(Peer1) == libp2p_peer:address(DecodedPeer)),
+    ?assert(libp2p_peer:pubkey_bin(Peer1) == libp2p_peer:pubkey_bin(DecodedPeer)),
     ?assert(libp2p_peer:timestamp(Peer1) ==  libp2p_peer:timestamp(DecodedPeer)),
     ?assert(libp2p_peer:listen_addrs(Peer1) == libp2p_peer:listen_addrs(DecodedPeer)),
     ?assert(libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer)),
     ?assert(libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer)),
     ?assert(libp2p_peer:metadata(Peer1) == libp2p_peer:metadata(DecodedPeer)),
-    ?assert(libp2p_peer:association_addrs(Peer1) == libp2p_peer:association_addrs(DecodedPeer)),
+    ?assert(libp2p_peer:association_pubkey_bins(Peer1) == libp2p_peer:association_pubkey_bins(DecodedPeer)),
 
     ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
@@ -50,7 +50,7 @@ coding_test(_) ->
     ?assertError(invalid_signature, libp2p_peer:decode(libp2p_peer:encode(InvalidPeer))),
 
     % Check peer list coding
-    Peer2 = libp2p_peer:from_map(#{address => libp2p_crypto:pubkey_to_bin(PubKey2),
+    Peer2 = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey2),
                                    listen_addrs => ["/ip4/8.8.8.8/tcp/5678"],
                                    connected => [libp2p_crypto:pubkey_to_bin(PubKey1)],
                                    nat_type => static},
@@ -65,7 +65,7 @@ metadata_test(_) ->
     #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
-    PeerMap = #{address => libp2p_crypto:pubkey_to_bin(PubKey1),
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                 connected => [],
                 nat_type => static},
@@ -96,7 +96,7 @@ blacklist_test(_) ->
 
     BadListenAddr = "/ip4/8.8.8.8/tcp/1234",
     GoodListenAddr =  "/ip4/1.1.1.1/tcp/4321",
-    PeerMap = #{address => libp2p_crypto:pubkey_to_bin(PubKey1),
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                 listen_addrs => [BadListenAddr, GoodListenAddr],
                 connected => [],
                 nat_type => static},
@@ -114,7 +114,7 @@ association_test(_) ->
     #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
-    PeerMap = #{address => libp2p_crypto:pubkey_to_bin(PubKey1),
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                 connected => [],
                 nat_type => static},
@@ -132,7 +132,7 @@ association_test(_) ->
     ?assert(not libp2p_peer:is_association(ValidPeer, "no_such_type",
                                            libp2p_crypto:pubkey_to_bin(PubKey1))),
     ?assertEqual([{"wallet", [libp2p_crypto:pubkey_to_bin(AssocPubKey1)]}],
-                 libp2p_peer:association_addrs(ValidPeer)),
+                 libp2p_peer:association_pubkey_bins(ValidPeer)),
     ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer, "wallet")),
     ?assertEqual([{"wallet", [ValidAssoc]}], libp2p_peer:associations(ValidPeer)),
     ?assert(libp2p_peer:verify(ValidPeer)),

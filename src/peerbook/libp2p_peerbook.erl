@@ -59,7 +59,7 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     lists:foreach(fun libp2p_peer:verify/1, PeerList),
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
     NewPeers = lists:filter(fun(NewPeer) ->
-                                    NewPeerId = libp2p_peer:address(NewPeer),
+                                    NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
                                     case unsafe_fetch_peer(NewPeerId, Handle) of
                                         {error, not_found} -> true;
                                         {ok, ExistingPeer} ->
@@ -246,7 +246,7 @@ handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) -
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
-    SessionAddr = libp2p_identify:address(Identify),
+    SessionAddr = libp2p_identify:pubkey_bin(Identify),
     NewSessions = [{SessionAddr, SessionPid} | Sessions],
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
@@ -290,7 +290,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
         _ ->
             Associations = libp2p_peer:associations(CurrentPeer)
     end,
-    libp2p_peer:from_map(#{ address => SwarmAddr,
+    libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
@@ -332,11 +332,11 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               case maps:find(libp2p_peer:address(Peer), Acc) of
-                                   error -> maps:put(libp2p_peer:address(Peer), Peer, Acc);
+                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                   error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
                                    {ok, FoundPeer} ->
                                        case libp2p_peer:supersedes(Peer, FoundPeer) of
-                                           true -> maps:put(libp2p_peer:address(Peer), Peer, Acc);
+                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
                                            false -> Acc
                                        end
                                end
@@ -426,7 +426,7 @@ fetch_peers(State=#peerbook{}) ->
 
 -spec store_peer(libp2p_peer:peer(), peerbook()) -> ok | {error, term()}.
 store_peer(Peer, #peerbook{store=Store}) ->
-    case rocksdb:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer), []) of
+    case rocksdb:put(Store, libp2p_peer:pubkey_bin(Peer), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
         ok -> ok
     end.

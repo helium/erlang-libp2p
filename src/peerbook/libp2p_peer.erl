@@ -3,7 +3,7 @@
 -include("pb/libp2p_peer_pb.hrl").
 
 -type nat_type() :: libp2p_peer_pb:nat_type().
--type peer_map() :: #{ address => libp2p_crypto:pubkey_bin(),
+-type peer_map() :: #{ pubkey => libp2p_crypto:pubkey_bin(),
                        listen_addrs => [string()],
                        connected => [binary()],
                        nat_type => nat_type(),
@@ -16,11 +16,11 @@
 -export_type([peer/0, association/0, peer_map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
-         address/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
+         pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2]).
 %% associations
--export([associations/1, association_addrs/1, associations_set/4, associations_get/2, associations_put/4,
-         is_association/3, association_address/1, association_signature/1,
+-export([associations/1, association_pubkey_bins/1, associations_set/4, associations_get/2, associations_put/4,
+         is_association/3, association_pubkey_bin/1, association_signature/1,
          mk_association/3, association_verify/2,
          association_encode/1, association_decode/2]).
 %% metadata (unsigned!)
@@ -41,7 +41,7 @@ from_map(Map, SigFun) ->
     Assocs = lists:map(fun({Type, AssocEntries}) ->
                                {Type, #libp2p_association_list_pb{associations=AssocEntries}}
                        end, maps:get(associations, Map, [])),
-    Peer = #libp2p_peer_pb{address=maps:get(address, Map),
+    Peer = #libp2p_peer_pb{pubkey=maps:get(pubkey, Map),
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
                            connected = maps:get(connected, Map),
                            nat_type=maps:get(nat_type, Map),
@@ -50,10 +50,10 @@ from_map(Map, SigFun) ->
                           },
     sign_peer(Peer, SigFun).
 
-%% @doc Gets the crypto address for the given peer.
--spec address(peer()) -> libp2p_crypto:pubkey_bin().
-address(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{address=Addr}}) ->
-    Addr.
+%% @doc Gets the public key for the given peer.
+-spec pubkey_bin(peer()) -> libp2p_crypto:pubkey_bin().
+pubkey_bin(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{pubkey=PubKeyBin}}) ->
+    PubKeyBin.
 
 %% @doc Gets the list of peer multiaddrs that the given peer is
 %% listening on.
@@ -63,7 +63,7 @@ listen_addrs(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{listen_addrs=Addrs}}) -
 
 %% @doc Gets the list of peer crypto addresses that the given peer was last
 %% known to be connected to.
--spec connected_peers(peer()) -> [binary()].
+-spec connected_peers(peer()) -> [libp2p_crypto:pubkey_bin()].
 connected_peers(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{connected=Conns}}) ->
     Conns.
 
@@ -115,12 +115,12 @@ associations(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) 
                       {AssocType, AssocEntries}
               end, Assocs).
 
-%% @doc Returns a list of association addresses. This can be used, for example, to
+%% @doc Returns a list of association keys. This can be used, for example, to
 %% compare to peer assocation records with eachother (like in is_similar/2)
--spec association_addrs(peer()) -> [{AssocType::string(), [AssocAddr::libp2p_crypto:pubkey_bin()]}].
-association_addrs(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) ->
+-spec association_pubkey_bins(peer()) -> [{AssocType::string(), [AssocPubKeyBin::libp2p_crypto:pubkey_bin()]}].
+association_pubkey_bins(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) ->
     lists:map(fun({AssocType, #libp2p_association_list_pb{associations=AssocEntries}}) ->
-                      {AssocType, [association_address(A) || A <- AssocEntries]}
+                      {AssocType, [association_pubkey_bin(A) || A <- AssocEntries]}
               end, Assocs).
 
 %% @doc Replaces all associations for a given association type in the
@@ -151,8 +151,8 @@ associations_put(Peer=#libp2p_signed_peer_pb{}, AssocType, Assoc, PeerSigFun) ->
     %% Get current associations for type
     CurrentAssocs = associations_get(Peer, AssocType),
     %% Store the new association, replacing an existing one if there.
-    UpdatedAssocs = lists:keystore(association_address(Assoc),
-                                   #libp2p_association_pb.address,
+    UpdatedAssocs = lists:keystore(association_pubkey_bin(Assoc),
+                                   #libp2p_association_pb.pubkey,
                                    CurrentAssocs,
                                    Assoc),
     %% and set the associations for the same type
@@ -160,31 +160,31 @@ associations_put(Peer=#libp2p_signed_peer_pb{}, AssocType, Assoc, PeerSigFun) ->
 
 
 %% @doc Checks whether a given peer has an association stored with the
-%% given assocation type and address
--spec is_association(peer(), AssocType::string(), AssocAddr::libp2p_crypto:pubkey_bin()) -> boolean().
-is_association(Peer=#libp2p_signed_peer_pb{}, AssocType, AssocAddr) ->
+%% given assocation type and key
+-spec is_association(peer(), AssocType::string(), AssocPubKeyBin::libp2p_crypto:pubkey_bin()) -> boolean().
+is_association(Peer=#libp2p_signed_peer_pb{}, AssocType, AssocPubKeyBin) ->
     Assocs = associations_get(Peer, AssocType),
-    case lists:keyfind(AssocAddr, #libp2p_association_pb.address, Assocs) of
+    case lists:keyfind(AssocPubKeyBin, #libp2p_association_pb.pubkey, Assocs) of
         false -> false;
         _ -> true
     end.
 
-%% @doc Make an association for a given peer address. The returned
-%% association contains the given assocation address and the given
-%% peer address signed with the passed in association provided
+%% @doc Make an association for a given peer key. The returned
+%% association contains the given assocation key and the given
+%% peer key signed with the passed in association provided
 %% signature function.
--spec mk_association(AssocAddr::libp2p_crypto:pubkey_bin(),
-                     PeerAddr::libp2p_crypto:pubkey_bin(),
+-spec mk_association(AssocPubKeyBin::libp2p_crypto:pubkey_bin(),
+                     PeerPubKeyBin::libp2p_crypto:pubkey_bin(),
                      AssocSigFun::libp2p_crypto:sig_fun()) -> association().
-mk_association(AssocAddr, PeerAddr, AssocSigFun) ->
-    #libp2p_association_pb{ address=AssocAddr,
-                            signature=AssocSigFun(PeerAddr)
+mk_association(AssocPubKeyBin, PeerPubKeyBin, AssocSigFun) ->
+    #libp2p_association_pb{ pubkey=AssocPubKeyBin,
+                            signature=AssocSigFun(PeerPubKeyBin)
                           }.
 
 %% @doc Gets the address for the given association
--spec association_address(association()) -> libp2p_crypto:pubkey_bin().
-association_address(#libp2p_association_pb{address=Address}) ->
-    Address.
+-spec association_pubkey_bin(association()) -> libp2p_crypto:pubkey_bin().
+association_pubkey_bin(#libp2p_association_pb{pubkey=PubKeyBin}) ->
+    PubKeyBin.
 
 %% @doc Gets the signature for the given association
 -spec association_signature(association()) -> binary().
@@ -192,13 +192,13 @@ association_signature(#libp2p_association_pb{signature=Signature}) ->
     Signature.
 
 %% @doc Returns true if the association can be verified against the
-%% given peer address. This has to be the same peer address that was
+%% given peer key. This has to be the same peer key that was
 %% used to construct the signature in the assocation and should be the
-%% address of the peer record containing the given association.
--spec association_verify(association(), PeerAddr::libp2p_crypto:pubkey_bin()) -> true.
-association_verify(Assoc=#libp2p_association_pb{}, Address) ->
-    PubKey = libp2p_crypto:bin_to_pubkey(association_address(Assoc)),
-    case libp2p_crypto:verify(Address, association_signature(Assoc), PubKey) of
+%% key of the peer record containing the given association.
+-spec association_verify(association(), PeerPubKeyBin::libp2p_crypto:pubkey_bin()) -> true.
+association_verify(Assoc=#libp2p_association_pb{}, PeerPubKeyBin) ->
+    PubKey = libp2p_crypto:bin_to_pubkey(association_pubkey_bin(Assoc)),
+    case libp2p_crypto:verify(PeerPubKeyBin, association_signature(Assoc), PubKey) of
         true -> true;
         false -> error(invalid_association_signature)
     end.
@@ -209,11 +209,11 @@ association_encode(Msg=#libp2p_association_pb{}) ->
     libp2p_peer_pb:encode_msg(Msg).
 
 %% @doc Decodes the given binary to an association and verifies it
-%% against the given peer address.
--spec association_decode(binary(), PeerAddr::libp2p_crypto:pubkey_bin()) -> association().
-association_decode(Bin, PeerAddr) ->
+%% against the given peer key.
+-spec association_decode(binary(), PeerPubKeyBin::libp2p_crypto:pubkey_bin()) -> association().
+association_decode(Bin, PeerPubKeyBin) ->
     Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_association_pb),
-    association_verify(Msg,PeerAddr),
+    association_verify(Msg, PeerPubKeyBin),
     Msg.
 
 %% @doc Returns whether a given `Target' is more recent than `Other'
@@ -228,14 +228,14 @@ supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}}
 -spec is_similar(Target::peer(), Other::peer()) -> boolean().
 is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
            Other=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}}) ->
-    address(Target) == address(Other)
+    pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
         andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
         andalso sets:from_list(connected_peers(Target)) == sets:from_list(connected_peers(Other))
         %% We only compare the {type, assoc_adddress} parts of an
         %% association as multiple signatures over the same value will
         %% differ
-        andalso sets:from_list(association_addrs(Target)) == sets:from_list(association_addrs(Other)).
+        andalso sets:from_list(association_pubkey_bins(Target)) == sets:from_list(association_pubkey_bins(Other)).
 
 %% @doc Returns whether a given peer is stale relative to a given
 %% stale delta time in milliseconds.
@@ -255,9 +255,9 @@ blacklist(#libp2p_signed_peer_pb{metadata=Metadata}) ->
         {_, Bin} -> binary_to_term(Bin)
     end.
 
-%% @doc Returns whether a given address is blacklisted. Note that a
-%% blacklisted address may not actually appear in the listen_addrs for
-%% this peer.
+%% @doc Returns whether a given listen address is blacklisted. Note
+%% that a blacklisted address may not actually appear in the
+%% listen_addrs for this peer.
 -spec is_blacklisted(peer(), string()) -> boolean().
 is_blacklisted(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
    lists:member(ListenAddr, blacklist(Peer)).
@@ -325,13 +325,13 @@ decode(Bin) ->
 -spec verify(peer()) -> true.
 verify(Msg=#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{associations=Assocs}, signature=Signature}) ->
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
-    PubKey = libp2p_crypto:bin_to_pubkey(address(Msg)),
+    PubKey = libp2p_crypto:bin_to_pubkey(pubkey_bin(Msg)),
     case libp2p_crypto:verify(EncodedPeer, Signature, PubKey) of
         true ->
             lists:all(fun({_AssocType, #libp2p_association_list_pb{associations=AssocEntries}}) ->
-                              MsgAddress = address(Msg),
+                              MsgPubKeyBin = pubkey_bin(Msg),
                               lists:all(fun(Assoc) ->
-                                                association_verify(Assoc, MsgAddress)
+                                                association_verify(Assoc, MsgPubKeyBin)
                                         end, AssocEntries)
                       end, Assocs);
         false -> error(invalid_signature)

@@ -78,12 +78,12 @@ accessor_test(Config) ->
     libp2p_peerbook:put(PeerBook, [Peer2]),
 
     true = libp2p_peerbook:is_key(PeerBook, Address),
-    true = libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1)),
-    true = libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer2)),
+    true = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer1)),
+    true = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer2)),
 
     ExpectedKeys = sets:from_list([Address,
-                                   libp2p_peer:address(Peer1),
-                                   libp2p_peer:address(Peer2)]),
+                                   libp2p_peer:pubkey_bin(Peer1),
+                                   libp2p_peer:pubkey_bin(Peer2)]),
     StoredKeys = sets:from_list(libp2p_peerbook:keys(PeerBook)),
     0 = sets:size(sets:subtract(ExpectedKeys, StoredKeys)),
 
@@ -91,8 +91,8 @@ accessor_test(Config) ->
     {error, not_found} = libp2p_peerbook:get(PeerBook, <<"foo">>),
 
     %% Test removal
-    ok = libp2p_peerbook:remove(PeerBook, libp2p_peer:address(Peer1)),
-    false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(Peer1)),
+    ok = libp2p_peerbook:remove(PeerBook, libp2p_peer:pubkey_bin(Peer1)),
+    false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer1)),
     {error, no_delete} = libp2p_peerbook:remove(PeerBook, Address),
 
     ok.
@@ -105,7 +105,7 @@ bad_peer_test(Config) ->
 
     SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
 
-    InvalidPeer = libp2p_peer:from_map(#{address => libp2p_crypto:pubkey_to_bin(PubKey1),
+    InvalidPeer = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                                          listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                                          connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                                          nat_type => static,
@@ -113,7 +113,7 @@ bad_peer_test(Config) ->
                                        SigFun2),
 
     {'EXIT', {invalid_signature, _}} = (catch libp2p_peerbook:put(PeerBook, [InvalidPeer])),
-    false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(InvalidPeer)),
+    false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(InvalidPeer)),
 
     ok.
 
@@ -127,7 +127,7 @@ blacklist_test(Config) ->
     libp2p_peerbook:put(PeerBook, [Peer1]),
 
     [ListenAddr | _] = libp2p_peer:listen_addrs(Peer1),
-    PeerAddr = libp2p_peer:address(Peer1),
+    PeerAddr = libp2p_peer:pubkey_bin(Peer1),
     libp2p_peerbook:blacklist_listen_addr(PeerBook, PeerAddr, ListenAddr),
 
     {ok, GotPeer} = libp2p_peerbook:get(PeerBook, PeerAddr),
@@ -170,7 +170,7 @@ put_test(Config) ->
 
     ok = libp2p_peerbook:put(PeerBook, PeerList1),
     true = lists:all(fun(P) ->
-                             libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(P) )
+                             libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(P) )
                      end, PeerList1),
 
     libp2p_peerbook:join_notify(PeerBook, self()),
@@ -184,7 +184,7 @@ put_test(Config) ->
         done -> ok
     end,
     true = lists:all(fun(P) ->
-                             libp2p_peerbook:is_key(PeerBook, libp2p_peer:address(P) )
+                             libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(P) )
                      end, ExtraPeers),
 
     ReceivedPeers = receive
@@ -268,7 +268,7 @@ stale_test(Config) ->
                    end
            end),
 
-    Peer1Addr = libp2p_peer:address(Peer1),
+    Peer1Addr = libp2p_peer:pubkey_bin(Peer1),
     ok =  test_util:wait_until(
             fun() ->
                     not libp2p_peerbook:is_key(PeerBook, Peer1Addr)
@@ -288,9 +288,9 @@ stale_test(Config) ->
                       undefined -> ok;
                       _ ->
                           [UpdatedPeer] = lists:filter(fun(P) ->
-                                                               libp2p_peer:address(P) == S1Addr
+                                                               libp2p_peer:pubkey_bin(P) == S1Addr
                                                        end, UpdatedPeers),
-                          S1Addr == libp2p_peer:address(UpdatedPeer)
+                          S1Addr == libp2p_peer:pubkey_bin(UpdatedPeer)
                               andalso true == libp2p_peer:supersedes(UpdatedPeer, S1First)
                               andalso static ==  libp2p_peer:nat_type(UpdatedPeer)
                   end
@@ -302,12 +302,12 @@ stale_test(Config) ->
 %%
 
 peer_keys(PeerList) ->
-    [libp2p_crypto:bin_to_b58(libp2p_peer:address(P)) || P <- PeerList].
+    [libp2p_crypto:bin_to_b58(libp2p_peer:pubkey_bin(P)) || P <- PeerList].
 
 mk_peer() ->
     #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     #{ public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
-    libp2p_peer:from_map(#{address => libp2p_crypto:pubkey_to_bin(PubKey),
+    libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey),
                            listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                            connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                            nat_type => static,

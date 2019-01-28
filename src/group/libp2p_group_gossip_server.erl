@@ -194,7 +194,7 @@ handle_info({handle_identify, {From, StreamPid}, {error, Error}}, State=#state{}
     gen_server:reply(From, {error, Error}),
     {noreply, State};
 handle_info({handle_identify, {From, StreamPid}, {ok, Identify}}, State=#state{}) ->
-    Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:address(Identify)),
+    Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     %% Check if we already have a worker for this target
     case lookup_worker(Target, #worker.target, State) of
         %% If not, we we check if we can accept a random inbound
