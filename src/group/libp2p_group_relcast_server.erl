@@ -66,7 +66,7 @@ start_link(TID, GroupID, Args, Sup) ->
 init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
     erlang:process_flag(trap_exit, true),
     DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
-    SelfAddr = libp2p_swarm:address(TID),
+    SelfAddr = libp2p_swarm:pubkey_bin(TID),
     case lists:keyfind(SelfAddr, 2, lists:zip(lists:seq(1, length(Addrs)), Addrs)) of
         {SelfIndex, SelfAddr} ->
             %% we have to start relcast async because it might
@@ -154,7 +154,7 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{}) ->
                                  {T, State}
                end,
     Path = lists:flatten([?GROUP_PATH_BASE, State#state.group_id, "/",
-                          libp2p_crypto:address_to_b58(libp2p_swarm:address(State#state.tid))]),
+                          libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(State#state.tid))]),
     ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self()]}},
     libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),
     {noreply, NewState};
@@ -397,7 +397,7 @@ filter_ready_workers(State=#state{}) ->
                  end, State#state.workers).
 
 mk_multiaddr(Addr) when is_binary(Addr) ->
-    libp2p_crypto:address_to_p2p(Addr);
+    libp2p_crypto:pubkey_bin_to_p2p(Addr);
 mk_multiaddr(Path) when is_list(Path) ->
     lists:flatten(["/p2p", Path]).
 

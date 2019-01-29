@@ -36,7 +36,7 @@ unicast_test(Config) ->
 
     test_util:await_gossip_groups(Swarms),
 
-    Members = [libp2p_swarm:address(S) || S <- Swarms],
+    Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and unicasts it to itself, then handles the
     %% message to self by sending a message to G2
@@ -86,7 +86,7 @@ multicast_test(Config) ->
 
     test_util:await_gossip_groups(Swarms),
 
-    Members = [libp2p_swarm:address(S) || S <- Swarms],
+    Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and broadcasts
     G1Args = [relcast_handler, [Members, input_multicast(), undefined]],
@@ -118,7 +118,7 @@ defer_test(Config) ->
 
     test_util:await_gossip_groups(Swarms),
 
-    Members = [libp2p_swarm:address(S) || S <- Swarms],
+    Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and unicasts it to G2
     G1Args = [relcast_handler, [Members, input_unicast(2), handle_msg([])]],
@@ -154,7 +154,7 @@ close_test(Config) ->
 
     test_util:await_gossip_groups(Swarms),
 
-    Members = [libp2p_swarm:address(S) || S <- Swarms],
+    Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and broadcasts
     G1Args = [relcast_handler, [Members, input_multicast(), undefined]],

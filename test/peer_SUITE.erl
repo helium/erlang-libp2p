@@ -14,18 +14,20 @@ all() ->
     ].
 
 coding_test(_) ->
-    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
-    {ok, PrivKey2, PubKey2} = ecc_compact:generate_key(),
-    SigFun1 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey1) end,
-    SigFun2 = fun(Bin) -> public_key:sign(Bin, sha256, PrivKey2) end,
+    #{public := PubKey1, secret := PrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey2, secret := PrivKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
+    SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
 
-    {ok, AssocPrivKey1, AssocPubKey1} = ecc_compact:generate_key(),
-    AssocSigFun1 = fun(Bin) -> public_key:sign(Bin, sha256, AssocPrivKey1) end,
-    Associations = [libp2p_peer:mk_association(AssocPubKey1, PubKey1, AssocSigFun1)
+    #{public := AssocPubKey1, secret := AssocPrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    AssocSigFun1 = libp2p_crypto:mk_sig_fun(AssocPrivKey1),
+    Associations = [libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
+                                               libp2p_crypto:pubkey_to_bin(PubKey1),
+                                               AssocSigFun1)
                    ],
-    Peer1Map = #{address => PubKey1,
+    Peer1Map = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                  listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
-                 connected => [PubKey2],
+                 connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                  nat_type => static,
                  associations => [{"wallet", Associations}]
                 },
@@ -33,13 +35,13 @@ coding_test(_) ->
 
     DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer1)),
 
-    ?assert(libp2p_peer:address(Peer1) == libp2p_peer:address(DecodedPeer)),
+    ?assert(libp2p_peer:pubkey_bin(Peer1) == libp2p_peer:pubkey_bin(DecodedPeer)),
     ?assert(libp2p_peer:timestamp(Peer1) ==  libp2p_peer:timestamp(DecodedPeer)),
     ?assert(libp2p_peer:listen_addrs(Peer1) == libp2p_peer:listen_addrs(DecodedPeer)),
     ?assert(libp2p_peer:nat_type(Peer1) ==  libp2p_peer:nat_type(DecodedPeer)),
     ?assert(libp2p_peer:connected_peers(Peer1) == libp2p_peer:connected_peers(DecodedPeer)),
     ?assert(libp2p_peer:metadata(Peer1) == libp2p_peer:metadata(DecodedPeer)),
-    ?assert(libp2p_peer:association_addrs(Peer1) == libp2p_peer:association_addrs(DecodedPeer)),
+    ?assert(libp2p_peer:association_pubkey_bins(Peer1) == libp2p_peer:association_pubkey_bins(DecodedPeer)),
 
     ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
@@ -48,9 +50,9 @@ coding_test(_) ->
     ?assertError(invalid_signature, libp2p_peer:decode(libp2p_peer:encode(InvalidPeer))),
 
     % Check peer list coding
-    Peer2 = libp2p_peer:from_map(#{address => PubKey2,
+    Peer2 = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey2),
                                    listen_addrs => ["/ip4/8.8.8.8/tcp/5678"],
-                                   connected => [PubKey1],
+                                   connected => [libp2p_crypto:pubkey_to_bin(PubKey1)],
                                    nat_type => static},
                                  SigFun2),
 
@@ -60,10 +62,10 @@ coding_test(_) ->
     ok.
 
 metadata_test(_) ->
-    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
-    PeerMap = #{address => PubKey1,
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                 connected => [],
                 nat_type => static},
@@ -89,12 +91,12 @@ metadata_test(_) ->
     ok.
 
 blacklist_test(_) ->
-    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
     BadListenAddr = "/ip4/8.8.8.8/tcp/1234",
     GoodListenAddr =  "/ip4/1.1.1.1/tcp/4321",
-    PeerMap = #{address => PubKey1,
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                 listen_addrs => [BadListenAddr, GoodListenAddr],
                 connected => [],
                 nat_type => static},
@@ -109,38 +111,46 @@ blacklist_test(_) ->
     ok.
 
 association_test(_) ->
-    {ok, PrivKey1, PubKey1} = ecc_compact:generate_key(),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
-    PeerMap = #{address => PubKey1,
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                 connected => [],
                 nat_type => static},
 
-    {ok, AssocPrivKey1, AssocPubKey1} = ecc_compact:generate_key(),
-    ValidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1,
+    #{secret := AssocPrivKey1, public := AssocPubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    ValidAssoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
+                                            libp2p_crypto:pubkey_to_bin(PubKey1),
                                             libp2p_crypto:mk_sig_fun(AssocPrivKey1)),
     ValidPeer = libp2p_peer:from_map(PeerMap#{associations => [{"wallet", [ValidAssoc]}]}, SigFun1),
 
-    ?assert(libp2p_peer:is_association(ValidPeer, "wallet", AssocPubKey1)),
-    ?assert(not libp2p_peer:is_association(ValidPeer, "wallet", PubKey1)),
-    ?assert(not libp2p_peer:is_association(ValidPeer, "no_such_type", PubKey1)),
-    ?assertEqual([{"wallet", [AssocPubKey1]}], libp2p_peer:association_addrs(ValidPeer)),
+    ?assert(libp2p_peer:is_association(ValidPeer, "wallet",
+                                       libp2p_crypto:pubkey_to_bin(AssocPubKey1))),
+    ?assert(not libp2p_peer:is_association(ValidPeer, "wallet",
+                                           libp2p_crypto:pubkey_to_bin(PubKey1))),
+    ?assert(not libp2p_peer:is_association(ValidPeer, "no_such_type",
+                                           libp2p_crypto:pubkey_to_bin(PubKey1))),
+    ?assertEqual([{"wallet", [libp2p_crypto:pubkey_to_bin(AssocPubKey1)]}],
+                 libp2p_peer:association_pubkey_bins(ValidPeer)),
     ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer, "wallet")),
     ?assertEqual([{"wallet", [ValidAssoc]}], libp2p_peer:associations(ValidPeer)),
     ?assert(libp2p_peer:verify(ValidPeer)),
 
     EncodedValidAssoc = libp2p_peer:association_encode(ValidAssoc),
-    ?assertEqual(ValidAssoc, libp2p_peer:association_decode(EncodedValidAssoc, PubKey1)),
+    ?assertEqual(ValidAssoc, libp2p_peer:association_decode(EncodedValidAssoc,
+                                                            libp2p_crypto:pubkey_to_bin(PubKey1))),
 
     %% Setting the same association dedupes
     ValidPeer2 = libp2p_peer:associations_put(ValidPeer, "wallet", ValidAssoc, SigFun1),
     ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer2, "wallet")),
 
     %% Make an association signed with the wrong private key
-    InvalidAssoc = libp2p_peer:mk_association(AssocPubKey1, PubKey1, SigFun1),
+    InvalidAssoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
+                                              libp2p_crypto:pubkey_to_bin(PubKey1), SigFun1),
     InvalidPeer = libp2p_peer:associations_put(ValidPeer, "wallet", InvalidAssoc, SigFun1),
-    ?assert(libp2p_peer:is_association(InvalidPeer, "wallet", AssocPubKey1)),
+    ?assert(libp2p_peer:is_association(InvalidPeer, "wallet",
+                                       libp2p_crypto:pubkey_to_bin(AssocPubKey1))),
     ?assertEqual([InvalidAssoc], libp2p_peer:associations_get(InvalidPeer, "wallet")),
 
     ?assertError(invalid_association_signature, libp2p_peer:verify(InvalidPeer)),

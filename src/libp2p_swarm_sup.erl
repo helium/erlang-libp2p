@@ -5,7 +5,7 @@
 %% API
 -export([
     start_link/1,
-    sup/1, opts/1, name/1, address/1,
+    sup/1, opts/1, name/1, pubkey_bin/1,
     register_server/1, server/1,
     register_gossip_group/1, gossip_group/1,
     register_peerbook/1, peerbook/1
@@ -43,8 +43,8 @@ server(Sup) when is_pid(Sup) ->
 server(TID) ->
     ets:lookup_element(TID, ?SERVER, 2).
 
--spec address(ets:tab()) -> libp2p_crypto:address().
-address(TID) ->
+-spec pubkey_bin(ets:tab()) -> libp2p_crypto:pubkey_bin().
+pubkey_bin(TID) ->
     ets:lookup_element(TID, ?ADDRESS, 2).
 
 -spec name(ets:tab()) -> atom().
@@ -84,7 +84,7 @@ init([Name, Opts]) ->
     ets:insert(TID, {?OPTS, Opts}),
     % Get or generate our keys
     {PubKey, SigFun} = init_keys(Opts),
-    ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_address(PubKey)}),
+    ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_bin(PubKey)}),
 
     SupFlags = {one_for_all, 3, 10},
     ChildSpecs = [
@@ -151,11 +151,11 @@ init([Name, Opts]) ->
 %% Internal functions
 %%====================================================================
 
--spec init_keys(libp2p_swarm:swarm_opts()) -> {libp2p_crypto:public_key(), libp2p_crypto:sig_fun()}.
+-spec init_keys(libp2p_swarm:swarm_opts()) -> {libp2p_crypto:pubkey(), libp2p_crypto:sig_fun()}.
 init_keys(Opts) ->
     case libp2p_config:get_opt(Opts, key, false) of
         false ->
-            {PrivKey, PubKey} = libp2p_crypto:generate_keys(),
+            #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
             {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
         {PubKey, SigFun} -> {PubKey, SigFun}
     end.

@@ -2,119 +2,153 @@
 
 -include_lib("public_key/include/public_key.hrl").
 
--type private_key() :: #'ECPrivateKey'{}.
--type public_key() :: {#'ECPoint'{}, {namedCurve, ?secp256r1}}.
--type address() :: ecc_compact:compact_key().
+-define(KEYTYPE_ECC_COMPACT, 0).
+-define(KEYTYPE_ED25519,     1).
+
+-type key_type() ::
+        ecc_compact |
+        ed25519.
+-type privkey() ::
+        {ecc_compact, ecc_compact:private_key()} |
+        {ed25519, enacl_privkey()}.
+-type pubkey() ::
+        {ecc_compact, ecc_compact:public_key()} |
+        {ed25519, enacl_pubkey()}.
+-type pubkey_bin() :: <<_:8, _:_*8>>.
 -type sig_fun() :: fun((binary()) -> binary()).
+-type key_map() :: #{ secret => privkey(), public => pubkey()}.
+-type enacl_privkey() :: <<_:256>>.
+-type enacl_pubkey() :: <<_:256>>.
 
--export_type([private_key/0, public_key/0, address/0, sig_fun/0]).
+-export_type([privkey/0, pubkey/0, pubkey_bin/0, sig_fun/0]).
 
--export([generate_keys/0, mk_sig_fun/1, load_keys/1, save_keys/2,
-         to_pem/1, from_pem/1, pubkey_to_address/1, address_to_pubkey/1,
-         address_to_b58/1, address_to_b58/2, b58_to_address/1, b58_to_version_address/1,
-         pubkey_to_b58/1, address_to_p2p/1, p2p_to_address/1,
-         b58_to_pubkey/1, verify/3
+-export([generate_keys/1, mk_sig_fun/1, load_keys/1, save_keys/2,
+         pubkey_to_bin/1, bin_to_pubkey/1,
+         bin_to_b58/1, bin_to_b58/2,
+         b58_to_bin/1, b58_to_version_bin/1,
+         pubkey_to_b58/1, b58_to_pubkey/1,
+         pubkey_bin_to_p2p/1, p2p_to_pubkey_bin/1,
+         verify/3
         ]).
-
--spec make_public_key(private_key()) -> public_key().
-make_public_key(#'ECPrivateKey'{parameters=Params, publicKey=PubKey}) ->
-    {#'ECPoint'{point=PubKey}, Params}.
 
 %% @doc Generate keys suitable for a swarm.  The returned private and
 %% public key has the attribute that the public key is a compressable
 %% public key.
--spec generate_keys() -> {private_key(), public_key()}.
-generate_keys() ->
+-spec generate_keys(key_type()) -> key_map().
+generate_keys(ecc_compact) ->
     {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
     PubKey = ecc_compact:recover_key(CompactKey),
-    {PrivKey, PubKey}.
+    #{secret => {ecc_compact, PrivKey}, public => {ecc_compact, PubKey}};
+generate_keys(ed25519) ->
+    #{public := PubKey, secret := PrivKey} = enacl:crypto_sign_ed25519_keypair(),
+    #{secret => {ed25519, PrivKey}, public => {ed25519, PubKey}}.
+
+
 
 %% @doc Load the private key from a pem encoded given filename.
 %% Returns the private and extracted public key stored in the file or
 %% an error if any occorred.
--spec load_keys(string()) -> {ok, private_key(), public_key()} | {error, term()}.
+-spec load_keys(string()) -> {ok, key_map()} | {error, term()}.
 load_keys(FileName) ->
     case file:read_file(FileName) of
-        {ok, PemBin} -> from_pem(PemBin);
+        {ok, Bin} -> {ok, keys_from_bin(Bin)};
         {error, Error} -> {error, Error}
     end.
 
--spec mk_sig_fun(private_key()) -> sig_fun().
-mk_sig_fun(PrivKey) ->
-    fun(Bin) -> public_key:sign(Bin, sha256, PrivKey) end.
+-spec mk_sig_fun(privkey()) -> sig_fun().
+mk_sig_fun({ecc_compact, PrivKey}) ->
+    fun(Bin) -> public_key:sign(Bin, sha256, PrivKey) end;
+mk_sig_fun({ed25519, PrivKey}) ->
+    fun(Bin) -> enacl:sign_detached(Bin, PrivKey) end.
+
 
 %% @doc Store the given keys in a file.  See @see key_folder/1 for a
 %% utility function that returns a name and location for the keys that
 %% are relative to the swarm data folder.
--spec save_keys({private_key(), public_key()}, string()) -> ok | {error, term()}.
-save_keys({PrivKey, _PubKey}, FileName) when is_list(FileName) ->
-    PemBin = to_pem(PrivKey),
-    file:write_file(FileName, PemBin).
+-spec save_keys(key_map(), string()) -> ok | {error, term()}.
+save_keys(KeysMap, FileName) when is_list(FileName) ->
+    Bin = keys_to_bin(KeysMap),
+    file:write_file(FileName, Bin).
 
--spec to_pem(private_key()) -> binary().
-to_pem(PrivKey) ->
-    PemEntry = public_key:pem_entry_encode('ECPrivateKey', PrivKey),
-    public_key:pem_encode([PemEntry]).
+-spec keys_to_bin(key_map()) -> binary().
+keys_to_bin(#{secret := {ecc_compact, PrivKey}, public := {ecc_compact, _PubKey}}) ->
+    #'ECPrivateKey'{privateKey=PrivKeyBin, publicKey=PubKeyBin} = PrivKey,
+    <<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>;
+keys_to_bin(#{secret := {ed25519, PrivKey}, public := {ed25519, PubKey}}) ->
+    <<?KEYTYPE_ED25519:8, PrivKey:64/binary, PubKey:32/binary>>.
 
--spec from_pem(binary()) -> {ok, private_key(), public_key()}.
-from_pem(PemBin) ->
-    [PemEntry] = public_key:pem_decode(PemBin),
-    PrivKey = public_key:pem_entry_decode(PemEntry),
-    PubKey = make_public_key(PrivKey),
-    {ok, PrivKey, PubKey}.
+-spec keys_from_bin(binary()) -> key_map().
+keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>) ->
+    Params = {namedCurve, ?secp256r1},
+    PrivKey = #'ECPrivateKey'{version=1, parameters=Params, privateKey=PrivKeyBin, publicKey=PubKeyBin},
+    PubKey = {#'ECPoint'{point=PubKeyBin}, Params},
+    #{secret => {ecc_compact, PrivKey}, public => {ecc_compact, PubKey}};
+keys_from_bin(<<?KEYTYPE_ED25519, PrivKey:64/binary, PubKey:32/binary>>) ->
+    #{secret => {ed25519, PrivKey}, public => {ed25519, PubKey}}.
 
--spec pubkey_to_address(public_key() | ecc_compact:compact_key()) -> address().
-pubkey_to_address(PubKey) ->
+
+-spec pubkey_to_bin(pubkey()) -> pubkey_bin().
+pubkey_to_bin({ecc_compact, PubKey}) ->
     case ecc_compact:is_compact(PubKey) of
-        {true, CompactKey} -> CompactKey;
+        {true, CompactKey} -> <<?KEYTYPE_ECC_COMPACT, CompactKey/binary>>;
         false -> erlang:error(not_compact)
-    end.
+    end;
+pubkey_to_bin({ed25519, PubKey}) ->
+    <<?KEYTYPE_ED25519, PubKey/binary>>.
 
--spec address_to_pubkey(address()) -> public_key().
-address_to_pubkey(Addr) ->
-    ecc_compact:recover_key(Addr).
+-spec bin_to_pubkey(pubkey_bin()) -> pubkey().
+bin_to_pubkey(<<?KEYTYPE_ECC_COMPACT, PubKey:32/binary>>) ->
+    {ecc_compact, ecc_compact:recover_key(PubKey)};
+bin_to_pubkey(<<?KEYTYPE_ED25519, PubKey:32/binary>>) ->
+    {ed25519, PubKey}.
 
--spec pubkey_to_b58(public_key() | ecc_compact:compact_key()) -> string().
+-spec pubkey_to_b58(pubkey()) -> string().
 pubkey_to_b58(PubKey) ->
-    address_to_b58(pubkey_to_address(PubKey)).
+    bin_to_b58(pubkey_to_bin(PubKey)).
 
--spec b58_to_pubkey(string()) -> public_key().
+-spec b58_to_pubkey(string()) -> pubkey().
 b58_to_pubkey(Str) ->
-    address_to_pubkey(b58_to_address(Str)).
+    bin_to_pubkey(b58_to_bin(Str)).
 
 %% @doc Verifies a digital signature, using sha256.
--spec verify(binary(), binary(), public_key()) -> boolean().
-verify(Bin, Signature, PubKey) ->
-    public_key:verify(Bin, sha256, Signature, PubKey).
+-spec verify(binary(), binary(), pubkey()) -> boolean().
+verify(Bin, Signature, {ecc_compact, PubKey}) ->
+    public_key:verify(Bin, sha256, Signature, PubKey);
+verify(Bin, Signature, {ed25519, PubKey}) ->
+    case enacl:sign_verify_detached(Signature, Bin, PubKey) of
+        {ok, _} -> true;
+        _ -> false
+    end.
 
--spec address_to_b58(address()) -> string().
-address_to_b58(Addr) ->
-    address_to_b58(16#00, Addr).
 
--spec address_to_b58(non_neg_integer(), address()) -> string().
-address_to_b58(Version, Addr) ->
-    base58check_encode(Version, Addr).
+-spec bin_to_b58(binary()) -> string().
+bin_to_b58(Bin) ->
+    bin_to_b58(16#00, Bin).
 
--spec b58_to_address(string())-> address().
-b58_to_address(Str) ->
-    {_, Addr} = b58_to_version_address(Str),
+-spec bin_to_b58(non_neg_integer(), binary()) -> string().
+bin_to_b58(Version, Bin) ->
+    base58check_encode(Version, Bin).
+
+-spec b58_to_bin(string())-> binary().
+b58_to_bin(Str) ->
+    {_, Addr} = b58_to_version_bin(Str),
     Addr.
 
--spec b58_to_version_address(string())-> {Version::non_neg_integer(), address()}.
-b58_to_version_address(Str) ->
+-spec b58_to_version_bin(string())-> {Version::non_neg_integer(), binary()}.
+b58_to_version_bin(Str) ->
     case base58check_decode(Str) of
-        {ok, <<Version:8/unsigned-integer>>, Addr} -> {Version, Addr};
+        {ok, <<Version:8/unsigned-integer>>, Bin} -> {Version, Bin};
         {error, Reason} -> error(Reason)
     end.
 
--spec address_to_p2p(address()) -> string().
-address_to_p2p(Addr) ->
-    "/p2p/" ++ address_to_b58(Addr).
+-spec pubkey_bin_to_p2p(pubkey_bin()) -> string().
+pubkey_bin_to_p2p(PubKey) when is_binary(PubKey) ->
+    "/p2p/" ++ bin_to_b58(PubKey).
 
--spec p2p_to_address(string()) -> address().
-p2p_to_address(Str) ->
+-spec p2p_to_pubkey_bin(string()) -> pubkey_bin().
+p2p_to_pubkey_bin(Str) ->
     case multiaddr:protocols(Str) of
-        [{"p2p", B58Addr}] -> b58_to_address(B58Addr);
+        [{"p2p", B58Addr}] -> b58_to_bin(B58Addr);
         _ -> error(badarg)
     end.
 
@@ -142,51 +176,54 @@ base58check_decode(B58) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-generate_full_key() ->
-    PrivKey = #'ECPrivateKey'{parameters=Params, publicKey=PubKeyPoint} =
-        public_key:pem_entry_decode(lists:nth(2, public_key:pem_decode(list_to_binary(os:cmd("openssl ecparam -name prime256v1 -genkey -outform PEM"))))),
-    PubKey = {#'ECPoint'{point=PubKeyPoint}, Params},
-    case ecc_compact:is_compact(PubKey) of
-        {true, _} -> generate_full_key();
-        false -> {PrivKey, PubKey}
-    end.
 
 save_load_test() ->
-    FileName = test_util:nonl(os:cmd("mktemp")),
-    Keys = {PrivKey, PubKey} = generate_keys(),
-    ok = libp2p_crypto:save_keys(Keys, FileName),
-    {ok, LPrivKey, LPubKey} = load_keys(FileName),
-    {PrivKey, PubKey} = {LPrivKey, LPubKey},
-    {error, _} = load_keys(FileName ++ "no"),
+    SaveLoad = fun(KeyType) ->
+                       FileName = test_util:nonl(os:cmd("mktemp")),
+                       Keys = generate_keys(KeyType),
+                       ok = libp2p_crypto:save_keys(Keys, FileName),
+                       {ok, LKeys} = load_keys(FileName),
+                       ?assertEqual(LKeys, Keys)
+               end,
+    SaveLoad(ecc_compact),
+    SaveLoad(ed25519),
+
+    {error, _} = load_keys("no_such_file"),
     ok.
 
 address_test() ->
-    {_PrivKey, PubKey} = generate_keys(),
+    Roundtrip = fun(KeyType) ->
+                        #{public := PubKey} = generate_keys(KeyType),
 
-    Address = pubkey_to_address(PubKey),
-    B58Address = address_to_b58(Address),
+                        PubBin = pubkey_to_bin(PubKey),
+                        PubB58 = bin_to_b58(PubBin),
 
-    MAddr = address_to_p2p(Address),
-    Address = p2p_to_address(MAddr),
+                        MAddr = pubkey_bin_to_p2p(PubBin),
+                        ?assertEqual(PubBin, p2p_to_pubkey_bin(MAddr)),
 
-    B58Address = pubkey_to_b58(PubKey),
-    PubKey = b58_to_pubkey(B58Address),
+                        ?assertEqual(PubB58, pubkey_to_b58(PubKey)),
+                        ?assertEqual(PubKey, b58_to_pubkey(PubB58))
+                end,
 
-    {'EXIT', {bad_checksum, _}} = (catch b58_to_address(B58Address ++ "bad")),
+    Roundtrip(ecc_compact),
+    Roundtrip(ed25519),
 
-    {_, FullKey} = generate_full_key(),
-    {'EXIT', {not_compact, _}} = (catch pubkey_to_address(FullKey)),
     ok.
 
-verify_test() ->
-    {PrivKey, PubKey} = generate_keys(),
-
+verify_sign_test() ->
     Bin = <<"sign me please">>,
-    Sign = mk_sig_fun(PrivKey),
-    Signature = Sign(Bin),
+    Verify = fun(KeyType) ->
+                     #{secret := PrivKey, public := PubKey} = generate_keys(KeyType),
+                     Sign = mk_sig_fun(PrivKey),
+                     Signature = Sign(Bin),
 
-    true = verify(Bin, Signature, PubKey),
-    false = verify(<<"failed...">>, Signature, PubKey).
+                     ?assert(verify(Bin, Signature, PubKey)),
+                     ?assert(not verify(<<"failed...">>, Signature, PubKey))
+             end,
 
+    Verify(ecc_compact),
+    Verify(ed25519),
+
+    ok.
 
 -endif.

@@ -34,8 +34,8 @@
           notify_group :: atom(),
           notify_time :: pos_integer(),
           notify_timer=undefined :: reference() | undefined,
-          notify_peers=#{} :: #{libp2p_crypto:address() => libp2p_peer:peer()},
-          sessions=[] :: [{libp2p_crypto:address(), pid()}],
+          notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
+          sessions=[] :: [{libp2p_crypto:pubkey_bin(), pid()}],
           sigfun :: fun((binary()) -> binary())
         }).
 
@@ -57,9 +57,9 @@
 -spec put(peerbook(), [libp2p_peer:peer()]) -> ok | {error, term()}.
 put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     lists:foreach(fun libp2p_peer:verify/1, PeerList),
-    ThisPeerId = libp2p_swarm:address(TID),
+    ThisPeerId = libp2p_swarm:pubkey_bin(TID),
     NewPeers = lists:filter(fun(NewPeer) ->
-                                    NewPeerId = libp2p_peer:address(NewPeer),
+                                    NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
                                     case unsafe_fetch_peer(NewPeerId, Handle) of
                                         {error, not_found} -> true;
                                         {ok, ExistingPeer} ->
@@ -78,9 +78,9 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers}),
     ok.
 
--spec get(peerbook(), libp2p_crypto:address()) -> {ok, libp2p_peer:peer()} | {error, term()}.
+-spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook{tid=TID}=Handle, ID) ->
-    ThisPeerId = libp2p_swarm:address(TID),
+    ThisPeerId = libp2p_swarm:pubkey_bin(TID),
     case fetch_peer(ID, Handle) of
         {error, not_found} when ID == ThisPeerId ->
             gen_server:call(libp2p_swarm:peerbook_pid(TID), update_this_peer, infinity),
@@ -91,14 +91,14 @@ get(#peerbook{tid=TID}=Handle, ID) ->
             {ok, Peer}
     end.
 
--spec is_key(peerbook(), libp2p_crypto:address()) -> boolean().
+-spec is_key(peerbook(), libp2p_crypto:pubkey_bin()) -> boolean().
 is_key(Handle=#peerbook{}, ID) ->
     case get(Handle, ID) of
         {error, _} -> false;
         {ok, _} -> true
     end.
 
--spec keys(peerbook()) -> [libp2p_crypto:address()].
+-spec keys(peerbook()) -> [libp2p_crypto:pubkey_bin()].
 keys(Handle=#peerbook{}) ->
     fetch_keys(Handle).
 
@@ -106,14 +106,14 @@ keys(Handle=#peerbook{}) ->
 values(Handle=#peerbook{}) ->
     fetch_peers(Handle).
 
--spec remove(peerbook(), libp2p_crypto:address()) -> ok | {error, no_delete}.
+-spec remove(peerbook(), libp2p_crypto:pubkey_bin()) -> ok | {error, no_delete}.
 remove(#peerbook{tid=TID}=Handle, ID) ->
-     case ID == libp2p_swarm:address(TID) of
+     case ID == libp2p_swarm:pubkey_bin(TID) of
          true -> {error, no_delete};
          false -> delete_peer(ID, Handle)
      end.
 
--spec blacklist_listen_addr(peerbook(), libp2p_crypto:address(), ListenAddr::string())
+-spec blacklist_listen_addr(peerbook(), libp2p_crypto:pubkey_bin(), ListenAddr::string())
                            -> ok | {error, not_found}.
 blacklist_listen_addr(Handle=#peerbook{}, ID, ListenAddr) ->
     case unsafe_fetch_peer(ID, Handle) of
@@ -158,7 +158,7 @@ add_association(#peerbook{tid=TID}, AssocType, Assoc) ->
 
 %% @doc Look up all the peers that have a given association type
 %% `AssocTyp' and address `AssocAddress' in their associations.
--spec lookup_association(peerbook(), AssocType::string(), AssocAddress::libp2p_crypto:address())
+-spec lookup_association(peerbook(), AssocType::string(), AssocAddress::libp2p_crypto:pubkey_bin())
                         -> [libp2p_peer:peer()].
 lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
     fold_peers(fun(_Key, Peer, Acc) ->
@@ -236,7 +236,7 @@ handle_cast({update_nat_type, UpdatedNatType}, State=#state{}) ->
     {noreply, update_this_peer(State#state{nat_type=UpdatedNatType})};
 handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) ->
     %% Fetch our peer record
-    SwarmAddr = libp2p_swarm:address(State#state.tid),
+    SwarmAddr = libp2p_swarm:pubkey_bin(State#state.tid),
     {ok, ThisPeer} = unsafe_fetch_peer(SwarmAddr, Handle),
     %% Create the new association and put it in the peer
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
@@ -246,7 +246,7 @@ handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) -
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
-    SessionAddr = libp2p_identify:address(Identify),
+    SessionAddr = libp2p_identify:pubkey_bin(Identify),
     NewSessions = [{SessionAddr, SessionPid} | Sessions],
     {noreply, update_this_peer(State#state{sessions=NewSessions})};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
@@ -257,7 +257,7 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info(peer_timeout, State=#state{tid=TID}) ->
-    SwarmAddr = libp2p_swarm:address(TID),
+    SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     {ok, CurrentPeer} = unsafe_fetch_peer(SwarmAddr, State#state.peerbook),
     {noreply, update_this_peer(mk_this_peer(CurrentPeer, State), State)};
 handle_info(notify_timeout, State=#state{}) ->
@@ -280,7 +280,7 @@ terminate(_Reason, _State) ->
 
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> libp2p_peer:peer().
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
-    SwarmAddr = libp2p_swarm:address(TID),
+    SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
     %% Copy data from current peer
@@ -290,7 +290,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
         _ ->
             Associations = libp2p_peer:associations(CurrentPeer)
     end,
-    libp2p_peer:from_map(#{ address => SwarmAddr,
+    libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
@@ -299,7 +299,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
-    SwarmAddr = libp2p_swarm:address(TID),
+    SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
         {error, not_found} ->
             NewPeer = mk_this_peer(undefined, State),
@@ -332,11 +332,11 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               case maps:find(libp2p_peer:address(Peer), Acc) of
-                                   error -> maps:put(libp2p_peer:address(Peer), Peer, Acc);
+                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                   error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
                                    {ok, FoundPeer} ->
                                        case libp2p_peer:supersedes(Peer, FoundPeer) of
-                                           true -> maps:put(libp2p_peer:address(Peer), Peer, Acc);
+                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
                                            false -> Acc
                                        end
                                end
@@ -373,7 +373,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 %% rocksdb has a bad spec that doesn't list corruption as a valid return
 %% so this is here until that gets fixed
 -dialyzer({nowarn_function, unsafe_fetch_peer/2}).
--spec unsafe_fetch_peer(libp2p_crypto:address() | undefined, peerbook())
+-spec unsafe_fetch_peer(libp2p_crypto:pubkey_bin() | undefined, peerbook())
                        -> {ok, libp2p_peer:peer()} | {error, term()}.
 unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
@@ -386,7 +386,7 @@ unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
         not_found -> {error, not_found}
     end.
 
--spec fetch_peer(libp2p_crypto:address(), peerbook())
+-spec fetch_peer(libp2p_crypto:pubkey_bin(), peerbook())
                 -> {ok, libp2p_peer:peer()} | {error, term()}.
 fetch_peer(ID, Handle=#peerbook{stale_time=StaleTime}) ->
     case unsafe_fetch_peer(ID, Handle) of
@@ -416,7 +416,7 @@ fold(Iterator, {error, _}, _Fun, Acc) ->
 fold(Iterator, {ok, Key, Value}, Fun, Acc) ->
     fold(Iterator, rocksdb:iterator_move(Iterator, next), Fun, Fun(Key, Value, Acc)).
 
--spec fetch_keys(peerbook()) -> [libp2p_crypto:address()].
+-spec fetch_keys(peerbook()) -> [libp2p_crypto:pubkey_bin()].
 fetch_keys(State=#peerbook{}) ->
     fold_peers(fun(Key, _, Acc) -> [Key | Acc] end, [], State).
 
@@ -426,12 +426,12 @@ fetch_peers(State=#peerbook{}) ->
 
 -spec store_peer(libp2p_peer:peer(), peerbook()) -> ok | {error, term()}.
 store_peer(Peer, #peerbook{store=Store}) ->
-    case rocksdb:put(Store, libp2p_peer:address(Peer), libp2p_peer:encode(Peer), []) of
+    case rocksdb:put(Store, libp2p_peer:pubkey_bin(Peer), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
         ok -> ok
     end.
 
--spec delete_peer(libp2p_crypto:address(), peerbook()) -> ok.
+-spec delete_peer(libp2p_crypto:pubkey_bin(), peerbook()) -> ok.
 delete_peer(ID, #peerbook{store=Store}) ->
     rocksdb:delete(Store, ID, []).
 
@@ -461,4 +461,3 @@ install_gossip_handler(TID, Handle) ->
             libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
             G
     end.
-
