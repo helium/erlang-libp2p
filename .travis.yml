@@ -6,8 +6,8 @@ otp_release:
   - 21.1
 
 before_install:
-  - sudo apt-get update
-  - sudo apt-get install -y libsodium-dev
+  - git clone -b stable https://github.com/jedisct1/libsodium.git
+  - cd libsodium && sudo ./configure && sudo make check && sudo make install && cd ..
 
 cache:
   directories:
