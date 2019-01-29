@@ -82,13 +82,13 @@ connect_to_listen_addr([ListenAddr | Tail], UserOptions, Timeout, TID) ->
             end
     end.
 
--spec p2p_addr(string()) -> {ok, libp2p_crypto:address()} | {error, term()}.
+-spec p2p_addr(string()) -> {ok, libp2p_crypto:pubkey_bin()} | {error, term()}.
 p2p_addr(MAddr) ->
     p2p_addr(MAddr, multiaddr:protocols(MAddr)).
 
 p2p_addr(MAddr, [{"p2p", Addr}]) ->
     try
-        {ok, libp2p_crypto:b58_to_address(Addr)}
+        {ok, libp2p_crypto:b58_to_bin(Addr)}
     catch
         _What:Why ->
             lager:notice("Invalid p2p address ~p: ~p", [MAddr, Why]),

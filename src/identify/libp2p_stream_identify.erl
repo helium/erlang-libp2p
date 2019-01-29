@@ -40,7 +40,7 @@ init(server, Connection, [Path, TID]) ->
     Challenge = base58:base58_to_binary(Str),
     {ok, _, SigFun} = libp2p_swarm:keys(TID),
     {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-    {ok, Peer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:address(TID)),
+    {ok, Peer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
     Identify = libp2p_identify:from_map(#{peer => Peer,
                                           observed_addr => RemoteAddr,
                                           nonce => Challenge},

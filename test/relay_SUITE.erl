@@ -108,7 +108,7 @@ basic(_Config) ->
     %% wait for B to get A's relay address gossiped to it
     ok = test_util:wait_until(
         fun() ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm), libp2p_swarm:address(ServerSwarm)) of
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm), libp2p_swarm:pubkey_bin(ServerSwarm)) of
                 {ok, PeerBookEntry} ->
                     lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
                 _ ->
@@ -237,7 +237,7 @@ dead_peer(_Config) ->
     %% wait for B to get A's relay address gossiped to it
     ok = test_util:wait_until(
         fun() ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm), libp2p_swarm:address(ServerSwarm)) of
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm), libp2p_swarm:pubkey_bin(ServerSwarm)) of
                 {ok, PeerBookEntry} ->
                     lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
                 _ ->

@@ -34,7 +34,7 @@
     ,peer_index = 1
     ,flap_count = 0
     ,swarm :: pid() | undefined
-    ,address :: libp2p_crypto:address() | undefined
+    ,address :: libp2p_crypto:pubkey_bin() | undefined
     ,started = false :: boolean()
 }).
 
@@ -76,7 +76,7 @@ init(TID) ->
     {ok, #state{tid=TID, swarm=Swarm}}.
 
 handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
-    SwarmAddr = libp2p_swarm:address(Swarm),
+    SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
     Peers = case State0#state.peers of
                 [] ->
                     Peerbook = libp2p_swarm:peerbook(Swarm),
@@ -84,7 +84,7 @@ handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
                     lager:info("joined peerbook ~p notifications", [Peerbook]),
                     Peers0 = libp2p_peerbook:values(Peerbook),
                     lists:filter(fun(E) ->
-                                         libp2p_peer:address(E) /= SwarmAddr
+                                         libp2p_peer:pubkey_bin(E) /= SwarmAddr
                                  end, Peers0);
                 _ ->
                     State0#state.peers
@@ -169,14 +169,14 @@ int_relay(#state{peers=[]}) ->
 int_relay(State=#state{swarm=Swarm}) ->
     lager:info("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     Peer = lists:nth(State#state.peer_index, State#state.peers),
-    Address = libp2p_crypto:address_to_p2p(libp2p_peer:address(Peer)),
+    Address = libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
     lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
     libp2p_relay:dial_framed_stream(Swarm, Address, []).
 
--spec sort_peers([libp2p_peer:peer()], libp2p_crypto:address()) -> [libp2p_peer:peer()].
+-spec sort_peers([libp2p_peer:peer()], libp2p_crypto:pubkey_bin()) -> [libp2p_peer:peer()].
 sort_peers(Peers0, SwarmAddr) ->
     Peers = lists:filter(fun(E) ->
-        libp2p_peer:address(E) /= SwarmAddr
+        libp2p_peer:pubkey_bin(E) /= SwarmAddr
     end, Peers0),
     lists:sort(fun sort_peers_fun/2, Peers).
 
@@ -203,8 +203,8 @@ sort_peers_fun(A, B) ->
 
 %% merge new peers into old peers based on their address
 merge_peers(NewPeers, OldPeers) ->
-    maps:values(maps:merge(maps:from_list([{libp2p_peer:address(P), P} || P <- NewPeers]),
-                           maps:from_list([{libp2p_peer:address(P), P} || P <- OldPeers]))).
+    maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]),
+                           maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]))).
 
 -spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
