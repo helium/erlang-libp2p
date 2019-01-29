@@ -5,6 +5,11 @@ language: erlang
 otp_release:
   - 21.1
 
+addons:
+  apt:
+    packages:
+    - libsodium-dev
+
 cache:
   directories:
   - $HOME/.cache/rebar3
