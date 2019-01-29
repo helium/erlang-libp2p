@@ -78,7 +78,7 @@ assign_stream(Pid, StreamPid) ->
 %% used to indicate the send result to the server for the worker.
 %%
 %% @see libp2p_group_server:send_result/3
--spec send(pid(), term(), binary()) -> ok.
+-spec send(pid(), term(), any()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
 

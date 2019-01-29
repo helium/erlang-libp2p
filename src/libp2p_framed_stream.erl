@@ -70,11 +70,11 @@
 -callback client(libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
 
 -callback init(kind(), libp2p_connection:connection(), [any()]) -> init_result().
--callback handle_data(kind(), binary(), any()) -> handle_data_result().
+-callback handle_data(kind(), any(), any()) -> handle_data_result().
 -callback handle_info(kind(), term(), any()) -> handle_info_result().
 -callback handle_call(kind(), Msg::term(), From::term(), ModState::any()) -> handle_call_result().
 -callback handle_cast(kind(), term(), any()) -> handle_cast_result().
--callback handle_send(kind(), From::pid(), Data::binary(), Tmeout::non_neg_integer(), any()) -> handle_send_result().
+-callback handle_send(kind(), From::pid(), Data::any(), Tmeout::non_neg_integer(), any()) -> handle_send_result().
 
 -optional_callbacks([handle_info/3, handle_call/4, handle_cast/3, handle_send/5]).
 
