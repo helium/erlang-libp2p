@@ -55,6 +55,7 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
             ),
             case HasRelayAddress of
                 true ->
+                    lager:error("server ~p is not suitablw for proxy ", [PAddress]),
                     {error, invalid_proxy};
                 false ->
                     case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
