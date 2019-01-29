@@ -13,9 +13,9 @@ before_install:
   - cd libsodium && ./configure && CC="ccache gcc" make check && sudo make install && cd ..
 
 cache:
-  ccache: true
   directories:
   - $HOME/.cache/rebar3
+  - $HOME/.ccache
 
 before_script:
   # Add an IPv6 config - see the corresponding Travis issue
