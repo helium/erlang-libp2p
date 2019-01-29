@@ -6,6 +6,8 @@ otp_release:
   - 21.1
 
 env:
+  - CC=ccache gcc
+  - CXX=ccache g++
   - LD_LIBRARY_PATH=/usr/local/lib
 
 before_install:
