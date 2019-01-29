@@ -45,7 +45,7 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
         {transport, self()},
         {id, ID}
     ],
-    case libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_crypto:p2p_to_address(PAddress)) of
+    case libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_crypto:p2p_to_pubkey_bin(PAddress)) of
         {error, _}=Error ->
             Error;
         {ok, PeerInfo} ->
