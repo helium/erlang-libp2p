@@ -13,6 +13,7 @@ before_install:
   - cd libsodium && sudo ./configure && sudo make check && sudo make install && cd ..
 
 cache:
+  ccache: true
   directories:
   - $HOME/.cache/rebar3
 
