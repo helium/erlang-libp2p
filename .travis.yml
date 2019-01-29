@@ -10,12 +10,11 @@ env:
 
 before_install:
   - git clone -b stable https://github.com/jedisct1/libsodium.git
-  - cd libsodium && ./configure && CC="ccache gcc" make check && sudo make install && cd ..
+  - cd libsodium && ./configure && make check && sudo make install && cd ..
 
 cache:
   directories:
   - $HOME/.cache/rebar3
-  - $HOME/.ccache
 
 before_script:
   # Add an IPv6 config - see the corresponding Travis issue
