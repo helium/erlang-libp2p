@@ -6,11 +6,11 @@ otp_release:
   - 21.1
 
 env:
-  - CC="ccache gcc" CXX="ccache g++" LD_LIBRARY_PATH="/usr/local/lib"
+  LD_LIBRARY_PATH="/usr/local/lib"
 
 before_install:
   - git clone -b stable https://github.com/jedisct1/libsodium.git
-  - cd libsodium && sudo ./configure && sudo make check && sudo make install && cd ..
+  - cd libsodium && sudo ./configure && CC="ccache gcc" sudo make check && sudo make install && cd ..
 
 cache:
   ccache: true
