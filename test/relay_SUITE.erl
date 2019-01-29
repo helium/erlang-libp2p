@@ -253,13 +253,14 @@ dead_peer(_Config) ->
     timer:sleep(2000),
 
     % B dials A via the relay address (so dialing R realy)
-    {error, "server_down"} = libp2p_swarm:dial_framed_stream(
+    R = libp2p_swarm:dial_framed_stream(
         ClientSwarm
         ,ServerCircuitAddress
         ,Version
         ,libp2p_stream_relay_test
         ,[]
     ),
+    ?assertEqual({error, "server_down"}, R),
 
     timer:sleep(2000),
     ok = libp2p_swarm:stop(RelaySwarm),
