@@ -4,7 +4,7 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), Ref::any(), {Msg::binary(), Seq::pos_integer()}) -> ok.
+-callback handle_data(State::any(), Ref::any(), {Msg::binary(), Seq::pos_integer(), boolean()}) -> ok.
 -callback accept_stream(State::any(),
                         Stream::pid(), Path::string()) ->
     {ok, Ref::any()} | {error, term()}.

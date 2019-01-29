@@ -20,7 +20,7 @@
          connects = 0 :: non_neg_integer(),
          last_take = unknown :: atom(),
          last_in_seq :: undefined | pos_integer(),
-         last_ack = 0 :: pos_integer()
+         last_ack = 0 :: non_neg_integer()
        }).
 
 -record(state,
