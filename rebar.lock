@@ -32,12 +32,9 @@
  {<<"rand_compat">>,{pkg,<<"rand_compat">>,<<"0.0.3">>},1},
  {<<"relcast">>,
   {git,"https://github.com/helium/relcast.git",
-       {ref,"6f4ff93d060d757181f75d5d49f91dc2af0cf81a"}},
+       {ref,"f0abeed3bb25e63ee53e2f83c7b1e8d2b204abe7"}},
   0},
- {<<"rocksdb">>,
-  {git,"https://gitlab.com/Vagabond1/erlang-rocksdb.git",
-       {ref,"ac2cf116bf183b84046f041377bb50e62899cfe6"}},
-  1},
+ {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"0.26.2">>},1},
  {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},1},
  {<<"splicer">>,
   {git,"https://github.com/helium/erlang-splicer.git",
@@ -60,5 +57,6 @@
  {<<"nat">>, <<"8E6A86D5A4419CBCE4C6E6A48EA77A106CE2598A04CDC5820D2840E9DBDFF04E">>},
  {<<"ranch">>, <<"F04166F456790FEE2AC1AA05A02745CC75783C2BFB26D39FAF6AEFC9A3D3A58A">>},
  {<<"rand_compat">>, <<"011646BC1F0B0C432FE101B816F25B9BBB74A085713CEE1DAFD2D62E9415EAD3">>},
+ {<<"rocksdb">>, <<"73339994D2F0D983E610F04D574D0B2C22B8A6EE5B166AC8308B29B1E5FF61DD">>},
  {<<"small_ints">>, <<"82A824C8794A2DDC73CB5CD00EAD11331DB296521AD16A619C13D668572B868A">>}]}
 ].
