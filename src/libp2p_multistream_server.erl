@@ -79,7 +79,7 @@ handle_info({inert_read, _, _}, State=#state{connection=Conn,
         "ls" ->
             handle_ls_reply(Conn, Handlers, State);
         Line ->
-            case find_handler(Line, Handlers) of
+            case find_handler(Line, Handlers, error) of
                 {Key, {M, F}, LineRest} ->
                     {_, RemoteAddr} = libp2p_connection:addr_info(Conn),
                     write(Conn, Line),
@@ -150,15 +150,38 @@ handshake(Connection) ->
         ClientId -> {error, {protocol_mismatch, ClientId}}
     end.
 
--spec find_handler(string(), [{prefix(), handler()}]) -> {string(), handler(), string()} | error.
-find_handler(_Line, []) ->
-    error;
-find_handler(Line, [{Prefix, Handler} | Handlers]) ->
+-spec find_handler(string(), [{prefix(), handler()}], Acc :: error | {string(), handler(), string()}) -> {string(), handler(), string()} | error.
+find_handler(_Line, [], Acc) ->
+    Acc;
+find_handler(Line, [{Prefix, Handler} | Handlers], Acc) ->
     case string:prefix(Line, Prefix) of
-        nomatch -> find_handler(Line, Handlers);
-        Rest -> {Prefix, Handler, Rest}
+        nomatch -> find_handler(Line, Handlers, Acc);
+        Rest ->
+            case Acc of
+                error ->
+                    find_handler(Line, Handlers, {Prefix, Handler, Rest});
+                {Prefix2, _Handler2, _Rest2} ->
+                    case length(Prefix2) < length(Prefix) of
+                        true ->
+                            find_handler(Line, Handlers, {Prefix, Handler, Rest});
+                        false ->
+                            find_handler(Line, Handlers, Acc)
+                    end
+            end
     end.
 
 
 write(Conn, Data) ->
     libp2p_multistream:write(Conn, Data).
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+longest_prefix_test() ->
+    ?assertMatch({"consensus-10", lol, "/blah"}, find_handler("consensus-10/blah", [{"consensus-1", hah}, {"consensus-10", lol}], error)),
+    ?assertMatch({"consensus-1", hah, "/foo"}, find_handler("consensus-1/foo", [{"consensus-1", hah}, {"consensus-10", lol}], error)),
+    ?assertMatch({"consensus-1", heh, "/foo"}, find_handler("consensus-1/foo", [{"consensus-10", lol}, {"consensus-1", heh}], error)),
+    ok.
+
+-endif.
