@@ -28,7 +28,8 @@
          b58_to_bin/1, b58_to_version_bin/1,
          pubkey_to_b58/1, b58_to_pubkey/1,
          pubkey_bin_to_p2p/1, p2p_to_pubkey_bin/1,
-         verify/3
+         verify/3,
+         keys_to_bin/1, keys_from_bin/1
         ]).
 
 %% @doc Generate keys suitable for a swarm.  The returned private and
