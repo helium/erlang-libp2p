@@ -5,7 +5,7 @@
 -export_type([opt/0]).
 
 -export([start_link/3, handle_input/2, send/2, send_ack/5,
-         info/1, queues/1]).
+         info/1, queues/1, handle_command/2]).
 
 -spec start_link(ets:tab(), GroupID::string(), Args::[any()])
                 -> {ok, pid()} | {error, term()}.
@@ -41,3 +41,8 @@ info(GroupPid) ->
 queues(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
     gen_server:call(Server, dump_queues).
+
+-spec handle_command(GroupPid::pid(), Msg::term()) -> term() | {error, any()}.
+handle_command(GroupPid, Msg) ->
+    Server = libp2p_group_relcast_sup:server(GroupPid),
+    libp2p_group_relcast_server:handle_command(Server, Msg).

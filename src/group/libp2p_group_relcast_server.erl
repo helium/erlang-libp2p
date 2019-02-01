@@ -5,7 +5,7 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, handle_input/2, send_ack/5, info/1]).
+-export([start_link/4, handle_input/2, send_ack/5, info/1, handle_command/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
@@ -48,6 +48,9 @@ send_ack(Pid, Index, Seq, Reset, Range) ->
 
 info(Pid) ->
     catch gen_server:call(Pid, info).
+
+handle_command(Pid, Msg) ->
+    gen_server:call(Pid, {handle_command, Msg}, 30000).
 
 %% libp2p_ack_stream
 %%
@@ -146,6 +149,16 @@ handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
                   worker_info => WorkerInfos
                  },
     {reply, GroupInfo, State};
+handle_call({handle_command, _Msg}, _From, State=#state{close_state=closing}) ->
+    {reply, {error, closing}, State};
+handle_call({handle_command, Msg}, _From, State=#state{store=Relcast}) ->
+    case relcast:command(Msg, Relcast) of
+        {Reply, NewRelcast} ->
+            {reply, Reply, dispatch_next_messages(State#state{store=NewRelcast})};
+        {stop, Reply, Timeout, NewRelcast} ->
+            erlang:send_after(Timeout, self(), force_close),
+            {reply, Reply, dispatch_next_messages(State#state{store=NewRelcast})}
+        end;
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
