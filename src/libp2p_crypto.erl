@@ -16,13 +16,15 @@
         {ed25519, enacl_pubkey()}.
 -type pubkey_bin() :: <<_:8, _:_*8>>.
 -type sig_fun() :: fun((binary()) -> binary()).
+-type ecdh_fun() :: fun((pubkey()) -> binary()).
 -type key_map() :: #{ secret => privkey(), public => pubkey()}.
 -type enacl_privkey() :: <<_:256>>.
 -type enacl_pubkey() :: <<_:256>>.
 
--export_type([privkey/0, pubkey/0, pubkey_bin/0, sig_fun/0]).
+-export_type([privkey/0, pubkey/0, pubkey_bin/0, sig_fun/0, ecdh_fun/0]).
 
--export([generate_keys/1, mk_sig_fun/1, load_keys/1, save_keys/2,
+-export([generate_keys/1, mk_sig_fun/1, mk_ecdh_fun/1,
+         load_keys/1, save_keys/2,
          pubkey_to_bin/1, bin_to_pubkey/1,
          bin_to_b58/1, bin_to_b58/2,
          b58_to_bin/1, b58_to_version_bin/1,
@@ -62,6 +64,14 @@ mk_sig_fun({ecc_compact, PrivKey}) ->
 mk_sig_fun({ed25519, PrivKey}) ->
     fun(Bin) -> enacl:sign_detached(Bin, PrivKey) end.
 
+%% Note that a Key Derivation Function should be applied to these keys before use
+-spec mk_ecdh_fun(privkey()) -> ecdh_fun().
+mk_ecdh_fun({ecc_compact, PrivKey}) ->
+    fun({ecc_compact, {PubKey, {namedCurve, ?secp256r1}}}) -> public_key:compute_key(PubKey, PrivKey) end;
+mk_ecdh_fun({ed25519, PrivKey}) ->
+    %% Do an X25519 ECDH exchange after converting the ED25519 keys to Curve25519 keys
+    fun({ed25519, PubKey}) -> enacl:box_beforenm(enacl:crypto_sign_ed25519_public_to_curve25519(PubKey),
+                                                 enacl:crypto_sign_ed25519_secret_to_curve25519(PrivKey)) end.
 
 %% @doc Store the given keys in a file.  See @see key_folder/1 for a
 %% utility function that returns a name and location for the keys that
@@ -226,5 +236,23 @@ verify_sign_test() ->
     Verify(ed25519),
 
     ok.
+
+verify_ecdh_test() ->
+    Verify = fun(KeyType) ->
+                     #{secret := PrivKey1, public := PubKey1} = generate_keys(KeyType),
+                     #{secret := PrivKey2, public := PubKey2} = generate_keys(KeyType),
+                     #{secret := _PrivKey3, public := PubKey3} = generate_keys(KeyType),
+                     ECDH1 = mk_ecdh_fun(PrivKey1),
+                     ECDH2 = mk_ecdh_fun(PrivKey2),
+
+                     ?assertEqual(ECDH1(PubKey2), ECDH2(PubKey1)),
+                     ?assertNotEqual(ECDH1(PubKey3), ECDH2(PubKey3))
+             end,
+
+    Verify(ecc_compact),
+    Verify(ed25519),
+
+    ok.
+
 
 -endif.
