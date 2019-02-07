@@ -59,4 +59,12 @@ dial_self(Config) ->
         ,libp2p_stream_proxy_test
         ,[{echo, self()}]
     ),
+    timer:sleep(100),
+    {error, dialing_self} = libp2p_swarm:dial_framed_stream(
+        Swarm
+        ,libp2p_swarm:p2p_address(Swarm)
+        ,Version
+        ,libp2p_stream_proxy_test
+        ,[{echo, self()}]
+    ),
     ok.
