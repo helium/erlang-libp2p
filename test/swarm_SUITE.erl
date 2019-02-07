@@ -1,12 +1,13 @@
 -module(swarm_SUITE).
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([accessor_test/1, stop_test/1]).
+-export([accessor_test/1, stop_test/1, dial_self/1]).
 
 all() ->
     [
-     accessor_test,
-     stop_test
+        accessor_test,
+        stop_test,
+        dial_self
     ].
 
 init_per_testcase(_, Config) ->
@@ -39,4 +40,23 @@ stop_test(Config) ->
     libp2p_swarm:stop(S1),
     true = libp2p_swarm:is_stopping(S1),
 
+    ok.
+
+
+dial_self(Config) ->
+    [Swarm] = proplists:get_value(swarms, Config),
+    Version = "proxytest/1.0.0",
+    libp2p_swarm:add_stream_handler(
+        Swarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), Swarm]}
+    ),
+    [Address|_] = libp2p_swarm:listen_addrs(Swarm),
+    {error, dialing_self} = libp2p_swarm:dial_framed_stream(
+        Swarm
+        ,Address
+        ,Version
+        ,libp2p_stream_proxy_test
+        ,[{echo, self()}]
+    ),
     ok.
