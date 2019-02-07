@@ -93,10 +93,9 @@ connect_to(Addr, Options, Timeout, TID) ->
     case libp2p_swarm:is_stopping(TID) of
         true -> {error, stopping};
         false ->
-            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
-            ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
+            ListenAddrs = libp2p_swarm:listen_addrs(TID),
             case lists:member(Addr, ListenAddrs) of
-                true -> 
+                true ->
                     {error, dialing_self};
                 false ->
                     % TODO: maybe we should add an option to pick a specific session
@@ -113,7 +112,8 @@ connect_to(Addr, Options, Timeout, TID) ->
                                         What:Why -> {error, {What, Why}}
                                     end
                             end;
-                        {error, Error} -> {error, Error}
+                        {error, Error} ->
+                            {error, Error}
                     end
             end
     end.
