@@ -93,21 +93,28 @@ connect_to(Addr, Options, Timeout, TID) ->
     case libp2p_swarm:is_stopping(TID) of
         true -> {error, stopping};
         false ->
-            % TODO: maybe we should add an option to pick a specific session
-            case find_session([Addr], Options, TID) of
-                {ok, _, SessionPid} -> {ok, SessionPid};
-                {error, not_found} ->
-                    case for_addr(TID, Addr) of
-                        {ok, ConnAddr, {Transport, TransportPid}} ->
-                            lager:debug("~p connecting to ~p", [Transport, ConnAddr]),
-                            try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
-                                {error, Error} -> {error, Error};
-                                {ok, SessionPid} -> {ok, SessionPid}
-                            catch
-                                What:Why -> {error, {What, Why}}
-                            end
-                    end;
-                {error, Error} -> {error, Error}
+            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
+            ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
+            case lists:member(Addr, ListenAddrs) of
+                true -> 
+                    {error, dialing_self};
+                false ->
+                    % TODO: maybe we should add an option to pick a specific session
+                    case find_session([Addr], Options, TID) of
+                        {ok, _, SessionPid} -> {ok, SessionPid};
+                        {error, not_found} ->
+                            case for_addr(TID, Addr) of
+                                {ok, ConnAddr, {Transport, TransportPid}} ->
+                                    lager:debug("~p connecting to ~p", [Transport, ConnAddr]),
+                                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
+                                        {error, Error} -> {error, Error};
+                                        {ok, SessionPid} -> {ok, SessionPid}
+                                    catch
+                                        What:Why -> {error, {What, Why}}
+                                    end
+                            end;
+                        {error, Error} -> {error, Error}
+                    end
             end
     end.
 
