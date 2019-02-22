@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+message propose {
+	bytes rand = 1;
+	bytes pubkey = 2;
+	string exchanges = 3;
+	string ciphers = 4;
+	string hashes = 5;
+}
+
+message exchange {
+	bytes epubkey = 1;
+	bytes signature = 2;
+}
