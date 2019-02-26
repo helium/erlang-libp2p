@@ -627,9 +627,17 @@ start_client_session(TID, Addr, Connection, UserOptions) ->
             libp2p_transport:start_client_session(TID, Addr, Connection);
         true ->
             Swarm = libp2p_swarm:swarm(TID),
-            {ok, _Pid} = libp2p_secio_statem:start_link([Swarm, Addr]),
-            % TODO: Wait for seico
-            libp2p_transport:start_client_session(TID, Addr, Connection)
+            {ok, Pid} = libp2p_secio_statem:start([self(), Swarm, Addr]),
+            Ref = erlang:monitor(process, Pid),
+            receive
+                {'DOWN', Ref, process, Pid, {error, Reason}} ->
+                    {error, Reason};
+                secio_negotiated ->
+                    libp2p_transport:start_client_session(TID, Addr, Connection)
+            % TODO: find a better timeout for this
+            after 25000 ->
+                {error, secio_timeout}
+            end
     end.
 
 connect_options(Type, Opts, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->

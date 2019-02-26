@@ -1,3 +1,8 @@
+% TODO:
+% 1. Where to setup server side? Should we do like multi stream server?
+% 2. How do you encrypt the connection/session? And then decrypt?
+% 3. Should statem die after it is done?
+
 -module(libp2p_secio_statem).
 
 -behavior(gen_statem).
@@ -6,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
+    start/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -44,27 +49,29 @@
 -define(HASHES, ["SHA256"]).
 
 -record(data, {
-    swarm,
-    connection,
-    local_pubkey,
-    remote_pubkey,
-    proposed,
-    selected
+    transport :: pid(),
+    swarm :: pid(),
+    connection :: libp2p_connection:connection(),
+    local_pubkey :: libp2p_crypto:pubkey(),
+    remote_pubkey :: undefined | libp2p_crypto:pubkey(),
+    proposed :: undefined | {binary(), binary()},
+    selected :: undefined | {string(), string(), string()}
 }).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_statem:start_link(?SERVER, Args, []).
+start(Args) ->
+    gen_statem:start(?SERVER, Args, []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Swarm, Connection]=Args) ->
+init([Transport, Swarm, Connection]=Args) ->
     lager:info("init with ~p", [Args]),
     {ok, PubKey, _SigFun} = libp2p_swarm:keys(Swarm),
     Data = #data{
+        transport=Transport,
         swarm=Swarm,
         connection=Connection,
         local_pubkey=PubKey
@@ -98,10 +105,10 @@ propose(info, next, #data{connection=Conn, local_pubkey=PubKey}=Data) ->
     },
     EncodedProposeOut = libp2p_secio_pb:encode_msg(ProposeOut),
     ok = libp2p_secio:write(Conn, EncodedProposeOut),
-    case libp2p_secio:write(Conn) of
-        {error, Reason} ->
-            lager:error("failed to send proposal ~p", [ProposeOut]),
-            {stop, Reason};
+    case libp2p_secio:read(Conn) of
+        {error, _Reason}=Error ->
+            lager:error("failed to send proposal ~p: ~p", [ProposeOut, _Reason]),
+            {stop, Error};
         EncodedProposeIn ->
             ProposeIn = libp2p_secio_pb:decode_msg(EncodedProposeIn, libp2p_propose_pb),
             RemotePubKeyBin = ProposeIn#libp2p_propose_pb.pubkey,
@@ -120,9 +127,9 @@ indentify(info, next, #data{swarm=Swarm, remote_pubkey=RemotePubKey}=Data) ->
     PeerBook = libp2p_swarm:peerbook(Swarm),
     RemotePubKeyBin = libp2p_crypto:pubkey_to_bin(RemotePubKey),
     _ = case libp2p_peerbook:get(PeerBook, RemotePubKeyBin) of
-        {error, Reason} ->
-            lager:error("failed to get peer ~p", [RemotePubKeyBin]),
-            {stop, Reason};
+        {error, _Reason}=Error ->
+            lager:error("failed to get peer ~p: ~p", [RemotePubKeyBin, _Reason]),
+            {stop, Error};
         {ok, _Peer} ->
             % TODO: We should compare remote peer from connection with this (not sure how to right now)
             next(select, Data)
@@ -162,10 +169,10 @@ exchange(info, next, #data{swarm=Swarm,
     },
     EncodedExchangeOut = libp2p_secio_pb:encode_msg(ExchangeOut),
     ok = libp2p_secio:write(Conn, EncodedExchangeOut),
-    case libp2p_secio:write(Conn) of
-        {error, Reason} ->
-            lager:error("failed to send proposal ~p", [ExchangeOut]),
-            {stop, Reason};
+    case libp2p_secio:read(Conn) of
+        {error, _Reason}=Error ->
+            lager:error("failed to send proposal ~p: ~p", [ExchangeOut, _Reason]),
+            {stop, Error};
         EncodedExchangeIn ->
             ExchangeIn = libp2p_secio_pb:decode_msg(EncodedExchangeIn, libp2p_exchange_pb),
             next(verify, {next, ExchangeIn}, Data)
@@ -190,6 +197,9 @@ verify(EventType, EventContent, Data) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+finish(info, next, #data{transport=Transport}=Data) ->
+    Transport ! secio_negotiated,
+    {keep_state, Data};
 finish(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
