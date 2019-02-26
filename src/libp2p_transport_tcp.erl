@@ -606,7 +606,7 @@ connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
                                       UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
-                    case libp2p_transport:start_client_session(TID, Addr, new_connection(Socket)) of
+                    case start_client_session(TID, Addr, new_connection(Socket), UserOptions) of
                         {ok, SessionPid} ->
                             libp2p_session:identify(SessionPid, TCPPid, SessionPid),
                             {ok, SessionPid};
@@ -618,6 +618,19 @@ connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
         {error, Reason} -> {error, Reason}
     end.
 
+-spec start_client_session(ets:tab(), string(),
+                           libp2p_connection:connection(),
+                           libp2p_swarm:connect_opts()) -> {ok, pid()} | {error, term()}.
+start_client_session(TID, Addr, Connection, UserOptions) ->
+    case proplists:get_value(secured, UserOptions, false) of
+        false ->
+            libp2p_transport:start_client_session(TID, Addr, Connection);
+        true ->
+            Swarm = libp2p_swarm:swarm(TID),
+            {ok, _Pid} = libp2p_secio_statem:start_link([Swarm, Addr]),
+            % TODO: Wait for seico
+            libp2p_transport:start_client_session(TID, Addr, Connection)
+    end.
 
 connect_options(Type, Opts, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->
     [Type | Opts];

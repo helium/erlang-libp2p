@@ -45,8 +45,8 @@
 
 -record(data, {
     swarm,
+    connection,
     local_pubkey,
-    remote_id,
     remote_pubkey,
     proposed,
     selected
@@ -56,19 +56,18 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 start_link(Args) ->
-    gen_statem:start_link({local, ?SERVER}, ?SERVER, Args, []).
-
+    gen_statem:start_link(?SERVER, Args, []).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Swarm, RemoteID]=Args) ->
+init([Swarm, Connection]=Args) ->
     lager:info("init with ~p", [Args]),
     {ok, PubKey, _SigFun} = libp2p_swarm:keys(Swarm),
     Data = #data{
         swarm=Swarm,
-        local_pubkey=PubKey,
-        remote_id=RemoteID
+        connection=Connection,
+        local_pubkey=PubKey
     },
     self() ! next,
     {ok, propose, Data}.
@@ -89,7 +88,7 @@ terminate(_Reason, _State) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-propose(info, next, #data{local_pubkey=PubKey}=Data) ->
+propose(info, next, #data{connection=Conn, local_pubkey=PubKey}=Data) ->
     ProposeOut = #libp2p_propose_pb{
         rand = crypto:strong_rand_bytes(?NONCE_SIZE),
         pubkey = libp2p_crypto:pubkey_to_bin(PubKey),
@@ -98,15 +97,18 @@ propose(info, next, #data{local_pubkey=PubKey}=Data) ->
         hashes = ?HASHES
     },
     EncodedProposeOut = libp2p_secio_pb:encode_msg(ProposeOut),
-    % TODO: Send propose packet
-    % TODO: Receive other side propose packet
-    EncodedProposeIn = <<>>,
-    ProposeIn = libp2p_secio_pb:decode_msg(EncodedProposeIn, libp2p_propose_pb),
-    RemotePubKeyBin = ProposeIn#libp2p_propose_pb.pubkey,
-    RemotePubKey = libp2p_crypto:bin_to_pubkey(RemotePubKeyBin),
-    self() ! next,
-    {next_state, indentify, Data#data{remote_pubkey=RemotePubKey,
-                                      proposed={EncodedProposeOut, EncodedProposeIn}}};
+    ok = libp2p_secio:write(Conn, EncodedProposeOut),
+    case libp2p_secio:write(Conn) of
+        {error, Reason} ->
+            lager:error("failed to send proposal ~p", [ProposeOut]),
+            {stop, Reason};
+        EncodedProposeIn ->
+            ProposeIn = libp2p_secio_pb:decode_msg(EncodedProposeIn, libp2p_propose_pb),
+            RemotePubKeyBin = ProposeIn#libp2p_propose_pb.pubkey,
+            RemotePubKey = libp2p_crypto:bin_to_pubkey(RemotePubKeyBin),
+            next(indentify, Data#data{remote_pubkey=RemotePubKey,
+                                      proposed={EncodedProposeOut, EncodedProposeIn}})
+    end;
 propose(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -114,24 +116,17 @@ propose(EventType, EventContent, Data) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-indentify(info, next, #data{swarm=Swarm, remote_id=RemoteID,
-                            remote_pubkey=RemotePubKey}=Data) ->
+indentify(info, next, #data{swarm=Swarm, remote_pubkey=RemotePubKey}=Data) ->
     PeerBook = libp2p_swarm:peerbook(Swarm),
     RemotePubKeyBin = libp2p_crypto:pubkey_to_bin(RemotePubKey),
     _ = case libp2p_peerbook:get(PeerBook, RemotePubKeyBin) of
-        {error, _}=Error ->
-            % TODO: if peer not found maybe dial it?
-            Error;
-        {ok, Peer} ->
-            case libp2p_peer:pubkey_bin(Peer) of
-                RemoteID ->
-                    ok;
-                _ ->
-                    {error, bad_peer}
-            end
-    end,
-    self() ! next,
-    {next_state, select, Data};
+        {error, Reason} ->
+            lager:error("failed to get peer ~p", [RemotePubKeyBin]),
+            {stop, Reason};
+        {ok, _Peer} ->
+            % TODO: We should compare remote peer from connection with this (not sure how to right now)
+            next(select, Data)
+    end;
 indentify(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -140,11 +135,11 @@ indentify(EventType, EventContent, Data) ->
 %% @end
 %%--------------------------------------------------------------------
 select(info, next, Data) ->
+    % TODO: Actually select something
     Curve = lists:last(?EXCHANGES),
     Cipher = lists:last(?CIPHERS),
     Hash = lists:last(?HASHES),
-    self() ! next,
-    {next_state, exchange, Data#data{selected={Curve, Cipher, Hash}}};
+    next(select,  Data#data{selected={Curve, Cipher, Hash}});
 select(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -153,6 +148,7 @@ select(EventType, EventContent, Data) ->
 %% @end
 %%--------------------------------------------------------------------
 exchange(info, next, #data{swarm=Swarm,
+                           connection=Conn,
                            selected={Curve, _, _},
                            proposed={EncodedProposeOut, EncodedProposeIn}}=Data) ->
     #{public := EPubKeyOut} = libp2p_crypto:generate_keys(erlang:list_to_atom(Curve)),
@@ -164,15 +160,16 @@ exchange(info, next, #data{swarm=Swarm,
         epubkey = EPubKeyOutBin,
         signature = SigFun(ToSign)
     },
-    _EncodedExchangeOut = libp2p_secio_pb:encode_msg(ExchangeOut),
-
-    % TODO: Send exchange packet
-    % TODO: Receive other side exchange packet
-    EncodedExchangeIn = <<>>,
-    ExchangeIn = libp2p_secio_pb:decode_msg(EncodedExchangeIn, libp2p_exchange_pb),
-
-    self() ! ExchangeIn,
-    {next_state, verify, Data};
+    EncodedExchangeOut = libp2p_secio_pb:encode_msg(ExchangeOut),
+    ok = libp2p_secio:write(Conn, EncodedExchangeOut),
+    case libp2p_secio:write(Conn) of
+        {error, Reason} ->
+            lager:error("failed to send proposal ~p", [ExchangeOut]),
+            {stop, Reason};
+        EncodedExchangeIn ->
+            ExchangeIn = libp2p_secio_pb:decode_msg(EncodedExchangeIn, libp2p_exchange_pb),
+            next(verify, {next, ExchangeIn}, Data)
+    end;
 exchange(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -180,16 +177,14 @@ exchange(EventType, EventContent, Data) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-verify(info, ExchangeIn, #data{remote_pubkey=RemotePubKey,
-                               proposed={EncodedProposeOut, EncodedProposeIn}}=Data) ->
+verify(info, {next, ExchangeIn}, #data{remote_pubkey=RemotePubKey,
+                                       proposed={EncodedProposeOut, EncodedProposeIn}}=Data) ->
     EPubKeyInBin = ExchangeIn#libp2p_exchange_pb.epubkey,
     ToVerify = <<EncodedProposeOut/binary, EncodedProposeIn/binary, EPubKeyInBin/binary>>,
     true = libp2p_crypto:verify(ToVerify, ExchangeIn#libp2p_exchange_pb.signature, RemotePubKey),
-    self() ! next,
-    {next_state, finish, Data};
+    next(finish,  Data);
 verify(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
-
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -201,6 +196,13 @@ finish(EventType, EventContent, Data) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+next(State, Data) ->
+    next(State, next, Data).
+
+next(State, Msg, Data) ->
+    self() ! Msg,
+    {next_state, State, Data}.
 
 %%--------------------------------------------------------------------
 %% @doc
