@@ -141,11 +141,14 @@ indentify(EventType, EventContent, Data) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-select(info, next, Data) ->
-    % TODO: Actually select something
-    Curve = lists:last(?EXCHANGES),
-    Cipher = lists:last(?CIPHERS),
-    Hash = lists:last(?HASHES),
+select(info, next, #data{proposed={_, EncodedProposeIn}}=Data) ->
+    ProposeIn = libp2p_secio_pb:decode_msg(EncodedProposeIn, libp2p_propose_pb),
+    RemoteExchanges = ProposeIn#libp2p_propose_pb.exchanges,
+    RemoteCiphers = ProposeIn#libp2p_propose_pb.ciphers,
+    RemoteHashes = ProposeIn#libp2p_propose_pb.hashes,
+    {ok, Curve} = select_best(RemoteExchanges, ?EXCHANGES),
+    {ok, Cipher} = select_best(RemoteCiphers, ?CIPHERS),
+    {ok, Hash} = select_best(RemoteHashes, ?HASHES),
     next(select,  Data#data{selected={Curve, Cipher, Hash}});
 select(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
@@ -207,12 +210,35 @@ finish(EventType, EventContent, Data) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
 next(State, Data) ->
     next(State, next, Data).
 
 next(State, Msg, Data) ->
     self() ! Msg,
     {next_state, State, Data}.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+select_best([], []) ->
+    {error, not_found};
+select_best([], [B|_]) ->
+    {ok, B};
+select_best([A|_], []) ->
+    {ok, A};
+select_best([A|As], Bs) ->
+    % TODO: Improve this
+    case lists:member(A, Bs) of
+        false ->
+            select_best(As, Bs);
+        true ->
+            {ok, A}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
