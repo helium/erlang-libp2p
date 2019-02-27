@@ -207,8 +207,13 @@ verify(info, {next, ExchangeIn}, #data{remote_pubkey=RemotePubKey,
                                        proposed={EncodedProposeOut, EncodedProposeIn}}=Data) ->
     EPubKeyInBin = ExchangeIn#libp2p_exchange_pb.epubkey,
     ToVerify = <<EncodedProposeOut/binary, EncodedProposeIn/binary, EPubKeyInBin/binary>>,
-    true = libp2p_crypto:verify(ToVerify, ExchangeIn#libp2p_exchange_pb.signature, RemotePubKey),
-    next(finish,  Data);
+    case libp2p_crypto:verify(ToVerify, ExchangeIn#libp2p_exchange_pb.signature, RemotePubKey) of
+        false ->
+             lager:error("failed to verify signature"),
+            {stop, verify_failed};
+        true ->
+            next(finish,  Data)
+    end;
 verify(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
