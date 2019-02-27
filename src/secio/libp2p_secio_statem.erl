@@ -126,7 +126,7 @@ propose(EventType, EventContent, Data) ->
 indentify(info, next, #data{swarm=Swarm, remote_pubkey=RemotePubKey}=Data) ->
     PeerBook = libp2p_swarm:peerbook(Swarm),
     RemotePubKeyBin = libp2p_crypto:pubkey_to_bin(RemotePubKey),
-    _ = case libp2p_peerbook:get(PeerBook, RemotePubKeyBin) of
+    case libp2p_peerbook:get(PeerBook, RemotePubKeyBin) of
         {error, _Reason}=Error ->
             lager:error("failed to get peer ~p: ~p", [RemotePubKeyBin, _Reason]),
             {stop, Error};
@@ -154,7 +154,7 @@ select(info, next, #data{proposed={EncodedProposeOut, EncodedProposeIn}}=Data) -
 
     case H1 =:= H2 of
         true ->
-            lager:error("you are probably talking to yourself", []),
+            lager:error("you are probably talking to yourself"),
             {stop, fail_to_select};
         false ->
             Order = case H1 > H2 of
