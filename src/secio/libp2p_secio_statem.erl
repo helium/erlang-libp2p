@@ -141,15 +141,31 @@ indentify(EventType, EventContent, Data) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-select(info, next, #data{proposed={_, EncodedProposeIn}}=Data) ->
+select(info, next, #data{proposed={EncodedProposeOut, EncodedProposeIn}}=Data) ->
     ProposeIn = libp2p_secio_pb:decode_msg(EncodedProposeIn, libp2p_propose_pb),
-    RemoteExchanges = ProposeIn#libp2p_propose_pb.exchanges,
-    RemoteCiphers = ProposeIn#libp2p_propose_pb.ciphers,
-    RemoteHashes = ProposeIn#libp2p_propose_pb.hashes,
-    {ok, Curve} = select_best(RemoteExchanges, ?EXCHANGES),
-    {ok, Cipher} = select_best(RemoteCiphers, ?CIPHERS),
-    {ok, Hash} = select_best(RemoteHashes, ?HASHES),
-    next(select,  Data#data{selected={Curve, Cipher, Hash}});
+    RandIn = ProposeIn#libp2p_propose_pb.rand,
+    PubKeyBinIn = ProposeIn#libp2p_propose_pb.pubkey,
+    H1 = crypto:hash(sha256, <<PubKeyBinIn/binary, RandIn/binary>>),
+
+    ProposeOut = libp2p_secio_pb:decode_msg(EncodedProposeOut, libp2p_propose_pb),
+    RandOut = ProposeOut#libp2p_propose_pb.rand,
+    PubKeyBinOut = ProposeOut#libp2p_propose_pb.pubkey,
+    H2 = crypto:hash(sha256, <<PubKeyBinOut/binary, RandOut/binary>>),
+
+    case H1 =:= H2 of
+        true ->
+            lager:error("you are probably talking to yourself", []),
+            {stop, fail_to_select};
+        false ->
+            Order = case H1 > H2 of
+                true -> 1;
+                false -> -1
+            end,
+            {ok, Curve} = select_best(Order, ?EXCHANGES, ProposeIn#libp2p_propose_pb.exchanges),
+            {ok, Cipher} = select_best(Order, ?CIPHERS, ProposeIn#libp2p_propose_pb.ciphers),
+            {ok, Hash} = select_best(Order, ?HASHES, ProposeIn#libp2p_propose_pb.hashes),
+            next(select,  Data#data{selected={Curve, Cipher, Hash}})
+    end;
 select(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -201,6 +217,7 @@ verify(EventType, EventContent, Data) ->
 %% @end
 %%--------------------------------------------------------------------
 finish(info, next, #data{transport=Transport}=Data) ->
+    % TODO: Encode/encrypt connection here
     Transport ! secio_negotiated,
     {keep_state, Data};
 finish(EventType, EventContent, Data) ->
@@ -225,6 +242,15 @@ next(State, Msg, Data) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+-spec select_best(integer(), [string()], [string()]) -> {ok, string()} | {error, any()}.
+select_best(Order, A, B) when Order < 0 ->
+    select_best(B, A);
+select_best(Order, A, B) when Order > 0 ->
+    select_best(A, B);
+select_best(_Order, [A|_], _B) ->
+    {ok, A}.
+
+-spec select_best([string()], [string()]) -> {ok, string()} | {error, any()}.
 select_best([], []) ->
     {error, not_found};
 select_best([], [B|_]) ->
@@ -232,7 +258,6 @@ select_best([], [B|_]) ->
 select_best([A|_], []) ->
     {ok, A};
 select_best([A|As], Bs) ->
-    % TODO: Improve this
     case lists:member(A, Bs) of
         false ->
             select_best(As, Bs);
