@@ -78,14 +78,24 @@
 
 -optional_callbacks([handle_info/3, handle_call/4, handle_cast/3, handle_send/5]).
 
--record(state,
-        { module :: atom(),
-          state :: any(),
-          kind :: kind(),
-          connection :: libp2p_connection:connection(),
-          sends=#{} :: #{ Timer::reference() => From::pid() },
-          send_pid :: pid()
-         }).
+-record(state, {
+    module :: atom(),
+    state :: any(),
+    kind :: kind(),
+    connection :: libp2p_connection:connection(),
+    sends=#{} :: #{ Timer::reference() => From::pid() },
+    send_pid :: pid(),
+    secured = false :: boolean(),
+    parent :: pid(),
+    exchanged = false :: boolean(),
+    swarm :: pid(),
+    args :: [any()],
+    pub_key :: binary(),
+    priv_key :: binary(),
+    rcv_key :: binary(),
+    send_key :: binary(),
+    nonce = 0 :: non_neg_integer()
+}).
 
 %%
 %% Client
@@ -93,10 +103,14 @@
 
 -spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
 client(Module, Connection, Args) ->
-    case gen_server:start_link(?MODULE, {client, Module, Connection, Args}, []) of
+    case gen_server:start_link(?MODULE, {client, Module, Connection, [self()|Args]}, []) of
         {ok, Pid} ->
             libp2p_connection:controlling_process(Connection, Pid),
-            {ok, Pid};
+            receive
+                rdy -> {ok, Pid}
+            after 2500 ->
+                {error, rdy_timeout}
+            end;
         {error, Error} -> {error, Error};
         Other -> Other
     end.
@@ -134,9 +148,62 @@ info(Pid) ->
 %%
 
 -spec init_module(atom(), atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
+init_module(client=Kind, Module, Connection, [Parent|Args]) ->
+    SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
+    case proplists:get_value(secured, Args, false) of
+        Swarm when is_pid(Swarm) ->
+            #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
+            {ok, SwarmPubKey, SignFun} = libp2p_swarm:keys(Swarm),
+            Data = erlang:term_to_binary({key_exchange, SwarmPubKey, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
+            State0 = #state{
+                kind=Kind,
+                module=Module,
+                connection=Connection,
+                send_pid=SendPid,
+                secured=true,
+                exchanged=false,
+                swarm=Swarm,
+                args=Args,
+                pub_key=PubKey,
+                priv_key=PrivKey,
+                parent=Parent
+            },
+            lager:info("MARKER init secure frame stream with ~p", [State0]),
+            State1 = handle_fdset(send_key(Data, State0)),
+            {ok, State1};
+        _ ->
+            Parent ! rdy,
+            init_module(Kind, Module, Connection, Args, SendPid)
+    end;
 init_module(Kind, Module, Connection, Args) ->
     erlang:put(stream_type, {Kind, Module}),
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
+    case proplists:get_value(secured, Args, false) of
+        Swarm when is_pid(Swarm) ->
+            #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
+            {ok, SwarmPubKey, SignFun} = libp2p_swarm:keys(Swarm),
+            Data = erlang:term_to_binary({key_exchange, SwarmPubKey, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
+            State0 = #state{
+                kind=Kind,
+                module=Module,
+                connection=Connection,
+                send_pid=SendPid,
+                secured=true,
+                exchanged=false,
+                swarm=Swarm,
+                args=Args,
+                pub_key=PubKey,
+                priv_key=PrivKey
+            },
+            lager:info("MARKER init secure frame stream with ~p", [State0]),
+            State1 = handle_fdset(send_key(Data, State0)),
+            {ok, State1};
+        _ ->
+            init_module(Kind, Module, Connection, Args, SendPid)
+    end.
+
+-spec init_module(atom(), atom(), libp2p_connection:connection(), [any()], pid()) -> {ok, #state{}} | {error, term()}.
+init_module(Kind, Module, Connection, Args, SendPid) ->
     case Module:init(Kind, Connection, Args) of
         {ok, ModuleState} ->
             {ok, handle_fdset(#state{kind=Kind,
@@ -156,6 +223,133 @@ init_module(Kind, Module, Connection, Args) ->
                                                       module=Module, state=undefined}))}
     end.
 
+handle_info({inert_read, _, _}, #state{
+                                    kind=server,
+                                    module=Module,
+                                    connection=Connection,
+                                    send_pid=SendPid,
+                                    secured=true,
+                                    exchanged=false,
+                                    args=Args,
+                                    pub_key=ServerPK,
+                                    priv_key=ServerSK
+                                }=State0) ->
+    case recv(Connection, ?RECV_TIMEOUT) of
+        {error, timeout} ->
+            {noreply, State0};
+        {error, closed} ->
+            {stop, normal, State0};
+        {error, Error}  ->
+            lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
+            {stop, {error, Error}, State0};
+        {ok, Data} ->
+            {key_exchange, ClientSwarmPK, ClientPK, Signature} = erlang:binary_to_term(Data),
+            lager:info("MARKER server got key exchange", []),
+            case libp2p_crypto:verify(erlang:term_to_binary(ClientPK), Signature, ClientSwarmPK) of
+                false ->
+                    {stop, {error, failed_verify}, State0};
+                true ->
+                    lager:info("MARKER server verified key exchange", []),
+                    #{server_rx := RcvKey, server_tx := SendKey} = enacl:kx_server_session_keys(ServerPK, ServerSK, ClientPK),
+                    self() ! verified,
+                    case init_module(server, Module, Connection, Args, SendPid) of
+                        {error, _}=Error ->
+                            {stop, Error, State0};
+                        {ok, State1} ->
+                            {noreply, State1#state{
+                                secured=true,
+                                exchanged=true,
+                                rcv_key=RcvKey,
+                                send_key=SendKey
+                            }}
+                    end
+            end
+    end;
+handle_info({inert_read, _, _}, #state{
+                                    kind=client,
+                                    module=Module,
+                                    connection=Connection,
+                                    send_pid=SendPid,
+                                    secured=true,
+                                    parent=Parent,
+                                    exchanged=false,
+                                    args=Args,
+                                    pub_key=ClientPK,
+                                    priv_key=ClientSK
+                                }=State0) ->
+    case recv(Connection, ?RECV_TIMEOUT) of
+        {error, timeout} ->
+            {noreply, State0};
+        {error, closed} ->
+            {stop, normal, State0};
+        {error, Error}  ->
+            lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
+            {stop, {error, Error}, State0};
+        {ok, Data} ->
+            {key_exchange, ServerSwarmPK, ServerPK, Signature} = erlang:binary_to_term(Data),
+            lager:info("MARKER client got key exchange", []),
+            case libp2p_crypto:verify(erlang:term_to_binary(ServerPK), Signature, ServerSwarmPK) of
+                false ->
+                    {stop, {error, failed_verify}, State0};
+                true ->
+                    lager:info("MARKER client verified key exchange", []),
+                    #{client_rx := RcvKey, client_tx := SendKey} = enacl:kx_client_session_keys(ClientPK, ClientSK, ServerPK),
+                    self() ! verified,
+                    case init_module(client, Module, Connection, Args, SendPid) of
+                        {error, _}=Error ->
+                            {stop, Error, State0};
+                        {ok, State1} ->
+                            Parent ! rdy,
+                            {noreply, State1#state{
+                                secured=true,
+                                exchanged=true,
+                                rcv_key=RcvKey,
+                                send_key=SendKey
+                            }}
+                    end
+            end
+    end;
+handle_info({inert_read, _, _}, #state{
+                                    kind=Kind,
+                                    connection=Connection,
+                                    module=Module,
+                                    state=ModuleState0,
+                                    secured=true,
+                                    exchanged=true,
+                                    rcv_key=RcvKey,
+                                    nonce=Nonce
+                                }=State) ->
+    case recv(Connection, ?RECV_TIMEOUT) of
+        {error, timeout} ->
+            %% timeouts are fine and not an error we want to propogate because there's no waiter
+            {noreply, State};
+        {error, closed} ->
+            %% This attempts to avoid a large number of errored stops
+            %% when a connection is closed, which happens "normally"
+            %% in most cases.
+            {stop, normal, State};
+        {error, Error}  ->
+            lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
+            {stop, {error, Error}, State};
+        {ok, EncryptedData} ->
+            case enacl:aead_chacha20poly1305_decrypt(RcvKey, Nonce, <<>>, EncryptedData) of
+                {error, _Reason} ->
+                    lager:warning("error decrypting packet ~p ~p", [_Reason, EncryptedData]),
+                    {noreply, handle_fdset(State#state{nonce=Nonce+1})};
+                Bin ->
+                    lager:info("MARKER ~p got encrypted data ~p = ~p", [Kind, EncryptedData, Bin]),
+                    case Module:handle_data(Kind, Bin, ModuleState0) of
+                        {noreply, ModuleState}  ->
+                            {noreply, handle_fdset(State#state{state=ModuleState, nonce=Nonce+1})};
+                        {noreply, ModuleState, Response} ->
+                            {noreply, handle_fdset(handle_resp_send(noreply, Response, State#state{state=ModuleState, nonce=Nonce+1}))};
+                        {stop, Reason, ModuleState} ->
+                            {stop, Reason, State#state{state=ModuleState, nonce=Nonce+1}};
+                        {stop, Reason, ModuleState, Response} ->
+                            {noreply, handle_fdset(handle_resp_send({stop, Reason}, Response, State#state{state=ModuleState, nonce=Nonce+1}))}
+                    end
+            end
+    end;
 handle_info({inert_read, _, _}, State=#state{kind=Kind, connection=Connection,
                                              module=Module, state=ModuleState0}) ->
     case recv(Connection, ?RECV_TIMEOUT) of
@@ -352,13 +546,43 @@ handle_fdset(State=#state{connection=Connection}) ->
 handle_resp_send(Action, Data, State=#state{}) ->
     handle_resp_send(Action, Data, ?SEND_TIMEOUT, State).
 
+
+send_key(Data, #state{send_pid=SendPid}=State) ->
+    Key = make_ref(),
+    Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
+    lager:info("MARKER sending key ~p", [{Bin, Data}]),
+    SendPid ! {send, Key, Bin},
+    State.
+
 -spec handle_resp_send(send_result_action(), binary(), non_neg_integer(), #state{}) -> #state{}.
+handle_resp_send(Action, Data, Timeout, #state{
+                                            sends=Sends,
+                                            send_pid=SendPid,
+                                            secured=true,
+                                            exchanged=true,
+                                            send_key=SendKey,
+                                            nonce=Nonce
+                                        }=State) ->
+    case enacl:aead_chacha20poly1305_encrypt(SendKey, Nonce, <<>>, Data) of
+        {error, _Reason} ->
+            lager:warning("failed to encrypt ~p : ~p", [{Nonce, Data}, _Reason]),
+            State;
+        EncryptedData ->
+            Key = make_ref(),
+            Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
+            Bin = <<(byte_size(EncryptedData)):32/little-unsigned-integer, EncryptedData/binary>>,
+            lager:info("MARKER sending encrypted data ~p", [{Bin, EncryptedData}]),
+            SendPid ! {send, Key, Bin},
+            State#state{sends=maps:put(Key, {Timer, Action}, Sends), nonce=Nonce+1}
+    end;
 handle_resp_send(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendPid}) ->
     Key = make_ref(),
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
+    lager:info("MARKER sending data ~p", [{Bin, Data}]),
     SendPid ! {send, Key, Bin},
     State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
+
 
 -spec handle_send_result(send_result_action(), ok | {error, term()}, #state{}) ->
                                 {noreply, #state{}} |

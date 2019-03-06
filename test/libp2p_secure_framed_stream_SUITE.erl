@@ -10,7 +10,8 @@
 ]).
 
 -export([
-    basic/1
+    key_exchange/1,
+    stream/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -24,7 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic].
+    [key_exchange, stream].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -55,7 +56,7 @@ end_per_testcase(_, _Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
-basic(_Config) ->
+key_exchange(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Version = "securetest/1.0.0",
 
@@ -81,6 +82,50 @@ basic(_Config) ->
 
     ok = test_util:wait_until(fun() -> true =:= gen_server:call(ClientStream, exchanged) end),
     ?assert(gen_server:call(ClientStream, exchanged)),
+
+    lists:foreach(
+        fun(_) ->
+            Data = crypto:strong_rand_bytes(16),
+            ClientStream ! {send, Data},
+            receive
+                {echo, server, Data} -> ok;
+                _Else -> ct:fail(_Else)
+            after 250 ->
+                ct:fail(timeout)
+            end
+        end,
+        lists:seq(1, 100)
+    ),
+
+    ok = libp2p_swarm:stop(ServerSwarm),
+    ok = libp2p_swarm:stop(ClientSwarm),
+    ok.
+
+stream(_Config) ->
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    Version = "securetest/1.0.0",
+
+    {ok, ServerSwarm} = libp2p_swarm:start(secure_server_echo_test, SwarmOpts),
+    ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        ServerSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), {secured, ServerSwarm}]}
+    ),
+
+    {ok, ClientSwarm} = libp2p_swarm:start(secure_client_echo_test, SwarmOpts),
+    ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
+
+    [ServerAddress|_] = libp2p_swarm:listen_addrs(ServerSwarm),
+    {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        ServerAddress,
+        Version,
+        libp2p_secure_framed_stream_echo_test,
+        [self(), {secured, ServerSwarm}]
+    ),
+
+    % timer:sleep(2000),
 
     lists:foreach(
         fun(_) ->
