@@ -455,7 +455,7 @@ handle_call(Msg, From, State=#state{kind=Kind, module=Module, state=ModuleState0
                     {stop, Reason, Reply, ModuleState, Response} ->
                         {noreply, handle_resp_send({stop, Reason, From, Reply}, Response, State#state{state=ModuleState})}
                 end;
-        false -> [reply, ok, State]
+        false -> {reply, ok, State}
     end.
 
 handle_cast(close, State=#state{connection=Connection}) ->
@@ -558,7 +558,7 @@ handle_fdset(State=#state{connection=Connection}) ->
 handle_resp_send(Action, Data, State=#state{}) ->
     handle_resp_send(Action, Data, ?SEND_TIMEOUT, State).
 
-
+-spec send_key(binary(), #state{}) -> #state{}.
 send_key(Data, #state{send_pid=SendPid}=State) ->
     Key = make_ref(),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
