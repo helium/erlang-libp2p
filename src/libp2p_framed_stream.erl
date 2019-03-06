@@ -108,7 +108,7 @@ client(Module, Connection, Args) ->
         {ok, Pid} ->
             libp2p_connection:controlling_process(Connection, Pid),
             receive
-                rdy -> {ok, Pid}
+                {?MODULE, rdy} -> {ok, Pid}
             after 2500 ->
                 {error, rdy_timeout}
             end;
@@ -154,8 +154,8 @@ init_module(client=Kind, Module, Connection, [Parent|Args]) ->
     case proplists:get_value(secured, Args, false) of
         Swarm when is_pid(Swarm) ->
             #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-            {ok, SwarmPubKey, SignFun} = libp2p_swarm:keys(Swarm),
-            Data = erlang:term_to_binary({key_exchange, SwarmPubKey, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
+            {ok, _, SignFun} = libp2p_swarm:keys(Swarm),
+            Data = erlang:term_to_binary({key_exchange, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
             State0 = #state{
                 kind=Kind,
                 module=Module,
@@ -172,7 +172,7 @@ init_module(client=Kind, Module, Connection, [Parent|Args]) ->
             State1 = handle_fdset(send_key(Data, State0)),
             {ok, State1};
         _ ->
-            Parent ! rdy,
+            Parent ! {?MODULE, rdy},
             init_module(Kind, Module, Connection, Args, SendPid)
     end;
 init_module(Kind, Module, Connection, Args) ->
@@ -181,8 +181,8 @@ init_module(Kind, Module, Connection, Args) ->
     case proplists:get_value(secured, Args, false) of
         Swarm when is_pid(Swarm) ->
             #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-            {ok, SwarmPubKey, SignFun} = libp2p_swarm:keys(Swarm),
-            Data = erlang:term_to_binary({key_exchange, SwarmPubKey, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
+            {ok, _, SignFun} = libp2p_swarm:keys(Swarm),
+            Data = erlang:term_to_binary({key_exchange, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
             State0 = #state{
                 kind=Kind,
                 module=Module,
@@ -242,13 +242,22 @@ handle_info({inert_read, _, _}, #state{
             lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State0};
         {ok, Data} ->
-            {key_exchange, ClientSwarmPK, ClientPK, Signature} = erlang:binary_to_term(Data),
+            {key_exchange, ClientPK, Signature} = erlang:binary_to_term(Data),
+
+            {ok, Session} = libp2p_connection:session(Connection),
+            libp2p_session:identify(Session, self(), my_data),
+            {ok, Identify} = receive
+                {handle_identify, my_data, R} -> R
+                after 1000 -> error(timeout)
+            end,
+            PKBin = libp2p_identify:pubkey_bin(Identify),
+            ClientSwarmPK = libp2p_crypto:bin_to_pubkey(PKBin),
+
             case libp2p_crypto:verify(erlang:term_to_binary(ClientPK), Signature, ClientSwarmPK) of
                 false ->
                     {stop, {error, failed_verify}, State0};
                 true ->
                     #{server_rx := RcvKey, server_tx := SendKey} = enacl:kx_server_session_keys(ServerPK, ServerSK, ClientPK),
-                    self() ! verified,
                     case init_module(server, Module, Connection, Args, SendPid) of
                         {error, _}=Error ->
                             {stop, Error, State0};
@@ -283,18 +292,27 @@ handle_info({inert_read, _, _}, #state{
             lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
             {stop, {error, Error}, State0};
         {ok, Data} ->
-            {key_exchange, ServerSwarmPK, ServerPK, Signature} = erlang:binary_to_term(Data),
+            {key_exchange, ServerPK, Signature} = erlang:binary_to_term(Data),
+
+            {ok, Session} = libp2p_connection:session(Connection),
+            libp2p_session:identify(Session, self(), my_data),
+            {ok, Identify} = receive
+                {handle_identify, my_data, R} -> R
+                after 1000 -> error(timeout)
+            end,
+            PKBin = libp2p_identify:pubkey_bin(Identify),
+            ServerSwarmPK = libp2p_crypto:bin_to_pubkey(PKBin),
+
             case libp2p_crypto:verify(erlang:term_to_binary(ServerPK), Signature, ServerSwarmPK) of
                 false ->
                     {stop, {error, failed_verify}, State0};
                 true ->
                     #{client_rx := RcvKey, client_tx := SendKey} = enacl:kx_client_session_keys(ClientPK, ClientSK, ServerPK),
-                    self() ! verified,
                     case init_module(client, Module, Connection, Args, SendPid) of
                         {error, _}=Error ->
                             {stop, Error, State0};
                         {ok, State1} ->
-                            Parent ! rdy,
+                            Parent ! {?MODULE, rdy},
                             {noreply, State1#state{
                                 secured=true,
                                 exchanged=true,

@@ -122,7 +122,7 @@ stream(_Config) ->
         ServerAddress,
         Version,
         libp2p_secure_framed_stream_echo_test,
-        [self(), {secured, ServerSwarm}]
+        [self(), {secured, ClientSwarm}]
     ),
 
     lists:foreach(
