@@ -94,7 +94,8 @@
     priv_key :: binary(),
     rcv_key :: binary(),
     send_key :: binary(),
-    nonce = 0 :: non_neg_integer()
+    rcv_nonce = 0 :: non_neg_integer(),
+    send_nonce = 0 :: non_neg_integer()
 }).
 
 %%
@@ -317,7 +318,7 @@ handle_info({inert_read, _, _}, #state{
                                     secured=true,
                                     exchanged=true,
                                     rcv_key=RcvKey,
-                                    nonce=Nonce
+                                    rcv_nonce=Nonce
                                 }=State) ->
     case recv(Connection, ?RECV_TIMEOUT) of
         {error, timeout} ->
@@ -335,18 +336,18 @@ handle_info({inert_read, _, _}, #state{
             case enacl:aead_chacha20poly1305_decrypt(RcvKey, Nonce, <<>>, EncryptedData) of
                 {error, _Reason} ->
                     lager:warning("error decrypting packet ~p ~p", [_Reason, EncryptedData]),
-                    {noreply, handle_fdset(State#state{nonce=Nonce+1})};
+                    {noreply, handle_fdset(State#state{rcv_nonce=Nonce+1})};
                 Bin ->
                     lager:info("MARKER ~p got encrypted data ~p = ~p", [Kind, EncryptedData, Bin]),
                     case Module:handle_data(Kind, Bin, ModuleState0) of
                         {noreply, ModuleState}  ->
-                            {noreply, handle_fdset(State#state{state=ModuleState, nonce=Nonce+1})};
+                            {noreply, handle_fdset(State#state{state=ModuleState, rcv_nonce=Nonce+1})};
                         {noreply, ModuleState, Response} ->
-                            {noreply, handle_fdset(handle_resp_send(noreply, Response, State#state{state=ModuleState, nonce=Nonce+1}))};
+                            {noreply, handle_fdset(handle_resp_send(noreply, Response, State#state{state=ModuleState, rcv_nonce=Nonce+1}))};
                         {stop, Reason, ModuleState} ->
-                            {stop, Reason, State#state{state=ModuleState, nonce=Nonce+1}};
+                            {stop, Reason, State#state{state=ModuleState, rcv_nonce=Nonce+1}};
                         {stop, Reason, ModuleState, Response} ->
-                            {noreply, handle_fdset(handle_resp_send({stop, Reason}, Response, State#state{state=ModuleState, nonce=Nonce+1}))}
+                            {noreply, handle_fdset(handle_resp_send({stop, Reason}, Response, State#state{state=ModuleState, rcv_nonce=Nonce+1}))}
                     end
             end
     end;
@@ -561,7 +562,7 @@ handle_resp_send(Action, Data, Timeout, #state{
                                             secured=true,
                                             exchanged=true,
                                             send_key=SendKey,
-                                            nonce=Nonce
+                                            send_nonce=Nonce
                                         }=State) ->
     case enacl:aead_chacha20poly1305_encrypt(SendKey, Nonce, <<>>, Data) of
         {error, _Reason} ->
@@ -573,7 +574,7 @@ handle_resp_send(Action, Data, Timeout, #state{
             Bin = <<(byte_size(EncryptedData)):32/little-unsigned-integer, EncryptedData/binary>>,
             lager:info("MARKER sending encrypted data ~p", [{Bin, EncryptedData}]),
             SendPid ! {send, Key, Bin},
-            State#state{sends=maps:put(Key, {Timer, Action}, Sends), nonce=Nonce+1}
+            State#state{sends=maps:put(Key, {Timer, Action}, Sends), send_nonce=Nonce+1}
     end;
 handle_resp_send(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendPid}) ->
     Key = make_ref(),

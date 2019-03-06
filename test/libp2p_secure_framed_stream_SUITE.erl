@@ -125,8 +125,6 @@ stream(_Config) ->
         [self(), {secured, ServerSwarm}]
     ),
 
-    % timer:sleep(2000),
-
     lists:foreach(
         fun(_) ->
             Data = crypto:strong_rand_bytes(16),
@@ -140,6 +138,8 @@ stream(_Config) ->
         end,
         lists:seq(1, 100)
     ),
+
+    ?assert(erlang:is_process_alive(ClientStream)),
 
     ok = libp2p_swarm:stop(ServerSwarm),
     ok = libp2p_swarm:stop(ClientSwarm),

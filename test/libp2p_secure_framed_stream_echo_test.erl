@@ -42,8 +42,10 @@ init(server, _Conn, [_, Echo|_]) ->
 init(client, _Conn, [Echo|_]) ->
     {ok, #state{echo=Echo}}.
 
-handle_data(Type, Data, #state{echo=Echo}=State) ->
-    Echo ! {echo, Type, Data},
+handle_data(server, Data, #state{echo=Echo}=State) ->
+    Echo ! {echo, server, Data},
+    {noreply, State, Data};
+handle_data(client, _Data, State) ->
     {noreply, State}.
 
 handle_info(_Type, {send, Data}, State) ->
