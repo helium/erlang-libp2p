@@ -169,7 +169,6 @@ init_module(client=Kind, Module, Connection, [Parent|Args]) ->
                 priv_key=PrivKey,
                 parent=Parent
             },
-            lager:info("MARKER init secure frame stream with ~p", [State0]),
             State1 = handle_fdset(send_key(Data, State0)),
             {ok, State1};
         _ ->
@@ -196,7 +195,6 @@ init_module(Kind, Module, Connection, Args) ->
                 pub_key=PubKey,
                 priv_key=PrivKey
             },
-            lager:info("MARKER init secure frame stream with ~p", [State0]),
             State1 = handle_fdset(send_key(Data, State0)),
             {ok, State1};
         _ ->
@@ -245,12 +243,10 @@ handle_info({inert_read, _, _}, #state{
             {stop, {error, Error}, State0};
         {ok, Data} ->
             {key_exchange, ClientSwarmPK, ClientPK, Signature} = erlang:binary_to_term(Data),
-            lager:info("MARKER server got key exchange", []),
             case libp2p_crypto:verify(erlang:term_to_binary(ClientPK), Signature, ClientSwarmPK) of
                 false ->
                     {stop, {error, failed_verify}, State0};
                 true ->
-                    lager:info("MARKER server verified key exchange", []),
                     #{server_rx := RcvKey, server_tx := SendKey} = enacl:kx_server_session_keys(ServerPK, ServerSK, ClientPK),
                     self() ! verified,
                     case init_module(server, Module, Connection, Args, SendPid) of
@@ -288,12 +284,10 @@ handle_info({inert_read, _, _}, #state{
             {stop, {error, Error}, State0};
         {ok, Data} ->
             {key_exchange, ServerSwarmPK, ServerPK, Signature} = erlang:binary_to_term(Data),
-            lager:info("MARKER client got key exchange", []),
             case libp2p_crypto:verify(erlang:term_to_binary(ServerPK), Signature, ServerSwarmPK) of
                 false ->
                     {stop, {error, failed_verify}, State0};
                 true ->
-                    lager:info("MARKER client verified key exchange", []),
                     #{client_rx := RcvKey, client_tx := SendKey} = enacl:kx_client_session_keys(ClientPK, ClientSK, ServerPK),
                     self() ! verified,
                     case init_module(client, Module, Connection, Args, SendPid) of
@@ -338,7 +332,6 @@ handle_info({inert_read, _, _}, #state{
                     lager:warning("error decrypting packet ~p ~p", [_Reason, EncryptedData]),
                     {noreply, handle_fdset(State#state{rcv_nonce=Nonce+1})};
                 Bin ->
-                    lager:info("MARKER ~p got encrypted data ~p = ~p", [Kind, EncryptedData, Bin]),
                     case Module:handle_data(Kind, Bin, ModuleState0) of
                         {noreply, ModuleState}  ->
                             {noreply, handle_fdset(State#state{state=ModuleState, rcv_nonce=Nonce+1})};
@@ -551,7 +544,6 @@ handle_resp_send(Action, Data, State=#state{}) ->
 send_key(Data, #state{send_pid=SendPid}=State) ->
     Key = make_ref(),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    lager:info("MARKER sending key ~p", [{Bin, Data}]),
     SendPid ! {send, Key, Bin},
     State.
 
@@ -572,7 +564,6 @@ handle_resp_send(Action, Data, Timeout, #state{
             Key = make_ref(),
             Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
             Bin = <<(byte_size(EncryptedData)):32/little-unsigned-integer, EncryptedData/binary>>,
-            lager:info("MARKER sending encrypted data ~p", [{Bin, EncryptedData}]),
             SendPid ! {send, Key, Bin},
             State#state{sends=maps:put(Key, {Timer, Action}, Sends), send_nonce=Nonce+1}
     end;
@@ -580,7 +571,6 @@ handle_resp_send(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendP
     Key = make_ref(),
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    lager:info("MARKER sending data ~p", [{Bin, Data}]),
     SendPid ! {send, Key, Bin},
     State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
 
