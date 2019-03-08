@@ -10,6 +10,7 @@
 ]).
 
 -export([
+    invalid_key_exchange/1,
     key_exchange/1,
     stream/1
 ]).
@@ -25,7 +26,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [key_exchange, stream].
+    [invalid_key_exchange, key_exchange, stream].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -56,6 +57,64 @@ end_per_testcase(_, _Config) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
+invalid_key_exchange(_Config) ->
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    Version = "securetest/1.0.0",
+
+    {ok, ServerSwarm} = libp2p_swarm:start(insecure_server_test, SwarmOpts),
+    ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        ServerSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_test, self(), ServerSwarm]}
+    ),
+
+    {ok, ClientSwarm} = libp2p_swarm:start(insecure_client_test, SwarmOpts),
+    ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
+
+    LAs = libp2p_swarm:listen_addrs(ServerSwarm),
+    ct:pal("~p", [LAs]),
+    ok = libp2p_swarm:stop(ServerSwarm),
+
+    {ok, EvilSwarm} = libp2p_swarm:start(insecure_evil_test, SwarmOpts),
+    [ok = libp2p_swarm:listen(EvilSwarm, LA) || LA <- LAs],
+    libp2p_swarm:add_stream_handler(
+        EvilSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_test, self(), EvilSwarm]}
+     ),
+
+    [ServerAddress|_] = LAs,
+    {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        ServerAddress,
+        Version,
+        libp2p_secure_framed_stream_test,
+        [ClientSwarm, self()]
+    ),
+
+    ok = test_util:wait_until(fun() -> true =:= gen_server:call(ClientStream, exchanged) end),
+    %% XXX this should not pass
+    ?assert(gen_server:call(ClientStream, exchanged)),
+
+    lists:foreach(
+        fun(_) ->
+            Data = crypto:strong_rand_bytes(16),
+            ClientStream ! {send, Data},
+            receive
+                {echo, server, Data} -> ok;
+                _Else -> ct:fail(_Else)
+            after 250 ->
+                ct:fail(timeout)
+            end
+        end,
+        lists:seq(1, 100)
+    ),
+
+    ok = libp2p_swarm:stop(EvilSwarm),
+    ok = libp2p_swarm:stop(ClientSwarm),
+    ok.
+
 key_exchange(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Version = "securetest/1.0.0",
