@@ -200,29 +200,7 @@ init_module(Kind, Module, Connection, Args, SendPid) ->
     end.
 
 handle_info({inert_read, _, _}, #state{
-                                    kind=server,
-                                    connection=Connection,
-                                    secured=true,
-                                    exchanged=false
-                                }=State0) ->
-    case recv(Connection, ?RECV_TIMEOUT) of
-        {error, timeout} ->
-            {noreply, State0};
-        {error, closed} ->
-            {stop, normal, State0};
-        {error, Error}  ->
-            lager:notice("framed inert RECV ~p, ~p", [Error, Connection]),
-            {stop, {error, Error}, State0};
-        {ok, Data} ->
-            case verify_exchange(Data, State0) of
-                {error, _}=Error ->
-                    {stop, Error, State0};
-                {ok, State1} ->
-                    {noreply, State1}
-            end
-    end;
-handle_info({inert_read, _, _}, #state{
-                                    kind=client,
+                                    kind=Kind,
                                     connection=Connection,
                                     secured=true,
                                     parent=Parent,
@@ -241,7 +219,10 @@ handle_info({inert_read, _, _}, #state{
                 {error, _}=Error ->
                     {stop, Error, State0};
                 {ok, State1} ->
-                    Parent ! {?MODULE, rdy},
+                    case Kind == client andalso erlang:is_pid(Parent) of
+                        false -> ok;
+                        true -> Parent ! {?MODULE, rdy}
+                    end,
                     {noreply, State1}
             end
     end;
