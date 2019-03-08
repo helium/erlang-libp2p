@@ -532,7 +532,7 @@ verify_exchange(Data, #state{kind=Kind,
                     end
             end
         after 10000 ->
-            {error, failed_identify}
+            {error, failed_identify_timeout}
     end.
 
 rcv_and_send_keys(client, ClientPK, ClientSK, ServerPK) ->
