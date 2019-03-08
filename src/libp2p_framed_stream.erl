@@ -531,7 +531,7 @@ verify_exchange(Data, #state{kind=Kind,
                             }}
                     end
             end
-        after 1000 ->
+        after 10000 ->
             {error, failed_identify}
     end.
 
