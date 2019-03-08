@@ -86,7 +86,7 @@
     sends=#{} :: #{ Timer::reference() => From::pid() },
     send_pid :: pid(),
     secured = false :: boolean(),
-    parent :: pid(),
+    parent :: undefined | pid(),
     exchanged = false :: boolean(),
     swarm :: pid(),
     args :: [any()],
@@ -98,37 +98,35 @@
     send_nonce = 0 :: non_neg_integer()
 }).
 
+init({client, Module, Connection, Args, Parent}) ->
+    case pre_init(client, Module, Connection, Args, Parent) of
+        {ok, State} -> {ok, State};
+        {error, Error} -> {stop, Error}
+    end.
+
 %%
 %% Client
 %%
-
 -spec client(atom(), libp2p_connection:connection(), [any()]) -> {ok, pid()} | {error, term()} | ignore.
 client(Module, Connection, Args) ->
-    case gen_server:start_link(?MODULE, {client, Module, Connection, [self()|Args]}, []) of
+    case gen_server:start_link(?MODULE, {client, Module, Connection, Args, self()}, []) of
         {ok, Pid} ->
             libp2p_connection:controlling_process(Connection, Pid),
             receive
                 {?MODULE, rdy} -> {ok, Pid}
-            after 2500 ->
+            after 10000 ->
                 {error, rdy_timeout}
             end;
         {error, Error} -> {error, Error};
         Other -> Other
     end.
 
-init({client, Module, Connection, Args}) ->
-    case init_module(client, Module, Connection, Args) of
-        {ok, State} -> {ok, State};
-        {error, Error} -> {stop, Error}
-    end.
-
-
 %%
 %% Server
 %%
 -spec server(atom(), libp2p_connection:connection(), [any()]) -> no_return() | {error, term()}.
 server(Module, Connection, Args) ->
-    case init_module(server, Module, Connection, Args) of
+    case pre_init(server, Module, Connection, Args, undefined) of
         {ok, State} -> gen_server:enter_loop(?MODULE, [], State);
         {error, Error} -> {error, Error}
     end.
@@ -147,9 +145,9 @@ info(Pid) ->
 %%
 %% Common
 %%
-
--spec init_module(atom(), atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
-init_module(client=Kind, Module, Connection, [Parent|Args]) ->
+-spec pre_init(atom(), atom(), libp2p_connection:connection(), [any()], pid() | undefined) -> {ok, #state{}}
+                                                                                              | {error, term()}.
+pre_init(Kind, Module, Connection, Args, Parent) ->
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     case proplists:get_value(secured, Args, false) of
         Swarm when is_pid(Swarm) ->
@@ -173,33 +171,10 @@ init_module(client=Kind, Module, Connection, [Parent|Args]) ->
             State1 = handle_fdset(send_key(Data, State0)),
             {ok, State1};
         _ ->
-            Parent ! {?MODULE, rdy},
-            init_module(Kind, Module, Connection, Args, SendPid)
-    end;
-init_module(Kind, Module, Connection, Args) ->
-    erlang:put(stream_type, {Kind, Module}),
-    SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
-    case proplists:get_value(secured, Args, false) of
-        Swarm when is_pid(Swarm) ->
-            #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-            {ok, _, SignFun} = libp2p_swarm:keys(Swarm),
-            Signature = SignFun(PubKey),
-            Data = <<PubKey/binary, Signature/binary>>,
-            State0 = #state{
-                kind=Kind,
-                module=Module,
-                connection=Connection,
-                send_pid=SendPid,
-                secured=true,
-                exchanged=false,
-                swarm=Swarm,
-                args=Args,
-                pub_key=PubKey,
-                priv_key=PrivKey
-            },
-            State1 = handle_fdset(send_key(Data, State0)),
-            {ok, State1};
-        _ ->
+            case Kind == client andalso erlang:is_pid(Parent) of
+                false -> ok;
+                true -> Parent ! {?MODULE, rdy}
+            end,
             init_module(Kind, Module, Connection, Args, SendPid)
     end.
 
