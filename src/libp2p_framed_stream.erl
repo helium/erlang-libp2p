@@ -155,7 +155,8 @@ init_module(client=Kind, Module, Connection, [Parent|Args]) ->
         Swarm when is_pid(Swarm) ->
             #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
             {ok, _, SignFun} = libp2p_swarm:keys(Swarm),
-            Data = erlang:term_to_binary({key_exchange, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
+            Signature = SignFun(PubKey),
+            Data = <<PubKey/binary, Signature/binary>>,
             State0 = #state{
                 kind=Kind,
                 module=Module,
@@ -182,7 +183,8 @@ init_module(Kind, Module, Connection, Args) ->
         Swarm when is_pid(Swarm) ->
             #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
             {ok, _, SignFun} = libp2p_swarm:keys(Swarm),
-            Data = erlang:term_to_binary({key_exchange, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
+            Signature = SignFun(PubKey),
+            Data = <<PubKey/binary, Signature/binary>>,
             State0 = #state{
                 kind=Kind,
                 module=Module,
@@ -505,14 +507,14 @@ verify_exchange(Data, #state{kind=Kind,
                              pub_key=PK,
                              priv_key=SK
                        }) ->
-    {key_exchange, OtherSidePK, Signature} = erlang:binary_to_term(Data),
+    <<OtherSidePK:32/binary, Signature/binary>> = Data,
     {ok, Session} = libp2p_connection:session(Connection),
     libp2p_session:identify(Session, self(), ?MODULE),
     receive
         {handle_identify, ?MODULE, {ok, Identify}} ->
             PKBin = libp2p_identify:pubkey_bin(Identify),
             SwarmPK = libp2p_crypto:bin_to_pubkey(PKBin),
-            case libp2p_crypto:verify(erlang:term_to_binary(OtherSidePK), Signature, SwarmPK) of
+            case libp2p_crypto:verify(OtherSidePK, Signature, SwarmPK) of
                 false ->
                    {error, failed_verify};
                 true ->
