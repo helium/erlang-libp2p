@@ -60,7 +60,7 @@ stop(Sup) ->
     exit(Sup, shutdown),
     receive
         {'DOWN', Ref, process, Sup, _Reason} -> ok
-    after 5000 ->
+    after 10000 ->
             error(timeout)
     end.
 
