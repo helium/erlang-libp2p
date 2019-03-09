@@ -69,6 +69,9 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
                                             NewPeerId /= ThisPeerId
                                                 andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
                                                 andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
+                                                andalso (libp2p_peer:network_id(NewPeer) == libp2p_swarm:get_network_id(TID)
+                                                         orelse libp2p_peer:network_id(NewPeer) == undefined
+                                                         orelse libp2p_swarm:get_network_id(TID) == undefined)
                                     end
                             end, PeerList),
 
@@ -88,7 +91,14 @@ get(#peerbook{tid=TID}=Handle, ID) ->
         {error, Error} ->
             {error, Error};
         {ok, Peer} ->
-            {ok, Peer}
+            case libp2p_peer:network_id(Peer) == libp2p_swarm:get_network_id(TID)
+                 orelse libp2p_peer:network_id(Peer) == undefined
+                 orelse libp2p_swarm:get_network_id(TID) == undefined of
+               false ->
+                    {error, not_found};
+                true ->
+                    {ok, Peer}
+            end
     end.
 
 -spec is_key(peerbook(), libp2p_crypto:pubkey_bin()) -> boolean().
@@ -282,6 +292,7 @@ terminate(_Reason, _State) ->
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
+    NetworkID = libp2p_swarm:get_network_id(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
     %% Copy data from current peer
     case CurrentPeer of
@@ -294,6 +305,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
+                            network_id => NetworkID,
                             associations => Associations},
                          State#state.sigfun).
 
@@ -399,12 +411,15 @@ fetch_peer(ID, Handle=#peerbook{stale_time=StaleTime}) ->
     end.
 
 
-fold_peers(Fun, Acc0, #peerbook{store=Store, stale_time=StaleTime}) ->
+fold_peers(Fun, Acc0, #peerbook{tid=TID, store=Store, stale_time=StaleTime}) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
     fold(Iterator, rocksdb:iterator_move(Iterator, first),
          fun(Key, Bin, Acc) ->
                  Peer = libp2p_peer:decode(Bin),
-                 case libp2p_peer:is_stale(Peer, StaleTime) of
+                 case libp2p_peer:is_stale(Peer, StaleTime)
+                      orelse (libp2p_peer:network_id(Peer) /= libp2p_swarm:get_network_id(TID)
+                              andalso libp2p_peer:network_id(Peer) /= undefined
+                              andalso libp2p_swarm:get_network_id(TID) /= undefined) of
                      true -> Acc;
                      false -> Fun(Key, Peer, Acc)
                  end

@@ -2,6 +2,7 @@
 
 -export([start/1, start/2, stop/1, is_stopping/1, swarm/1, tid/1,
          opts/1, name/1, pubkey_bin/1, p2p_address/1, keys/1,
+         set_network_id/2, get_network_id/1,
          store_peerbook/2, peerbook/1, peerbook_pid/1, cache/1, sessions/1,
          dial/3, dial/5, connect/2, connect/4,
          dial_framed_stream/5, dial_framed_stream/7,
@@ -126,6 +127,21 @@ keys(Sup) when is_pid(Sup) ->
 keys(TID) ->
     Server = libp2p_swarm_sup:server(TID),
     gen_server:call(Server, keys).
+
+-spec set_network_id(ets:tab() | pid(), binary()) -> ok.
+set_network_id(Sup, NetworkID) when is_pid(Sup) ->
+    set_network_id(tid(Sup), NetworkID);
+set_network_id(TID, NetworkID) ->
+    ets:insert(TID, {network_id, NetworkID}).
+
+-spec get_network_id(ets:tab() | pid()) -> binary() | undefined.
+get_network_id(Sup) when is_pid(Sup) ->
+    get_network_id(tid(Sup));
+get_network_id(TID) ->
+    case ets:lookup(TID, network_id) of
+        [{network_id, ID}] -> ID;
+        [] -> undefined
+    end.
 
 %% @doc get the peerbook db handle for a swarm
 -spec peerbook(ets:tab() | pid()) -> libp2p_peerbook:peerbook() | false.
