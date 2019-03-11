@@ -69,7 +69,7 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
                                             NewPeerId /= ThisPeerId
                                                 andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
                                                 andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
-                                                andalso peer_network_id_allowable(NewPeer, TID)
+                                                andalso libp2p_peer:network_id_allowable(NewPeer, libp2p_swarm:network_id(TID))
                                     end
                             end, PeerList),
 
@@ -89,7 +89,7 @@ get(#peerbook{tid=TID}=Handle, ID) ->
         {error, Error} ->
             {error, Error};
         {ok, Peer} ->
-            case peer_network_id_allowable(Peer, TID) of
+            case libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) of
                false ->
                     {error, not_found};
                 true ->
@@ -288,7 +288,7 @@ terminate(_Reason, _State) ->
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
-    NetworkID = libp2p_swarm:get_network_id(TID),
+    NetworkID = libp2p_swarm:network_id(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
     %% Copy data from current peer
     case CurrentPeer of
@@ -413,7 +413,7 @@ fold_peers(Fun, Acc0, #peerbook{tid=TID, store=Store, stale_time=StaleTime}) ->
          fun(Key, Bin, Acc) ->
                  Peer = libp2p_peer:decode(Bin),
                  case libp2p_peer:is_stale(Peer, StaleTime)
-                      orelse not peer_network_id_allowable(Peer, TID) of
+                      orelse not libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) of
                      true -> Acc;
                      false -> Fun(Key, Peer, Acc)
                  end
@@ -470,9 +470,3 @@ install_gossip_handler(TID, Handle) ->
             libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
             G
     end.
-
-peer_network_id_allowable(Peer, TID) ->
-    libp2p_peer:network_id(Peer) == libp2p_swarm:get_network_id(TID)
-     orelse libp2p_peer:network_id(Peer) == undefined
-     orelse libp2p_swarm:get_network_id(TID) == undefined.
-

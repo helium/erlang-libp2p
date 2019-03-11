@@ -263,10 +263,10 @@ gossip_test(Config) ->
 network_id_gossip_test(Config) ->
     [S1, S2, S3] = proplists:get_value(swarms, Config),
 
-    libp2p_swarm:set_network_id(S1, <<"s1">>),
-    libp2p_swarm:set_network_id(S3, <<"s3">>),
-    <<"s1">> = libp2p_swarm:get_network_id(S1),
-    <<"s3">> = libp2p_swarm:get_network_id(S3),
+    libp2p_swarm:network_id(S1, <<"s1">>),
+    libp2p_swarm:network_id(S3, <<"s3">>),
+    <<"s1">> = libp2p_swarm:network_id(S1),
+    <<"s3">> = libp2p_swarm:network_id(S3),
     S1PeerBook = libp2p_swarm:peerbook(S1),
     S2PeerBook = libp2p_swarm:peerbook(S2),
     S3PeerBook = libp2p_swarm:peerbook(S3),
