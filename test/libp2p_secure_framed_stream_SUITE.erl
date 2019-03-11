@@ -176,9 +176,31 @@ stream(_Config) ->
     ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
 
     [ServerAddress|_] = libp2p_swarm:listen_addrs(ServerSwarm),
-    {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
+
+    % Dialing here to propagate peerbook
+    {ok, ClientStream0} = libp2p_swarm:dial_framed_stream(
         ClientSwarm,
         ServerAddress,
+        Version,
+        libp2p_secure_framed_stream_echo_test,
+        [self()]
+    ),
+    timer:sleep(2000),
+
+    % Check is not dialing p2p = fail
+    {error, secured_not_dialing_p2p} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        ServerAddress,
+        Version,
+        libp2p_secure_framed_stream_echo_test,
+        [self(), {secured, ClientSwarm}]
+    ),
+
+    gen_server:stop(ClientStream0),
+
+    {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        libp2p_swarm:p2p_address(ServerSwarm),
         Version,
         libp2p_secure_framed_stream_echo_test,
         [self(), {secured, ClientSwarm}]
