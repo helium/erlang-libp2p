@@ -5,7 +5,7 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1,
-         association_test/1, gossip_test/1, stale_test/1]).
+         association_test/1, gossip_test/1, network_id_gossip_test/1, stale_test/1]).
 
 all() ->
     [
@@ -13,6 +13,7 @@ all() ->
      bad_peer_test,
      put_test,
      gossip_test,
+     network_id_gossip_test,
      stale_test,
      blacklist_test,
      association_test
@@ -32,6 +33,15 @@ init_per_testcase(put_test, Config) ->
 init_per_testcase(gossip_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 1}]
+                                        },
+                                        {libp2p_peerbook,
+                                         [{notify_time, 500},
+                                          {peer_time, 400}]
+                                        }]),
+    [{swarms, Swarms} | Config];
+init_per_testcase(network_id_gossip_test, Config) ->
+    Swarms = test_util:setup_swarms(3, [{libp2p_group_gossip,
+                                         [{peerbook_connections, 2}]
                                         },
                                         {libp2p_peerbook,
                                          [{notify_time, 500},
@@ -59,6 +69,9 @@ end_per_testcase(put_test, Config) ->
 end_per_testcase(gossip_test, Config) ->
     [S1, _S2] = proplists:get_value(swarms, Config),
     test_util:teardown_swarms([S1]);
+end_per_testcase(network_id_gossip_test, Config) ->
+    Swarms = proplists:get_value(swarms, Config),
+    test_util:teardown_swarms(Swarms);
 end_per_testcase(stale_test, Config) ->
     Swarms = proplists:get_value(swarms, Config),
     test_util:teardown_swarms(Swarms).
@@ -247,6 +260,75 @@ gossip_test(Config) ->
 
     ok.
 
+network_id_gossip_test(Config) ->
+    [S1, S2, S3] = proplists:get_value(swarms, Config),
+
+    libp2p_swarm:network_id(S1, <<"s1">>),
+    libp2p_swarm:network_id(S3, <<"s3">>),
+    <<"s1">> = libp2p_swarm:network_id(S1),
+    <<"s3">> = libp2p_swarm:network_id(S3),
+    S1PeerBook = libp2p_swarm:peerbook(S1),
+    S2PeerBook = libp2p_swarm:peerbook(S2),
+    S3PeerBook = libp2p_swarm:peerbook(S3),
+
+    %% force peerbook update
+    libp2p_peerbook:update_nat_type(S1PeerBook, none),
+    libp2p_peerbook:update_nat_type(S3PeerBook, none),
+
+    test_util:connect_swarms(S1, S2),
+    test_util:connect_swarms(S1, S3),
+    test_util:connect_swarms(S2, S3),
+
+    S1Addr = libp2p_swarm:pubkey_bin(S1),
+    S2Addr = libp2p_swarm:pubkey_bin(S2),
+    S3Addr = libp2p_swarm:pubkey_bin(S3),
+
+    ok = test_util:wait_until(fun() ->
+                                 {ok, S1Self} = libp2p_peerbook:get(S1PeerBook, S1Addr),
+                                 {ok, S2Self} = libp2p_peerbook:get(S2PeerBook, S2Addr),
+                                 {ok, S3Self} = libp2p_peerbook:get(S3PeerBook, S3Addr),
+                                 <<"s1">> == libp2p_peer:network_id(S1Self) andalso
+                                 undefined == libp2p_peer:network_id(S2Self) andalso
+                                 <<"s3">> == libp2p_peer:network_id(S3Self)
+                         end),
+
+    S1Group = libp2p_swarm:gossip_group(S1),
+    ok = test_util:wait_until(fun() ->
+                                 lists:member(libp2p_swarm:p2p_address(S2),
+                                              libp2p_group_gossip:connected_addrs(S1Group, all))
+                         end),
+    S2Group = libp2p_swarm:gossip_group(S2),
+    ok = test_util:wait_until(fun() ->
+                                 lists:member(libp2p_swarm:p2p_address(S1),
+                                              libp2p_group_gossip:connected_addrs(S2Group, all)) andalso
+                                 lists:member(libp2p_swarm:p2p_address(S3),
+                                              libp2p_group_gossip:connected_addrs(S2Group, all))
+                         end),
+
+    S3Group = libp2p_swarm:gossip_group(S3),
+    ok = test_util:wait_until(fun() ->
+                                 lists:member(libp2p_swarm:p2p_address(S2),
+                                              libp2p_group_gossip:connected_addrs(S3Group, all))
+                         end),
+
+    %% check that S1 can only see S2 because S3 has a different network ID
+    ok = test_util:wait_until(fun() ->
+                                      ok == element(1, libp2p_peerbook:get(S1PeerBook, S2Addr)) andalso
+                                      error == element(1, libp2p_peerbook:get(S1PeerBook, S3Addr))
+                              end),
+
+    %% check that S2 can see S1 and S3 because S2 has not set a network ID
+    ok = test_util:wait_until(fun() ->
+                                      ok == element(1, libp2p_peerbook:get(S2PeerBook, S1Addr)) andalso
+                                      ok == element(1, libp2p_peerbook:get(S2PeerBook, S3Addr))
+                              end, 60, 1000),
+
+    %% check that S3 can only see S2 because S1 has a different network ID
+    ok = test_util:wait_until(fun() ->
+                                      ok == element(1, libp2p_peerbook:get(S3PeerBook, S2Addr)) andalso
+                                      error == element(1, libp2p_peerbook:get(S3PeerBook, S1Addr))
+                              end),
+    ok.
 
 stale_test(Config) ->
     [S1] = proplists:get_value(swarms, Config),

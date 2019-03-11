@@ -17,7 +17,7 @@
 
 -export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
          pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
-         supersedes/2, is_stale/2, is_similar/2]).
+         supersedes/2, is_stale/2, is_similar/2, network_id/1, network_id_allowable/2]).
 %% associations
 -export([associations/1, association_pubkey_bins/1, associations_set/4, associations_get/2, associations_put/4,
          is_association/3, association_pubkey_bin/1, association_signature/1,
@@ -45,6 +45,7 @@ from_map(Map, SigFun) ->
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
                            connected = maps:get(connected, Map),
                            nat_type=maps:get(nat_type, Map),
+                           network_id=maps:get(network_id, Map, <<>>),
                            timestamp=Timestamp,
                            associations=Assocs
                           },
@@ -230,12 +231,25 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
            Other=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}}) ->
     pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
+        andalso network_id(Target) == network_id(Other)
         andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
         andalso sets:from_list(connected_peers(Target)) == sets:from_list(connected_peers(Other))
         %% We only compare the {type, assoc_adddress} parts of an
         %% association as multiple signatures over the same value will
         %% differ
         andalso sets:from_list(association_pubkey_bins(Target)) == sets:from_list(association_pubkey_bins(Other)).
+
+%% @doc Returns the declared network id for the peer, if any
+-spec network_id(peer()) -> binary() | undefined.
+network_id(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{network_id = <<>>}}) ->
+    undefined;
+network_id(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{network_id=ID}}) ->
+    ID.
+
+network_id_allowable(Peer, MyNetworkID) ->
+    network_id(Peer) == MyNetworkID
+    orelse libp2p_peer:network_id(Peer) == undefined
+    orelse MyNetworkID == undefined.
 
 %% @doc Returns whether a given peer is stale relative to a given
 %% stale delta time in milliseconds.
