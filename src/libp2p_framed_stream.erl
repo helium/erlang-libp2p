@@ -86,6 +86,7 @@
     sends=#{} :: #{ Timer::reference() => From::pid() },
     send_pid :: pid(),
     secured = false :: boolean(),
+    secure_peer :: undefined | libp2p_crypto:pubkey_bin(),
     parent :: undefined | pid(),
     exchanged = false :: boolean(),
     swarm :: pid(),
@@ -113,7 +114,8 @@ client(Module, Connection, Args) ->
         {ok, Pid} ->
             libp2p_connection:controlling_process(Connection, Pid),
             receive
-                {?MODULE, rdy} -> {ok, Pid}
+                {?MODULE, rdy} -> {ok, Pid};
+                {?MODULE, {error, _}=Error} -> Error
             after 10000 ->
                 {error, rdy_timeout}
             end;
@@ -161,6 +163,7 @@ pre_init(Kind, Module, Connection, Args, Parent) ->
                 connection=Connection,
                 send_pid=SendPid,
                 secured=true,
+                secure_peer = proplists:get_value(secure_peer, Args),
                 exchanged=false,
                 swarm=Swarm,
                 args=Args,
@@ -217,7 +220,11 @@ handle_info({inert_read, _, _}, #state{
         {ok, Data} ->
             case verify_exchange(Data, State0) of
                 {error, _}=Error ->
-                    {stop, Error, State0};
+                    case Kind == client andalso erlang:is_pid(Parent) of
+                        false -> ok;
+                        true -> Parent ! {?MODULE, Error}
+                    end,
+                    {stop, normal, State0};
                 {ok, State1} ->
                     case Kind == client andalso erlang:is_pid(Parent) of
                         false -> ok;
@@ -458,6 +465,7 @@ verify_exchange(Data, #state{kind=Kind,
                              connection=Connection,
                              send_pid=SendPid,
                              secured=true,
+                             secure_peer=SecurePeer,
                              exchanged=false,
                              args=Args,
                              pub_key=PK,
@@ -470,21 +478,26 @@ verify_exchange(Data, #state{kind=Kind,
         {handle_identify, ?MODULE, {ok, Identify}} ->
             PKBin = libp2p_identify:pubkey_bin(Identify),
             SwarmPK = libp2p_crypto:bin_to_pubkey(PKBin),
-            case libp2p_crypto:verify(OtherSidePK, Signature, SwarmPK) of
+            case SecurePeer == undefined orelse SecurePeer == PKBin of
                 false ->
-                   {error, failed_verify};
+                    {error, incorrect_peer};
                 true ->
-                    {RcvKey, SendKey} = rcv_and_send_keys(Kind, PK, SK, OtherSidePK),
-                    case init_module(Kind, Module, Connection, Args, SendPid) of
-                        {error, _}=Error ->
-                            Error;
-                        {ok, State1} ->
-                            {ok, State1#state{
-                                secured=true,
-                                exchanged=true,
-                                rcv_key=RcvKey,
-                                send_key=SendKey
-                            }}
+                    case libp2p_crypto:verify(OtherSidePK, Signature, SwarmPK) of
+                        false ->
+                            {error, failed_verify};
+                        true ->
+                            {RcvKey, SendKey} = rcv_and_send_keys(Kind, PK, SK, OtherSidePK),
+                            case init_module(Kind, Module, Connection, Args, SendPid) of
+                                {error, _}=Error ->
+                                    Error;
+                                {ok, State1} ->
+                                    {ok, State1#state{
+                                           secured=true,
+                                           exchanged=true,
+                                           rcv_key=RcvKey,
+                                           send_key=SendKey
+                                          }}
+                            end
                     end
             end
         after 10000 ->

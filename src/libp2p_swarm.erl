@@ -341,7 +341,7 @@ dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) when is_pid(
                         {error, Error} ->
                             {error, Error};
                         {ok, SessionPid} ->
-                            libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args)
+                            libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args ++ [{secure_peer, libp2p_crypto:p2p_to_pubkey_bin(Addr)}])
                     end
             end
     end;

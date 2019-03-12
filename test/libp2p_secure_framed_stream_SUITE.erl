@@ -66,50 +66,54 @@ invalid_key_exchange(_Config) ->
     libp2p_swarm:add_stream_handler(
         ServerSwarm,
         Version,
-        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_test, self(), ServerSwarm]}
+        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), ServerSwarm, {secured, ServerSwarm}]}
     ),
 
     {ok, ClientSwarm} = libp2p_swarm:start(insecure_client_test, SwarmOpts),
     ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
 
     LAs = libp2p_swarm:listen_addrs(ServerSwarm),
-    ct:pal("~p", [LAs]),
+    [ServerAddress|_] = LAs,
+    ServerP2P = libp2p_swarm:p2p_address(ServerSwarm),
+
+    % Dialing here to propagate peerbook
+    {ok, ClientStream0} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        ServerAddress,
+        Version,
+        libp2p_secure_framed_stream_echo_test,
+        [ClientSwarm, self()]
+    ),
+
+    PeerBook = libp2p_swarm:peerbook(ClientSwarm),
+    ServerPeerbookAddr = libp2p_swarm:pubkey_bin(ServerSwarm),
+    timer:sleep(1000),
+
+    ok = test_util:wait_until(fun() ->
+                                      ok == element(1, libp2p_peerbook:get(PeerBook, ServerPeerbookAddr))
+                              end),
+
+    gen_server:stop(ClientStream0),
+
     ok = libp2p_swarm:stop(ServerSwarm),
 
+    %% start another swarm on the same address
     {ok, EvilSwarm} = libp2p_swarm:start(insecure_evil_test, SwarmOpts),
     [ok = libp2p_swarm:listen(EvilSwarm, LA) || LA <- LAs],
     libp2p_swarm:add_stream_handler(
         EvilSwarm,
         Version,
-        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_test, self(), EvilSwarm]}
+        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), EvilSwarm, {secured, EvilSwarm}]}
      ),
 
-    [ServerAddress|_] = LAs,
-    {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
+    %% this should fail because the swarm on the other end is not who we think it is
+    ?assertEqual({error, incorrect_peer}, libp2p_swarm:dial_framed_stream(
         ClientSwarm,
-        ServerAddress,
+        ServerP2P,
         Version,
-        libp2p_secure_framed_stream_test,
-        [ClientSwarm, self()]
-    ),
-
-    ok = test_util:wait_until(fun() -> true =:= gen_server:call(ClientStream, exchanged) end),
-    %% XXX this should not pass
-    ?assert(gen_server:call(ClientStream, exchanged)),
-
-    lists:foreach(
-        fun(_) ->
-            Data = crypto:strong_rand_bytes(16),
-            ClientStream ! {send, Data},
-            receive
-                {echo, server, Data} -> ok;
-                _Else -> ct:fail(_Else)
-            after 250 ->
-                ct:fail(timeout)
-            end
-        end,
-        lists:seq(1, 100)
-    ),
+        libp2p_secure_framed_stream_echo_test,
+        [ClientSwarm, self(), {secured, ClientSwarm}]
+    )),
 
     ok = libp2p_swarm:stop(EvilSwarm),
     ok = libp2p_swarm:stop(ClientSwarm),
