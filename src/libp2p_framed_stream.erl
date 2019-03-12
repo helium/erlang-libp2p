@@ -460,18 +460,17 @@ recv(Connection, Timeout) ->
 %%
 
 -spec verify_exchange(binary(), #state{}) -> {ok, #state{}} | {error, any()}.
-verify_exchange(Data, #state{kind=Kind,
-                             module=Module,
-                             connection=Connection,
-                             send_pid=SendPid,
-                             secured=true,
-                             secure_peer=SecurePeer,
-                             exchanged=false,
-                             args=Args,
-                             pub_key=PK,
-                             priv_key=SK
-                       }) ->
-    <<OtherSidePK:32/binary, Signature/binary>> = Data,
+verify_exchange(<<OtherSidePK:32/binary, Signature/binary>>, #state{kind=Kind,
+                                                                    module=Module,
+                                                                    connection=Connection,
+                                                                    send_pid=SendPid,
+                                                                    secured=true,
+                                                                    secure_peer=SecurePeer,
+                                                                    exchanged=false,
+                                                                    args=Args,
+                                                                    pub_key=PK,
+                                                                    priv_key=SK
+                                                            }) ->
     {ok, Session} = libp2p_connection:session(Connection),
     libp2p_session:identify(Session, self(), ?MODULE),
     receive
@@ -502,7 +501,9 @@ verify_exchange(Data, #state{kind=Kind,
             end
         after 10000 ->
             {error, failed_identify_timeout}
-    end.
+    end;
+verify_exchange(_Data, #state{secured=true, exchanged=false}) ->
+    {error, {failed_verify, bad_data}}.
 
 rcv_and_send_keys(client, ClientPK, ClientSK, ServerPK) ->
     #{client_rx := RcvKey, client_tx := SendKey} = enacl:kx_client_session_keys(ClientPK, ClientSK, ServerPK),

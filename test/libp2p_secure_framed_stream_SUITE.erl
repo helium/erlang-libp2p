@@ -12,7 +12,8 @@
 -export([
     invalid_key_exchange/1,
     key_exchange/1,
-    stream/1
+    stream/1,
+    failed_stream/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -26,7 +27,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [invalid_key_exchange, key_exchange, stream].
+    [invalid_key_exchange, key_exchange, stream, failed_stream].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -225,6 +226,51 @@ stream(_Config) ->
     ),
 
     ?assert(erlang:is_process_alive(ClientStream)),
+
+    ok = libp2p_swarm:stop(ServerSwarm),
+    ok = libp2p_swarm:stop(ClientSwarm),
+    ok.
+
+
+failed_stream(_Config) ->
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    Version = "securetest/1.0.0",
+
+    {ok, ServerSwarm} = libp2p_swarm:start(secure_server_echo_test, SwarmOpts),
+    ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        ServerSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), {secured, ServerSwarm}]}
+    ),
+
+    {ok, ClientSwarm} = libp2p_swarm:start(secure_client_echo_test, SwarmOpts),
+    ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
+
+    [ServerAddress|_] = libp2p_swarm:listen_addrs(ServerSwarm),
+
+    % Dialing here to propagate peerbook
+    {ok, ClientStream0} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        ServerAddress,
+        Version,
+        libp2p_secure_framed_stream_echo_test,
+        [self()]
+    ),
+    timer:sleep(2000),
+    gen_server:stop(ClientStream0),
+
+    {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
+        ClientSwarm,
+        libp2p_swarm:p2p_address(ServerSwarm),
+        Version,
+        libp2p_secure_framed_stream_echo_test,
+        [self()]
+    ),
+
+    Data = crypto:strong_rand_bytes(16),
+    ClientStream ! {send, Data},
+    ok = test_util:wait_until(fun() -> false =:= erlang:is_process_alive(ClientStream) end),
 
     ok = libp2p_swarm:stop(ServerSwarm),
     ok = libp2p_swarm:stop(ClientSwarm),
