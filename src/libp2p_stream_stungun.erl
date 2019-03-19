@@ -53,13 +53,13 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
     %% first, try with the unique dial option, so we can check if the
     %% peer has Full Cone or Restricted Cone NAT
     ReplyPath = reply_path(TxnID),
-    lager:info("stungun attempting dial back with unique session and port to ~p", [ObservedAddr]),
+    lager:debug("stungun attempting dial back with unique session and port to ~p", [ObservedAddr]),
     [{"ip4", IP}, {"tcp", PortStr}] = multiaddr:protocols(ObservedAddr),
     %case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath,
                            %[{unique_session, true}, {unique_port, true}], 5000) of
     case gen_tcp:connect(IP, list_to_integer(PortStr), [binary, {active, false}], 5000) of
         {ok, C} ->
-            lager:info("successfully dialed ~p using unique session/port", [ObservedAddr]),
+            lager:debug("successfully dialed ~p using unique session/port", [ObservedAddr]),
             %libp2p_connection:close(C),
             gen_tcp:close(C),
             %% ok they have full-cone or restricted cone NAT without
@@ -68,44 +68,44 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% the target that we can use to distinguish
             case find_verifier(TID, libp2p_swarm:pubkey_bin(TID), find_p2p_addr(TID, SessionPid)) of
                 {ok, VerifierAddr} ->
-                    lager:info("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
+                    lager:debug("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
                     case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
                         {ok, VC} ->
-                            lager:info("verifier dial suceeded for ~p", [ObservedAddr]),
+                            lager:debug("verifier dial suceeded for ~p", [ObservedAddr]),
                             %% Read the response
                             case libp2p_framed_stream:recv(VC, 5000) of
                                 {ok, ?OK} ->
-                                    lager:info("verifier dial reported ok"),
+                                    lager:debug("verifier dial reported ok"),
                                     %% Full cone or no restrictions on dialing back
                                     {stop, normal, ?OK};
                                 {ok, ?FAILED} ->
-                                    lager:info("verifier dial reported failure for ~p", [ObservedAddr]),
+                                    lager:debug("verifier dial reported failure for ~p", [ObservedAddr]),
                                     %% Restricted cone
                                     {stop, normal, ?RESTRICTED_NAT};
                                 {error, Reason} ->
-                                    lager:info("verifier dial failed to respond for ~p : ~p", [ObservedAddr, Reason]),
+                                    lager:debug("verifier dial failed to respond for ~p : ~p", [ObservedAddr, Reason]),
                                     %% Could not determine
                                     {stop, normal, ?FAILED}
                             end;
                         {error, Reason} ->
-                            lager:info("verifier dial failed for ~p : ~p", [ObservedAddr, Reason]),
+                            lager:debug("verifier dial failed for ~p : ~p", [ObservedAddr, Reason]),
                             {stop, normal, ?FAILED}
                     end;
                 {error, not_found} ->
-                    lager:info("no verifiers available for ~p", [ObservedAddr]),
+                    lager:debug("no verifiers available for ~p", [ObservedAddr]),
                     {stop, normal, ?FAILED}
             end;
         {error, Reason} ->
-            lager:info("unique session/port dial failed: ~p, trying simple dial back", [Reason]),
+            lager:debug("unique session/port dial failed: ~p, trying simple dial back", [Reason]),
             case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath, [{unique_session, true}], 5000) of
                 {ok, C2} ->
-                    lager:info("detected port restricted NAT for ~p", [ObservedAddr]),
+                    lager:debug("detected port restricted NAT for ~p", [ObservedAddr]),
                     %% ok they have port restricted cone NAT
                     libp2p_connection:close(C2),
                     {stop, normal, ?PORT_RESTRICTED_NAT};
                 {error, Reason2} ->
-                    lager:info("detected port symmetric NAT for ~p ~p", [ObservedAddr, Reason2]),
+                    lager:debug("detected port symmetric NAT for ~p ~p", [ObservedAddr, Reason2]),
                     %% reply here to tell the peer we can't dial back at all
                     %% and they're behind symmetric NAT
                     {stop, normal, ?SYMMETRIC_NAT}
@@ -117,18 +117,18 @@ init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
     {stop, normal};
 init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
     {TxnID, TargetAddr} = string:take(Info, "/", true),
-    lager:info("got verify request for ~p", [TargetAddr]),
+    lager:debug("got verify request for ~p", [TargetAddr]),
     ReplyPath = reply_path(TxnID),
     case libp2p_swarm:dial(TID, TargetAddr, ReplyPath, [], 5000) of
         {error, eaddrnotavail} ->
             %% this is a local failure
             {stop, normal};
         {ok, C} ->
-            lager:info("verify dial succeeded for ~p", [TargetAddr]),
+            lager:debug("verify dial succeeded for ~p", [TargetAddr]),
             libp2p_connection:close(C),
             {stop, normal, ?OK};
         {error, Reason} ->
-            lager:info("verify dial failed for ~p : ~p", [TargetAddr, Reason]),
+            lager:debug("verify dial failed for ~p : ~p", [TargetAddr, Reason]),
             {stop, normal, ?FAILED}
     end.
 
@@ -163,7 +163,7 @@ find_p2p_addr(TID, SessionPid, Retries) ->
                       end, SessionAddrs) of
         [P2PAddr] -> {ok, P2PAddr};
         _ when Retries > 0 ->
-            lager:info("failed to find p2p address for ~p, waiting for identify to complete"),
+            lager:debug("failed to find p2p address for ~p, waiting for identify to complete"),
             timer:sleep(1000),
             find_p2p_addr(TID, SessionPid, Retries - 1);
         _ -> {error, not_found}
@@ -178,25 +178,25 @@ find_verifier(_TID, _, {error, not_found}) ->
 find_verifier(TID, FromAddr, {ok, TargetAddr}) ->
     find_verifier(TID, FromAddr, TargetAddr);
 find_verifier(TID, FromAddr, TargetAddr) ->
-    lager:info("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
+    lager:debug("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
     PeerBook = libp2p_swarm:peerbook(TID),
     {ok, FromEntry} = libp2p_peerbook:get(PeerBook, FromAddr),
     TargetCryptoAddr = libp2p_crypto:p2p_to_pubkey_bin(TargetAddr),
-    lager:info("Target crypto addr ~p", [TargetCryptoAddr]),
+    lager:debug("Target crypto addr ~p", [TargetCryptoAddr]),
     %% Gets the peers connected to the given FromAddr
     FromConnected = libp2p_peer:connected_peers(FromEntry),
-    lager:info("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(F) || F <- FromConnected]]),
+    lager:debug("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(F) || F <- FromConnected]]),
     case lists:filter(fun(P) ->
                               %% Get the entry for the connected peer
                               {ok, Peer} = libp2p_peerbook:get(PeerBook, P),
                               Res = not (lists:member(TargetCryptoAddr,
                                                       libp2p_peer:connected_peers(Peer))
                                          orelse libp2p_peer:pubkey_bin(Peer) == TargetCryptoAddr),
-                              lager:info("peer ~p connected to ~p ? ~p",
-                                         [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
-                                          [libp2p_crypto:pubkey_bin_to_p2p(F)
-                                           || F <- libp2p_peer:connected_peers(Peer)],
-                                          Res]),
+                              lager:debug("peer ~p connected to ~p ? ~p",
+                                          [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
+                                           [libp2p_crypto:pubkey_bin_to_p2p(F)
+                                            || F <- libp2p_peer:connected_peers(Peer)],
+                                           Res]),
                               Res
                       end, FromConnected) of
         [] -> {error, not_found};

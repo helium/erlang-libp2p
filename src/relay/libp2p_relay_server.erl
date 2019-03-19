@@ -70,7 +70,7 @@ connection_lost(Swarm) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(TID) ->
-    lager:info("~p init with ~p", [?MODULE, TID]),
+    lager:debug("~p init with ~p", [?MODULE, TID]),
     Swarm = libp2p_swarm:swarm(TID),
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID, swarm=Swarm}}.
@@ -81,7 +81,7 @@ handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
                 [] ->
                     Peerbook = libp2p_swarm:peerbook(Swarm),
                     ok = libp2p_peerbook:join_notify(Peerbook, self()),
-                    lager:info("joined peerbook ~p notifications", [Peerbook]),
+                    lager:debug("joined peerbook ~p notifications", [Peerbook]),
                     Peers0 = libp2p_peerbook:values(Peerbook),
                     lists:filter(fun(E) ->
                                          libp2p_peer:pubkey_bin(E) /= SwarmAddr
@@ -92,7 +92,7 @@ handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
     State = State0#state{peers=sort_peers(Peers, SwarmAddr), address=SwarmAddr},
     case int_relay(State) of
         {ok, _}=Resp ->
-            lager:info("relay started successfuly"),
+            lager:debug("relay started successfuly"),
             {reply, Resp, add_flap(State#state{started=true})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
@@ -106,7 +106,7 @@ handle_call(_Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_cast(connection_lost, State) ->
-    lager:info("relay connection lost"),
+    lager:debug("relay connection lost"),
     self() ! try_relay,
     {noreply, State#state{started=false}};
 handle_cast(_Msg, State) ->
@@ -121,7 +121,7 @@ handle_info({new_peers, NewPeers}, #state{started=false}=State) ->
 handle_info(try_relay, State = #state{started=false}) ->
     case int_relay(State) of
         {ok, _} ->
-            lager:info("relay started successfuly"),
+            lager:debug("relay started successfuly"),
             {noreply, add_flap(State#state{started=true})};
         {error, no_peer} ->
             lager:warning("could not initiate relay no peer found"),
@@ -167,10 +167,10 @@ get_relay_server(Swarm) ->
 int_relay(#state{peers=[]}) ->
     {error, no_peer};
 int_relay(State=#state{swarm=Swarm}) ->
-    lager:info("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
+    lager:debug("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     Peer = lists:nth(State#state.peer_index, State#state.peers),
     Address = libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
-    lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
+    lager:debug("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
     libp2p_relay:dial_framed_stream(Swarm, Address, []).
 
 -spec sort_peers([libp2p_peer:peer()], libp2p_crypto:pubkey_bin()) -> [libp2p_peer:peer()].
