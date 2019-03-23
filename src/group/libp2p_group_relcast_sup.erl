@@ -29,11 +29,19 @@ init([TID, GroupID, Args]) ->
     {ok, {SupFlags, ChildSpecs}}.
 
 server(Sup) ->
-    Children = supervisor:which_children(Sup),
-    {?SERVER, Pid, _, _} = lists:keyfind(?SERVER, 1, Children),
-    Pid.
+    try supervisor:which_children(Sup) of
+        Children ->
+            {?SERVER, Pid, _, _} = lists:keyfind(?SERVER, 1, Children),
+            Pid
+    catch _:_ ->
+            {error, bad_sup}
+    end.
 
 workers(Sup) ->
-    Children = supervisor:which_children(Sup),
-    {?WORKERS, Pid, _, _} = lists:keyfind(?WORKERS, 1, Children),
-    Pid.
+    try supervisor:which_children(Sup) of
+        Children ->
+            {?WORKERS, Pid, _, _} = lists:keyfind(?WORKERS, 1, Children),
+            Pid
+    catch _:_ ->
+            {error, bad_sup}
+    end.
