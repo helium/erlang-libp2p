@@ -383,7 +383,7 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
             NewListenAddrsWithPid = case MyListenAddrs of
                                         [] ->
                                             %% engage desperation mode, we had no listen addresses before, but maybe we have some now because someone plugged in a cable or configured wifi
-                                            [ {tcp_listen_addrs(S), Pid} || [Pid, Addr, S] <- ets:match(TID, {{libp2p_config:listen_socket(), '$1'}, {'$2', '$3'}}), match_addr(Addr, TID) /= false ];
+                                            [ {tcp_listen_addrs(S), Pid} || {Pid, Addr, S} <- libp2p_config:listen_sockets(TID), match_addr(Addr, TID) /= false ];
                                         _ ->
                                             %% find the distinct list of listen addrs for each listen socket
                                             lists:foldl(fun(LA, Acc) ->
