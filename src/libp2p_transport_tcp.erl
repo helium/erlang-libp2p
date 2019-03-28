@@ -380,30 +380,36 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
             %% check if our listen addrs have changed
             %% find all the listen addrs owned by this transport
             MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
-            %% find the distinct list of listen addrs for each listen socket
-            NewListenAddrsWithPid = lists:foldl(fun(LA, Acc) ->
-                                             case libp2p_config:lookup_listener(TID, LA) of
-                                                 {ok, Pid} ->
-                                                     case lists:keymember(Pid, 2, Acc) of
-                                                         true ->
-                                                             Acc;
-                                                         false ->
-                                                             case libp2p_config:lookup_listen_socket(TID, Pid) of
-                                                                 {ok, {_ListenAddr, S}} ->
-                                                                     [{tcp_listen_addrs(S), Pid} | Acc];
-                                                                 false ->
-                                                                     Acc
-                                                             end
-                                                     end;
-                                                 false ->
-                                                     Acc
-                                             end
-                                     end, [], MyListenAddrs),
+            NewListenAddrsWithPid = case MyListenAddrs of
+                                        [] ->
+                                            %% engage desperation mode, we had no listen addresses before, but maybe we have some now because someone plugged in a cable or configured wifi
+                                            [ {tcp_listen_addrs(S), Pid} || {Pid, Addr, S} <- libp2p_config:listen_sockets(TID), match_addr(Addr, TID) /= false ];
+                                        _ ->
+                                            %% find the distinct list of listen addrs for each listen socket
+                                            lists:foldl(fun(LA, Acc) ->
+                                                                case libp2p_config:lookup_listener(TID, LA) of
+                                                                    {ok, Pid} ->
+                                                                        case lists:keymember(Pid, 2, Acc) of
+                                                                            true ->
+                                                                                Acc;
+                                                                            false ->
+                                                                                case libp2p_config:lookup_listen_socket(TID, Pid) of
+                                                                                    {ok, {_ListenAddr, S}} ->
+                                                                                        [{tcp_listen_addrs(S), Pid} | Acc];
+                                                                                    false ->
+                                                                                        Acc
+                                                                                end
+                                                                        end;
+                                                                    false ->
+                                                                        Acc
+                                                                end
+                                                        end, [], MyListenAddrs)
+                                    end,
             %% don't use lists flatten here as it flattens too much
             NewListenAddrs = lists:foldl(fun(E, A) -> E ++ A end, [], (element(1, lists:unzip(NewListenAddrsWithPid)))),
-            case lists:member(LocalAddr, NewListenAddrs) of
+            case lists:member(LocalAddr, NewListenAddrs) orelse (ListenAddrs == [] andalso NewListenAddrs /= []) of
                 true ->
-                    %% they have changed, add any new ones and remove any old ones
+                    %% they have changed, or we never had any; add any new ones and remove any old ones
                     ObservedAddr = libp2p_identify:observed_addr(Identify),
                     %% find listen addresses for this transport
                     MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],

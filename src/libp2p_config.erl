@@ -7,7 +7,7 @@
          lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
-         listen_socket/0, lookup_listen_socket/2, lookup_listen_socket_by_addr/2, insert_listen_socket/4, remove_listen_socket/2,
+         listen_socket/0, lookup_listen_socket/2, lookup_listen_socket_by_addr/2, insert_listen_socket/4, remove_listen_socket/2, listen_sockets/1,
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
          insert_group/3, lookup_group/2, remove_group/2,
@@ -196,6 +196,10 @@ lookup_listen_socket_by_addr(TID, Addr) ->
 remove_listen_socket(TID, Pid) ->
     ets:delete(TID, {?LISTEN_SOCKET, Pid}),
     true.
+
+-spec listen_sockets(ets:tab()) -> [{pid(), string(), gen_tcp:socket()}].
+listen_sockets(TID) ->
+    [{Pid, Addr, Socket} || [Pid, Addr, Socket] <- ets:match(TID, {{?LISTEN_SOCKET, '$1'}, {'$2', '$3'}})].
 
 %%
 %% Sessions
