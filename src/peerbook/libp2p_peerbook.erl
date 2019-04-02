@@ -391,6 +391,7 @@ unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
         %% we can get 'corruption' when the system time is not at least 05/09/2013:5:40PM GMT-8
         %% https://github.com/facebook/rocksdb/blob/4decff6fa8c4d46e905a66d439394c4bfb889a69/utilities/ttl/db_ttl_impl.cc#L154
         corruption -> {error, not_found};
+        {error, {corruption, _}} -> {error, not_found};
         not_found -> {error, not_found}
     end.
 
