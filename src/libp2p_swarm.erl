@@ -384,6 +384,7 @@ remove_group(Sup, GroupID) when is_pid(Sup) ->
 remove_group(TID, GroupID) ->
     GroupSup = libp2p_swarm_group_sup:sup(TID),
     _ = supervisor:terminate_child(GroupSup, GroupID),
+    _ = supervisor:delete_child(GroupSup, GroupID),
     _ = libp2p_config:remove_group(TID, GroupID),
     ok.
 

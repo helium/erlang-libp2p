@@ -290,14 +290,14 @@ handle_info(force_close, State=#state{}) ->
     spawn(fun() ->
                   libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
           end),
-    {noreply, State};
+    {noreply, State#state{close_state=closing}};
 
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 
-terminate(normal, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
+terminate(_, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
     relcast:stop(normal, Store),
     rm_rf(StoreDir);
 terminate(Reason, #state{store=Store}) ->
