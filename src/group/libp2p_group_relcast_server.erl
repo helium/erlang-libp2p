@@ -283,6 +283,7 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
 handle_info({start_relcast, Handler, HandlerArgs, SelfIndex, Addrs}, State) ->
     {ok, Relcast} = start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, State#state.store_dir),
     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
+    erlang:send_after(1500, self(), inbound_tick),
     {noreply, State#state{store=Relcast}};
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
@@ -291,7 +292,16 @@ handle_info(force_close, State=#state{}) ->
                   libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
           end),
     {noreply, State#state{close_state=closing}};
-
+handle_info(inbound_tick, State = #state{store=Store}) ->
+    case relcast:process_inbound(Store) of
+        {ok, Store1} ->
+            ok;
+        {stop, Timeout, Store1} ->
+            erlang:send_after(Timeout, self(), force_close),
+            ok
+    end,
+    erlang:send_after(1500, self(), inbound_tick),
+    {noreply, dispatch_next_messages(State#state{store=Store1})};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
