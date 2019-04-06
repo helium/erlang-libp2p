@@ -2,8 +2,11 @@
 
 set -ex
 
+
+. "$HOME/.asdf/asdf.sh"
+asdf local erlang 21.3
+
 (
-    asdf local erlang 21.3
     echo --- cleaning build
     make clean
     echo --- build
