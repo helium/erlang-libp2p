@@ -1,0 +1,4 @@
+steps:
+  - command: "ci/build.sh"
+    name: ":hammer: build"
+    timeout_in_minutes: 20
