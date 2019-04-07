@@ -2,4 +2,5 @@ steps:
   - command: "ci/build.sh"
     name: ":hammer: build"
     timeout_in_minutes: 20
-    queue: "erlang"
+    agents:
+      queue: "erlang"
