@@ -27,6 +27,9 @@ cover:
 test:
 	$(REBAR) as test do eunit,ct
 
+ci:
+	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct 2>&1 | tee build.log | sed 's/^\(\x1b\[[0-9;]*m\)*>>>/---/'
+
 typecheck:
 	$(REBAR) dialyzer
 
