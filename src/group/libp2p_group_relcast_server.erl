@@ -309,6 +309,8 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+-dialyzer({nowarn_function, [handle_info/2]}).
+
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
     ServerPath = lists:flatten(?GROUP_PATH_BASE, GroupID),
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,

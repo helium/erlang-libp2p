@@ -128,7 +128,7 @@ keys(TID) ->
     Server = libp2p_swarm_sup:server(TID),
     gen_server:call(Server, keys).
 
--spec network_id(ets:tab() | pid(), binary()) -> ok.
+-spec network_id(ets:tab() | pid(), binary()) -> true.
 network_id(Sup, NetworkID) when is_pid(Sup) ->
     network_id(tid(Sup), NetworkID);
 network_id(TID, NetworkID) ->
