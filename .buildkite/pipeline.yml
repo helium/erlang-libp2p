@@ -2,20 +2,5 @@ steps:
   - commands:
       - ". $HOME/.asdf/asdf.sh"
       - "asdf local erlang 21.3"
-    name: ":gear: setup"
-
-  - wait
-
-  - command: "make 2>&1 | tee build.log"
+      - "make ci"
     name: ":hammer: build"
-    timeout_in_minutes: 10
-    artifact_paths:
-      - "build.log"
-
-  - wait
-
-  - command: "make test 2>& 1 | tee test.log"
-    name: ":hammer: test"
-    timeout_in_minutes: 10
-    artifact_paths:
-      - "test.log"
