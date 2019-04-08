@@ -17,9 +17,9 @@
 -behavior(libp2p_group_gossip_handler).
 
 -record(peerbook, { tid :: ets:tab(),
-                           store :: rocksdb:db_handle(),
-                           stale_time :: pos_integer()
-                         }).
+                    store :: rocksdb:db_handle(),
+                    stale_time :: pos_integer()
+                  }).
 -type peerbook() :: #peerbook{}.
 
 -export_type([peerbook/0]).
