@@ -4,3 +4,5 @@ steps:
       - "asdf local erlang 21.3"
       - "make ci"
     name: ":hammer: build"
+    agents:
+      queue: "erlang"
