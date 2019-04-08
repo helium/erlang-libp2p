@@ -309,7 +309,11 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
--dialyzer({nowarn_function, [handle_info/2]}).
+-dialyzer({nowarn_function, [start_relcast/5]}).
+start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, Store) ->
+    {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
+                                  HandlerArgs, [{data_dir, Store}]),
+    {ok, Relcast}.
 
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
     ServerPath = lists:flatten(?GROUP_PATH_BASE, GroupID),
@@ -317,7 +321,7 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info({start_relcast, Handler, HandlerArgs, SelfIndex, Addrs}, State) ->
-    {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler, HandlerArgs, [{data_dir, State#state.store_dir}]),
+    {ok, Relcast} = start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, State#state.store_dir),
     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
     {noreply, State#state{store=Relcast}};
 handle_info({send_ack, Index, Seq, Reset, Range}, State=#state{}) ->
