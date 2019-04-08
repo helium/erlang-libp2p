@@ -1,5 +1,4 @@
-[![Build Status](https://travis-ci.org/helium/erlang-libp2p.svg?branch=master)](https://travis-ci.org/helium/erlang-libp2p)
-[![Coverage Status](https://coveralls.io/repos/github/helium/erlang-libp2p/badge.svg)](https://coveralls.io/github/helium/erlang-libp2p)
+[![Build Status](https://badge.buildkite.com/4d3f726086ce9603d8e3fab663ce396afff684db43feaf9356.svg?branch=master)](https://buildkite.com/helium/erlang-libp2p)
 
 # Erlang Libp2p
 
