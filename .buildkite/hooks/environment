@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-
-set -eu
-echo '--- :house_with_garden: Setting up the environment'
-
-. "$HOME/.asdf/asdf.sh"
-asdf local erlang 21.3
