@@ -1,6 +1,8 @@
 steps:
-  - command: "ci/build.sh"
+  - command: "make ci"
     name: ":hammer: build"
     timeout_in_minutes: 20
+    artifact_paths:
+      - "build.log"
     agents:
       queue: "erlang"
