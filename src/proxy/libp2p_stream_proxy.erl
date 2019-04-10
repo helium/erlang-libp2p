@@ -120,6 +120,9 @@ handle_server_data({dial_back, DialBack}, Env, State) ->
     case dial_back(Env, State) of
         {ok, Connection} ->
             {noreply, State#state{raw_connection=Connection}};
+        {error, Reason} when Reason == timeout orelse
+                             Reason == tcp_closed ->
+            {stop, normal, State};
         {error, Reason} ->
             {stop, Reason, State}
     end;
@@ -148,6 +151,9 @@ handle_client_data({dial_back, DialBack}, Env, State) ->
     case dial_back(Env, State) of
         {ok, Connection} ->
             {noreply, State#state{raw_connection=Connection}};
+        {error, Reason} when Reason == timeout orelse
+                             Reason == tcp_closed ->
+            {stop, normal, State};
         {error, Reason} ->
             {stop, Reason, State}
     end;
