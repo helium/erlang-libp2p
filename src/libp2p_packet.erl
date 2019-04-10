@@ -5,13 +5,28 @@
 
 -export_type([header_spec/0, header_spec_type/0]).
 
--export([decode_header/2, header_spec_size/1]).
+-export([decode_header/2,
+         header_spec_size/1,
+         decode_packet/2]).
 
 -spec decode_header(header_spec(), binary()) ->
                            {ok, Header::binary(), PacketSize::non_neg_integer(), Tail::binary()}
                                | {more, Expected::pos_integer()}.
 decode_header(Spec, Bin) ->
     decode_header(Spec, Bin, <<>>, 0).
+
+-spec decode_packet(header_spec(), binary()) -> {ok, Header::binary(), Data::binary(), Tail::binary()}
+                                                    | {more, Expected::pos_integer()}.
+decode_packet(Spec, Bin) ->
+    case decode_header(Spec, Bin) of
+        {ok, Header, PacketSize, Tail} when PacketSize =< byte_size(Tail) ->
+            <<Packet:PacketSize/binary, Rest/binary>> = Tail,
+            {ok, Header, Packet, Rest};
+        {ok, _, PacketSize, Tail} ->
+            {more, PacketSize - byte_size(Tail)};
+        {more, N} ->
+            {more, N}
+    end.
 
 decode_header([], Bin, Acc, PacketSize) ->
     {ok, Acc, PacketSize, Bin};

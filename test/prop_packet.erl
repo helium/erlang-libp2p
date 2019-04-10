@@ -2,7 +2,10 @@
 
 -include_lib("proper/include/proper.hrl").
 
--export([prop_decode_header/0]).
+-export([
+         prop_decode_header/0,
+         prop_encode_decode_packet/0
+        ]).
 
 prop_decode_header() ->
     ?FORALL({Spec, Data}, random_packet(),
@@ -15,28 +18,40 @@ prop_decode_header() ->
                         %% number of prefix bytes. This means that
                         %% MinSize + M could actually be < byte_size
                         %% data.
-                        M >= 1;
+                        M >= 1 andalso
+                            %% if a header is too short, then decoding
+                            %% a full packet should respond the same
+                            %% way
+                            {more, M} =:= libp2p_packet:decode_packet(Spec, Data);
                     {ok, Header, PacketSize, Tail} ->
                         byte_size(Header) >= MinSize andalso
                             PacketSize >= 0 andalso
-                            byte_size(Tail) >= 0;
-                    _ ->
-                        false
+                            byte_size(Tail) >= 0
                 end
             end).
 
-prop_encode_decode_header() ->
+prop_encode_decode_packet() ->
     ?FORALL({Spec, Header, Data}, good_packet(),
-           begin
-               case libp2p_packet:decode_header(Spec, <<Header/binary, Data/binary>>) of
-                   {ok, DecodedHeader, PacketSize, Tail} ->
-                       DecodedHeader =:= Header andalso
-                           PacketSize =:= byte_size(Data) andalso
-                           Data =:= Tail;
-                   {more, _} ->
-                       false
-               end
-           end).
+            begin
+                EncodedPacket = <<Header/binary, Data/binary>>,
+                case libp2p_packet:decode_packet(Spec, EncodedPacket) of
+                    {ok, DecHeader, DecData, Tail} when length(Spec) == 0 ->
+                        byte_size(DecHeader) == 0 andalso
+                        byte_size(DecData) == 0 andalso
+                            byte_size(Tail) >= 0;
+                    {ok, DecHeader, DecData, Tail} ->
+                        %% Match header
+                        DecHeader =:= DecHeader andalso
+                            %% and data
+                            DecData =:= DecData andalso
+                            %% Enure that a decoded header without
+                            %% data returns the right remaining packet
+                            %% size
+                            {more, byte_size(DecData)} =:= libp2p_packet:decode_packet(Spec, Header) andalso
+                            %% No remaining data
+                            byte_size(Tail) =:= 0
+                end
+            end).
 
 %%
 %% Generators
