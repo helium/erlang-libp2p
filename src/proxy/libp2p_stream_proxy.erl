@@ -117,8 +117,15 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
     end;
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
-    {ok, Connection} = dial_back(Env, State),
-    {noreply, State#state{raw_connection=Connection}};
+    case dial_back(Env, State) of
+        {ok, Connection} ->
+            {noreply, State#state{raw_connection=Connection}};
+        {error, Reason} when Reason == timeout orelse
+                             Reason == tcp_closed ->
+            {stop, normal, State};
+        {error, Reason} ->
+            {stop, Reason, State}
+    end;
 handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connection}=State) ->
     Socket = libp2p_connection:socket(Connection),
     Conn = libp2p_transport_tcp:new_connection(Socket, libp2p_proxy_resp:multiaddr(Resp)),
@@ -141,8 +148,15 @@ handle_client_data(Bin, State) ->
 
 handle_client_data({dial_back, DialBack}, Env, State) ->
     lager:info("client got dial back request ~p", [DialBack]),
-    {ok, Connection} = dial_back(Env, State),
-    {noreply, State#state{raw_connection=Connection}};
+    case dial_back(Env, State) of
+        {ok, Connection} ->
+            {noreply, State#state{raw_connection=Connection}};
+        {error, Reason} when Reason == timeout orelse
+                             Reason == tcp_closed ->
+            {stop, normal, State};
+        {error, Reason} ->
+            {stop, Reason, State}
+    end;
 handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
                                               raw_connection=Connection}=State) ->
     lager:info("client got proxy resp ~p", [Resp]),
@@ -158,7 +172,7 @@ handle_client_data(_Data, _Env, State) ->
 %% EUNIT Tests
 %% ------------------------------------------------------------------
 
--spec dial_back(libp2p_proxy_envelope:proxy_envelope(), state()) -> {ok, libp2p_connection:connection()}.
+-spec dial_back(libp2p_proxy_envelope:proxy_envelope(), state()) -> {ok, libp2p_connection:connection()} | {error, any()}.
 dial_back(Env, #state{connection=Connection}) ->
     {_, MultiAddrStr} = libp2p_connection:addr_info(Connection),
     MultiAddr = multiaddr:new(MultiAddrStr),
@@ -169,8 +183,12 @@ dial_back(Env, #state{connection=Connection}) ->
     Path = libp2p_proxy:version() ++  "/" ++ base58:binary_to_base58(ID),
     Handlers = [{Path, <<"success">>}],
     RawConnection = libp2p_transport_tcp:new_connection(Socket),
-    {ok, _} = libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection),
-    {ok, RawConnection}.
+    case libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection) of
+        {error, _Reason}=Error ->
+            lager:error("failed to negotiate_handler ~p ~p ~p, ~p", [Handlers, Path, RawConnection, _Reason]),
+            Error;
+        {ok, _} -> {ok, RawConnection}
+    end.
 
 -ifdef(TEST).
 -endif.
