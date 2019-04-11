@@ -10,7 +10,7 @@
 prop_decode_header() ->
     ?FORALL({Spec, Data}, random_packet(),
             begin
-                MinSize = libp2p_packet:header_spec_size(Spec),
+                MinSize = libp2p_packet:spec_size(Spec),
                 case libp2p_packet:decode_header(Spec, Data) of
                     {more, M} ->
                         %% varints make it much harder to predict what
@@ -58,12 +58,12 @@ prop_encode_decode_packet() ->
 %%
 
 random_packet() ->
-    {header_spec(), binary()}.
+    {spec(), binary()}.
 
 good_packet() ->
-    ?LET(Spec, header_spec(), gen_spec_packet(Spec)).
+    ?LET(Spec, spec(), gen_spec_packet(Spec)).
 
-header_spec() ->
+spec() ->
     list(oneof([u8,u16,u16le,u32,u32le,varint])).
 
 gen_spec_binary_rest(u8) ->
