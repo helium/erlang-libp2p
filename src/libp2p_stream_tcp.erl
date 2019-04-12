@@ -3,14 +3,14 @@
 -behavior(gen_server).
 
 -type opts() :: #{socket => gen_tcp:socket(),
-                  module => atom(),
-                  module_opts => any()
+                  mod => atom(),
+                  mod_opts => any()
                  }.
 
 -export_type([opts/0]).
 
 %%% gen_server
--export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2]).
+-export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, handle_terminate/2]).
 
 %% API
 -export([command/2]).
@@ -35,7 +35,7 @@ command(Pid, Cmd) ->
 start_link(Kind, Opts) ->
     gen_server:start_link(?MODULE, {Kind, Opts}, []).
 
-init({Kind, #{module := Mod, module_opts := ModOpts, socket := Sock}}) ->
+init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
     erlang:process_flag(trap_exit, true),
     ok = inet:setopts(Sock, [binary, {packet, raw}]),
     SendPid = spawn_link(mk_async_sender(Sock)),
@@ -77,9 +77,14 @@ handle_info({tcp_closed, Sock}, State=#state{socket=Sock}) ->
     {stop, normal, State};
 handle_info({stop, Reason}, State=#state{}) ->
     {stop, Reason, State};
+handle_info({'EXIT', SendPid, Reason}, State=#state{send_pid=SendPid}) ->
+    {stop, Reason, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
+
+handle_terminate(_Reason, State=#state{}) ->
+    gen_tcp:close(State#state.socket).
 
 
 -spec dispatch_packets(#state{}) -> {ok, #state{}} |
@@ -139,15 +144,18 @@ handle_packet_result({close, Reason, ModState, Actions}, State=#state{}) ->
 handle_init_result({ok, ModState, Actions}, State=#state{})  ->
     case proplists:is_defined(packet_spec, Actions) of
         false ->
-            {stop, {error, missing_packet_spec}};
+            handle_init_result({close, {error, missing_packet_spec}}, State);
         true ->
             {ok, handle_actions(Actions, State#state{mod_state=ModState})}
     end;
-handle_init_result({close, Reason}, #state{}) ->
-    {stop, Reason};
+handle_init_result({close, Reason}, State=#state{}) ->
+    handle_init_result({close, Reason, []}, State);
 handle_init_result({close, Reason, Actions}, State=#state{}) ->
     handle_actions(Actions, State),
-    {stop, Reason}.
+    {stop, Reason};
+handle_init_result(Result, #state{}) ->
+    {stop, {invalid_init_result, Result}}.
+
 
 
 -spec handle_actions(libp2p_stream:actions(), #state{}) -> #state{}.
@@ -245,6 +253,45 @@ mk_async_sender(Sock) ->
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
+
+init_test() ->
+    meck:new(inet, [unstick, passthrough]),
+    meck:expect(inet, setopts, fun(_Sock, _Opts) -> ok end),
+
+    meck:new(test_stream, [non_strict]),
+    meck:expect(test_stream, init, fun(_, [Result]) -> Result end),
+
+    %% valid close response causes a stop
+    ?assertMatch({stop, test_stream_stop},
+                 ?MODULE:init({client, #{socket => -1,
+                                         mod => test_stream,
+                                         mod_opts => [{close, test_stream_stop}]
+                                        }})),
+
+    %% invalid init result causes a stop
+    ?assertMatch({stop, {invalid_init_result, invalid_result}},
+                 ?MODULE:init({client, #{socket => -1,
+                                         mod => test_stream,
+                                         mod_opts => [invalid_result]
+                                        }})),
+    %% missing packet spec, causes a stop
+    ?assertMatch({stop, {error, missing_packet_spec}},
+                 ?MODULE:init({client, #{socket => -1,
+                                         mod => test_stream,
+                                         mod_opts => [{ok, {}, []}]
+                                        }})),
+    %% valid response gets an ok
+    ?assertMatch({ok, #state{packet_spec=[u8]}},
+                 ?MODULE:init({client, #{socket => -1,
+                                         mod => test_stream,
+                                         mod_opts => [{ok, {}, [{packet_spec, [u8]}]}]
+                                        }})),
+
+    ?assert(meck:validate(test_stream)),
+    meck:unload(test_stream),
+
+    meck:unload(inet),
+    ok.
 
 
 
