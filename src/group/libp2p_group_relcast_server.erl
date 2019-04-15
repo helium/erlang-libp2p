@@ -367,7 +367,7 @@ lookup_worker(Index, State=#state{}) ->
 lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
     lists:keyfind(Key, KeyIndex, Workers).
 
--spec dispatch_ack(pos_integer(), pos_integer(), boolean(), boolean(), #state{}) -> #state{}.
+-spec dispatch_ack(pos_integer(), [pos_integer()], boolean(), boolean(), #state{}) -> #state{}.
 dispatch_ack(_Index, [], _Reset, _Range, State=#state{}) ->
     State;
 dispatch_ack(Index, Acks, Reset, Range, State=#state{}) ->
@@ -379,26 +379,6 @@ dispatch_ack(Index, Acks, Reset, Range, State=#state{}) ->
             libp2p_group_worker:send_ack(Worker, Acks, Reset, Range),
             State
     end.
-
-%-spec close_workers(#state{}) -> #state{}.
-%close_workers(State=#state{workers=Workers}) ->
-    %lists:foreach(fun(#worker{pid=self}) ->
-                          %ok;
-                     %(#worker{pid=Pid}) ->
-                          %libp2p_group_worker:close(Pid)
-                  %end, Workers),
-    %State.
-
-%-spec close_check(#state{}) -> #state{}.
-%close_check(State=#state{close_state=closing}) ->
-    %% TODO
-    %case count_messages(?OUTBOUND, all, State) of
-        %0 -> self() ! force_close;
-        %_ -> ok
-    %end,
-    %State;
-%close_check(State) ->
-    %State.
 
 %% deliver to the workers in a round-robin fashion
 %% until all the workers have run out of messages or filled
