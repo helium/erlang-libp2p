@@ -269,10 +269,10 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
--dialyzer({nowarn_function, [start_relcast/6]}).
-start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
+-dialyzer({nowarn_function, [start_relcast/5]}).
+start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, Store) ->
     {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
-                                  HandlerArgs, [{data_dir, Store}] ++ RelcastArgs),
+                                  HandlerArgs, [{data_dir, Store}]),
     {ok, Relcast}.
 
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
