@@ -29,21 +29,21 @@
         {close, Reason::term(), ModState::any()} |
         {close, Reason::term(), ModState::any(), actions()}.
 
--type handle_error_result() :: handle_packet_result().
+-type handle_info_result() :: handle_packet_result().
 -type handle_command_result() ::
         {reply, Reply::term(), ModState::any()} |
         {reply, Reply::term(), ModState::any(), actions()} |
         {noreply, ModState::any()} |
         {noreply, ModState::any(), actions()}.
 
--export_type([init_result/0, handle_packet_result/0, handle_error_result/0, handle_command_result/0]).
+-export_type([init_result/0, handle_packet_result/0, handle_info_result/0, handle_command_result/0]).
 
 
 -callback init(kind(), Args::map()) -> init_result().
 -callback command(ModState::any(), Command::any()) -> term().
 
 -callback handle_packet(kind(), Packet::binary(), ModState::any()) -> handle_packet_result().
--callback handle_error(kind(), Error::term(), ModState::any()) -> handle_error_result().
+-callback handle_info(kind(), Error::term(), ModState::any()) -> handle_info_result().
 -callback handle_command(kind(), Command::any(), From::term(), ModState::any()) -> handle_command_result().
 
 -optional_callbacks([handle_command/4, command/2]).

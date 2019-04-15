@@ -60,11 +60,11 @@ handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod, mod_state=ModSt
         error ->
             {noreply, State};
         {_, NewTimers} ->
-            Result = Mod:handle_error(State#state.kind, {timeout, Key}, ModState),
+            Result = Mod:handle_info(State#state.kind, {stream_timeout, Key}, ModState),
             handle_packet_result(Result, State#state{timers=NewTimers})
     end;
 handle_info({send_error, Error}, State=#state{mod=Mod, mod_state=ModState}) ->
-    Result = Mod:handle_error(State#state.kind, Error, ModState),
+    Result = Mod:handle_info(State#state.kind, {stream_error, Error}, ModState),
     handle_packet_result(Result, State);
 handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock, data=Data}) ->
     case dispatch_packets(State#state{data= <<Data/binary, Incoming/binary>>}) of
@@ -79,9 +79,9 @@ handle_info({stop, Reason}, State=#state{}) ->
     {stop, Reason, State};
 handle_info({'EXIT', SendPid, Reason}, State=#state{send_pid=SendPid}) ->
     {stop, Reason, State};
-handle_info(Msg, State) ->
-    lager:warning("Unhandled info: ~p", [Msg]),
-    {noreply, State}.
+handle_info(Msg, State=#state{mod=Mod, mod_state=ModState}) ->
+    Result = Mod:handle_info(State#state.kind, Msg, ModState),
+    handle_packet_result(Result, State).
 
 handle_terminate(_Reason, State=#state{}) ->
     gen_tcp:close(State#state.socket).
