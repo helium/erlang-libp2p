@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 message ack_frame {
-    uint32 seq = 1;
+    repeated uint32 seq = 1;
     bytes data = 2;
     bool reset = 3;
     bool last_or_range_ack = 4;

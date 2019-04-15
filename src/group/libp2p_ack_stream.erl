@@ -53,7 +53,7 @@ init(client, Connection, [AckRef, AckModule, AckState]) ->
 
 handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
-        #libp2p_ack_frame_pb{data=Bin, seq=Seq, last_or_range_ack=Last} when Bin /= <<>> ->
+        #libp2p_ack_frame_pb{data=Bin, seq=[Seq], last_or_range_ack=Last} when Bin /= <<>> ->
             %% Inbound request to handle a message
             AckModule:handle_data(AckState, AckRef, {Bin, Seq, Last == true}),
             {noreply, State};
@@ -66,10 +66,12 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             {noreply, State}
     end.
 
-handle_send(_Kind, From, {Data, Seq, Last}, Timeout, State=#state{}) ->
+handle_send(_Kind, From, {Data, Seq0, Last}, Timeout, State=#state{}) ->
+    Seq = case Seq0 of S when is_list(S) -> Seq0; _ -> [Seq0] end,
     Msg = #libp2p_ack_frame_pb{data=Data, seq=Seq, last_or_range_ack=Last == true},
     {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
 
-handle_info(_Kind, {send_ack, Seq, Reset, Range}, State=#state{}) ->
+handle_info(_Kind, {send_ack, Seq0, Reset, Range}, State=#state{}) ->
+    Seq = case Seq0 of S when is_list(S) -> Seq0; _ -> [Seq0] end,
     Msg = #libp2p_ack_frame_pb{seq=Seq, reset=Reset, last_or_range_ack=Range},
     {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.

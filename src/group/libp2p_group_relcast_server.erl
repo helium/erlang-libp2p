@@ -213,25 +213,18 @@ handle_cast({send_result, _Index, {error, _Error}}, State=#state{self_index=_Sel
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.
     {noreply, State};
-handle_cast({handle_ack, Index, Seq, Reset, Range}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_ack, Index, Seq, Reset, _Range}, State=#state{self_index=_SelfIndex}) ->
     %% Received when a previous message had a send_result of defer.
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
     %% Delete the outbound message for the given index
-    Relcast = case Range of
-                  true ->
-                      {ok, RC} = relcast:multi_ack(Index, Seq, State#state.store),
-                      RC;
-                  false ->
-                      {ok, RC} = relcast:ack(Index, Seq, State#state.store),
-                      RC
-              end,
+    {ok, RC} = relcast:ack(Index, Seq, State#state.store),
     NewRelcast = case Reset of
                      true ->
-                         {ok, R} = relcast:reset_actor(Index, Relcast),
+                         {ok, R} = relcast:reset_actor(Index, RC),
                          R;
                      false ->
-                         Relcast
+                         RC
                  end,
     Worker = lookup_worker(Index, State),
     InFlight = relcast:in_flight(Index, NewRelcast),
@@ -276,10 +269,10 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
--dialyzer({nowarn_function, [start_relcast/5]}).
-start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, Store) ->
+-dialyzer({nowarn_function, [start_relcast/6]}).
+start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
     {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
-                                  HandlerArgs, [{data_dir, Store}]),
+                                  HandlerArgs, [{data_dir, Store}] ++ RelcastArgs),
     {ok, Relcast}.
 
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
