@@ -35,16 +35,17 @@ ack_test(Config) ->
     end,
 
     receive
-        {handle_data, {server, S}, <<"hello">>, Seq} -> libp2p_ack_stream:send_ack(S, Seq, false)
+        {handle_data, {server, S}, <<"hello">>, Seq} -> libp2p_ack_stream:send_ack(S, [Seq], false)
     after 1000 ->
-            erlang:exit({timeout_data, erlang:process_info(self(), [messages])}),
+            exit({timeout_data, erlang:process_info(self(), [messages])}),
             S = Seq = fail
     end,
 
     receive
         {handle_ack, client, _Seq, false} -> ok
     after 1000 ->
-            erlang:exit({timeout_ack, S, self(), Seq, erlang:process_info(self(), [messages])})
+            exit({timeout_ack, erlang:is_process_alive(S), self(), Seq,
+                  erlang:process_info(self(), [messages])})
     end,
 
     ok.
