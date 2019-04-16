@@ -22,14 +22,17 @@ all() ->
 
 init_per_testcase(defer_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
+                                        {libp2p_group_gossip, [{peer_cache_timeout, 50}]},
                                         {libp2p_nat, [{enabled, false}]}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(close_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
+                                        {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
                                         {libp2p_nat, [{enabled, false}]}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]},
+                                        {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
                                         {libp2p_nat, [{enabled, false}]}]),
     [{swarms, Swarms} | Config].
 
