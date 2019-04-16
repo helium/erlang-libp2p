@@ -84,11 +84,22 @@ save_keys(KeysMap, FileName) when is_list(FileName) ->
 -spec keys_to_bin(key_map()) -> binary().
 keys_to_bin(#{secret := {ecc_compact, PrivKey}, public := {ecc_compact, _PubKey}}) ->
     #'ECPrivateKey'{privateKey=PrivKeyBin, publicKey=PubKeyBin} = PrivKey,
-    <<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>;
+    case byte_size(PrivKeyBin) of
+        32 ->
+            <<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>;
+        31 ->
+            %% sometimes a key is only 31 bytes
+            <<?KEYTYPE_ECC_COMPACT:8, 0:8/integer, PrivKeyBin:31/binary, PubKeyBin/binary>>
+    end;
 keys_to_bin(#{secret := {ed25519, PrivKey}, public := {ed25519, PubKey}}) ->
     <<?KEYTYPE_ED25519:8, PrivKey:64/binary, PubKey:32/binary>>.
 
 -spec keys_from_bin(binary()) -> key_map().
+keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, 0:8/integer, PrivKeyBin:31/binary, PubKeyBin/binary>>) ->
+    Params = {namedCurve, ?secp256r1},
+    PrivKey = #'ECPrivateKey'{version=1, parameters=Params, privateKey=PrivKeyBin, publicKey=PubKeyBin},
+    PubKey = {#'ECPoint'{point=PubKeyBin}, Params},
+    #{secret => {ecc_compact, PrivKey}, public => {ecc_compact, PubKey}};
 keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>) ->
     Params = {namedCurve, ?secp256r1},
     PrivKey = #'ECPrivateKey'{version=1, parameters=Params, privateKey=PrivKeyBin, publicKey=PubKeyBin},
@@ -254,5 +265,29 @@ verify_ecdh_test() ->
 
     ok.
 
+round_trip_short_key_test() ->
+    ShortKeyMap = #{public =>
+                    {ecc_compact,{{'ECPoint',<<4,2,151,174,89,188,129,160,76,
+                                               74,234,246,22,24,16,96,70,219,
+                                               183,246,235,40,90,107,29,126,
+                                               74,14,11,201,75,2,168,74,18,
+                                               165,99,26,32,161,195,100,232,
+                                               40,130,76,231,85,239,255,213,
+                                               129,210,184,181,233,79,154,11,
+                                               229,103,160,213,105,208>>},
+                                  {namedCurve,{1,2,840,10045,3,1,7}}}},
+                    secret =>
+                    {ecc_compact,{'ECPrivateKey',1,
+                                  <<49,94,129,63,91,89,3,86,29,23,158,86,76,180,129,140,194,
+                                    25,52,94,141,36,222,112,234,227,33,172,94,168,123>>,
+                                  {namedCurve,{1,2,840,10045,3,1,7}},
+                                  <<4,2,151,174,89,188,129,160,76,74,234,246,22,24,16,96,
+                                    70,219,183,246,235,40,90,107,29,126,74,14,11,201,75,
+                                    2,168,74,18,165,99,26,32,161,195,100,232,40,130,76,
+                                    231,85,239,255,213,129,210,184,181,233,79,154,11,229,
+                                    103,160,213,105,208>>}}},
+    Bin = keys_to_bin(ShortKeyMap),
+    ?assertEqual(ShortKeyMap, keys_from_bin(Bin)),
+    ok.
 
 -endif.
