@@ -37,7 +37,7 @@ start_link(Kind, Opts) ->
 
 init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
     erlang:process_flag(trap_exit, true),
-    ok = inet:setopts(Sock, [binary, {packet, raw}]),
+    ok = inet:setopts(Sock, [binary, {packet, raw}, nodelay]),
     SendPid = spawn_link(mk_async_sender(Sock)),
     State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, send_pid=SendPid},
     Result = Mod:init(Kind, ModOpts),

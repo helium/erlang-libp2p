@@ -10,13 +10,12 @@
 prop_decode_header() ->
     ?FORALL({Spec, Data}, random_packet(),
             begin
-                MinSize = libp2p_packet:spec_size(Spec),
                 case libp2p_packet:decode_header(Spec, Data) of
                     {more, M} ->
                         %% varints make it much harder to predict what
                         %% the 'M' should be since they add a random
                         %% number of prefix bytes. This means that
-                        %% MinSize + M could actually be < byte_size
+                        %% spec_size(Spec) + M could actually be < byte_size
                         %% data.
                         M >= 1 andalso
                             %% if a header is too short, then decoding
@@ -24,7 +23,7 @@ prop_decode_header() ->
                             %% way
                             {more, M} =:= libp2p_packet:decode_packet(Spec, Data);
                     {ok, Header, PacketSize, Tail} ->
-                        byte_size(Header) >= MinSize andalso
+                        length(Header) >= 0 andalso
                             PacketSize >= 0 andalso
                             byte_size(Tail) >= 0
                 end
@@ -36,14 +35,14 @@ prop_encode_decode_packet() ->
                 EncodedPacket = <<Header/binary, Data/binary>>,
                 case libp2p_packet:decode_packet(Spec, EncodedPacket) of
                     {ok, DecHeader, DecData, Tail} when length(Spec) == 0 ->
-                        byte_size(DecHeader) == 0 andalso
+                        length(DecHeader) == 0 andalso
                         byte_size(DecData) == 0 andalso
                             byte_size(Tail) >= 0;
                     {ok, DecHeader, DecData, Tail} ->
                         %% Match header
-                        DecHeader =:= DecHeader andalso
+                        DecHeader =:= Header andalso
                             %% and data
-                            DecData =:= DecData andalso
+                            DecData =:= Data andalso
                             %% Enure that a decoded header without
                             %% data returns the right remaining packet
                             %% size
@@ -110,10 +109,3 @@ gen_spec_binary(u32le, Val) ->
     <<Val:32/integer-unsigned-little>>;
 gen_spec_binary(varint ,Val) ->
     <<(encode_varint(Val))/binary>>.
-
-encode_varint(I) when is_integer(I), I >= 0, I =< 127 ->
-    <<I>>;
-encode_varint(I) when is_integer(I), I > 127 ->
-    <<1:1, (I band 127):7, (encode_varint(I bsr 7))/binary>>;
-encode_varint(I) when is_integer(I), I < 0 ->
-    erlang:error({badarg, I}).
