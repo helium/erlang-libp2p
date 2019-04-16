@@ -36,10 +36,10 @@
 -define(DEFAULT_MAX_INBOUND_CONNECTIONS, 10).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 %% Since fetching all known peers from the peerbook can take some
-%% time, we cache the addresses for 30 seconds before re-requesting,
-%% instead of fetching them every time, for every worker that comes in
-%% to ask.
--define(DEFAULT_PEER_CACHE_TIMEOUT, 30 * 1000).
+%% time, we cache the addresses for a number of seconds before
+%% re-requesting, instead of fetching them every time, for every
+%% worker that comes in to ask.
+-define(DEFAULT_PEER_CACHE_TIMEOUT, 10 * 1000).
 -define(GROUP_ID, "gossip").
 -define(GROUP_PATH, "gossip/1.0.0").
 
@@ -113,15 +113,17 @@ handle_cast({remove_handler, Key}, State=#state{handlers=Handlers}) ->
 
 handle_cast({request_target, inbound, WorkerPid}, State=#state{}) ->
     {noreply, stop_inbound_worker(WorkerPid, State)};
-handle_cast({request_target, peerbook, WorkerPid}, State=#state{tid=TID, peer_cache=PeerAddrs}) ->
+handle_cast({request_target, peerbook, WorkerPid}, State0=#state{}) ->
+    State = peer_cache(State0),
+    PeerAddrs = State#state.peer_cache,
     {CurrentAddrs, _} = lists:unzip(connections(all, State)),
-    LocalAddr = libp2p_swarm:p2p_address(TID),
+    LocalAddr = libp2p_swarm:p2p_address(State#state.tid),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
     %% Remove the current addrs from all possible peer addresses
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(PeerAddrs),
                                              sets:from_list(ExcludedAddrs))),
-    {noreply, assign_target(WorkerPid, TargetAddrs, State#state{peer_cache=PeerAddrs})};
+    {noreply, assign_target(WorkerPid, TargetAddrs, State)};
 handle_cast({request_target, seed, WorkerPid}, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
     {CurrentAddrs, _} = lists:unzip(connections(all, State)),
     LocalAddr = libp2p_swarm:p2p_address(TID),
@@ -190,15 +192,9 @@ handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=Drop
             lager:debug("Timeout dropping 1 connection: ~p]", [Worker#worker.target]),
             {noreply, drop_target(Worker, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
     end;
-handle_info(peer_cache_timeout, State=#state{tid=TID}) ->
-    PeerKeys = try
-                   libp2p_peerbook:keys(libp2p_swarm:peerbook(TID))
-               catch
-                   _:_ -> []
-               end,
-    PeerAddrs = [ libp2p_crypto:pubkey_bin_to_p2p(Key) || Key <- PeerKeys ],
-    Timer = erlang:send_after(State#state.peer_cache_timeout, self(), peer_cache_timeout),
-    {noreply, State#state{peer_cache=PeerAddrs, peer_cache_timer=Timer}};
+handle_info(peer_cache_timeout, State=#state{}) ->
+    erlang:send_after(State#state.peer_cache_timeout, self(), peer_cache_timeout),
+    {noreply, peer_cache(State#state{peer_cache=[]})};
 handle_info({handle_identify, {From, StreamPid}, {error, Error}}, State=#state{}) ->
     lager:notice("Failed to identify stream ~p: ~p", [StreamPid, Error]),
     gen_server:reply(From, {error, Error}),
@@ -240,6 +236,18 @@ terminate(_Reason, #state{tid=TID}) ->
 
 %% Internal
 %%
+
+-spec peer_cache(#state{}) -> #state{}.
+peer_cache(State=#state{peer_cache=[], tid=TID}) ->
+    case (catch libp2p_peerbook:keys(libp2p_swarm:peerbook(TID))) of
+        {'EXIT', _} ->
+            State;
+        PeerKeys ->
+            PeerAddrs = [ libp2p_crypto:pubkey_bin_to_p2p(Key) || Key <- PeerKeys ],
+            State#state{peer_cache=PeerAddrs}
+    end;
+peer_cache(State=#state{}) ->
+    State.
 
 -spec schedule_drop_timer(pos_integer()) -> reference().
 schedule_drop_timer(DropTimeOut) ->
