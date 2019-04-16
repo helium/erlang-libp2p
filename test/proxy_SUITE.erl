@@ -57,7 +57,9 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]},
+                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]}
+                ],
     Version = "proxytest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(proxy_basic_server, SwarmOpts),

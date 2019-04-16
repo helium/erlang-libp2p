@@ -36,7 +36,8 @@ init_per_testcase(seed_test, Config) ->
 init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(2, [
                                         {libp2p_group_gossip,
-                                         [{peerbook_connections, 1}]
+                                         [{peerbook_connections, 1},
+                                          {peer_cache_timeout, 100}]
                                         }]),
     [{swarms, Swarms} | Config].
 

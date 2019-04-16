@@ -47,7 +47,7 @@ init(server, Connection, [HandlerModule, HandlerState]) ->
     case (catch HandlerModule:accept_stream(HandlerState, Session, self())) of
         ok -> {ok, State};
         {error, Reason} ->
-            lager:warning("Stopping on accept stream error: ~p", Reason),
+            lager:warning("Stopping on accept stream error: ~p", [Reason]),
             {stop, {error, Reason}, State};
         Exit={'EXIT', _} ->
             lager:warning("Stopping on accept_stream exit: ~s",
