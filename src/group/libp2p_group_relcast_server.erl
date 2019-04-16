@@ -5,11 +5,11 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, handle_input/2, send_ack/5, info/1, handle_command/2]).
+-export([start_link/4, handle_input/2, send_ack/4, info/1, handle_command/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
--export([handle_data/3, handle_ack/5, accept_stream/3]).
+-export([handle_data/3, handle_ack/4, accept_stream/3]).
 
 -record(worker,
        { target :: string(),
@@ -43,8 +43,8 @@
 handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
 
-send_ack(Pid, Index, Seq, Reset, Range) ->
-    Pid ! {send_ack, Index, Seq, Reset, Range}.
+send_ack(Pid, Index, Seq, Reset) ->
+    Pid ! {send_ack, Index, Seq, Reset}.
 
 info(Pid) ->
     catch gen_server:call(Pid, info).
@@ -55,11 +55,11 @@ handle_command(Pid, Msg) ->
 %% libp2p_ack_stream
 %%
 
-handle_data(Pid, Ref, {Bin, Seq, Last}) ->
-    gen_server:cast(Pid, {handle_data, Ref, Bin, Seq, Last}).
+handle_data(Pid, Ref, {Bin, Seq}) ->
+    gen_server:cast(Pid, {handle_data, Ref, Bin, Seq}).
 
-handle_ack(Pid, Ref, Seq, Reset, Range) ->
-    gen_server:cast(Pid, {handle_ack, Ref, Seq, Reset, Range}).
+handle_ack(Pid, Ref, Seq, Reset) ->
+    gen_server:cast(Pid, {handle_ack, Ref, Seq, Reset}).
 
 accept_stream(Pid, StreamPid, Path) ->
     gen_server:call(Pid, {accept_stream, StreamPid, Path}).
@@ -213,7 +213,7 @@ handle_cast({send_result, _Index, {error, _Error}}, State=#state{self_index=_Sel
     %% For any other result error response we leave the worker busy
     %% and we wait for it to send us a new ready on a reconnect.
     {noreply, State};
-handle_cast({handle_ack, Index, Seq, Reset, _Range}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}) ->
     %% Received when a previous message had a send_result of defer.
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
@@ -230,7 +230,7 @@ handle_cast({handle_ack, Index, Seq, Reset, _Range}, State=#state{self_index=_Se
     InFlight = relcast:in_flight(Index, NewRelcast),
     State1 = update_worker(Worker#worker{in_flight=InFlight, last_ack=erlang:system_time(second)}, State),
     {noreply, dispatch_next_messages(State1#state{store=NewRelcast})};
-handle_cast({handle_data, Index, Msg, Seq, _Last}, State=#state{self_index=_SelfIndex}) ->
+handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex}) ->
     Worker = lookup_worker(Index, State),
     %% Incoming message, add to queue
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
@@ -284,9 +284,6 @@ handle_info({start_relcast, Handler, HandlerArgs, SelfIndex, Addrs}, State) ->
     {ok, Relcast} = start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, State#state.store_dir),
     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
     {noreply, State#state{store=Relcast}};
-handle_info({send_ack, Index, Seq, Reset, Range}, State=#state{}) ->
-    %% lager:debug("RELCAST SERVER DISPATCHING ACK TO ~p", [Index]),
-    {noreply, dispatch_ack(Index, Seq, Reset, Range, State)};
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
     %% down the group by exiting the supervisor.
@@ -367,51 +364,44 @@ lookup_worker(Index, State=#state{}) ->
 lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
     lists:keyfind(Key, KeyIndex, Workers).
 
--spec dispatch_ack(pos_integer(), [pos_integer()], boolean(), boolean(), #state{}) -> #state{}.
-dispatch_ack(_Index, [], _Reset, _Range, State=#state{}) ->
+-spec dispatch_ack(pos_integer(), [pos_integer()], boolean(), #state{}) -> #state{}.
+dispatch_ack(_Index, [], _Reset, State=#state{}) ->
     State;
-dispatch_ack(Index, Acks, Reset, Range, State=#state{}) ->
+dispatch_ack(Index, Acks, Reset, State=#state{}) ->
     case lookup_worker(Index, State) of
         #worker{pid=self} ->
-            handle_ack(self(), Index, Acks, Reset, Range),
+            handle_ack(self(), Index, Acks, Reset),
             State;
         #worker{pid=Worker} ->
-            libp2p_group_worker:send_ack(Worker, Acks, Reset, Range),
+            libp2p_group_worker:send_ack(Worker, Acks, Reset),
             State
     end.
+
+%% TODO: batch all acks per worker until the end of this call to ack
+%% in larger batches
 
 %% deliver to the workers in a round-robin fashion
 %% until all the workers have run out of messages or filled
 %% their pipelines
 take_while([], State) ->
     State;
-take_while([{Last, Sent, Worker}|Workers], State) ->
+take_while([Worker | Workers], State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
         {pipeline_full, Acks, NewRelcast} ->
-            dispatch_ack(Index, Acks, false, true, State),
-            maybe_send_last(Worker, Index, Last, true),
+            dispatch_ack(Index, Acks, false, State),
             take_while(Workers, update_worker(Worker#worker{last_take=pipeline_full}, State#state{store = NewRelcast}));
         {not_found, Acks, NewRelcast} ->
-            dispatch_ack(Index, Acks, false, true, State),
-            maybe_send_last(Worker, Index, Last, true),
+            dispatch_ack(Index, Acks, false, State),
             take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
         {ok, Seq, Acks, Msg, NewRelcast} ->
-            %% send a 'last' packet every 5 packets so the pipeline doesn't run dr
-            dispatch_ack(Index, Acks, false, true, State),
-            maybe_send_last(Worker, Index, Last, Sent == 5),
+            libp2p_group_worker:send(Worker#worker.pid, Index, {Msg, Seq}),
+            dispatch_ack(Index, Acks, false, State),
             InFlight = relcast:in_flight(Index, NewRelcast),
             NewWorker = Worker#worker{in_flight=InFlight, last_take=ok},
             State1 = update_worker(NewWorker, State#state{store=NewRelcast}),
-            take_while(Workers ++ [{{Msg, Seq}, (Sent rem 5) + 1, NewWorker}], State1)
+            take_while(Workers ++ [NewWorker], State1)
     end.
-
-%% send the last taken message with a flag indicating if it's the last or more are
-%% coming.
-maybe_send_last(_Worker, _Index, undefined, _Last) ->
-    ok;
-maybe_send_last(Worker, Index, {Msg, Seq}, Last) ->
-    libp2p_group_worker:send(Worker#worker.pid,  Index, {Msg, Seq, Last}).
 
 -spec dispatch_next_messages(#state{}) -> #state{}.
 dispatch_next_messages(State) ->
@@ -419,7 +409,7 @@ dispatch_next_messages(State) ->
                    [] ->
                        State;
                    Workers ->
-                       take_while([{undefined, 0, W} || W <- Workers], State)
+                       take_while([W || W <- Workers], State)
                end,
     %% attempt to deliver some stuff in the pending queue
     maps:fold(fun(Index, {Seq, Msg}, Acc) ->
