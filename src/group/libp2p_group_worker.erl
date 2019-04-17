@@ -239,7 +239,7 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
             end),
             {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
         true ->
-            lager:warning("max connect retries exceeded, going back to targeting"),
+            lager:debug("max connect retries exceeded, going back to targeting"),
             {next_state, targeting, cancel_connect_retry_timer(Data), ?TRIGGER_TARGETING}
     end;
 connecting(EventType, Msg, Data) ->
@@ -261,7 +261,7 @@ connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, ta
     %% The stream we're using died. Let's go back to connecting, but
     %% do not trigger a connect retry right away, (re-)start the
     %% connect retry timer.
-    lager:warning("stream ~p with target ~p exited with reason ~p", [StreamPid, MAddr, Reason]),
+    lager:debug("stream ~p with target ~p exited with reason ~p", [StreamPid, MAddr, Reason]),
     {next_state, connecting,
      start_connect_retry_timer(Data#data{stream_pid=update_stream(undefined, Data)})};
 connected(cast, clear_target, Data=#data{}) ->
@@ -379,7 +379,7 @@ handle_event(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=Connect
 handle_event(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid}) ->
     %% The stream_pid copmleted, was killed, or crashed. Handled only
     %% by `connected'
-    lager:warning("stream pid ~p exited with reason ~p", [StreamPid, _Reason]),
+    lager:debug("stream pid ~p exited with reason ~p", [StreamPid, _Reason]),
     {keep_state, Data#data{stream_pid=update_stream(undefined, Data)}};
 handle_event({call, From}, info, Data=#data{target={Target,_}, stream_pid=StreamPid}) ->
     Info = #{

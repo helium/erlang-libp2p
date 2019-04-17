@@ -54,11 +54,11 @@ client(Connection, Args) ->
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
 init(server, _Conn, [_, _Pid, TID]=Args) ->
-    lager:info("init relay server with ~p", [{_Conn, Args}]),
+    lager:debug("init relay server with ~p", [{_Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
     {ok, #state{swarm=Swarm}};
 init(client, Conn, Args) ->
-    lager:info("init relay client with ~p", [{Conn, Args}]),
+    lager:debug("init relay client with ~p", [{Conn, Args}]),
     Swarm = proplists:get_value(swarm, Args),
     case proplists:get_value(type, Args, undefined) of
         undefined ->
@@ -82,7 +82,7 @@ handle_data(client, Bin, State) ->
 handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
     case libp2p_swarm:listen_addrs(Swarm) of
         [] ->
-            lager:info("no listen addresses for ~p, relay disabled", [Swarm]),
+            lager:debug("no listen addresses for ~p, relay disabled", [Swarm]),
             {stop, no_listen_address, State};
         [_|_] ->
             Address = libp2p_swarm:p2p_address(Swarm),
@@ -161,7 +161,7 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
 % response will be sent back to B
 handle_server_data({bridge_cr, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
     Server = libp2p_relay_bridge:server(Bridge),
-    lager:info("R got a relay request passing to Server's relay stream ~s", [Server]),
+    lager:debug("R got a relay request passing to Server's relay stream ~s", [Server]),
     try libp2p_relay:reg_addr_stream(Server) ! {bridge_cr, Bridge} of
         _ ->
             {noreply, State}
@@ -177,7 +177,7 @@ handle_server_data({bridge_cr, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
 handle_server_data({bridge_sc, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     Client = libp2p_relay_bridge:client(Bridge),
     Server = libp2p_relay_bridge:server(Bridge),
-    lager:info("Client (~s) got Server (~s) dialing back", [Client, Server]),
+    lager:debug("Client (~s) got Server (~s) dialing back", [Client, Server]),
     SessionPids = [Pid || {_, Pid} <- libp2p_swarm:sessions(Swarm)],
     catch libp2p_relay:reg_addr_sessions(Server) ! {sessions, SessionPids},
     {noreply, State};
@@ -202,7 +202,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
             % with p2p-circuit address and inserts it as a new listener to get
             % broadcasted by peerbook
             TID = libp2p_swarm:tid(Swarm),
-            lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, SessionPid]),
+            lager:debug("inserting new listener ~p, ~p, ~p", [TID, Address, SessionPid]),
             true = libp2p_config:insert_listener(TID, [Address], SessionPid),
             {noreply, State#state{relay_addr=Address}};
         Error ->
@@ -213,7 +213,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
 % Bridge Step 4: Server got a bridge req, dialing Client
 handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     Client = libp2p_relay_bridge:client(Bridge),
-    lager:info("Server got a bridge request dialing Client ~s", [Client]),
+    lager:debug("Server got a bridge request dialing Client ~s", [Client]),
     case libp2p_relay:dial_framed_stream(Swarm, Client, [{type, {bridge_sc, Bridge}}]) of
         {ok, _} ->
             {noreply, State};

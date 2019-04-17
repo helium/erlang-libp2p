@@ -414,7 +414,7 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
                     %% find listen addresses for this transport
                     MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
                     RemovedListenAddrs = MyListenAddrs -- NewListenAddrs,
-                    lager:info("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
+                    lager:debug("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
                     [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
                     %% we can simply re-add all of the addresses again, overrides are fine
                     [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
@@ -422,8 +422,8 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
                     libp2p_peerbook:changed_listener(PB),
                     {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
                 false ->
-                    lager:info("identify response with local address ~p that is not a listen addr socket ~p, ignoring",
-                               [LocalAddr, NewListenAddrs]),
+                    lager:debug("identify response with local address ~p that is not a listen addr socket ~p, ignoring",
+                                [LocalAddr, NewListenAddrs]),
                     %% this is likely a discovery session we dialed with unique_port
                     %% we can't trust this for the purposes of the observed address
                     {noreply, State}
@@ -437,7 +437,7 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
             {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
             MyConnectedPeers = [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
             PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
-            lager:info("retrying stungun with peer ~p", [PeerAddr]),
+            lager:debug("retrying stungun with peer ~p", [PeerAddr]),
             case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                 {ok, StunPid} ->
                     %% TODO: Remove this once dial stops using start_link
@@ -454,7 +454,7 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
-            lager:info("stungun detected NAT type ~p", [NatType]),
+            lager:debug("stungun detected NAT type ~p", [NatType]),
             case NatType of
                 none ->
                     %% don't need to start relay here
@@ -481,7 +481,7 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
 handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
-            lager:info("stungun timed out"),
+            lager:debug("stungun timed out"),
             %% note we only remove the txnid here, because we can get multiple messages
             %% for this txnid
             {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
@@ -520,7 +520,7 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Re
             %% listen on this address
             case listen_on(ListenAddr, TID) of
                 {ok, ListenAddrs, Socket, Pid} ->
-                    lager:info("restarted listener for ~p as ~p", [ListenAddr, Pid]),
+                    lager:debug("restarted listener for ~p as ~p", [ListenAddr, Pid]),
                     erlang:monitor(process, Pid),
                     libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
                     libp2p_config:insert_listener(TID, ListenAddrs, Pid),
@@ -791,12 +791,12 @@ is_observed_addr(ObservedAddr, Addrs) ->
               false, Addrs).
 
 most_observed_addr(Addrs) ->
-    lager:info("observed addresses ~p", [Addrs]),
+    lager:debug("observed addresses ~p", [Addrs]),
     {_, ObservedAddrs} = lists:unzip(sets:to_list(Addrs)),
     Counts = dict:to_list(lists:foldl(fun(A, D) ->
                                               dict:update_counter(A, 1, D)
                                       end, dict:new(), ObservedAddrs)),
-    lager:info("most observed addresses ~p", [Counts]),
+    lager:debug("most observed addresses ~p", [Counts]),
     [{MostObservedAddr, Count} |_] = lists:reverse(lists:keysort(1, Counts)),
     case Count >= 2 of
         true ->
@@ -818,11 +818,11 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
             case is_observed_addr(ObservedAddr, ObservedAddrs) of
                 true ->
                     %% ok, we have independant confirmation of an observed address
-                    lager:info("received confirmation of observed address ~s", [ObservedAddr]),
+                    lager:debug("received confirmation of observed address ~s", [ObservedAddr]),
                     {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
                     %% Record the TxnID , then convince a peer to dial us back with that TxnID
                     %% then that handler needs to forward the response back here, so we can add the external address
-                    lager:info("attempting to discover network status using stungun with ~p", [PeerAddr]),
+                    lager:debug("attempting to discover network status using stungun with ~p", [PeerAddr]),
                     case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                         {ok, StunPid} ->
                             %% TODO: Remove this once dial stops using start_link
@@ -834,7 +834,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
                     end;
                 false ->
-                    lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
+                    lager:debug("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
                     State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
             end
     end.

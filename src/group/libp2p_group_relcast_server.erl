@@ -71,7 +71,14 @@ accept_stream(Pid, StreamPid, Path) ->
 start_link(TID, GroupID, Args, Sup) ->
     gen_server:start_link(?MODULE, [TID, GroupID, Args, Sup], []).
 
-init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
+init([TID, GroupID, Args, Sup]) ->
+    RelcastArgs =
+        case Args of
+            [Handler, [Addrs|_] = HandlerArgs] ->
+                [];
+            [Handler, [Addrs|_] = HandlerArgs, RArgs] ->
+                RArgs
+        end,
     erlang:process_flag(trap_exit, true),
     DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
     SelfAddr = libp2p_swarm:pubkey_bin(TID),
@@ -80,7 +87,7 @@ init([TID, GroupID, [Handler, [Addrs|_] = HandlerArgs], Sup]) ->
             %% we have to start relcast async because it might
             %% make a call to the process starting this process
             %% in its handler
-            self() ! {start_relcast, Handler, HandlerArgs, SelfIndex, Addrs},
+            self() ! {start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs},
             {ok, update_metadata(#state{sup=Sup, tid=TID, group_id=GroupID,
                                         self_index=SelfIndex,
                                         store_dir=DataDir})};
@@ -269,10 +276,10 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
--dialyzer({nowarn_function, [start_relcast/5]}).
-start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, Store) ->
+-dialyzer({nowarn_function, [start_relcast/6]}).
+start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
     {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
-                                  HandlerArgs, [{data_dir, Store}]),
+                                  HandlerArgs, [{data_dir, Store}|RelcastArgs]),
     {ok, Relcast}.
 
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
@@ -280,9 +287,10 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
                                     {libp2p_ack_stream, server,[?MODULE, self()]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
-handle_info({start_relcast, Handler, HandlerArgs, SelfIndex, Addrs}, State) ->
-    {ok, Relcast} = start_relcast(Handler, HandlerArgs, SelfIndex, Addrs, State#state.store_dir),
+handle_info({start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs}, State) ->
+    {ok, Relcast} = start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir),
     self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
+    erlang:send_after(1500, self(), inbound_tick),
     {noreply, State#state{store=Relcast}};
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
@@ -290,14 +298,23 @@ handle_info(force_close, State=#state{}) ->
     spawn(fun() ->
                   libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
           end),
-    {noreply, State};
-
+    {noreply, State#state{close_state=closing}};
+handle_info(inbound_tick, State = #state{store=Store}) ->
+    case relcast:process_inbound(Store) of
+        {ok, Store1} ->
+            ok;
+        {stop, Timeout, Store1} ->
+            erlang:send_after(Timeout, self(), force_close),
+            ok
+    end,
+    erlang:send_after(1500, self(), inbound_tick),
+    {noreply, dispatch_next_messages(State#state{store=Store1})};
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 
-terminate(normal, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
+terminate(_, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
     relcast:stop(normal, Store),
     rm_rf(StoreDir);
 terminate(Reason, #state{store=Store}) ->
