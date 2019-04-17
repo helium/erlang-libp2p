@@ -4,7 +4,7 @@
 
 -export_type([opt/0]).
 
--export([start_link/3, handle_input/2, send/2, send_ack/5,
+-export([start_link/3, handle_input/2, send/2,
          info/1, queues/1, handle_command/2]).
 
 -spec start_link(ets:tab(), GroupID::string(), Args::[any()])
@@ -16,10 +16,6 @@ start_link(TID, GroupID, Args) ->
 handle_input(GroupPid, Msg) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
     libp2p_group_relcast_server:handle_input(Server, Msg).
-
-send_ack(GroupPid, Index, Seq, Reset, Range) ->
-    Server = libp2p_group_relcast_sup:server(GroupPid),
-    libp2p_group_relcast_server:send_ack(Server, Index, Seq, Reset, Range).
 
 %% @doc Send the given data to the member of the group. The
 %% implementation of the group determines the strategy used for
