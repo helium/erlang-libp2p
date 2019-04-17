@@ -122,7 +122,7 @@ multicast_test(Config) ->
 
     libp2p_group_relcast:handle_input(G1, <<"multicast">>),
 
-    Messages = receive_messages([]),
+    Messages = receive_messages([], 2),
     %% Messages are delivered at least once
     true = length(Messages) >= 2,
 
@@ -151,7 +151,7 @@ defer_test(Config) ->
     libp2p_group_relcast:handle_input(G1, <<"defer">>),
 
     %% G2 should receive the message at least once from G1 even though it defers it
-    Msgs1 = receive_messages([]),
+    Msgs1 = receive_messages([], 1),
     ct:pal("messages 1 ~p", [Msgs1]),
     true = lists:member({handle_msg, 1, <<"defer">>}, Msgs1),
 
@@ -163,7 +163,7 @@ defer_test(Config) ->
     libp2p_group_relcast:handle_input(G2, <<"defer2">>),
 
     %% Which G1 should see as a message from G2
-    Msgs2 = receive_messages([]),
+    Msgs2 = receive_messages([], 5),
     ct:pal("messages 2 ~p", [Msgs2]),
     true = lists:member({handle_msg, 2, <<"defer2">>}, Msgs2),
 
@@ -190,7 +190,7 @@ close_test(Config) ->
 
     libp2p_group_relcast:handle_input(G1, <<"multicast">>),
 
-    Messages = receive_messages([]),
+    Messages = receive_messages([], 1),
     %% Messages are delivered at least once
     true = length(Messages) >= 1,
 
@@ -301,13 +301,18 @@ handle_msg(Resp) ->
             Resp
     end.
 
-receive_messages(Acc) ->
-    receive_messages(Acc, 10000).
+receive_messages(Acc, ExpectedCount) ->
+    Ref = erlang:send_after(20000, self(), receive_message_timeout),
+    receive_messages_(Acc, ExpectedCount, Ref).
 
-receive_messages(Acc, Timeout) ->
+receive_messages_(Acc, 0, Ref) ->
+    erlang:cancel_timer(Ref),
+    Acc;
+receive_messages_(Acc, ExpectedCount, Ref) ->
     receive
+        receive_message_timeout ->
+            Acc;
         Msg ->
-            receive_messages([Msg | Acc])
-    after Timeout ->
-            Acc
+            ct:pal("Got message ~p", [Msg]),
+            receive_messages_([Msg | Acc], ExpectedCount - 1, Ref)
     end.
