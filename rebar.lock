@@ -32,7 +32,7 @@
  {<<"rand_compat">>,{pkg,<<"rand_compat">>,<<"0.0.3">>},1},
  {<<"relcast">>,
   {git,"https://github.com/helium/relcast.git",
-       {ref,"ab4119d7e6a55cb42bd8485a092460513643ddec"}},
+       {ref,"363d9c9cefdbdf52d89e9dc8076b0ac31e3ce652"}},
   0},
  {<<"rocksdb">>,{pkg,<<"rocksdb">>,<<"1.1.0">>},1},
  {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},1},
