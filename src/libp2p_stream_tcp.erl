@@ -37,7 +37,7 @@ start_link(Kind, Opts) ->
 
 init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
     erlang:process_flag(trap_exit, true),
-    ok = inet:setopts(Sock, [binary, {packet, raw}, nodelay]),
+    ok = inet:setopts(Sock, [binary, {packet, raw}, {nodelay, true}]),
     SendPid = spawn_link(mk_async_sender(Sock)),
     State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, send_pid=SendPid},
     Result = Mod:init(Kind, ModOpts),
@@ -95,7 +95,7 @@ dispatch_packets(State=#state{data=Data, mod=Mod, mod_state=ModState}) ->
     case libp2p_packet:decode_packet(State#state.packet_spec, Data) of
         {ok, Header, Packet, Tail} ->
             %% Handle the decoded packet
-            Result = Mod:handle_packet(State#state.kind, <<Header/binary, Packet/binary>>, ModState),
+            Result = Mod:handle_packet(State#state.kind, Header, Packet, ModState),
             NewActive = case State#state.active of
                             once -> 0;
                             N when is_integer(N) -> N - 1

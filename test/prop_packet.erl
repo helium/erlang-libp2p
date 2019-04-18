@@ -1,11 +1,7 @@
 -module(prop_packet).
 
 -include_lib("proper/include/proper.hrl").
-
--export([
-         prop_decode_header/0,
-         prop_encode_decode_packet/0
-        ]).
+-include_lib("eunit/include/eunit.hrl").
 
 prop_decode_header() ->
     ?FORALL({Spec, Data}, random_packet(),
@@ -22,33 +18,49 @@ prop_decode_header() ->
                             %% a full packet should respond the same
                             %% way
                             {more, M} =:= libp2p_packet:decode_packet(Spec, Data);
-                    {ok, Header, PacketSize, Tail} ->
-                        length(Header) >= 0 andalso
-                            PacketSize >= 0 andalso
-                            byte_size(Tail) >= 0
+                    {ok, Header, Tail} ->
+                        case lists:last(Header) of
+                            PacketSize when PacketSize > byte_size(Tail) ->
+                                Missing = PacketSize - byte_size(Tail),
+                                {more, Missing} =:= libp2p_packet:decode_packet(Spec, Data) andalso
+                                    length(Header) == length(Spec);
+                            PacketSize ->
+                                length(Header) == length(Spec) andalso
+                                    PacketSize >= 0 andalso
+                                    byte_size(Tail) >= 0
+                        end
                 end
             end).
 
+prop_encode_decode_header() ->
+    ?FORALL({Spec, Header}, header(),
+           begin
+               HeaderBin = libp2p_packet:encode_header(Spec, Header),
+               {ok, Header, <<>>} == libp2p_packet:decode_header(Spec, HeaderBin)
+           end).
+
 prop_encode_decode_packet() ->
-    ?FORALL({Spec, Header, Data}, good_packet(),
+    ?FORALL({Spec, Header, Data}, packet(),
             begin
-                EncodedPacket = <<Header/binary, Data/binary>>,
-                case libp2p_packet:decode_packet(Spec, EncodedPacket) of
-                    {ok, DecHeader, DecData, Tail} when length(Spec) == 0 ->
-                        length(DecHeader) == 0 andalso
-                        byte_size(DecData) == 0 andalso
-                            byte_size(Tail) >= 0;
-                    {ok, DecHeader, DecData, Tail} ->
-                        %% Match header
-                        DecHeader =:= Header andalso
-                            %% and data
-                            DecData =:= Data andalso
-                            %% Enure that a decoded header without
-                            %% data returns the right remaining packet
-                            %% size
-                            {more, byte_size(DecData)} =:= libp2p_packet:decode_packet(Spec, Header) andalso
-                            %% No remaining data
-                            byte_size(Tail) =:= 0
+                MaxDataSize = max_value(lists:last(Spec)),
+                case MaxDataSize =< byte_size(Data) of
+                    true ->
+                        case (catch libp2p_packet:encode_packet(Spec, Header, Data)) of
+                            {'EXIT', {{cannot_encode, _}, _}} -> true;
+                            _ ->
+                                false
+                        end;
+                    false ->
+                        EncodedPacket = libp2p_packet:encode_packet(Spec, Header, Data),
+                        case libp2p_packet:decode_packet(Spec, EncodedPacket) of
+                            {ok, DecHeader, DecData, Tail} ->
+                                %% Match header
+                                DecHeader =:= Header andalso
+                                %% and data
+                                    DecData =:= Data andalso
+                                %% No remaining data
+                                    byte_size(Tail) =:= 0
+                        end
                 end
             end).
 
@@ -59,53 +71,49 @@ prop_encode_decode_packet() ->
 random_packet() ->
     {spec(), binary()}.
 
-good_packet() ->
-    ?LET(Spec, spec(), gen_spec_packet(Spec)).
-
 spec() ->
-    list(oneof([u8,u16,u16le,u32,u32le,varint])).
+    non_empty(list(oneof([u8,u16,u16le,u32,u32le,varint]))).
 
-gen_spec_binary_rest(u8) ->
-    crypto:strong_rand_bytes(rand:uniform(10));
-gen_spec_binary_rest(_) ->
-    crypto:strong_rand_bytes(rand:uniform(5)).
+header() ->
+    ?LET(Pairs, non_empty(list(oneof(
+                                 [{u8, integer(0, max_value(u8))},
+                                  {u16, integer(0, max_value(u16))},
+                                  {u16le, integer(0, max_value(u16le))},
+                                  {u32, integer(0, max_value(u32))},
+                                  {u32le, integer(0, max_value(u32le))},
+                                  {varint, integer(0, max_value(varint))}
+                                 ]))),
+         lists:unzip(Pairs)).
 
-gen_spec_packet([]) ->
-    {[], <<>>, <<>>};
-gen_spec_packet(Spec) ->
-    {SpecHead, [SpecLast]} = lists:split(length(Spec) - 1, Spec),
-    ValueHead = [gen_spec_value(T) || T <- SpecHead],
-    Data = gen_spec_binary_rest(SpecLast),
-    ValueLast = gen_spec_binary(SpecLast, byte_size(Data)),
-    HeaderBins = [gen_spec_binary(S, V) || {S, V} <- lists:zip(SpecHead, ValueHead)] ++ [ValueLast],
-    Header = lists:foldr(fun(B, Acc) ->
-                                 <<B/binary, Acc/binary>>
-                         end, <<>>, HeaderBins),
-    {Spec, Header, Data}.
-
-gen_spec_value(u8) ->
-    rand:uniform(256) - 1;
-gen_spec_value(u16) ->
-    rand:uniform(65536) - 1;
-gen_spec_value(u16le) ->
-    rand:uniform(65536) - 1;
-gen_spec_value(u32) ->
-    rand:uniform(4294967296) - 1;
-gen_spec_value(u32le) ->
-    rand:uniform(4294967296) - 1;
-gen_spec_value(varint) ->
-    gen_spec_value(u32).
+packet() ->
+    ?LET(Header, header(),
+         ?LET(Data, ?SIZED(Size, binary(10*Size)),
+              begin
+                  {Spec, HeaderVals} = Header,
+                  {Spec, lists:droplast(HeaderVals) ++ [byte_size(Data)], Data}
+              end)).
 
 
-gen_spec_binary(u8, Val) ->
-    <<Val:8/integer-unsigned>>;
-gen_spec_binary(u16, Val) ->
-    <<Val:16/integer-unsigned-big>>;
-gen_spec_binary(u16le, Val) ->
-    <<Val:16/integer-unsigned-little>>;
-gen_spec_binary(u32, Val) ->
-    <<Val:32/integer-unsigned-big>>;
-gen_spec_binary(u32le, Val) ->
-    <<Val:32/integer-unsigned-little>>;
-gen_spec_binary(varint ,Val) ->
-    <<(encode_varint(Val))/binary>>.
+max_value(u8) ->
+    255;
+max_value(u16) ->
+    65535;
+max_value(u16le) ->
+    65535;
+max_value(u32) ->
+    4294967295;
+max_value(u32le) ->
+    4294967295;
+max_value(varint) ->
+    4294967295.
+
+%%
+%% EUnit
+%%
+
+bad_varint_test() ->
+    ?assertError({badarg, _}, libp2p_packet:encode_varint(-1)),
+    ok.
+
+bad_header_length_test() ->
+    ?assertError(header_length, libp2p_packet:encode_header([u8], [])).

@@ -2,7 +2,7 @@
 
 -behavior(libp2p_stream).
 
--export([init/2]).
+-export([init/2, handle_packet/4, handle_info/3]).
 
 -record(state, {
                 stream_id :: non_neg_integer()
@@ -14,6 +14,8 @@ init(_Kind, _Args) ->
     {ok, #state{}, [{packet_spec, ?PACKET_SPEC}]}.
 
 
-handle_packet(_Kind, Header, Packet, State=state{}) ->
-    {ok, State};
-handle_packet() ->
+handle_packet(_Kind, _Header, _Packet, State=#state{}) ->
+    {ok, State}.
+
+handle_info(_Kind, _Msg, State=#state{}) ->
+    {ok, State}.
