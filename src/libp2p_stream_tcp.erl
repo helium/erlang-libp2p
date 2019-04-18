@@ -20,7 +20,7 @@
                 socket :: gen_tcp:socket(),
                 send_pid :: pid(),
                 packet_spec=undefined :: libp2p_packet:spec() | undefined,
-                active=0 :: libp2p_stream:active(),
+                active=false :: libp2p_stream:active(),
                 timers=#{} :: #{Key::term() => Timer::reference()},
                 mod :: atom(),
                 mod_state :: any(),
@@ -89,16 +89,16 @@ handle_terminate(_Reason, State=#state{}) ->
 
 -spec dispatch_packets(#state{}) -> {ok, #state{}} |
                                     {stop, term(), #state{}}.
-dispatch_packets(State=#state{active=0}) ->
+dispatch_packets(State=#state{active=false}) ->
     {ok, State};
-dispatch_packets(State=#state{data=Data, mod=Mod, mod_state=ModState}) ->
+dispatch_packets(State=#state{data=Data, mod=Mod, mod_state=ModState, active=Active}) ->
     case libp2p_packet:decode_packet(State#state.packet_spec, Data) of
         {ok, Header, Packet, Tail} ->
             %% Handle the decoded packet
             Result = Mod:handle_packet(State#state.kind, Header, Packet, ModState),
-            NewActive = case State#state.active of
-                            once -> 0;
-                            N when is_integer(N) -> N - 1
+            NewActive = case Active of
+                            once -> false;
+                            _ -> Active
                         end,
             %% Dispatch the result of handling the packet and try
             %% receiving again since we may have received enough for
@@ -163,7 +163,7 @@ handle_actions([], State) ->
     case State#state.active of
         once ->
             inet:setopts(State#state.socket, [{active, once}]);
-        N when is_integer(N) andalso N > 0 ->
+        true ->
             inet:setopts(State#state.socket, [{active, once}]);
         _ -> ok
     end,
@@ -191,14 +191,8 @@ handle_actions([{packet_spec, Spec} | Tail], State=#state{}) ->
     %% data again with the new spec.
     self () ! {tcp, State#state.socket, <<>>},
     handle_actions(Tail, State#state{packet_spec=Spec});
-handle_actions([{active, AddActive} | Tail], State=#state{active=Active}) when is_integer(AddActive) ->
-    NewActive = case Active of
-                    once -> AddActive;
-                    N when is_integer(N) -> max(0, N + AddActive)
-                end,
-    handle_actions(Tail, State#state{active=NewActive});
-handle_actions([{active, once} | Tail], State=#state{}) ->
-    handle_actions(Tail, State#state{active=once});
+handle_actions([{active, Active} | Tail], State=#state{}) ->
+    handle_actions(Tail, State#state{active=Active});
 handle_actions([{reply, To, Reply} | Tail], State=#state{}) ->
     gen_server:reply(To, Reply),
     handle_actions(Tail, State);

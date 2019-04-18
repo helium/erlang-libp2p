@@ -3,7 +3,7 @@
 
 -type kind() :: client | server.
 
--type active() :: once | -32768..32767.
+-type active() :: once | true | false.
 
 -type action() ::
         {send, Data::binary()} |
