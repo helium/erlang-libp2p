@@ -1,24 +1,22 @@
--module(libp2p_stream_tcp).
+-module(libp2p_stream_mplex_worker).
 
 -behavior(gen_server).
 
--type opts() :: #{socket => gen_tcp:socket(),
-                  mod => atom(),
-                  mod_opts => any()
-                 }.
-
--export_type([opts/0]).
-
-%%% gen_server
--export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, handle_terminate/2]).
-
 %% API
--export([command/2]).
+-export([start_link/2,
+         reset/1,
+         close/1]).
+%% gen_server
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
+%% internal
+-export([handle_packet/2, handle_close/1, handle_reset/1]).
 
 -record(state, {
                 kind :: libp2p_stream:kind(),
+                stream_id :: libp2p_stream_mplex:stream_id(),
                 socket :: gen_tcp:socket(),
                 send_pid :: pid(),
+                close_state=undefined :: read | write | undefined,
                 packet_spec=undefined :: libp2p_packet:spec() | undefined,
                 active=false :: libp2p_stream:active(),
                 timers=#{} :: #{Key::term() => Timer::reference()},
@@ -27,34 +25,106 @@
                 data= <<>> :: binary()
                }).
 
-command(Pid, Cmd) ->
-    gen_server:call(Pid, Cmd, infinity).
+%% API
 
-%%
+-spec reset(pid()) -> ok.
+reset(Pid) ->
+    gen_server:cast(Pid, reset).
+
+-spec close(pid()) -> ok.
+close(Pid) ->
+    gen_server:cast(Pid, close).
+
+
+%% Internal API
+
+-spec handle_packet(pid(), binary()) -> ok.
+handle_packet(Pid, Data) ->
+    Pid ! {packet, Data},
+    ok.
+
+-spec handle_close(pid) -> ok.
+handle_close(Pid) ->
+    gen_server:cast(Pid, handle_close).
+
+-spec handle_reset(pid()) -> ok.
+handle_reset(Pid) ->
+    gen_server:cast(Pid, handle_reset).
+
 
 start_link(Kind, Opts) ->
     gen_server:start_link(?MODULE, {Kind, Opts}, []).
 
-init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
-    erlang:process_flag(trap_exit, true),
-    ok = inet:setopts(Sock, [binary, {packet, raw}, {nodelay, true}]),
+init({Kind, #{mod := Mod, mod_opts := ModOpts, stream_id := StreamID, socket := Sock}}) ->
     SendPid = spawn_link(mk_async_sender(Sock)),
-    State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, send_pid=SendPid},
+    State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, stream_id=StreamID, send_pid=SendPid},
     Result = Mod:init(Kind, ModOpts),
     handle_init_result(Result, State).
-
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
     handle_command_result(Result, State);
+
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
+
+handle_cast(handle_reset, State=#state{}) ->
+    %% Received a reset, stop stream
+    lager:debug("Resetting stream: ~p", [State#state.stream_id]),
+    {stop, normal, State};
+handle_cast(handle_close, State=#state{close_state=write}) ->
+    %% Received a remote close when we'd already closed this side for
+    %% writing. Neither side can read or write, so stop the stream.
+    {stop, normal, State};
+handle_cast(handle_close, State=#state{}) ->
+    %% Received a close. Close this stream for reading, allow writing.
+    %% Dispatch all remaining packets
+    case dispatch_packets(State) of
+        {ok, NewState} ->
+            {noreply, NewState#state{close_state=read, data= <<>>}};
+        {stop, Reason, NewState} ->
+            {stop, Reason, NewState}
+    end;
+
+
+handle_cast(reset, State=#state{}) ->
+    %% reset command. Dispatch the reset and close this stream
+    Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, reset),
+    {stop, normal, handle_actions([{send, Packet}], State)};
+
+handle_cast(close, State=#state{close_state=read}) ->
+    %% Closes _this_ side of the stream for writing and the
+    %% remote side for reading. If this side was already remotely
+    %% closed we can stop the stream since neither side can read or
+    %% write.
+    Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, close),
+    {stop, normal, State, [{send, Packet}]};
+handle_cast(close, State=#state{close_state=write}) ->
+    %% ignore multiple close commandds
+    {noreply, State};
+handle_cast(close, State=#state{}) ->
+    %% This closes _this_ side of the stream for writing and the
+    %% remote side for reading
+    Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, close),
+    {noreply, State#state{close_state=write},
+     [{send, Packet}]};
 
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+
+handle_info({packet, _Incoming}, State=#state{close_state=read}) ->
+    %% Ignore incoming data when the read side is closed
+    {noreply, State};
+handle_info({packet, Incoming}, State=#state{data=Data}) ->
+    case dispatch_packets(State#state{data= <<Data/binary, Incoming/binary>>}) of
+        {ok, NewState} ->
+            {noreply, NewState};
+        {stop, Reason, NewState} ->
+            {stop, Reason, NewState}
+    end;
 handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod, mod_state=ModState}) ->
     case maps:take(Key, Timers) of
         error ->
@@ -66,15 +136,6 @@ handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod, mod_state=ModSt
 handle_info({send_error, Error}, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_info(State#state.kind, {stream_error, Error}, ModState),
     handle_packet_result(Result, State);
-handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock, data=Data}) ->
-    case dispatch_packets(State#state{data= <<Data/binary, Incoming/binary>>}) of
-        {ok, NewState} ->
-            {noreply, NewState};
-        {stop, Reason, NewState} ->
-            {stop, Reason, NewState}
-    end;
-handle_info({tcp_closed, Sock}, State=#state{socket=Sock}) ->
-    {stop, normal, State};
 handle_info({stop, Reason}, State=#state{}) ->
     %% Sent by an action list swap action where the new module decides
     %% it wants to stop
@@ -84,9 +145,6 @@ handle_info({'EXIT', SendPid, Reason}, State=#state{send_pid=SendPid}) ->
 handle_info(Msg, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_info(State#state.kind, Msg, ModState),
     handle_packet_result(Result, State).
-
-handle_terminate(_Reason, State=#state{}) ->
-    gen_tcp:close(State#state.socket).
 
 
 -spec dispatch_packets(#state{}) -> {ok, #state{}} |
@@ -112,7 +170,7 @@ dispatch_packets(State=#state{data=Data, mod=Mod, mod_state=ModState, active=Act
                     {stop, Reason, NewState}
             end;
         {more, _} ->
-            %% Dispatch empty actions to ensure inet opts are set
+            %% Dispatch empty actions to ensure opts are set
             {ok, handle_actions([], State)}
     end.
 
@@ -127,7 +185,6 @@ handle_command_result({noreply, ModState}, State=#state{}) ->
     handle_command_result({noreply, ModState, []}, State);
 handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
     {noreply, handle_actions(Actions, State#state{mod_state=ModState})}.
-
 
 -spec handle_packet_result(libp2p_stream:handle_packet_result(), #state{}) ->
                                   {noreply, #state{}} |
@@ -159,17 +216,12 @@ handle_init_result(Result, #state{}) ->
     {stop, {invalid_init_result, Result}}.
 
 
-
 -spec handle_actions(libp2p_stream:actions(), #state{}) -> #state{}.
-handle_actions([], State) ->
-    case State#state.active of
-        once ->
-            inet:setopts(State#state.socket, [{active, once}]);
-        true ->
-            inet:setopts(State#state.socket, [{active, once}]);
-        _ -> ok
-    end,
+handle_actions([], State=#state{}) ->
     State;
+handle_actions([{send, _Data} | Tail], State=#state{close_state=write}) ->
+    %% Ignore any send actions if we're closed for writing
+    handle_actions(Tail, State);
 handle_actions([{send, Data} | Tail], State=#state{send_pid=SendPid}) ->
     SendPid ! {send, Data},
     handle_actions(Tail, State);
@@ -189,9 +241,9 @@ handle_actions([{packet_spec, Spec} | Tail], State=#state{packet_spec=Spec}) ->
     %% Do nothing if the spec did not change
     handle_actions(Tail, State);
 handle_actions([{packet_spec, Spec} | Tail], State=#state{}) ->
-    %% Spec is different, dispatch empty data to deliver any existing
-    %% data again with the new spec.
-    self () ! {tcp, State#state.socket, <<>>},
+    %% Spec is different, notify the current process so it can decide
+    %% it it needs to dispatch more packets under the new spec
+    self () ! {packet, <<>>},
     handle_actions(Tail, State#state{packet_spec=Spec});
 handle_actions([{active, Active} | Tail], State=#state{}) ->
     handle_actions(Tail, State#state{active=Active});
@@ -243,52 +295,3 @@ mk_async_sender(Sock) ->
             erlang:monitor(process, Parent),
             Sender()
     end.
-
-
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-
-init_test() ->
-    meck:new(inet, [unstick, passthrough]),
-    meck:expect(inet, setopts, fun(_Sock, _Opts) -> ok end),
-
-    meck:new(test_stream, [non_strict]),
-    meck:expect(test_stream, init, fun(_, [Result]) -> Result end),
-
-    %% valid close response causes a stop
-    ?assertMatch({stop, test_stream_stop},
-                 ?MODULE:init({client, #{socket => -1,
-                                         mod => test_stream,
-                                         mod_opts => [{close, test_stream_stop}]
-                                        }})),
-
-    %% invalid init result causes a stop
-    ?assertMatch({stop, {invalid_init_result, invalid_result}},
-                 ?MODULE:init({client, #{socket => -1,
-                                         mod => test_stream,
-                                         mod_opts => [invalid_result]
-                                        }})),
-    %% missing packet spec, causes a stop
-    ?assertMatch({stop, {error, missing_packet_spec}},
-                 ?MODULE:init({client, #{socket => -1,
-                                         mod => test_stream,
-                                         mod_opts => [{ok, {}, []}]
-                                        }})),
-    %% valid response gets an ok
-    ?assertMatch({ok, #state{packet_spec=[u8]}},
-                 ?MODULE:init({client, #{socket => -1,
-                                         mod => test_stream,
-                                         mod_opts => [{ok, {}, [{packet_spec, [u8]}]}]
-                                        }})),
-
-    ?assert(meck:validate(test_stream)),
-    meck:unload(test_stream),
-
-    meck:unload(inet),
-    ok.
-
-
-
--endif.
