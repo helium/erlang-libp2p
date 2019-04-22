@@ -167,6 +167,8 @@ acknowledge(#tcp_state{}, Ref) ->
 
 fdset_loop(Socket, Parent, Count) ->
     %% this may screw up TLS sockets...
+    %% apparently this can also block forever, which is bad
+    %% we add receive timeouts to fdset/fdclr to compensate
     Event = case gen_tcp:recv(Socket, 1, 1000) of
                 {ok, P} ->
                     ok = gen_tcp:unrecv(Socket, P),
@@ -219,6 +221,12 @@ fdset(#tcp_state{socket=Socket}=State) ->
                                 Return;
                             {'DOWN', Ref, process, Pid, Reason} ->
                                 {error, Reason}
+                    after 5000 ->
+                              %% client process wedged, kill it
+                              erlang:demonitor(Ref, [flush]),
+                              erlang:exit(Pid, kill),
+                              erlang:put(fdset_pid, undefined),
+                              fdset(State)
                     end;
                 false ->
                     erlang:put(fdset_pid, undefined),
@@ -254,6 +262,12 @@ fdclr(#tcp_state{socket=Socket}) ->
                             {'DOWN', Ref, process, Pid, Reason} ->
                                 erlang:put(fdset_pid, undefined),
                                 {error, Reason}
+                    after 5000 ->
+                              %% client process wedged, kill it
+                              erlang:demonitor(Ref, [flush]),
+                              erlang:exit(Pid, kill),
+                              erlang:put(fdset_pid, undefined),
+                              ok
                     end;
                 false ->
                     erlang:put(fdset_pid, undefined),
