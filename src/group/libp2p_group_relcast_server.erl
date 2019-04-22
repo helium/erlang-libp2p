@@ -405,11 +405,9 @@ take_while([], State) ->
 take_while([Worker | Workers], State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
-        {pipeline_full, Acks, NewRelcast} ->
-            dispatch_ack(Index, Acks, false, State),
+        {pipeline_full, NewRelcast} ->
             take_while(Workers, update_worker(Worker#worker{last_take=pipeline_full}, State#state{store = NewRelcast}));
-        {not_found, Acks, NewRelcast} ->
-            dispatch_ack(Index, Acks, false, State),
+        {not_found, NewRelcast} ->
             take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
         {ok, Seq, Acks, Msg, NewRelcast} ->
             libp2p_group_worker:send(Worker#worker.pid, Index, {Msg, Seq}),
