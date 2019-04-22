@@ -63,6 +63,7 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             AckModule:handle_ack(AckState, AckRef, Seq, Reset == true),
             {noreply, State};
         _Other ->
+            lager:info("other ~p", [_Other]),
             {noreply, State}
     end.
 
