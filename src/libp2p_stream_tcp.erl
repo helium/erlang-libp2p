@@ -42,14 +42,15 @@ init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
     State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, send_pid=SendPid},
     Result = Mod:init(Kind, ModOpts),
     handle_init_result(Result, State).
+init({Kind, Opts=#{handlers := Handlers, socket := _Sock}}) ->
+    init({Kind, Opts#{mod => libp2p_multistream,
+                      mod_opts => #{ handlers => Handlers }
+                     }}).
 
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
-    handle_command_result(Result, State);
-handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p", [Msg]),
-    {reply, ok, State}.
+    handle_command_result(Result, State).
 
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),

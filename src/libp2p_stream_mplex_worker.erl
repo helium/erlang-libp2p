@@ -4,6 +4,7 @@
 
 %% API
 -export([start_link/2,
+         command/2,
          reset/1,
          close/1]).
 %% gen_server
@@ -35,6 +36,8 @@ reset(Pid) ->
 close(Pid) ->
     gen_server:cast(Pid, close).
 
+command(Pid, Cmd) ->
+    gen_server:call(Pid, Cmd, infinity).
 
 %% Internal API
 
@@ -59,15 +62,16 @@ init({Kind, #{mod := Mod, mod_opts := ModOpts, stream_id := StreamID, socket := 
     SendPid = spawn_link(mk_async_sender(Sock)),
     State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, stream_id=StreamID, send_pid=SendPid},
     Result = Mod:init(Kind, ModOpts),
-    handle_init_result(Result, State).
+    handle_init_result(Result, State);
+init({Kind, Opts=#{handlers := Handlers, stream_id := _StreamID, socket := _Sock}}) ->
+    init({Kind, Opts#{mod => libp2p_multistream,
+                      mod_opts => #{ handlers => Handlers }
+                     }}).
+
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
-    handle_command_result(Result, State);
-
-handle_call(Msg, _From, State) ->
-    lager:warning("Unhandled call: ~p", [Msg]),
-    {reply, ok, State}.
+    handle_command_result(Result, State).
 
 handle_cast(handle_reset, State=#state{}) ->
     %% Received a reset, stop stream
