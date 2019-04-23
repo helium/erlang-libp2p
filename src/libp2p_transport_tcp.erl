@@ -471,7 +471,8 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
             lager:debug("stungun detected NAT type ~p", [NatType]),
             case NatType of
                 none ->
-                    %% don't need to start relay here
+                    %% don't need to start relay here, stop any we already have
+                    libp2p_relay_server:stop(libp2p_swarm:swarm(TID)),
                     %% if we didn't have an external address originally, set the NAT type to 'static'
                     case State#state.negotiated_nat of
                         true ->

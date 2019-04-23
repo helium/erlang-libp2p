@@ -11,31 +11,33 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1
-    ,relay/1
-    ,connection_lost/1
+    start_link/1,
+    relay/1,
+    stop/1,
+    connection_lost/1
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,handle_call/3
-    ,handle_cast/2
-    ,handle_info/2
-    ,terminate/2
-    ,code_change/3
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3
 ]).
 
 -record(state, {
-    tid :: ets:tab() | undefined
-    ,peers = [] :: [libp2p_peer:peer()]
-    ,peer_index = 1
-    ,flap_count = 0
-    ,swarm :: pid() | undefined
-    ,address :: libp2p_crypto:pubkey_bin() | undefined
-    ,started = false :: boolean()
+    tid :: ets:tab() | undefined,
+    peers = [] :: [libp2p_peer:peer()],
+    peer_index = 1,
+    flap_count = 0,
+    swarm :: pid() | undefined,
+    address :: libp2p_crypto:pubkey_bin() | undefined,
+    started = false :: boolean(),
+    connection :: pid() | undefined
 }).
 
 -type state() :: #state{}.
@@ -62,6 +64,18 @@ connection_lost(Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
             gen_server:cast(Pid, connection_lost);
+        {error, _}=Error ->
+            Error
+    end.
+
+-spec stop(pid()) -> ok | {error, any()}.
+stop(Swarm) ->
+    case get_relay_server(Swarm) of
+        {ok, Pid} ->
+            %% it's a permanant worker, so just stop it and let it restart
+            %% without having relay() called on it
+            gen_server:stop(Pid),
+            ok;
         {error, _}=Error ->
             Error
     end.
@@ -108,7 +122,7 @@ handle_call(_Msg, _From, State) ->
 handle_cast(connection_lost, State) ->
     lager:debug("relay connection lost"),
     self() ! try_relay,
-    {noreply, State#state{started=false}};
+    {noreply, State#state{started=false, connection=undefined}};
 handle_cast(_Msg, State) ->
     lager:debug("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -120,9 +134,9 @@ handle_info({new_peers, NewPeers}, #state{started=false}=State) ->
     {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), State#state.address)}};
 handle_info(try_relay, State = #state{started=false}) ->
     case int_relay(State) of
-        {ok, _} ->
+        {ok, Connection} ->
             lager:debug("relay started successfuly"),
-            {noreply, add_flap(State#state{started=true})};
+            {noreply, add_flap(State#state{started=true, connection=Connection})};
         {error, no_peer} ->
             lager:warning("could not initiate relay no peer found"),
             {noreply, State};
@@ -142,7 +156,13 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{tid=TID}=_State) ->
+terminate(_Reason, #state{tid=TID, connection=Connection}=_State) ->
+    case Connection of
+        undefined -> ok;
+        Pid ->
+            %% stop any active relay connection so that the listen address is removed from the peerbook
+            catch libp2p_framed_stream:close(Pid)
+    end,
     true = libp2p_config:remove_relay(TID),
     ok.
 
