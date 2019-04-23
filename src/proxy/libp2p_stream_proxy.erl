@@ -179,15 +179,20 @@ dial_back(Env, #state{connection=Connection}) ->
     [{"ip4", PAddress}, {"tcp", Port}] = multiaddr:protocols(MultiAddr),
     ID = libp2p_proxy_envelope:id(Env),
     Opts = libp2p_transport_tcp:common_options(),
-    {ok, Socket} = gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts),
-    Path = libp2p_proxy:version() ++  "/" ++ base58:binary_to_base58(ID),
-    Handlers = [{Path, <<"success">>}],
-    RawConnection = libp2p_transport_tcp:new_connection(Socket),
-    case libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection) of
-        {error, _Reason}=Error ->
-            lager:error("failed to negotiate_handler ~p ~p ~p, ~p", [Handlers, Path, RawConnection, _Reason]),
-            Error;
-        {ok, _} -> {ok, RawConnection}
+    case gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts) of
+        {ok, Socket} ->
+            Path = libp2p_proxy:version() ++  "/" ++ base58:binary_to_base58(ID),
+            Handlers = [{Path, <<"success">>}],
+            RawConnection = libp2p_transport_tcp:new_connection(Socket),
+            case libp2p_multistream_client:negotiate_handler(Handlers, Path, RawConnection) of
+                {error, _Reason}=Error ->
+                    lager:error("failed to negotiate_handler ~p ~p ~p, ~p", [Handlers, Path, RawConnection, _Reason]),
+                    Error;
+                {ok, _} -> {ok, RawConnection}
+            end;
+        Error ->
+            lager:warning("Failed to dial back to ~p at ~p ~p: ~p", [MultiAddrStr, PAddress, Port, Error]),
+            Error
     end.
 
 -ifdef(TEST).
