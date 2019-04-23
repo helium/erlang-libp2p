@@ -61,7 +61,7 @@ dial_framed_stream(Swarm, Address, Args) ->
         ,Address
         ,?PROXY_VERSION
         ,libp2p_stream_proxy
-        ,Args
+        ,[{swarm, Swarm}|Args]
     ).
 
 %% ------------------------------------------------------------------
