@@ -35,6 +35,7 @@
     id :: binary() | undefined,
     transport :: pid() | undefined,
     swarm :: pid() | undefined,
+    proxy_address :: undefined | string(),
     connection :: libp2p_connection:connection(),
     raw_connection :: libp2p_connection:connection() | undefined
 }).
@@ -60,13 +61,14 @@ init(server, Conn, [_, _Pid, TID]=Args) ->
 init(client, Conn, Args) ->
     lager:info("init proxy client with ~p", [{Conn, Args}]),
     ID = proplists:get_value(id, Args),
+    Swarm = proplists:get_value(swarm, Args),
     case proplists:get_value(p2p_circuit, Args) of
         undefined ->
             {ok, #state{id=ID, connection=Conn}};
         P2PCircuit ->
             TransportPid = proplists:get_value(transport, Args),
             self() ! {proxy_req_send, P2PCircuit},
-            {ok, #state{id=ID, transport=TransportPid, connection=Conn}}
+            {ok, #state{swarm=Swarm, id=ID, transport=TransportPid, connection=Conn}}
 
     end.
 
@@ -77,10 +79,10 @@ handle_data(client, Bin, State) ->
 
 % STEP 2
 handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
-    {ok, {_, SAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),
+    {ok, {PAddress, SAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),
     Req = libp2p_proxy_req:create(SAddress),
     Env = libp2p_proxy_envelope:create(ID, Req),
-    {noreply, State, libp2p_proxy_envelope:encode(Env)};
+    {noreply, State#state{proxy_address=PAddress}, libp2p_proxy_envelope:encode(Env)};
 handle_info(_Type, {transfer, Data}, State) ->
     lager:debug("~p transfering ~p", [_Type, Data]),
     {noreply, State, Data};
@@ -173,10 +175,30 @@ handle_client_data(_Data, _Env, State) ->
 %% ------------------------------------------------------------------
 
 -spec dial_back(libp2p_proxy_envelope:proxy_envelope(), state()) -> {ok, libp2p_connection:connection()} | {error, any()}.
-dial_back(Env, #state{connection=Connection}) ->
+dial_back(Env, #state{connection=Connection, proxy_address=PAddr, swarm=Swarm}) ->
     {_, MultiAddrStr} = libp2p_connection:addr_info(Connection),
     MultiAddr = multiaddr:new(MultiAddrStr),
-    [{"ip4", PAddress}, {"tcp", Port}] = multiaddr:protocols(MultiAddr),
+    [{"ip4", PAddress}, {"tcp", GuessPort}] = multiaddr:protocols(MultiAddr),
+    %% ok, find the multiaddr with this TCP address in the peerbook entry for the proxy server's peerbook entry
+    Port = case PAddr /= undefined andalso libp2p_peerbook:get(libp2p_swarm:peerbook(Swarm), libp2p_crypto:p2p_to_pubkey_bin(PAddr)) of
+               false ->
+                   %% we are a server
+                   GuessPort;
+               {ok, Peer} ->
+                   PeerListenAddresses = libp2p_peer:listen_addrs(Peer),
+                   lists:foldl(fun(MA, Acc) ->
+                                      case multiaddr:protocols(multiaddr:new(MA)) of
+                                          [{"ip4", PAddress}, {"tcp", PeerPort}] ->
+                                              lager:info("Got port ~p from peerbook for ~p", [PeerPort, PAddr]),
+                                              PeerPort;
+                                          _ ->
+                                              Acc
+                                      end
+                              end, GuessPort, PeerListenAddresses);
+               PeerError ->
+                   lager:warning("Failed to get peer port from peerbook for ~p ~p", [PAddress, PeerError]),
+                   GuessPort
+           end,
     ID = libp2p_proxy_envelope:id(Env),
     Opts = libp2p_transport_tcp:common_options(),
     case gen_tcp:connect(PAddress, erlang:list_to_integer(Port), Opts) of
@@ -191,7 +213,7 @@ dial_back(Env, #state{connection=Connection}) ->
                 {ok, _} -> {ok, RawConnection}
             end;
         Error ->
-            lager:warning("Failed to dial back to ~p at ~p ~p: ~p", [MultiAddrStr, PAddress, Port, Error]),
+            lager:warning("Failed to dial back to ~p at ~p ~p: ~p", [PAddr, PAddress, Port, Error]),
             Error
     end.
 
