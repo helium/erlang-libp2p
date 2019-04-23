@@ -50,23 +50,28 @@ priority() -> 1.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     Swarm = libp2p_swarm:swarm(TID),
     ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
-    case check_peerbook(TID, MAddr) of
-        {error, _Reason} ->
-            %% don't blacklist here, the peerbook update might be coming
-            {error, not_in_peerbook};
-        false ->
-            %% blacklist the relay address, it is stale
-            {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
-            MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
-            PeerBook = libp2p_swarm:peerbook(Swarm),
-            ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
-            {error, not_in_peerbook};
+    case proplists:get_value(no_relay, Options, false) of
         true ->
-            case has_p2p_circuit(ListenAddresses) of
+            {error, relay_not_allowed};
+        false ->
+            case check_peerbook(TID, MAddr) of
+                {error, _Reason} ->
+                    %% don't blacklist here, the peerbook update might be coming
+                    {error, not_in_peerbook};
                 false ->
-                    connect_to(Pid, MAddr, Options, Timeout, TID);
+                    %% blacklist the relay address, it is stale
+                    {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
+                    MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
+                    PeerBook = libp2p_swarm:peerbook(Swarm),
+                    ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
+                    {error, not_in_peerbook};
                 true ->
-                    libp2p_transport_proxy:connect(Pid, MAddr, Options, Timeout, TID)
+                    case has_p2p_circuit(ListenAddresses) of
+                        false ->
+                            connect_to(Pid, MAddr, Options, Timeout, TID);
+                        true ->
+                            libp2p_transport_proxy:connect(Pid, MAddr, [no_relay|Options], Timeout, TID)
+                    end
             end
     end.
 
