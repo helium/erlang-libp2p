@@ -41,7 +41,7 @@ init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
     SendPid = spawn_link(mk_async_sender(Sock)),
     State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, send_pid=SendPid},
     Result = Mod:init(Kind, ModOpts),
-    handle_init_result(Result, State).
+    handle_init_result(Result, State);
 init({Kind, Opts=#{handlers := Handlers, socket := _Sock}}) ->
     init({Kind, Opts#{mod => libp2p_multistream,
                       mod_opts => #{ handlers => Handlers }
