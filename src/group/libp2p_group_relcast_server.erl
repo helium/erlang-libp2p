@@ -381,7 +381,10 @@ lookup_worker(Index, State=#state{}) ->
 lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
     lists:keyfind(Key, KeyIndex, Workers).
 
--spec dispatch_acks([pos_integer()], boolean(), #state{}) -> #state{}.
+-spec dispatch_acks(none | #{non_neg_integer() => [non_neg_integer()]},
+                    boolean(), #state{}) -> ok.
+dispatch_acks(none, _Reset, _State) ->
+    ok;
 dispatch_acks(Acks, Reset, State) ->
     maps:map(fun(Index, Seqs) ->
                      case lookup_worker(Index, State) of
@@ -393,7 +396,8 @@ dispatch_acks(Acks, Reset, State) ->
                              State
                      end
              end,
-             Acks).
+             Acks),
+    ok.
 
 %% TODO: batch all acks per worker until the end of this call to ack
 %% in larger batches
