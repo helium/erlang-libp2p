@@ -72,8 +72,10 @@ handle_info(transfer_socket, #state{type=server, connection=Connection, path=Pat
     lager:info("doing socket transfer"),
     <<"/", ID0/binary>> = erlang:list_to_binary(Path),
     ID1 = base58:base58_to_binary(erlang:binary_to_list(ID0)),
+    %% this will block until the connection is finished with
     ok = libp2p_proxy_server:connection(TID, Connection, ID1),
-    {noreply, State};
+    %% we did our job, time to die
+    {stop, normal, State};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.

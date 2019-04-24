@@ -76,7 +76,7 @@ connection(TID, Connection, ID) ->
         {ok, Pid} ->
             lager:info("handling proxy connection ~p from ~p to ~p", [Connection, ID, Pid]),
             {ok, _} = libp2p_connection:controlling_process(Connection, Pid),
-            gen_server:cast(Pid, {connection, Connection, ID})
+            gen_server:call(Pid, {connection, Connection, ID}, infinity)
     end.
 
 %% ------------------------------------------------------------------
@@ -102,23 +102,19 @@ handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data,
 handle_call({init_proxy, ID, _ServerStream, SAddress}, _From, State) ->
     lager:warning("cannot process proxy request for ~p, ~p. Limit exceeded", [ID, SAddress]),
     {reply, {error, limit_exceeded}, State};
-handle_call(_Msg, _From, State) ->
-    lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
-    {reply, ok, State}.
-
-handle_cast({connection, Connection, ID0}, #state{data=Data, size=Size}=State) ->
+handle_call({connection, Connection, ID0}, From, #state{data=Data, size=Size}=State) ->
     %% possibly reverse the ID if we got it from the client
     ID = get_id(ID0, Data),
     case maps:get(ID, Data, undefined) of
         undefined ->
             lager:warning("got unknown ID ~p closing ~p", [ID, Connection]),
             _ = libp2p_connection:close(Connection),
-            {noreply, State};
+            {reply, ok, State};
         #pstate{connections=[]}=PState ->
             lager:info("got first Connection ~p", [Connection]),
-            PState1 = PState#pstate{connections=[Connection]},
+            PState1 = PState#pstate{connections=[{From, Connection}]},
             {noreply, State#state{data=maps:put(ID, PState1, Data)}};
-        #pstate{connections=[Connection1|[]]
+        #pstate{connections=[{From1, Connection1}|[]]
                 ,server_stream=ServerStream
                 ,client_stream=ClientStream} ->
             lager:info("got second connection ~p", [Connection]),
@@ -138,10 +134,14 @@ handle_cast({connection, Connection, ID0}, #state{data=Data, size=Size}=State) -
                         {_, CN} = libp2p_connection:addr_info(Connection),
                         {SN, CN}
                 end,
-            ok = splice(Connection1, Connection),
+            ok = splice(From1, Connection1, From, Connection),
             ok = proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream),
             {noreply, State#state{data=maps:remove(ID, Data), size=Size+1}}
     end;
+handle_call(_Msg, _From, State) ->
+    lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
+    {reply, ok, State}.
+
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
@@ -160,6 +160,8 @@ handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data}=State) ->
         _ ->
             {noreply, State}
     end;
+handle_info({'EXIT', _Who, normal}, #state{size=Size}=State) ->
+    {noreply, State#state{size=Size-1}};
 handle_info({'EXIT', Who, Reason}, #state{size=Size}=State) ->
     lager:warning("splice process ~p went down: ~p", [Who, Reason]),
     {noreply, State#state{size=Size-1}};
@@ -187,20 +189,24 @@ dial_back(ID, ServerStream, ClientStream) ->
     ClientStream ! {transfer, libp2p_proxy_envelope:encode(CEnv)},
     ok.
 
--spec splice(libp2p_connection:connection(), libp2p_connection:connection()) -> ok.
-splice(Connection1, Connection2) ->
+-spec splice(any(), libp2p_connection:connection(), any(), libp2p_connection:connection()) -> ok.
+splice(From1, Connection1, From2, Connection2) ->
     Pid = erlang:spawn_link(fun() ->
         receive control_given -> ok end,
         Socket1 = libp2p_connection:socket(Connection1),
         {ok, FD1} = inet:getfd(Socket1),
         Socket2 = libp2p_connection:socket(Connection2),
         {ok, FD2} = inet:getfd(Socket2),
-        splicer:splice(FD1, FD2)
+        splicer:splice(FD1, FD2),
+        gen_server:reply(From1, ok),
+        gen_server:reply(From2, ok),
+        catch libp2p_connection:close(Connection1),
+        catch libp2p_connection:close(Connection2)
     end),
     {ok, _} = libp2p_connection:controlling_process(Connection1, Pid),
     {ok, _} = libp2p_connection:controlling_process(Connection2, Pid),
     Pid ! control_given,
-    lager:info("spice started @ ~p", [Pid]),
+    lager:info("splice started @ ~p", [Pid]),
     ok.
 
 -spec proxy_successful(binary(), string(), pid(), string(), pid()) -> ok.
