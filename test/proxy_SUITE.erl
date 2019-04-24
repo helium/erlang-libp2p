@@ -132,9 +132,22 @@ basic(_Config) ->
         ct:fail(timeout)
     end,
 
+    %% really close the socket here
+    {ok, Session} = libp2p_connection:session(libp2p_framed_stream:connection(ClientStream)),
+    libp2p_framed_stream:close(ClientStream),
+    libp2p_session:close(Session),
+
     ok = libp2p_swarm:stop(ServerSwarm),
-    ok = libp2p_swarm:stop(ProxySwarm),
     ok = libp2p_swarm:stop(ClientSwarm),
+
+    timer:sleep(5000),
+
+    %% check we didn't leak any sockets here
+    [{_ID, Info}] = ranch:info(),
+    ?assertEqual(0, proplists:get_value(active_connections, Info)),
+    ?assertEqual(0, proplists:get_value(all_connections, Info)),
+
+    ok = libp2p_swarm:stop(ProxySwarm),
 
     timer:sleep(2000),
     ok.
