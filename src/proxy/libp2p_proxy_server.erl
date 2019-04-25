@@ -40,7 +40,7 @@
     id :: binary() | undefined,
     server_stream :: pid() | undefined,
     client_stream :: pid() | undefined,
-    connections = [] :: [libp2p_connection:connection()]
+    connections = [] :: [{{pid(), reference()}, libp2p_connection:connection()}]
 }).
 
 %% ------------------------------------------------------------------
