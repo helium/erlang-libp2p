@@ -381,18 +381,23 @@ lookup_worker(Index, State=#state{}) ->
 lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
     lists:keyfind(Key, KeyIndex, Workers).
 
--spec dispatch_ack(pos_integer(), [pos_integer()], boolean(), #state{}) -> #state{}.
-dispatch_ack(_Index, [], _Reset, State=#state{}) ->
-    State;
-dispatch_ack(Index, Acks, Reset, State=#state{}) ->
-    case lookup_worker(Index, State) of
-        #worker{pid=self} ->
-            handle_ack(self(), Index, Acks, Reset),
-            State;
-        #worker{pid=Worker} ->
-            libp2p_group_worker:send_ack(Worker, Acks, Reset),
-            State
-    end.
+-spec dispatch_acks(none | #{non_neg_integer() => [non_neg_integer()]},
+                    boolean(), #state{}) -> ok.
+dispatch_acks(none, _Reset, _State) ->
+    ok;
+dispatch_acks(Acks, Reset, State) ->
+    maps:map(fun(Index, Seqs) ->
+                     case lookup_worker(Index, State) of
+                         #worker{pid=self} ->
+                             handle_ack(self(), Index, Seqs, Reset),
+                             State;
+                         #worker{pid=Worker} ->
+                             libp2p_group_worker:send_ack(Worker, Seqs, Reset),
+                             State
+                     end
+             end,
+             Acks),
+    ok.
 
 %% TODO: batch all acks per worker until the end of this call to ack
 %% in larger batches
@@ -405,15 +410,13 @@ take_while([], State) ->
 take_while([Worker | Workers], State) ->
     Index = Worker#worker.index,
     case relcast:take(Index, State#state.store) of
-        {pipeline_full, Acks, NewRelcast} ->
-            dispatch_ack(Index, Acks, false, State),
+        {pipeline_full, NewRelcast} ->
             take_while(Workers, update_worker(Worker#worker{last_take=pipeline_full}, State#state{store = NewRelcast}));
-        {not_found, Acks, NewRelcast} ->
-            dispatch_ack(Index, Acks, false, State),
+        {not_found, NewRelcast} ->
             take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
         {ok, Seq, Acks, Msg, NewRelcast} ->
             libp2p_group_worker:send(Worker#worker.pid, Index, {Msg, Seq}),
-            dispatch_ack(Index, Acks, false, State),
+            dispatch_acks(Acks, false, State),
             InFlight = relcast:in_flight(Index, NewRelcast),
             NewWorker = Worker#worker{in_flight=InFlight, last_take=ok},
             State1 = update_worker(NewWorker, State#state{store=NewRelcast}),
