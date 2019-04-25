@@ -5,10 +5,7 @@
 -export([init/2, handle_packet/4, handle_info/3, handle_command/4]).
 -export([encode_packet/3,
          encode_packet/4,
-         open/1,
-         %% substream API
-         reset/1,
-         close/1]).
+         open/1]).
 
 -type flag() :: new | close | reset | msg.
 -type stream_id() :: non_neg_integer().
@@ -31,7 +28,6 @@
 -type worker_key() :: {libp2p_stream:kind(), stream_id()}.
 
 -record(state, {
-                socket :: gen_tcp:socket(),
                 next_stream_id=0 :: non_neg_integer(),
                 worker_opts :: map(),
                 worker_monitors=#{} :: #{reference() => worker_key()},
@@ -42,9 +38,10 @@
 
 %% API
 
--spec open(pid()) -> {ok, pid()} | {error, term()}.
+-spec open(pid()) -> ok.
 open(Pid) ->
-    gen_server:call(open, Pid).
+    Pid ! open,
+    ok.
 
 -spec encode_packet(stream_id(), libp2p_stream:kind(), flag()) -> binary().
 encode_packet(StreamID, Kind, Flag) ->
@@ -55,21 +52,13 @@ encode_packet(StreamID, Kind, Flag, Data) ->
     Header = [encode_header(StreamID, encode_flag(Kind, Flag)), byte_size(Data)],
     libp2p_packet:encode_packet(?PACKET_SPEC, Header, Data).
 
-%% Substream API
-
-reset(WorkerPid) ->
-    libp2p_stream_mplex_worker:reset(WorkerPid).
-
-close(WorkerPid) ->
-    libp2p_stream_mplex_worker:close(WorkerPid).
-
 %% libp2p_stream
 
-init(_Kind, Opts=#{socket := Sock}) ->
+init(_Kind, Opts=#{transport := Transport}) ->
+    WorkerOpts = maps:get(worker_opts, Opts, #{}),
     {ok, #state{
-            socket=Sock,
-            max_received_workers = maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
-            worker_opts =  maps:get(worker_opts, Opts, #{})
+            max_received_workers=maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
+            worker_opts=WorkerOpts#{transport => Transport}
            },
      [{packet_spec, ?PACKET_SPEC}]}.
 
@@ -100,12 +89,12 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
         {StreamID, ?FLAG_MSG_INITIATOR} ->
             WorkerDo(server, StreamID,
                      fun(WorkerPid) ->
-                             libp2p_stream_mplex_worker:handle_packet(WorkerPid, Packet)
+                             WorkerPid ! {packet, Packet}
                      end);
         {StreamID, ?FLAG_MSG_RECEIVER} ->
             WorkerDo(client, StreamID,
                      fun(WorkerPid) ->
-                             libp2p_stream_mplex_worker:handle_packet(WorkerPid, Packet)
+                             WorkerPid ! {packet, Packet}
                      end);
 
         {StreamID, ?FLAG_RESET_INITIATOR} ->
@@ -127,7 +116,7 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
                      end);
 
         {StreamID, ?FLAG_CLOSE_RECEIVER} ->
-            WorkerDo(cliemt ,StreamID,
+            WorkerDo(client ,StreamID,
                      fun(WorkerPid) ->
                              libp2p_stream_mplex_worker:handle_close(WorkerPid)
                      end);
@@ -137,16 +126,16 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
     end.
 
 
-handle_command(_Kind, open, _From, State=#state{next_stream_id=StreamID}) ->
-    {WorkerPid, NewState} = start_worker(client, StreamID, State),
-    Packet = encode_packet(StreamID, client, new),
-    {reply, {ok, WorkerPid}, NewState#state{next_stream_id=StreamID + 1},
-     [{send, Packet}]};
-
 handle_command(_Kind, Cmd, _From, State=#state{}) ->
     lager:warning("Unhandled command ~p", [Cmd]),
     {reply, ok, State}.
 
+
+handle_info(_Kind, open, State=#state{next_stream_id=StreamID}) ->
+    {_, NewState} = start_worker(client, StreamID, State),
+    Packet = encode_packet(StreamID, client, new),
+    {noreply, NewState#state{next_stream_id=StreamID + 1},
+     [{send, Packet}]};
 
 handle_info(_Kind, {'DOWN', Monitor, process, _Pid, Reason}, State=#state{worker_monitors=WorkerMonitors}) ->
     case maps:take(Monitor, WorkerMonitors) of
@@ -185,8 +174,7 @@ start_worker(Kind, StreamID, State=#state{worker_opts=WorkerOpts0,
                                           workers=Workers,
                                           count_received_workers=CountReceived,
                                           worker_monitors=Monitors}) ->
-    WorkerOpts = WorkerOpts0#{stream_id => StreamID,
-                              socket => State#state.socket},
+    WorkerOpts = WorkerOpts0#{stream_id => StreamID},
     {ok, WorkerPid} = libp2p_stream_mplex_worker:start_link(Kind, WorkerOpts),
     Monitor = erlang:monitor(process, WorkerPid),
     WorkerKey = {Kind, StreamID},

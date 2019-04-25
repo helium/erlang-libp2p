@@ -1,27 +1,34 @@
 -module(libp2p_stream_tcp).
 
--behavior(gen_server).
+-behavior(libp2p_stream_transport).
 
 -type opts() :: #{socket => gen_tcp:socket(),
+                  handlers => libp2p_stream:handlers(),
                   mod => atom(),
                   mod_opts => any()
                  }.
 
 -export_type([opts/0]).
 
-%%% gen_server
--export([start_link/2, init/1, handle_call/3, handle_cast/2, handle_info/2, handle_terminate/2]).
+%%% libp2p_stream_transport
+-export([start_link/2,
+         init/2,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         handle_packet/3,
+         handle_action/2,
+         handle_terminate/2]).
 
 %% API
 -export([command/2]).
+%% libp2p_stream_transport
+-export([transport_setopts/2, transport_send/2, transport_close/2]).
 
 -record(state, {
                 kind :: libp2p_stream:kind(),
-                socket :: gen_tcp:socket(),
-                send_pid :: pid(),
-                packet_spec=undefined :: libp2p_packet:spec() | undefined,
                 active=false :: libp2p_stream:active(),
-                timers=#{} :: #{Key::term() => Timer::reference()},
+                socket :: gen_tcp:socket(),
                 mod :: atom(),
                 mod_state :: any(),
                 data= <<>> :: binary()
@@ -30,220 +37,116 @@
 command(Pid, Cmd) ->
     gen_server:call(Pid, Cmd, infinity).
 
-%%
+%% libp2p_stream_transport
+
+transport_setopts(Sock, Opts) ->
+    inet:setopts(Sock, Opts).
+
+transport_send(Sock, Data) ->
+    gen_tcp:send(Sock, Data).
+
+transport_close(Sock, _Reason) ->
+    gen_tcp:close(Sock).
+
 
 start_link(Kind, Opts) ->
-    gen_server:start_link(?MODULE, {Kind, Opts}, []).
+    libp2p_stream_transport:start_link(?MODULE, Kind, Opts).
 
-init({Kind, #{mod := Mod, mod_opts := ModOpts, socket := Sock}}) ->
-    erlang:process_flag(trap_exit, true),
-    ok = inet:setopts(Sock, [binary, {packet, raw}, {nodelay, true}]),
-    SendPid = spawn_link(mk_async_sender(Sock)),
-    State = #state{kind=Kind, mod=Mod, mod_state=undefined, socket=Sock, send_pid=SendPid},
-    Result = Mod:init(Kind, ModOpts),
-    handle_init_result(Result, State);
-init({Kind, Opts=#{handlers := Handlers, socket := _Sock}}) ->
-    init({Kind, Opts#{mod => libp2p_multistream,
-                      mod_opts => #{ handlers => Handlers }
-                     }}).
-
+-spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
+init(Kind, #{socket := Sock, mod := Mod, mod_opts := ModOpts}) ->
+    ok = transport_setopts(Sock, [binary, {packet, raw}, {nodelay, true}]),
+    case Mod:init(Kind, ModOpts) of
+        {ok, ModState, Actions} ->
+            {ok, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions};
+        {close, Reason} ->
+            {stop, Reason};
+        {close, Reason, Actions} ->
+            {stop, Reason, Actions}
+    end;
+init(Kind, Opts=#{handlers := Handlers, socket := _Sock}) ->
+    init(Kind, Opts#{mod => libp2p_multistream,
+                     mod_opts => #{ handlers => Handlers }
+                     }).
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
     handle_command_result(Result, State).
 
+-spec handle_command_result(libp2p_stream:handle_command_result(), #state{}) ->
+                                   {reply, any(), #state{}, libp2p_stream:action()} |
+                                   {noreply, #state{}, libp2p_stream:actions()}.
+handle_command_result({reply, Reply, ModState}, State=#state{}) ->
+    handle_command_result({reply, Reply, ModState, []}, State);
+handle_command_result({reply, Reply, ModState, Actions}, State=#state{}) ->
+    {repy, Reply, State#state{mod_state=ModState}, Actions};
+handle_command_result({noreply, ModState}, State=#state{}) ->
+    handle_command_result({noreply, ModState, []}, State);
+handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
+    {noreply, State#state{mod_state=ModState}, Actions}.
+
+
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod, mod_state=ModState}) ->
-    case maps:take(Key, Timers) of
-        error ->
-            {noreply, State};
-        {_, NewTimers} ->
-            Result = Mod:handle_info(State#state.kind, {stream_timeout, Key}, ModState),
-            handle_packet_result(Result, State#state{timers=NewTimers})
-    end;
-handle_info({send_error, Error}, State=#state{mod=Mod, mod_state=ModState}) ->
-    Result = Mod:handle_info(State#state.kind, {stream_error, Error}, ModState),
-    handle_packet_result(Result, State);
-handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock, data=Data}) ->
-    case dispatch_packets(State#state{data= <<Data/binary, Incoming/binary>>}) of
-        {ok, NewState} ->
-            {noreply, NewState};
-        {stop, Reason, NewState} ->
-            {stop, Reason, NewState}
-    end;
-handle_info({tcp_closed, Sock}, State=#state{socket=Sock}) ->
+handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock}) ->
+    {noreply, State, {continue, {packet, Incoming}}};
+handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
-handle_info({stop, Reason}, State=#state{}) ->
-    %% Sent by an action list swap action where the new module decides
-    %% it wants to stop
-    {stop, Reason, State};
-handle_info({'EXIT', SendPid, Reason}, State=#state{send_pid=SendPid}) ->
-    {stop, Reason, State};
 handle_info(Msg, State=#state{mod=Mod, mod_state=ModState}) ->
     Result = Mod:handle_info(State#state.kind, Msg, ModState),
-    handle_packet_result(Result, State).
+    handle_info_result(Result, State).
 
-handle_terminate(_Reason, State=#state{}) ->
-    gen_tcp:close(State#state.socket).
-
-
--spec dispatch_packets(#state{}) -> {ok, #state{}} |
-                                    {stop, term(), #state{}}.
-dispatch_packets(State=#state{active=false}) ->
-    {ok, State};
-dispatch_packets(State=#state{data=Data, mod=Mod, mod_state=ModState, active=Active}) ->
-    case libp2p_packet:decode_packet(State#state.packet_spec, Data) of
-        {ok, Header, Packet, Tail} ->
-            %% Handle the decoded packet
-            Result = Mod:handle_packet(State#state.kind, Header, Packet, ModState),
-            NewActive = case Active of
-                            once -> false;
-                            _ -> Active
-                        end,
-            %% Dispatch the result of handling the packet and try
-            %% receiving again since we may have received enough for
-            %% multiple packets.
-            case handle_packet_result(Result, State#state{data=Tail, active=NewActive}) of
-                {noreply, NewState}  ->
-                    dispatch_packets(NewState);
-                {stop, Reason, NewState} ->
-                    {stop, Reason, NewState}
-            end;
-        {more, _} ->
-            %% Dispatch empty actions to ensure inet opts are set
-            {ok, handle_actions([], State)}
-    end.
-
--spec handle_command_result(libp2p_stream:handle_command_result(), #state{}) ->
-                                   {reply, any(), #state{}} |
-                                   {noreply, #state{}}.
-handle_command_result({reply, Reply, ModState}, State=#state{}) ->
-    handle_command_result({reply, Reply, ModState, []}, State);
-handle_command_result({reply, Reply, ModState, Actions}, State=#state{}) ->
-    {repy, Reply, handle_actions(Actions, State#state{mod_state=ModState})};
-handle_command_result({noreply, ModState}, State=#state{}) ->
-    handle_command_result({noreply, ModState, []}, State);
-handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
-    {noreply, handle_actions(Actions, State#state{mod_state=ModState})}.
-
-
--spec handle_packet_result(libp2p_stream:handle_packet_result(), #state{}) ->
-                                  {noreply, #state{}} |
-                                  {stop, term(), #state{}}.
-handle_packet_result({ok, ModState}, State=#state{}) ->
-    handle_packet_result({ok, ModState, []}, State);
-handle_packet_result({ok, ModState, Actions}, State=#state{}) ->
-    {noreply, handle_actions(Actions, State#state{mod_state=ModState})};
-handle_packet_result({close, Reason, ModState}, State=#state{}) ->
-    handle_packet_result({close, Reason, ModState, []}, State);
-handle_packet_result({close, Reason, ModState, Actions}, State=#state{}) ->
-    {stop, Reason, handle_actions(Actions, State#state{mod_state=ModState})}.
-
-
--spec handle_init_result(libp2p_stream:init_result(), #state{}) -> {stop, Reason::any()} | {ok, #state{}}.
-handle_init_result({ok, ModState, Actions}, State=#state{})  ->
-    case proplists:is_defined(packet_spec, Actions) of
-        false ->
-            handle_init_result({close, {error, missing_packet_spec}}, State);
-        true ->
-            {ok, handle_actions(Actions, State#state{mod_state=ModState})}
-    end;
-handle_init_result({close, Reason}, State=#state{}) ->
-    handle_init_result({close, Reason, []}, State);
-handle_init_result({close, Reason, Actions}, State=#state{}) ->
-    handle_actions(Actions, State),
-    {stop, Reason};
-handle_init_result(Result, #state{}) ->
-    {stop, {invalid_init_result, Result}}.
-
-
-
--spec handle_actions(libp2p_stream:actions(), #state{}) -> #state{}.
-handle_actions([], State) ->
-    case State#state.active of
-        once ->
-            inet:setopts(State#state.socket, [{active, once}]);
-        true ->
-            inet:setopts(State#state.socket, [{active, once}]);
-        _ -> ok
-    end,
-    State;
-handle_actions([{send, Data} | Tail], State=#state{send_pid=SendPid}) ->
-    SendPid ! {send, Data},
-    handle_actions(Tail, State);
-handle_actions([{swap, Mod, ModOpts} | _], State=#state{}) ->
-    %% In a swap we ignore any furhter actions in the action list and
-    %% let handle_init_result deal with the actions returned by the
-    %% new module
-    Result = Mod:init(State#state.kind, ModOpts),
-    case handle_init_result(Result, State#state{mod=Mod}) of
-        {ok, NewState} ->
-            NewState;
-        {stop, Reason} ->
-            self() ! {stop, Reason},
-            State
-    end;
-handle_actions([{packet_spec, Spec} | Tail], State=#state{packet_spec=Spec}) ->
-    %% Do nothing if the spec did not change
-    handle_actions(Tail, State);
-handle_actions([{packet_spec, Spec} | Tail], State=#state{}) ->
-    %% Spec is different, dispatch empty data to deliver any existing
-    %% data again with the new spec.
-    self () ! {tcp, State#state.socket, <<>>},
-    handle_actions(Tail, State#state{packet_spec=Spec});
-handle_actions([{active, Active} | Tail], State=#state{}) ->
-    handle_actions(Tail, State#state{active=Active});
-handle_actions([{reply, To, Reply} | Tail], State=#state{}) ->
-    gen_server:reply(To, Reply),
-    handle_actions(Tail, State);
-handle_actions([{timer, Key, Timeout} | Tail], State=#state{timers=Timers}) ->
-    NewTimers = case maps:get(Key, Timers, false) of
-                    false ->
-                        Timers;
-                    Timer ->
-                        erlang:cancel_timer(Timer),
-                        NewTimer = erlang:send_after(Timeout, self(), {timeout, Key}),
-                        maps:put(Key, NewTimer, Timers)
-                end,
-    handle_actions(Tail, State#state{timers=NewTimers});
-handle_actions([{cancel_timer, Key} | Tail], State=#state{timers=Timers}) ->
-    NewTimers = case maps:take(Key, Timers) of
-                    error ->
-                        Timers;
-                    {Timer, NewMap} ->
-                        erlang:cancel_timer(Timer),
-                        NewMap
-                end,
-    handle_actions(Tail, State#state{timers=NewTimers});
-handle_actions([swap_kind | Tail], State=#state{}) ->
-    NewKind = case State#state.kind of
-                  client -> server;
-                  server -> client
-              end,
-    handle_actions(Tail, State#state{kind=NewKind}).
-
-mk_async_sender(Sock) ->
-    Parent = self(),
-    Sender = fun Fun() ->
-                     receive
-                         {'DOWN', _, process, Parent, _} ->
-                             ok;
-                         {send, Data} ->
-                             case gen_tcp:send(Sock, Data) of
-                                 ok -> ok;
-                                 Error ->
-                                     Parent ! {send_error, {error, Error}}
-                             end,
-                             Fun()
-                     end
+handle_packet(Header, Packet, State=#state{mod=Mod}) ->
+    Active = case State#state.active of
+                 once -> false; %% Need a way to send a {transport_active, false} action
+                 true -> true
              end,
-    fun() ->
-            erlang:monitor(process, Parent),
-            Sender()
-    end.
+    Result = Mod:handle_packet(Header, Packet, State#state.mod_state),
+    handle_info_result(Result, State#state{active=Active}).
+
+-spec handle_info_result(libp2p_stream:handle_info_result(), #state{}) ->
+                                libp2p_stream_transport:handle_info_result().
+handle_info_result({ok, ModState}, State=#state{}) ->
+    handle_info_result({ok, ModState, []}, State);
+handle_info_result({ok, ModState, Actions}, State=#state{}) ->
+    {noreply, State#state{mod_state=ModState}, Actions};
+handle_info_result({close, Reason, ModState}, State=#state{}) ->
+    handle_info_result({close, Reason, ModState, []}, State);
+handle_info_result({close, Reason, ModState, Actions}, State=#state{}) ->
+    {stop, Reason, State#state{mod_state=ModState}, Actions}.
+
+handle_terminate(_Reason, #state{socket=Sock}) ->
+    gen_tcp:close(Sock).
+
+-spec handle_action(libp2p_stream:action(), #state{}) ->
+                           libp2p_stream_transport:handle_action_result().
+handle_action({active, Active}, State=#state{active=Active}) ->
+    {ok, State};
+handle_action({active, Active}, State=#state{}) ->
+    case Active == true orelse Active == once of
+        true -> inet:setopts(State#state.socket, [{active, once}]);
+        false -> ok
+    end,
+    {ok, State#state{active=Active}};
+handle_action(swap_kind, State=#state{kind=server}) ->
+    {ok, State#state{kind=client}};
+handle_action(swap_kind, State=#state{kind=client}) ->
+    {ok, State#state{kind=server}};
+handle_action([{swap, Mod, ModOpts}], State=#state{mod=Mod}) ->
+    %% In a swap we ignore any furhter actions in the action list and
+    case Mod:init(State#state.kind, ModOpts) of
+        {ok, ModState, Actions} ->
+            {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
+        {close, Reason} ->
+            self() ! {stop, Reason},
+            {ok, State};
+        {close, Reason, Actions} ->
+            self() ! {stop, Reason},
+            {replace, Actions, State}
+    end;
+handle_action(Action, State) ->
+    {action, Action, State}.
 
 
 
