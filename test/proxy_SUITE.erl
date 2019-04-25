@@ -140,12 +140,13 @@ basic(_Config) ->
     ok = libp2p_swarm:stop(ServerSwarm),
     ok = libp2p_swarm:stop(ClientSwarm),
 
-    timer:sleep(5000),
 
     %% check we didn't leak any sockets here
-    [{_ID, Info}] = ranch:info(),
-    ?assertEqual(0, proplists:get_value(active_connections, Info)),
-    ?assertEqual(0, proplists:get_value(all_connections, Info)),
+    ok = test_util:wait_until(fun() ->
+                                      [{_ID, Info}] = ranch:info(),
+                                      0 == proplists:get_value(active_connections, Info) andalso
+                                      0 == proplists:get_value(all_connections, Info)
+                              end),
 
     ok = libp2p_swarm:stop(ProxySwarm),
 
