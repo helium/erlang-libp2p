@@ -118,7 +118,9 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
         ok ->
             {noreply, State#state{id=ID}};
         {error, Reason} ->
-            {stop, Reason, State}
+            Error = libp2p_proxy_error:new(Reason),
+            Env = libp2p_proxy_envelope:create(ID, Error),
+            {stop, Reason, State, libp2p_proxy_envelope:encode(Env)}
     end;
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
@@ -172,6 +174,11 @@ handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
     Socket = libp2p_connection:socket(Connection1),
     TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)},
     {stop, normal, State};
+handle_client_data({error, Error}, _Env, #state{transport=TransportPid}=State) ->
+    lager:info("client got proxy error from server ~p", [Error]),
+    Reason = libp2p_proxy_error:reason(Error),
+    TransportPid ! {error, Reason},
+    {stop, Reason, State};
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.

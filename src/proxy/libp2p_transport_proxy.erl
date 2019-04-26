@@ -51,6 +51,9 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
             {error, fail_dial_proxy};
         {ok, _} ->
             receive
+                {error, _Reason}=Error ->
+                    lager:warning("proxy failed ~p", [_Reason]),
+                    Error;
                 {proxy_negotiated, Socket, MultiAddr} ->
                     Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
                     lager:info("proxy successful ~p", [Conn]),
