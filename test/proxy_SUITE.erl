@@ -132,6 +132,9 @@ basic(_Config) ->
         ct:fail(timeout)
     end,
 
+    %% 2 connections, each registered twice once as p2p and one as ipv4
+    4 = length(libp2p_swarm:sessions(ProxySwarm)),
+
     %% really close the socket here
     {ok, Session} = libp2p_connection:session(libp2p_framed_stream:connection(ClientStream)),
     libp2p_framed_stream:close(ClientStream),

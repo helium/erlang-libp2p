@@ -19,6 +19,10 @@ start_server(Connection, Path, TID, []) ->
     %% already assigned the controlling process, there is no need to
     %% wait for a shoot message
     lager:info("doing socket transfer"),
+    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
+    %% we want to unregister this as a session because it's not a real
+    %% session on the proxy server, we track proxy connections elsewhere
+    libp2p_config:remove_session(TID, RemoteAddr),
     <<"/", ID0/binary>> = erlang:list_to_binary(Path),
     ID1 = base58:base58_to_binary(erlang:binary_to_list(ID0)),
     %% this will block until the connection is finished with
