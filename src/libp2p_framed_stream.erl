@@ -135,6 +135,7 @@ info(Pid) ->
 
 -spec init_module(atom(), atom(), libp2p_connection:connection(), [any()]) -> {ok, #state{}} | {error, term()}.
 init_module(Kind, Module, Connection, Args) ->
+    erlang:put(stream_type, {Kind, Module}),
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     case Module:init(Kind, Connection, Args) of
         {ok, ModuleState} ->
