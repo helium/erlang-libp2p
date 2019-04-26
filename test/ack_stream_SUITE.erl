@@ -28,7 +28,7 @@ end_per_testcase(_, Config) ->
 
 ack_test(Config) ->
     Client = proplists:get_value(client, Config),
-    pending = libp2p_framed_stream:send(Client, {<<"hello">>, 1}, 100),
+    pending = libp2p_framed_stream:send(Client, {<<"hello">>, 1}, 10000),
 
     receive
         {accept_stream, _, _} -> ok
@@ -54,7 +54,7 @@ accept_stream({Pid, _}, StreamPid, Path) ->
     Pid ! {accept_stream, StreamPid, Path},
     {ok, {server, self()}}.
 
-handle_data({Pid, Response}, Ref, {Bin, Seq}) ->
+handle_data({Pid, Response}, Ref, [{Seq, Bin}]) ->
     Pid ! {handle_data, Ref, Bin, Seq},
     Response.
 
