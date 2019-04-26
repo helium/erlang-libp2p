@@ -396,6 +396,7 @@ lookup_worker(Index, State=#state{}) ->
 lookup_worker(Key, KeyIndex, #state{workers=Workers}) ->
     lists:keyfind(Key, KeyIndex, Workers).
 
+-dialyzer({nowarn_function, [dispatch_acks/3]}).
 -spec dispatch_acks(none | #{non_neg_integer() => [non_neg_integer()]},
                     boolean(), #state{}) -> ok.
 dispatch_acks(none, _Reset, _State) ->
