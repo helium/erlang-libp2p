@@ -205,10 +205,10 @@ sort_peers_fun(A, B) ->
     TypeA = libp2p_peer:nat_type(A),
     TypeB= libp2p_peer:nat_type(B),
     LengthA = erlang:length(libp2p_peer:connected_peers(A)),
-    LengthB = erlang:length(libp2p_peer:connected_peers(A)),
+    LengthB = erlang:length(libp2p_peer:connected_peers(B)),
     case {TypeA, TypeB} of
         {X, X} ->
-            LengthA >= LengthB;
+            LengthA < LengthB;
         {none, _} ->
             true;
         {_, none} ->
