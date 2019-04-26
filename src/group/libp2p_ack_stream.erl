@@ -53,9 +53,9 @@ init(client, Connection, [AckRef, AckModule, AckState]) ->
 
 handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
-        #libp2p_ack_frame_pb{messages=[Bin], seqs=[Seq]} when Bin /= <<>> ->
+        #libp2p_ack_frame_pb{messages=Bin, seqs=Seq} when Bin /= [] ->
             %% Inbound request to handle a message
-            AckModule:handle_data(AckState, AckRef, {Bin, Seq}),
+            AckModule:handle_data(AckState, AckRef, lists:zip(Seq, Bin)),
             {noreply, State};
         #libp2p_ack_frame_pb{seqs=Seq, reset=Reset} ->
             %% When we receive an ack response from the remote side we
@@ -67,6 +67,10 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             {noreply, State}
     end.
 
+handle_send(_Kind, From, Msgs, Timeout, State=#state{}) when is_list(Msgs) ->
+    {Seqs, Data} = lists:unzip(Msgs),
+    Msg = #libp2p_ack_frame_pb{messages=Data, seqs=Seqs},
+    {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}};
 handle_send(_Kind, From, {Data, Seq}, Timeout, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{messages=[Data], seqs=[Seq]},
     {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.

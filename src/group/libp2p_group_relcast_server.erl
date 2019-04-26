@@ -19,7 +19,6 @@
          in_flight = 0 :: non_neg_integer(),
          connects = 0 :: non_neg_integer(),
          last_take = unknown :: atom(),
-         last_in_seq :: undefined | pos_integer(),
          last_ack = 0 :: non_neg_integer()
        }).
 
@@ -55,8 +54,8 @@ handle_command(Pid, Msg) ->
 %% libp2p_ack_stream
 %%
 
-handle_data(Pid, Ref, {Bin, Seq}) ->
-    gen_server:cast(Pid, {handle_data, Ref, Bin, Seq}).
+handle_data(Pid, Ref, Msgs) ->
+    gen_server:cast(Pid, {handle_data, Ref, Msgs}).
 
 handle_ack(Pid, Ref, Seq, Reset) ->
     gen_server:cast(Pid, {handle_ack, Ref, Seq, Reset}).
@@ -237,8 +236,7 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
     InFlight = relcast:in_flight(Index, NewRelcast),
     State1 = update_worker(Worker#worker{in_flight=InFlight, last_ack=erlang:system_time(second)}, State),
     {noreply, dispatch_next_messages(State1#state{store=NewRelcast})};
-handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex}) ->
-    Worker = lookup_worker(Index, State),
+handle_cast({handle_data, Index, Msgs}, State=#state{self_index=_SelfIndex}) ->
     %% Incoming message, add to queue
     %% lager:debug("~p RECEIVED MESSAGE FROM ~p ~p", [SelfIndex, Index, Msg]),
     HasCanary = case State#state.pending of
@@ -247,8 +245,27 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
                     _ ->
                         false
                 end,
-    case relcast:deliver(Seq, Msg, Index, State#state.store) of
-        full ->
+    Res =
+        lists:foldl(
+          fun(M, {full, RC, Acc}) ->
+                  {full, RC, [M | Acc]};
+             ({Seq, Msg}, RC) ->
+                  case relcast:deliver(Seq, Msg, Index, RC) of
+                      full ->
+                          {full, RC, [{Seq, Msg}]};
+
+                  {ok, NewRC} ->
+                      NewRC;
+                  %% just keep looping, I guess, it kind of doesn't matter?
+                  {stop, Timeout, NewRC} ->
+                      erlang:send_after(Timeout, self(), force_close),
+                      NewRC
+                  end
+          end,
+          State#state.store,
+          Msgs),
+    case Res of
+        {full, RC, PMsgs} ->
             %% So this is a bit tricky. we've exceeded the defer queueing for this
             %% peer ID so we need to queue it locally and block more being sent.
             %% We need to put these in a buffer somewhere and keep trying to deliver them
@@ -263,14 +280,12 @@ handle_cast({handle_data, Index, Msg, Seq}, State=#state{self_index=_SelfIndex})
                     {noreply, dispatch_next_messages(State)};
                 %% store it as a canary
                 false ->
-                    Pending = maps:put(Index, {Seq, Msg}, State#state.pending),
-                    {noreply, dispatch_next_messages(update_worker(Worker#worker{last_in_seq=undefined}, State#state{pending = Pending}))}
+                    Pending = maps:put(Index, PMsgs, State#state.pending),
+                    {noreply, dispatch_next_messages(State#state{store = RC,
+                                                                 pending = Pending})}
             end;
-        {ok, NewRelcast} ->
-            {noreply, dispatch_next_messages(update_worker(Worker, State#state{store=NewRelcast}))};
-        {stop, Timeout, NewRelcast} ->
-            erlang:send_after(Timeout, self(), force_close),
-            {noreply, dispatch_next_messages(update_worker(Worker, State#state{store=NewRelcast}))}
+        RC ->
+            {noreply, dispatch_next_messages(State#state{store = RC})}
     end;
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
@@ -409,13 +424,17 @@ take_while([], State) ->
     State;
 take_while([Worker | Workers], State) ->
     Index = Worker#worker.index,
-    case relcast:take(Index, State#state.store) of
+    Count = application:get_env(libp2p, take_size, 25),
+    case relcast:take(Index, State#state.store, Count) of
         {pipeline_full, NewRelcast} ->
+            %% lager:info("take ~p pipeline full", [Index]),
             take_while(Workers, update_worker(Worker#worker{last_take=pipeline_full}, State#state{store = NewRelcast}));
         {not_found, NewRelcast} ->
+            %% lager:info("take ~p not found", [Index]),
             take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
-        {ok, Seq, Acks, Msg, NewRelcast} ->
-            libp2p_group_worker:send(Worker#worker.pid, Index, {Msg, Seq}),
+        {ok, Msgs, Acks, NewRelcast} ->
+            %% lager:info("take ~p got ~p", [Index, length(Msgs)]),
+            libp2p_group_worker:send(Worker#worker.pid, Index, Msgs),
             dispatch_acks(Acks, false, State),
             InFlight = relcast:in_flight(Index, NewRelcast),
             NewWorker = Worker#worker{in_flight=InFlight, last_take=ok},
@@ -432,18 +451,33 @@ dispatch_next_messages(State) ->
                        take_while([W || W <- Workers], State)
                end,
     %% attempt to deliver some stuff in the pending queue
-    maps:fold(fun(Index, {Seq, Msg}, Acc) ->
-                      case relcast:deliver(Seq, Msg, Index, Acc#state.store) of
-                          full ->
-                              %% still no room, continue to HODL the message
-                              Acc;
-                          {ok, NR} ->
-                              Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)};
-                          {stop, Timeout, NR} ->
-                              erlang:send_after(Timeout, self(), force_close),
-                              Acc#state{store=NR, pending=maps:remove(Index, Acc#state.pending)}
-                      end
-              end, NewState, NewState#state.pending).
+    maps:fold(
+      fun(Index, Msgs, #state{store = RC} = A) ->
+              Res =
+                  lists:foldl(
+                    fun(M, {full, Acc, R}) ->
+                            {full, [M|Acc], R};
+                       ({Seq, Msg} = M, {Acc, R}) ->
+                            case relcast:deliver(Seq, Msg, Index, R) of
+                                full ->
+                                    %% still no room, continue to HODL the message
+                                    {full, [M|Acc], R};
+                                {ok, NR} ->
+                                    {Acc, NR};
+                                {stop, Timeout, NR} ->
+                                    erlang:send_after(Timeout, self(), force_close),
+                                    {Acc, NR}
+                            end
+                    end,
+                    {[], RC}, Msgs),
+              case Res of
+                  {full, Rem, RC1} ->
+                      A#state{store=RC1, pending=maps:put(Index, lists:reverse(Rem),
+                                                          A#state.pending)};
+                  {[], RC1} ->
+                      A#state{store=RC1, pending=maps:remove(Index, A#state.pending)}
+              end
+      end, NewState, NewState#state.pending).
 
 
 -spec filter_ready_workers(#state{}) -> [#worker{}].
