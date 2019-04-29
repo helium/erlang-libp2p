@@ -54,11 +54,11 @@ encode_packet(StreamID, Kind, Flag, Data) ->
 
 %% libp2p_stream
 
-init(_Kind, Opts=#{transport := Transport}) ->
+init(_Kind, Opts=#{send_fn := SendFun}) ->
     WorkerOpts = maps:get(worker_opts, Opts, #{}),
     {ok, #state{
             max_received_workers=maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
-            worker_opts=WorkerOpts#{transport => Transport}
+            worker_opts=WorkerOpts#{send_fn => SendFun}
            },
      [{packet_spec, ?PACKET_SPEC}]}.
 

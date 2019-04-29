@@ -76,6 +76,7 @@ start_link(Module, Kind, Opts) ->
 -spec init({atom(), libp2p_stream:kind(), Opts::map()}) -> {stop, Reason::any()} |
                                                            {ok, #state{}}.
 init({Mod, Kind, Opts=#{send_fn := SendFun}}) ->
+    erlang:put(transport_type, {Kind, Mod}),
     SendPid = spawn_link(mk_async_sender(SendFun)),
     State = #state{mod=Mod, mod_state=undefined, send_pid=SendPid},
     Result = Mod:init(Kind, Opts),
@@ -85,12 +86,12 @@ init({Mod, Kind, Opts=#{send_fn := SendFun}}) ->
 handle_init_result({ok, ModState, Actions}, State=#state{})  ->
     case proplists:is_defined(packet_spec, Actions) of
         false ->
-            handle_init_result({close, {error, missing_packet_spec}}, State);
+            handle_init_result({stop, {error, missing_packet_spec}}, State);
         true ->
             {ok, handle_actions(Actions, State#state{mod_state=ModState})}
     end;
-handle_init_result({stop, Reason}, State=#state{}) ->
-    handle_init_result({close, Reason, []}, State);
+handle_init_result({stop, Reason}, #state{}) ->
+    {stop, Reason};
 handle_init_result({stop, Reason, ModState, Actions}, State=#state{}) ->
     handle_actions(Actions, State#state{mod_state=ModState}),
     {stop, Reason};
@@ -290,16 +291,16 @@ handle_action(Action, State) ->
     State.
 
 
-mk_async_sender({TransportMod, TransportState}) ->
+mk_async_sender(SendFun) ->
     Parent = self(),
     Sender = fun Fun() ->
                      receive
                          {'DOWN', _, process, Parent, _} ->
                              ok;
                          {send, Data} ->
-                             case TransportMod:transport_send(TransportState, Data) of
+                             case SendFun(Data) of
                                  ok -> ok;
-                                 Error ->
+                                 {error, Error} ->
                                      Parent ! {send_error, {error, Error}}
                              end,
                              Fun()
