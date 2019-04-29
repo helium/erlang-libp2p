@@ -6,7 +6,7 @@
 
 -define(TIMEOUT, 5000).
 -define(LIVENESS_TIMEOUT, 30000).
--define(EMPTY_TIMEOUT, 10000).
+-define(DEFAULT_IDLE_TIMEOUT, 10000).
 
 -define(HEADER_SIZE, 12).
 -define(MAX_STREAMID, 4294967295).
@@ -38,7 +38,8 @@
           pings=#{} :: #{ping_id() => ping_info()},
           next_ping_id=0 :: ping_id(),
           liveness_timer :: reference(),
-          empty_timer :: reference(),
+          idle_timer :: reference(),
+          idle_timeout :: pos_integer(),
           goaway_state=none :: none | local | remote,
           ident=#ident{} :: #ident{}
          }).
@@ -126,11 +127,15 @@ send_data(Pid, Header, Data, Timeout) ->
 init({TID, Connection, _Path, NextStreamId, WaitShoot}) ->
     erlang:process_flag(trap_exit, true),
     {ok, StreamSup} = supervisor:start_link(libp2p_simple_sup, []),
+    IdleTimeout = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_session, idle_timeout],
+                                        ?DEFAULT_IDLE_TIMEOUT),
+
     State = #state{tid=TID,
                    stream_sup=StreamSup,
                    next_stream_id=NextStreamId,
                    liveness_timer=init_liveness_timer(),
-                   empty_timer=init_empty_timer()
+                   idle_timeout=IdleTimeout,
+                   idle_timer=init_idle_timer(IdleTimeout)
                   },
     %% If we're not waiting for a shoot message with a new connection
     %% we fire one to ourselves to kick of the machinery the same way.
@@ -179,13 +184,13 @@ handle_info(timeout_liveness, State=#state{}) ->
 handle_info(liveness_failed, State=#state{}) ->
     lager:notice("Session liveness failure"),
     {stop, normal, State};
-handle_info(timeout_empty, State=#state{}) ->
+handle_info(timeout_idle, State=#state{}) ->
     case stream_pids(State) of
         [] ->
             lager:debug("Closing session due to inactivity"),
             {stop, normal, State};
         _ ->
-            {noreply, State#state{empty_timer=init_empty_timer()}}
+            {noreply, State#state{idle_timer=init_idle_timer(State#state.idle_timeout)}}
     end;
 
 handle_info({stop, Reason}, State=#state{}) ->
@@ -298,8 +303,8 @@ fdset(Connection, State) ->
     end,
     State.
 
-init_empty_timer() ->
-    erlang:send_after(?EMPTY_TIMEOUT, self(), timeout_empty).
+init_idle_timer(Timeout) ->
+    erlang:send_after(Timeout, self(), timeout_idle).
 
 init_liveness_timer() ->
     erlang:send_after(?LIVENESS_TIMEOUT, self(), timeout_liveness).
