@@ -35,7 +35,7 @@ priority() -> 99.
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
-connect(_Pid, MAddr, _Options, _Timeout, TID) ->
+connect(Pid, MAddr, Options, Timeout, TID) ->
     {ok, {PAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     lager:info("init proxy with ~p", [[PAddress, AAddress]]),
     Swarm = libp2p_swarm:swarm(TID),
@@ -51,6 +51,19 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
             {error, fail_dial_proxy};
         {ok, _} ->
             receive
+                {error, limit_exceeded} ->
+                    case peer_for(Swarm, AAddress) of
+                        {error, _Reason}=Error ->
+                            lager:warning("listen_addresses_for failed ~p", [_Reason]),
+                            Error;
+                        {ok, Peer} ->
+                            ListenAddresses = lists:filter(
+                                fun(A) -> A == MAddr end,
+                                libp2p_peer:listen_addrs(Peer)
+                            ),
+                            [Address|_] = ListenAddresses,
+                            libp2p_swarm:connect(Pid, Address, Options, Timeout)
+                    end;
                 {error, _Reason}=Error ->
                     lager:warning("proxy failed ~p", [_Reason]),
                     Error;
@@ -66,3 +79,9 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+-spec peer_for(pid(), string()) -> {ok, libp2p_peer:peer()} | {error, any()}.
+peer_for(Swarm, Address) ->
+    Peerbook = libp2p_swarm:peerbook(Swarm),
+    PubKeyBin = libp2p_crypto:p2p_to_pubkey_bin(Address),
+    libp2p_peerbook:get(Peerbook, PubKeyBin).
