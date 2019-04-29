@@ -185,7 +185,7 @@ handle_info(timeout_empty, State=#state{}) ->
             lager:debug("Closing session due to inactivity"),
             {stop, normal, State};
         _ ->
-            {norply, State#state{empty_timer=init_empty_timer()}}
+            {noreply, State#state{empty_timer=init_empty_timer()}}
     end;
 
 handle_info({stop, Reason}, State=#state{}) ->
