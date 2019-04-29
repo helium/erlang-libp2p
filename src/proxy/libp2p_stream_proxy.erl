@@ -37,7 +37,8 @@
     swarm :: pid() | undefined,
     proxy_address :: undefined | string(),
     connection :: libp2p_connection:connection(),
-    raw_connection :: libp2p_connection:connection() | undefined
+    raw_connection :: libp2p_connection:connection() | undefined,
+    connection_ref=make_ref() :: reference()
 }).
 
 -type state() :: #state{}.
@@ -83,6 +84,8 @@ handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
     Req = libp2p_proxy_req:create(SAddress),
     Env = libp2p_proxy_envelope:create(ID, Req),
     {noreply, State#state{proxy_address=PAddress}, libp2p_proxy_envelope:encode(Env)};
+handle_info(server, {'DOWN', Ref, process, _, _}, State = #state{connection_ref=Ref}) ->
+    {stop, normal, State};
 handle_info(_Type, {transfer, Data}, State) ->
     lager:debug("~p transfering ~p", [_Type, Data]),
     {noreply, State, Data};
@@ -134,9 +137,12 @@ handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connec
     Ref = erlang:make_ref(),
     TID = libp2p_swarm:tid(Swarm),
     {ok, Pid} = libp2p_transport:start_server_session(Ref, TID, Conn),
+    MRef = erlang:monitor(process, Pid),
     Pid ! {shoot, Ref, ranch_tcp, Socket, 2000},
     lager:info("server got proxy resp ~p ~p", [Resp, Conn]),
-    {noreply, State};
+    %% So this process apparently can't die, at least not yet
+    %% instead remember the monitor ref for later
+    {noreply, State#state{connection_ref=MRef}};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
@@ -165,7 +171,7 @@ handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
     {ok, Connection1} = libp2p_connection:controlling_process(Connection, TransportPid),
     Socket = libp2p_connection:socket(Connection1),
     TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)},
-    {noreply, State};
+    {stop, normal, State};
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.
