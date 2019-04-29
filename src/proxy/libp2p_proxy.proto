@@ -11,6 +11,10 @@ message proxy_error {
     required bytes reason = 1;
 }
 
+message proxy_overload {
+    required bytes pub_key_bin = 1;
+}
+
 message proxy_dial_back {}
 
 message proxy_envelope {
@@ -20,5 +24,6 @@ message proxy_envelope {
         proxy_resp resp = 3;
         proxy_dial_back dial_back = 4;
         proxy_error error = 5;
+        proxy_overload overload = 6;
     }
 }
