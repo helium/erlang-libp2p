@@ -10,6 +10,7 @@ erln8.config
 .eqc/
 /.eqc-info
 /coverage/
+codecov.json
 /current_counterexample.eqc
 *.dump
 *.crashdump

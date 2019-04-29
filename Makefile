@@ -1,4 +1,4 @@
-.PHONY: compile rel cover test typecheck doc
+.PHONY: compile rel cover test typecheck doc ci
 
 REBAR=./rebar3
 SHORTSHA=`git rev-parse --short HEAD`
@@ -28,7 +28,9 @@ test:
 	$(REBAR) as test do eunit,ct
 
 ci:
-	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct
+	$(REBAR) dialyzer && $(REBAR) as test do eunit,ct,cover
+	$(REBAR) covertool generate
+	codecov --required -f _build/test/covertool/libp2p.covertool.xml
 
 typecheck:
 	$(REBAR) dialyzer
