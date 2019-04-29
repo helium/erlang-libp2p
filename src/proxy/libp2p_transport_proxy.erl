@@ -44,7 +44,7 @@ connect(_Pid, MAddr, _Options, _Timeout, TID) ->
         {p2p_circuit, MAddr},
         {transport, self()},
         {id, ID}
-           ],
+    ],
     case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
         {error, Reason} ->
             lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
