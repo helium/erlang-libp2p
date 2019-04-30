@@ -157,6 +157,9 @@ handle_action({send, reset}, State=#state{}) ->
 handle_action({send, close}, State=#state{}) ->
     Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, close),
     {action, {send, Packet}, State};
+handle_action({send, Data}, State=#state{}) ->
+    Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, msg, Data),
+    {action, {send, Packet}, State};
 handle_action({active, Active}, State=#state{}) ->
     {ok, State#state{active=Active}};
 handle_action(swap_kind, State=#state{kind=server}) ->

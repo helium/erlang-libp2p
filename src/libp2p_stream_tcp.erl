@@ -41,7 +41,7 @@ command(Pid, Cmd) ->
     gen_server:call(Pid, Cmd, infinity).
 
 
-start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun}) ->
+start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, mod := _Mod}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts);
 start_link(Kind, Opts=#{socket := Sock}) ->
     SendFun = fun(Data) ->
@@ -52,7 +52,11 @@ start_link(Kind, Opts=#{socket := Sock}) ->
 -spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
 init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     erlang:put(stream_type, {Kind, Mod}),
-    ok = inet:setopts(Sock, [binary, {packet, raw}, {nodelay, true}]),
+    case Kind of
+        server -> ok;
+        client ->
+            ok = inet:setopts(Sock, [binary, nodelay, {packet, raw}])
+    end,
     ModOpts = maps:get(mod_opts, Opts, #{}),
     case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
         {ok, ModState, Actions} ->
@@ -149,80 +153,3 @@ handle_action([{swap, Mod, ModOpts}], State=#state{}) ->
     end;
 handle_action(Action, State) ->
     {action, Action, State}.
-
-
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-inet_getopts(Sock, Values) ->
-    Stored = case erlang:get({inet_opts, Sock}) of
-                 undefined -> {ok, []};
-                 Other -> {ok, Other}
-             end,
-    {ok, erlang:foldr(fun(K, Acc) ->
-                         case proplists:lookup(K, Stored) of
-                             none -> Acc;
-                             V -> [V | Acc]
-                         end
-                 end, [], Values)}.
-
-meck_setopts() ->
-    meck:new(inet, [unstick, passthrough]),
-    meck:expect(inet, getopts, fun inet_getopts/2),
-    meck:expect(inet, setopts,
-                fun(Sock, Opts) ->
-                        Stored = case erlang:get({inet_opts, Sock}) of
-                                     undefined -> [];
-                                     Other -> Other
-                                 end,
-                        erlang:put({inet_opts, Sock}, Opts ++ Stored),
-                        ok
-                end).
-
-unmeck_setopts() ->
-    meck:unload(inet).
-
-mk_send_fn(Sock) ->
-    fun(Data) ->
-            erlang:put({data, Sock}, Data)
-    end.
-
-%% get_sent_data(Sock) ->
-%%     erlang:get({data, Sock}).
-
-init_test() ->
-    meck_setopts(),
-
-    meck:new(test_stream, [non_strict]),
-    meck:expect(test_stream, init, fun(_, #{ result := Result}) -> Result end),
-
-    %% valid close response causes a stop
-    ?assertMatch({error, test_stream_stop},
-                 ?MODULE:start_link(client, #{socket => -1,
-                                              send_fn => mk_send_fn(-1),
-                                              mod => test_stream,
-                                              mod_opts => #{result => {close, test_stream_stop}}
-                                             })),
-
-    %% %% invalid init result causes a stop
-    %% ?assertMatch({stop, {invalid_init_result, invalid_result}},
-    %%              ?MODULE:init({client, #{socket => -1,
-    %%                                      mod => test_stream,
-    %%                                      mod_opts => [invalid_result]
-    %%                                     }})),
-    %% %% missing packet spec, causes a stop
-    %% ?assertMatch({stop, {error, missing_packet_spec}},
-    %%              ?MODULE:init({client, #{socket => -1,
-    %%                                      mod => test_stream,
-    %%                                      mod_opts => [{ok, {}, []}]
-    %%                                     }})),
-    ?assert(meck:validate(test_stream)),
-    meck:unload(test_stream),
-
-    unmeck_setopts(),
-    ok.
-
-
-
--endif.

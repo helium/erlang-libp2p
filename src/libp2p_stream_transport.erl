@@ -65,6 +65,7 @@
 
 -record(state, {
                 send_pid :: pid(),
+                %% packet_spec is used on receive only
                 packet_spec=undefined :: libp2p_packet:spec() | undefined,
                 active=false :: libp2p_stream:active(),
                 timers=#{} :: #{Key::term() => Timer::reference()},
@@ -86,7 +87,7 @@ init({Mod, Kind, Opts=#{send_fn := SendFun}}) ->
     handle_init_result(Result, State).
 
 -spec handle_init_result(init_result(), #state{}) -> {stop, Reason::any()} | {ok, #state{}}.
-handle_init_result({ok, ModState, Actions}, State=#state{})  ->
+handle_init_result({ok, ModState, Actions}, State=#state{}) when is_list(Actions) ->
     case proplists:is_defined(packet_spec, Actions) of
         false ->
             handle_init_result({stop, {error, missing_packet_spec}}, State);
@@ -217,7 +218,7 @@ handle_terminate(Reason, State=#state{mod=Mod}) ->
                                     {noreply, #state{}, {continue, term()}} |
                                     {stop, term(), #state{}}.
 dispatch_packets(State=#state{active=false}) ->
-    {ok, State};
+    {noreply, State};
 dispatch_packets(State=#state{data=Data, mod=Mod}) ->
     case libp2p_packet:decode_packet(State#state.packet_spec, Data) of
         {ok,  Header, Packet, Tail} ->
