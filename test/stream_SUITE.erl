@@ -3,23 +3,35 @@
 -include("src/libp2p_yamux.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([auto_close_test/1, close_test/1, timeout_test/1, window_test/1]).
+-export([auto_close_test/1, close_test/1, timeout_test/1, window_test/1, idle_test/1]).
 
 all() ->
     [
-     auto_close_test
-     , close_test
-     , timeout_test
-     , window_test
+     auto_close_test,
+     close_test,
+     timeout_test,
+     window_test,
+     idle_test
     ].
 
 init_per_testcase(_, Config) ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+    Swarms = [S1, S2] =
+        test_util:setup_swarms(2, [
+                                   {libp2p_group_gossip,
+                                    [{peerbook_connections, 0}]
+                                   },
+                                   {libp2p_session,
+                                    [{idle_timeout, 30000}]
+                                   },
+                                  {libp2p_stream,
+                                   [{idle_timeout, 2000}]
+                                  }
+                                  ]),
 
     ok = serve_stream:register(S2, "serve"),
-    {Stream, Server} = serve_stream:dial(S1, S2, "serve"),
+    {Stream, Server, ServerConnection} = serve_stream:dial(S1, S2, "serve"),
 
-    [{swarms, Swarms}, {serve, {Stream, Server}} | Config].
+    [{swarms, Swarms}, {serve, {Stream, Server}}, {server_connection, ServerConnection} | Config].
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),
@@ -109,5 +121,25 @@ window_test(Config) ->
                    {recv, BigDataSize, R} -> R
                end,
     {ok, BigData} =  Received,
+
+    ok.
+
+idle_test(Config) ->
+    {Stream, Server} = proplists:get_value(serve, Config),
+    ServerConnection = proplists:get_value(server_connection, Config),
+
+    StreamPid = element(3, Stream),
+    ServerStreamPid = element(3, ServerConnection),
+    %% Confirm that both the client and server underlying streams are stopped
+    ok = test_util:wait_until(fun() ->
+                                      not erlang:is_process_alive(StreamPid) andalso
+                                          not erlang:is_process_alive(ServerStreamPid)
+                              end),
+
+    %% serve_stream does not really behave like a proper stream so it
+    %% will not stop unless told to do so explicitly. We can use this
+    %% here to check that at least it acknowledges that the connection
+    %% is closed
+    {error, closed} = serve_stream:recv(Server, 1, 100),
 
     ok.
