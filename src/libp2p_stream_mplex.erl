@@ -30,8 +30,8 @@
 -record(state, {
                 next_stream_id=0 :: non_neg_integer(),
                 worker_opts :: map(),
-                worker_monitors=#{} :: #{reference() => worker_key()},
                 workers=#{} :: #{worker_key() => pid()},
+                worker_pids=#{} :: #{pid() => worker_key()},
                 max_received_workers :: pos_integer(),
                 count_received_workers=0 :: non_neg_integer()
                }).
@@ -83,7 +83,7 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
             Packet = encode_packet(StreamID, server, reset),
             {ok, State, [{send, Packet}]};
         {StreamID, ?FLAG_NEW_STREAM} ->
-            {_, NewState} = start_worker(server,StreamID, State),
+            {_, NewState} = start_worker({server, StreamID}, State),
             {ok, NewState};
 
         {StreamID, ?FLAG_MSG_INITIATOR} ->
@@ -132,16 +132,14 @@ handle_command(_Kind, Cmd, _From, State=#state{}) ->
 
 
 handle_info(_Kind, open, State=#state{next_stream_id=StreamID}) ->
-    {_, NewState} = start_worker(client, StreamID, State),
+    {_, NewState} = start_worker({client, StreamID}, State),
     Packet = encode_packet(StreamID, client, new),
     {noreply, NewState#state{next_stream_id=StreamID + 1},
      [{send, Packet}]};
 
-handle_info(_Kind, {'DOWN', Monitor, process, _Pid, Reason}, State=#state{worker_monitors=WorkerMonitors}) ->
-    case maps:take(Monitor, WorkerMonitors) of
-        {WorkerKey={Kind, StreamID}, NewWorkerMonitors} ->
-            NewState = State#state{workers=maps:remove(WorkerKey, State#state.workers),
-                                   worker_monitors=NewWorkerMonitors},
+handle_info(_, {'EXIT', WorkerPid, Reason}, State=#state{}) ->
+    case remove_worker(WorkerPid, State) of
+        {{Kind, StreamID}, NewState} ->
             %% Don't bother sending resets when the worker already has
             %% or if we are getting shut down
             case Reason of
@@ -153,13 +151,9 @@ handle_info(_Kind, {'DOWN', Monitor, process, _Pid, Reason}, State=#state{worker
                     Packet = encode_packet(StreamID, Kind, reset),
                     {noreply, NewState, [{send, Packet}]}
             end;
-        error ->
+        false ->
             {noreply, State}
     end;
-handle_info(_Kind, {'EXIT', _WorkerPid, _Reason}, State=#state{}) ->
-    %% Ignore EXITs since they come from worker pids which are
-    %% monitored and handled in 'DOWN'
-    {noreply, State};
 
 handle_info(_Kind, _Msg, State=#state{}) ->
     {ok, State}.
@@ -169,22 +163,42 @@ handle_info(_Kind, _Msg, State=#state{}) ->
 %% Internal
 %%
 
--spec start_worker(libp2p_stream:kind(), stream_id(), #state{}) -> {pid(), #state{}}.
-start_worker(Kind, StreamID, State=#state{worker_opts=WorkerOpts0,
-                                          workers=Workers,
-                                          count_received_workers=CountReceived,
-                                          worker_monitors=Monitors}) ->
+-spec start_worker(worker_key(), #state{}) -> {pid(), #state{}}.
+start_worker(WorkerKey={Kind, StreamID}, State=#state{worker_opts=WorkerOpts0,
+                                                      workers=Workers,
+                                                      worker_pids=WorkerPids,
+                                                      count_received_workers=CountReceived}) ->
     WorkerOpts = WorkerOpts0#{stream_id => StreamID},
     {ok, WorkerPid} = libp2p_stream_mplex_worker:start_link(Kind, WorkerOpts),
-    Monitor = erlang:monitor(process, WorkerPid),
-    WorkerKey = {Kind, StreamID},
     NewCountReceived = case Kind of
                            server -> CountReceived + 1;
                            client -> CountReceived
                        end,
     {WorkerPid, State#state{workers=Workers#{WorkerKey => WorkerPid},
-                            worker_monitors=Monitors#{Monitor => WorkerKey},
+                            worker_pids=WorkerPids#{WorkerPid => WorkerKey},
                             count_received_workers=NewCountReceived}}.
+
+-spec remove_worker(worker_key() | pid(), #state{}) -> {worker_key(), #state{}} | false.
+remove_worker(WorkerKey={Kind, _StreamID}, State=#state{workers=Workers,
+                                                        worker_pids=WorkerPids,
+                                                        count_received_workers=CountReceived}) ->
+    case maps:take(WorkerKey, Workers) of
+        error -> false;
+        {WorkerPid, NewWorkers} ->
+            NewCountReceived = case Kind of
+                                   server -> CountReceived - 1;
+                                   client -> CountReceived
+                               end,
+            {WorkerKey, State#state{workers=NewWorkers,
+                                    worker_pids=maps:remove(WorkerPid, WorkerPids),
+                                    count_received_workers=NewCountReceived}}
+    end;
+remove_worker(WorkerPid, State=#state{}) when is_pid(WorkerPid) ->
+    case maps:get(WorkerPid, State#state.worker_pids, false) of
+        false -> false;
+        WorkerKey when is_tuple(WorkerKey) -> remove_worker(WorkerKey, State)
+    end.
+
 
 encode_header(StreamID, Flag) ->
     (StreamID bsl 3) bor Flag.
