@@ -43,7 +43,7 @@
 -callback command(ModState::any(), Command::any()) -> term().
 
 -callback handle_packet(kind(), libp2p_packet:header(), Packet::binary(), ModState::any()) -> handle_packet_result().
--callback handle_info(kind(), Error::term(), ModState::any()) -> handle_info_result().
+-callback handle_info(kind(), Msg::term(), ModState::any()) -> handle_info_result().
 -callback handle_command(kind(), Command::any(), From::term(), ModState::any()) -> handle_command_result().
 
 -optional_callbacks([handle_command/4, command/2]).
