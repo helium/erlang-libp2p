@@ -79,11 +79,16 @@ handle_data(client, Bin, State) ->
     handle_client_data(Bin, State).
 
 % STEP 2
+
 handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
     {ok, {PAddress, SAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),
     Req = libp2p_proxy_req:create(SAddress),
     Env = libp2p_proxy_envelope:create(ID, Req),
     {noreply, State#state{proxy_address=PAddress}, libp2p_proxy_envelope:encode(Env)};
+handle_info(client, proxy_overloaded, #state{swarm=Swarm, id=ID}=State) ->
+    Overload = libp2p_proxy_overload:create(libp2p_swarm:pubkey_bin(Swarm)),
+    Env = libp2p_proxy_envelope:create(ID, Overload),
+    {stop, normal, State, libp2p_proxy_envelope:encode(Env)};
 handle_info(server, {'DOWN', Ref, process, _, _}, State = #state{connection_ref=Ref}) ->
     {stop, normal, State};
 handle_info(_Type, {transfer, Data}, State) ->

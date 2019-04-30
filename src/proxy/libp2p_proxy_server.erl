@@ -101,18 +101,21 @@ handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data,
     {reply, ok, State#state{data=Data1}};
 handle_call({init_proxy, ID, _ServerStream, SAddress}, _From, #state{swarm=Swarm}=State) ->
     lager:warning("cannot process proxy request for ~p, ~p. Limit exceeded", [ID, SAddress]),
-
     erlang:spawn(
         fun() ->
-            case libp2p_proxy:dial_framed_stream(Swarm, SAddress, [{id, ID}]) of
-                {ok, _ClientStream} ->
-                    ok;
+            case libp2p_proxy:dial_framed_stream(Swarm, SAddress, [{id, ID}, {swarm, Swarm}]) of
+                {ok, ClientStream} ->
+                    Ref = erlang:monitor(process, ClientStream),
+                    ClientStream ! proxy_overloaded,
+                    receive
+                        {'DOWN', Ref, process, ClientStream, _} ->
+                            ok
+                    end;
                 _ ->
                     ok
             end
         end
     ),
-
     {reply, {error, limit_exceeded}, State};
 handle_call({connection, Connection, ID0}, From, #state{data=Data, size=Size}=State) ->
     %% possibly reverse the ID if we got it from the client
