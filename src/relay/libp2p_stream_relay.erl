@@ -12,18 +12,18 @@
 %% ------------------------------------------------------------------
 
 -export([
-    server/4
-    ,client/2
+    server/4,
+    client/2
 ]).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/3
-    ,handle_data/3
-    ,handle_info/3
-    ,terminate/3
+    init/3,
+    handle_data/3,
+    handle_info/3,
+    terminate/3
 ]).
 
 -ifdef(TEST).
@@ -33,10 +33,10 @@
 -include("pb/libp2p_relay_pb.hrl").
 
 -record(state, {
-    swarm :: pid() | undefined
-    ,sessionPid :: pid() | undefined
-    ,type = bridge :: bridge | client
-    ,relay_addr :: string() | undefined
+    swarm :: pid() | undefined,
+    sessionPid :: pid() | undefined,
+    type = bridge :: bridge | client,
+    relay_addr :: string() | undefined
 }).
 
 -type state() :: #state{}.
