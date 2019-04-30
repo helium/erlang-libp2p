@@ -86,7 +86,7 @@ handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
     Env = libp2p_proxy_envelope:create(ID, Req),
     {noreply, State#state{proxy_address=PAddress}, libp2p_proxy_envelope:encode(Env)};
 handle_info(client, proxy_overloaded, #state{swarm=Swarm, id=ID}=State) ->
-    Overload = libp2p_proxy_overload:create(libp2p_swarm:pubkey_bin(Swarm)),
+    Overload = libp2p_proxy_overload:new(libp2p_swarm:pubkey_bin(Swarm)),
     Env = libp2p_proxy_envelope:create(ID, Overload),
     {stop, normal, State, libp2p_proxy_envelope:encode(Env)};
 handle_info(server, {'DOWN', Ref, process, _, _}, State = #state{connection_ref=Ref}) ->
