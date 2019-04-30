@@ -21,7 +21,7 @@
 -type init_result() ::
         {ok, ModState::any(), actions()} |
         {close, Reason::term()} |
-        {close, Reason::term(), actions()}.
+        {close, Reason::term(), ModState::any(), actions()}.
 
 -type handle_packet_result() ::
         {ok, ModState::any()} |
@@ -46,4 +46,4 @@
 -callback handle_info(kind(), Msg::term(), ModState::any()) -> handle_info_result().
 -callback handle_command(kind(), Command::any(), From::term(), ModState::any()) -> handle_command_result().
 
--optional_callbacks([handle_command/4, command/2]).
+-optional_callbacks([handle_command/4, command/2, handle_info/3]).

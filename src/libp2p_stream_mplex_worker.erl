@@ -72,8 +72,14 @@ init(Kind, Opts=#{handlers := Handlers, stream_id := _StreamID}) ->
                     }).
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
-    Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
-    handle_command_result(Result, State).
+    case erlang:function_exported(Mod, handle_command, 4) of
+        true->
+            Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
+            handle_command_result(Result, State);
+        false ->
+            lager:warning("Unhandled callback call: ~p", [Cmd]),
+            {reply, ok, State}
+    end.
 
 -spec handle_command_result(libp2p_stream:handle_command_result(), #state{}) ->
                                    {reply, any(), #state{}, libp2p_stream:action()} |
@@ -129,8 +135,14 @@ handle_info({packet, _Incoming}, State=#state{close_state=read}) ->
     %% Ignore incoming data when the read side is closed
     {noreply, State};
 handle_info(Msg, State=#state{mod=Mod}) ->
-    Result = Mod:handle_info(State#state.kind, Msg, State#state.mod_state),
-    handle_info_result(Result, State).
+    case erlang:function_exported(Mod, handle_info, 3) of
+        true->
+            Result = Mod:handle_info(State#state.kind, Msg, State#state.mod_state),
+            handle_info_result(Result, State);
+        false ->
+            lager:warning("Unhandled callback info: ~p", [Msg]),
+            {noreply, State}
+    end.
 
 handle_packet(Header, Packet, State=#state{mod=Mod}) ->
     Active = case State#state.active of

@@ -61,10 +61,10 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
         {ok, ModState, Actions} ->
             {ok, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions};
-        {stop, Reason} ->
+        {close, Reason} ->
             {stop, Reason};
-        {stop, Reason, Actions} ->
-            {stop, Reason, Actions}
+        {close, Reason, ModState, Actions} ->
+            {stop, Reason, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions}
     end;
 init(Kind, Opts=#{handlers := Handlers, socket := _Sock, send_fn := _SendFun}) ->
     init(Kind, Opts#{mod => libp2p_multistream,
@@ -72,8 +72,15 @@ init(Kind, Opts=#{handlers := Handlers, socket := _Sock, send_fn := _SendFun}) -
                      }).
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
-    Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
-    handle_command_result(Result, State).
+    case erlang:function_exported(Mod, handle_command, 4) of
+        true->
+            Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
+            handle_command_result(Result, State);
+        false ->
+            lager:warning("Unhandled callback call: ~p", [Cmd]),
+            {reply, ok, State}
+    end.
+
 
 -spec handle_command_result(libp2p_stream:handle_command_result(), #state{}) ->
                                    {reply, any(), #state{}, libp2p_stream:action()} |
@@ -93,19 +100,28 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock}) ->
+    lager:debug("Received ~p bytes", [byte_size(Incoming)]),
     {noreply, State, {continue, {packet, Incoming}}};
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
-handle_info(Msg, State=#state{mod=Mod, mod_state=ModState}) ->
-    Result = Mod:handle_info(State#state.kind, Msg, ModState),
-    handle_info_result(Result, State).
+handle_info(Msg, State=#state{mod=Mod}) ->
+    case erlang:function_exported(Mod, handle_info, 3) of
+        true->
+            Result = Mod:handle_info(State#state.kind, Msg, State#state.mod_state),
+            handle_info_result(Result, State);
+        false ->
+            lager:warning("Unhandled callback info: ~p", [Msg]),
+            {noreply, State}
+    end.
 
 handle_packet(Header, Packet, State=#state{mod=Mod}) ->
     Active = case State#state.active of
-                 once -> false; %% Need a way to send a {transport_active, false} action
+                 once ->
+                     %% TODO: Need a way to send a {transport_active, false} action
+                     false;
                  true -> true
              end,
-    Result = Mod:handle_packet(Header, Packet, State#state.mod_state),
+    Result = Mod:handle_packet(State#state.kind, Header, Packet, State#state.mod_state),
     handle_info_result(Result, State#state{active=Active}).
 
 -spec handle_info_result(libp2p_stream:handle_info_result(), #state{}) ->
@@ -119,8 +135,8 @@ handle_info_result({close, Reason, ModState}, State=#state{}) ->
 handle_info_result({close, Reason, ModState, Actions}, State=#state{}) ->
     {stop, Reason, State#state{mod_state=ModState}, Actions}.
 
-handle_terminate(_Reason, #state{socket=Sock}) ->
-    gen_tcp:close(Sock).
+handle_terminate(_Reason, State=#state{}) ->
+    gen_tcp:close(State#state.socket).
 
 -spec handle_action(libp2p_stream:action(), #state{}) ->
                            libp2p_stream_transport:handle_action_result().
@@ -128,10 +144,12 @@ handle_action({active, Active}, State=#state{active=Active}) ->
     {ok, State};
 handle_action({active, Active}, State=#state{}) ->
     case Active == true orelse Active == once of
-        true -> inet:setopts(State#state.socket, [{active, once}]);
-        false -> ok
-    end,
-    {ok, State#state{active=Active}};
+        true ->
+            ok = inet:setopts(State#state.socket, [{active, once}]),
+            {action, {active, once}, State#state{active=Active}};
+        false ->
+            {action, {active, false}, State#state{active=Active}}
+    end;
 handle_action(swap_kind, State=#state{kind=server}) ->
     erlang:put(stream_type, {client, State#state.mod}),
     {ok, State#state{kind=client}};

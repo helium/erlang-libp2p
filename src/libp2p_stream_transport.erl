@@ -217,6 +217,8 @@ handle_terminate(Reason, State=#state{mod=Mod}) ->
 -spec dispatch_packets(#state{}) -> {noreply, #state{}} |
                                     {noreply, #state{}, {continue, term()}} |
                                     {stop, term(), #state{}}.
+dispatch_packets(State=#state{data= <<>>}) ->
+    {noreply, State};
 dispatch_packets(State=#state{active=false}) ->
     {noreply, State};
 dispatch_packets(State=#state{data=Data, mod=Mod}) ->
@@ -234,7 +236,7 @@ dispatch_packets(State=#state{data=Data, mod=Mod}) ->
                 {stop, Reason, NewState} ->
                     {stop, Reason, NewState}
             end;
-        {more, _} ->
+        {more, _N} ->
             {noreply, State}
     end.
 
