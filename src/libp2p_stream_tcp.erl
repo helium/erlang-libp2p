@@ -2,11 +2,16 @@
 
 -behavior(libp2p_stream_transport).
 
--type opts() :: #{socket => gen_tcp:socket(),
-                  handlers => libp2p_stream:handlers(),
-                  mod => atom(),
-                  mod_opts => any()
-                 }.
+-type handler_opts() :: #{socket => gen_tcp:socket(),
+                          handlers => libp2p_stream:handlers(),
+                          send_fn => libp2p_stream_transport:send_fn()
+                         }.
+-type mod_opts() :: #{socket => gen_tcp:socket(),
+                      mod => atom(),
+                      mod_opts => map(),
+                      send_fn => libp2p_stream_transport:send_fn()
+                     }.
+-type opts() :: handler_opts() | mod_opts().
 
 -export_type([opts/0]).
 
@@ -52,9 +57,9 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
         {ok, ModState, Actions} ->
             {ok, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions};
-        {close, Reason} ->
+        {stop, Reason} ->
             {stop, Reason};
-        {close, Reason, Actions} ->
+        {stop, Reason, Actions} ->
             {stop, Reason, Actions}
     end;
 init(Kind, Opts=#{handlers := Handlers, socket := _Sock, send_fn := _SendFun}) ->

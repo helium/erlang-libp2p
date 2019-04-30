@@ -51,6 +51,9 @@
 
 -optional_callbacks([handle_continue/2, handle_terminate/2]).
 
+-type send_fn() :: fun((binary()) -> ok).
+-export_type([send_fn/0]).
+
 %%% gen_server
 -export([start_link/3,
          init/1,
@@ -82,7 +85,7 @@ init({Mod, Kind, Opts=#{send_fn := SendFun}}) ->
     Result = Mod:init(Kind, Opts),
     handle_init_result(Result, State).
 
--spec handle_init_result(libp2p_stream:init_result(), #state{}) -> {stop, Reason::any()} | {ok, #state{}}.
+-spec handle_init_result(init_result(), #state{}) -> {stop, Reason::any()} | {ok, #state{}}.
 handle_init_result({ok, ModState, Actions}, State=#state{})  ->
     case proplists:is_defined(packet_spec, Actions) of
         false ->
