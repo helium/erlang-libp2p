@@ -150,6 +150,14 @@ handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connec
     %% So this process apparently can't die, at least not yet
     %% instead remember the monitor ref for later
     {noreply, State#state{connection_ref=MRef}};
+handle_server_data({overload, Overload}, _Env, #state{swarm=Swarm}=State) ->
+    PubKeyBin = libp2p_proxy_overload:pub_key_bin(Overload),
+    R = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    A = libp2p_swarm:p2p_address(Swarm),
+    P2PCircuit = libp2p_relay:p2p_circuit(R, A),
+    TID = libp2p_swarm:tid(Swarm),
+    true = libp2p_config:remove_listener(TID, P2PCircuit),
+    {stop, normal, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.

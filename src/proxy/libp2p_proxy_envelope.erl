@@ -50,7 +50,8 @@ encode(#libp2p_proxy_envelope_pb{}=Env) ->
 -spec create(binary(), libp2p_proxy_req:proxy_req()
                        | libp2p_proxy_resp:proxy_resp()
                        | libp2p_proxy_dial_back:proxy_dial_back()
-                       | libp2p_proxy_error:proxy_error()) -> proxy_envelope().
+                       | libp2p_proxy_error:proxy_error())
+                       | libp2p_proxy_overload:proxy_overload()) -> proxy_envelope().
 create(ID, #libp2p_proxy_req_pb{}=Data) ->
     #libp2p_proxy_envelope_pb{
         id=ID
@@ -70,6 +71,11 @@ create(ID, #libp2p_proxy_error_pb{}=Data) ->
     #libp2p_proxy_envelope_pb{
         id=ID
         ,data={error, Data}
+    };
+create(ID, #libp2p_proxy_overload_pb{}=Data) ->
+    #libp2p_proxy_envelope_pb{
+        id=ID
+        ,data={overload, Data}
     }.
 
 %%--------------------------------------------------------------------
@@ -89,7 +95,8 @@ id(Env) ->
 -spec data(proxy_envelope()) -> {req, libp2p_proxy_req:proxy_req()}
                                 | {resp, libp2p_proxy_resp:proxy_resp()}
                                 | {dial_back, libp2p_proxy_dial_back:proxy_dial_back()}
-                                | {error, libp2p_proxy_error:proxy_error()}.
+                                | {error, libp2p_proxy_error:proxy_error()}
+                                | {overload, libp2p_proxy_overload:proxy_overload()}.
 data(Env) ->
     Env#libp2p_proxy_envelope_pb.data.
 
