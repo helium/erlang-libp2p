@@ -20,16 +20,16 @@
 
 -type init_result() ::
         {ok, ModState::any(), actions()} |
-        {close, Reason::term()} |
-        {close, Reason::term(), ModState::any(), actions()}.
+        {stop, Reason::term()} |
+        {stop, Reason::term(), ModState::any(), actions()}.
 
--type handle_packet_result() ::
-        {ok, ModState::any()} |
-        {ok, ModState::any(), actions()} |
-        {close, Reason::term(), ModState::any()} |
-        {close, Reason::term(), ModState::any(), actions()}.
+-type handle_info_result() ::
+        {noreply, ModState::any()} |
+        {noreply, ModState::any(), actions()} |
+        {stop, Reason::term(), ModState::any()} |
+        {stop, Reason::term(), ModState::any(), actions()}.
 
--type handle_info_result() :: handle_packet_result().
+-type handle_packet_result() :: handle_info_result().
 -type handle_command_result() ::
         {reply, Reply::term(), ModState::any()} |
         {reply, Reply::term(), ModState::any(), actions()} |

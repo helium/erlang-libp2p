@@ -19,11 +19,10 @@
 -export([start_link/2,
          init/2,
          handle_call/3,
-         handle_cast/2,
          handle_info/2,
          handle_packet/3,
          handle_action/2,
-         handle_terminate/2]).
+         terminate/2]).
 
 %% API
 -export([command/2]).
@@ -51,6 +50,7 @@ start_link(Kind, Opts=#{socket := Sock}) ->
 
 -spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
 init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
+    erlang:process_flag(trap_exit, true),
     erlang:put(stream_type, {Kind, Mod}),
     case Kind of
         server -> ok;
@@ -61,9 +61,9 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
         {ok, ModState, Actions} ->
             {ok, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions};
-        {close, Reason} ->
+        {stop, Reason} ->
             {stop, Reason};
-        {close, Reason, ModState, Actions} ->
+        {stop, Reason, ModState, Actions} ->
             {stop, Reason, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions}
     end;
 init(Kind, Opts=#{handlers := Handlers, socket := _Sock, send_fn := _SendFun}) ->
@@ -88,22 +88,19 @@ handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
 handle_command_result({reply, Reply, ModState}, State=#state{}) ->
     handle_command_result({reply, Reply, ModState, []}, State);
 handle_command_result({reply, Reply, ModState, Actions}, State=#state{}) ->
-    {repy, Reply, State#state{mod_state=ModState}, Actions};
+    {reply, Reply, State#state{mod_state=ModState}, Actions};
 handle_command_result({noreply, ModState}, State=#state{}) ->
     handle_command_result({noreply, ModState, []}, State);
 handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
     {noreply, State#state{mod_state=ModState}, Actions}.
 
 
-handle_cast(Msg, State) ->
-    lager:warning("Unhandled cast: ~p", [Msg]),
-    {noreply, State}.
-
 handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock}) ->
-    lager:debug("Received ~p bytes", [byte_size(Incoming)]),
     {noreply, State, {continue, {packet, Incoming}}};
 handle_info({tcp_closed, _Sock}, State) ->
     {stop, normal, State};
+handle_info({swap_stop, Reason}, State) ->
+    {stop, Reason, State};
 handle_info(Msg, State=#state{mod=Mod}) ->
     case erlang:function_exported(Mod, handle_info, 3) of
         true->
@@ -126,16 +123,16 @@ handle_packet(Header, Packet, State=#state{mod=Mod}) ->
 
 -spec handle_info_result(libp2p_stream:handle_info_result(), #state{}) ->
                                 libp2p_stream_transport:handle_info_result().
-handle_info_result({ok, ModState}, State=#state{}) ->
-    handle_info_result({ok, ModState, []}, State);
-handle_info_result({ok, ModState, Actions}, State=#state{}) ->
+handle_info_result({noreply, ModState}, State=#state{}) ->
+    handle_info_result({noreply, ModState, []}, State);
+handle_info_result({noreply, ModState, Actions}, State=#state{}) ->
     {noreply, State#state{mod_state=ModState}, Actions};
-handle_info_result({close, Reason, ModState}, State=#state{}) ->
-    handle_info_result({close, Reason, ModState, []}, State);
-handle_info_result({close, Reason, ModState, Actions}, State=#state{}) ->
+handle_info_result({stop, Reason, ModState}, State=#state{}) ->
+    handle_info_result({stop, Reason, ModState, []}, State);
+handle_info_result({stop, Reason, ModState, Actions}, State=#state{}) ->
     {stop, Reason, State#state{mod_state=ModState}, Actions}.
 
-handle_terminate(_Reason, State=#state{}) ->
+terminate(_Reason, State=#state{}) ->
     gen_tcp:close(State#state.socket).
 
 -spec handle_action(libp2p_stream:action(), #state{}) ->
@@ -162,12 +159,12 @@ handle_action([{swap, Mod, ModOpts}], State=#state{}) ->
     case Mod:init(State#state.kind, ModOpts) of
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
-        {close, Reason} ->
-            self() ! {stop, Reason},
+        {stop, Reason} ->
+            self() ! {swap_stop, Reason},
             {ok, State};
-        {close, Reason, Actions} ->
-            self() ! {stop, Reason},
-            {replace, Actions, State}
+        {stop, Reason, ModState, Actions} ->
+            self() ! {swap_stop, Reason},
+            {replace, Actions, State#state{mod_state=ModState, mod=Mod}}
     end;
 handle_action(Action, State) ->
     {action, Action, State}.

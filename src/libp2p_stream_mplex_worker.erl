@@ -87,7 +87,7 @@ handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
 handle_command_result({reply, Reply, ModState}, State=#state{}) ->
     handle_command_result({reply, Reply, ModState, []}, State);
 handle_command_result({reply, Reply, ModState, Actions}, State=#state{}) ->
-    {repy, Reply, State#state{mod_state=ModState}, Actions};
+    {reply, Reply, State#state{mod_state=ModState}, Actions};
 handle_command_result({noreply, ModState}, State=#state{}) ->
     handle_command_result({noreply, ModState, []}, State);
 handle_command_result({noreply, ModState, Actions}, State=#state{}) ->

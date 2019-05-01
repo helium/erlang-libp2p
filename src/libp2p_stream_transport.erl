@@ -47,21 +47,25 @@
 -callback handle_continue(Msg::term(), State::any()) -> handle_continue_result().
 -callback handle_action(libp2p_stream:action(), State::any()) -> handle_action_result().
 -callback handle_packet(libp2p_packet:header(), Data::binary(), State::any()) -> handle_packet_result().
--callback handle_terminate(Reason::any(), State::any()) -> any().
+-callback terminate(Reason::any(), State::any()) -> any().
 
--optional_callbacks([handle_continue/2, handle_terminate/2]).
+-optional_callbacks([handle_cast/2, handle_continue/2, terminate/2]).
 
 -type send_fn() :: fun((binary()) -> ok).
 -export_type([send_fn/0]).
 
-%%% gen_server
+%% API
 -export([start_link/3,
-         init/1,
+         active/1,
+         command/2
+         ]).
+%% gen_server
+-export([init/1,
          handle_call/3,
          handle_cast/2,
          handle_info/2,
          handle_continue/2,
-         handle_terminate/2]).
+         terminate/2]).
 
 -record(state, {
                 send_pid :: pid(),
@@ -76,6 +80,14 @@
 
 start_link(Module, Kind, Opts) ->
     gen_server:start_link(?MODULE, {Module, Kind, Opts}, []).
+
+
+command(Pid, Cmd) ->
+    gen_server:call(Pid, Cmd, infinity).
+
+-spec active(pid()) -> libp2p_stream:active().
+active(Pid) ->
+    command(Pid, active).
 
 -spec init({atom(), libp2p_stream:kind(), Opts::map()}) -> {stop, Reason::any()} |
                                                            {ok, #state{}}.
@@ -121,7 +133,7 @@ handle_call_result({reply, Reply, ModState, {continue, Continue}}, State=#state{
 handle_call_result({reply, Reply, ModState}, State=#state{}) ->
     handle_call_result({reply, Reply, ModState, []}, State);
 handle_call_result({reply, Reply, ModState, Actions}, State=#state{}) ->
-    {repy, Reply, handle_actions(Actions, State#state{mod_state=ModState})};
+    {reply, Reply, handle_actions(Actions, State#state{mod_state=ModState})};
 handle_call_result({noreply, ModState, {continue, Continue}}, State=#state{}) ->
     {noreply, State#state{mod_state=ModState}, {continue, Continue}};
 handle_call_result({noreply, ModState}, State=#state{}) ->
@@ -137,8 +149,14 @@ handle_call_result({stop, Reason, ModState, Actions}, State=#state{}) ->
 -spec handle_cast(Msg::term(), State::#state{}) -> {noreply, #state{}} |
                                                    {stop, Reason::term(), #state{}}.
 handle_cast(Msg, State=#state{mod=Mod}) ->
-    Result = Mod:handle_cast(Msg, State#state.mod_state),
-    handle_cast_result(Result, State).
+    case erlang:function_exported(Mod, handle_cast, 2) of
+        true->
+            Result = Mod:handle_cast(Msg, State#state.mod_state),
+            handle_cast_result(Result, State);
+        false ->
+            lager:warning("Unhandled cast: ~p", [Msg]),
+            {noreply, State}
+    end.
 
 -spec handle_cast_result(handle_cast_result(), #state{}) ->
                                 {noreply, #state{}} |
@@ -169,10 +187,6 @@ handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod}) ->
     end;
 handle_info({packet, Incoming}, State=#state{data=Data}) ->
     dispatch_packets(State#state{data= <<Data/binary, Incoming/binary>>});
-handle_info({stop, Reason}, State=#state{}) ->
-    %% Sent by an action list swap action where the new module decides
-    %% it wants to stop
-    {stop, Reason, State};
 handle_info({'EXIT', SendPid, Reason}, State=#state{send_pid=SendPid}) ->
     {stop, Reason, State};
 handle_info(Msg, State=#state{mod=Mod, mod_state=ModState}) ->
@@ -206,10 +220,10 @@ handle_continue(Msg, State=#state{mod=Mod}) ->
             {noreply, State}
     end.
 
--spec handle_terminate(Reason::term(), State::#state{}) -> any().
-handle_terminate(Reason, State=#state{mod=Mod}) ->
-    case erlang:function_exported(Mod, handle_terminate, 2) of
-        true -> Mod:handle_terminate(Reason, State#state.mod_state);
+-spec terminate(Reason::term(), State::#state{}) -> any().
+terminate(Reason, State=#state{mod=Mod}) ->
+    case erlang:function_exported(Mod, terminate, 2) of
+        true -> Mod:terminate(Reason, State#state.mod_state);
         false -> ok
     end.
 
@@ -248,8 +262,8 @@ handle_actions([Action | Tail], State=#state{mod=Mod}) ->
     case Mod:handle_action(Action, State#state.mod_state) of
         {ok, ModState} ->
             handle_actions(Tail, State#state{mod_state=ModState});
-        {action, Action, ModState} ->
-            handle_actions(Tail, handle_action(Action, State#state{mod_state=ModState}));
+        {action, NewAction, ModState} ->
+            handle_actions(Tail, handle_action(NewAction, State#state{mod_state=ModState}));
         {replace, Actions, ModState} ->
             handle_actions(Actions, State#state{mod_state=ModState})
     end.
