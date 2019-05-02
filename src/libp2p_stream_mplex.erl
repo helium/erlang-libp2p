@@ -69,10 +69,10 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
     WorkerDo = fun(Kind, StreamID, Fun) ->
                        case maps:get({Kind, StreamID}, Workers, false) of
                            false ->
-                               {ok, State};
+                               {noreply, State};
                            WorkerPid ->
                                Fun(WorkerPid),
-                               {ok, State}
+                               {noreply, State}
                        end
                end,
 

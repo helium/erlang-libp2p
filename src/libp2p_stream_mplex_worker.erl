@@ -154,13 +154,13 @@ handle_packet(Header, Packet, State=#state{mod=Mod}) ->
 
 -spec handle_info_result(libp2p_stream:handle_info_result(), #state{}) ->
                                 libp2p_stream_transport:handle_info_result().
-handle_info_result({ok, ModState}, State=#state{}) ->
-    handle_info_result({ok, ModState, []}, State);
-handle_info_result({ok, ModState, Actions}, State=#state{}) ->
+handle_info_result({noreply, ModState}, State=#state{}) ->
+    handle_info_result({noreply, ModState, []}, State);
+handle_info_result({noreply, ModState, Actions}, State=#state{}) ->
     {noreply, State#state{mod_state=ModState}, Actions};
-handle_info_result({close, Reason, ModState}, State=#state{}) ->
-    handle_info_result({close, Reason, ModState, []}, State);
-handle_info_result({close, Reason, ModState, Actions}, State=#state{}) ->
+handle_info_result({stop, Reason, ModState}, State=#state{}) ->
+    handle_info_result({stop, Reason, ModState, []}, State);
+handle_info_result({stop, Reason, ModState, Actions}, State=#state{}) ->
     {stop, Reason, State#state{mod_state=ModState}, Actions}.
 
 handle_action({send, reset}, State=#state{}) ->

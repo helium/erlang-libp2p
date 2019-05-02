@@ -10,6 +10,8 @@ all() ->
      init_ok_test,
      info_test,
      command_test,
+     sock_close_test,
+     active_test,
      swap_stop_test,
      swap_stop_action_test,
      swap_ok_test
@@ -115,6 +117,42 @@ sock_close_test(Config) ->
     gen_tcp:close(CSock),
 
     ?assert(pid_should_die(Pid)),
+    ok.
+
+active_test(Config) ->
+    {CSock, SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
+
+    meck:expect(test_stream, handle_info,
+               fun(server, {active, Active}, State) ->
+                       {noreply, State, [{active, Active}]}
+               end),
+
+    %% Changing active on a socket can take a few cycles. Checking for
+    %% an active state by waiting for the expected value.
+    ActiveShouldBe =
+        fun(Val) ->
+                ok == test_util:wait_until(fun() ->
+                                                   {ok, [{active, Val}]} == inet:getopts(SSock, [active])
+                                           end)
+        end,
+
+    %% Set active to true, ensure active stays true even when an
+    %% application level packet is exchanged
+    Pid ! {active, true},
+    send_packet(CSock, <<"hello">>),
+    ?assert(ActiveShouldBe(true)),
+    %% Set active to false means socket active goes to false to
+    Pid ! {active, false},
+    ?assert(ActiveShouldBe(false)),
+    %% Set active to once and ensure that the socket active is true.
+    Pid ! {active, once},
+    ?assert(ActiveShouldBe(true)),
+    %% Once an application level packet is sent the socket active
+    %% should be set to false since we don't want any more data
+    send_packet(CSock, <<"hello">>),
+    ?assert(ActiveShouldBe(false)),
+
     ok.
 
 
@@ -292,7 +330,7 @@ meck_stream(Name) ->
     meck:expect(Name, handle_packet,
                fun(server, _, Data, State) ->
                        Packet = encode_packet(Data),
-                       {noreply, State, [{send, Packet}, {active, once}]}
+                       {noreply, State, [{send, Packet}]}
                end),
     ok.
 

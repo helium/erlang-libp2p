@@ -87,7 +87,7 @@
 %% Note this does _not_ guarantee that any number of sends that are
 %% specified when the stop action is handled are delivered to the
 %% underlying socket before termination may close it.
--define(ASYNC_SENDER_STOP_TIMEOUT, 100).
+-define(ASYNC_SENDER_STOP_TIMEOUT, 500).
 
 start_link(Module, Kind, Opts) ->
     gen_server:start_link(?MODULE, {Module, Kind, Opts}, []).
@@ -335,7 +335,7 @@ mk_async_sender(SendFun) ->
                          {'DOWN', _, process, Parent, _} ->
                              ok;
                          stop ->
-                             Parent ! send_stopped,
+                             Parent ! sender_stopped,
                              ok;
                          {send, Data} ->
                              case SendFun(Data) of

@@ -97,15 +97,17 @@ handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
 
 handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock}) ->
     {noreply, State, {continue, {packet, Incoming}}};
-handle_info({tcp_closed, _Sock}, State) ->
+handle_info({tcp_closed, Sock}, State=#state{socket=Sock}) ->
     {stop, normal, State};
+handle_info({'EXIT', Sock, Reason}, State=#state{socket=Sock}) ->
+    {stop, Reason, State};
 handle_info({swap_stop, Reason}, State) ->
     {stop, Reason, State};
 handle_info(Msg, State=#state{mod=Mod}) ->
     case erlang:function_exported(Mod, handle_info, 3) of
         true->
             Result = Mod:handle_info(State#state.kind, Msg, State#state.mod_state),
-            handle_info_result(Result, State);
+            handle_info_result(Result, State, []);
         false ->
             lager:warning("Unhandled callback info: ~p", [Msg]),
             {noreply, State}
@@ -113,38 +115,47 @@ handle_info(Msg, State=#state{mod=Mod}) ->
 
 handle_packet(Header, Packet, State=#state{mod=Mod}) ->
     Active = case State#state.active of
-                 once ->
-                     %% TODO: Need a way to send a {transport_active, false} action
-                     false;
+                 once -> false;
                  true -> true
              end,
     Result = Mod:handle_packet(State#state.kind, Header, Packet, State#state.mod_state),
-    handle_info_result(Result, State#state{active=Active}).
+    handle_info_result(Result, State#state{}, [{active, Active}]).
 
--spec handle_info_result(libp2p_stream:handle_info_result(), #state{}) ->
+-spec handle_info_result(libp2p_stream:handle_info_result(), #state{}, libp2p_stream:actions()) ->
                                 libp2p_stream_transport:handle_info_result().
-handle_info_result({noreply, ModState}, State=#state{}) ->
-    handle_info_result({noreply, ModState, []}, State);
-handle_info_result({noreply, ModState, Actions}, State=#state{}) ->
-    {noreply, State#state{mod_state=ModState}, Actions};
-handle_info_result({stop, Reason, ModState}, State=#state{}) ->
-    handle_info_result({stop, Reason, ModState, []}, State);
-handle_info_result({stop, Reason, ModState, Actions}, State=#state{}) ->
-    {stop, Reason, State#state{mod_state=ModState}, Actions}.
+handle_info_result({noreply, ModState}, State=#state{}, PreActions) ->
+    handle_info_result({noreply, ModState, []}, State, PreActions);
+handle_info_result({noreply, ModState, Actions}, State=#state{}, PreActions) ->
+    {noreply, State#state{mod_state=ModState}, PreActions ++ Actions};
+handle_info_result({stop, Reason, ModState}, State=#state{}, PreActions) ->
+    handle_info_result({stop, Reason, ModState, []}, State, PreActions);
+handle_info_result({stop, Reason, ModState, Actions}, State=#state{}, PreActions) ->
+    {stop, Reason, State#state{mod_state=ModState}, PreActions ++ Actions}.
 
 terminate(_Reason, State=#state{}) ->
     gen_tcp:close(State#state.socket).
 
 -spec handle_action(libp2p_stream:action(), #state{}) ->
                            libp2p_stream_transport:handle_action_result().
-handle_action({active, Active}, State=#state{active=Active}) ->
-    {ok, State};
 handle_action({active, Active}, State=#state{}) ->
-    case Active == true orelse Active == once of
+    case Active of
         true ->
-            ok = inet:setopts(State#state.socket, [{active, once}]),
-            {action, {active, once}, State#state{active=Active}};
+            %% Active true means we continue to deliver to our
+            %% callback.  Tell the underlying transport to be in true
+            %% mode to deliver packets until we tell it otherwise.
+            ok = inet:setopts(State#state.socket, [{active, true}]),
+            {action, {active, true}, State#state{active=Active}};
+        once ->
+            %% Active once meands we're only delivering one of _our_
+            %% packets up to the next layer.  Tell the underlying
+            %% transport to be in true mode since we may need more
+            %% than one of their packets to make one of ours.
+            ok = inet:setopts(State#state.socket, [{active, true}]),
+            {action, {active, true}, State#state{active=Active}};
         false ->
+            %% Turn of active mode for at this layer means turning it
+            %% off all the way down.
+            ok = inet:setopts(State#state.socket, [{active, false}]),
             {action, {active, false}, State#state{active=Active}}
     end;
 handle_action(swap_kind, State=#state{kind=server}) ->
