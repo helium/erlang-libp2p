@@ -3,7 +3,7 @@
 -behavior(libp2p_stream_transport).
 
 -type handler_opts() :: #{socket => gen_tcp:socket(),
-                          handlers => libp2p_stream:handlers(),
+                          handlers => libp2p_stream_multistream:handlers(),
                           send_fn => libp2p_stream_transport:send_fn()
                          }.
 -type mod_opts() :: #{socket => gen_tcp:socket(),
@@ -67,7 +67,7 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
             {stop, Reason, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions}
     end;
 init(Kind, Opts=#{handlers := Handlers, socket := _Sock, send_fn := _SendFun}) ->
-    init(Kind, Opts#{mod => libp2p_multistream,
+    init(Kind, Opts#{mod => libp2p_stream_multistream,
                      mod_opts => #{ handlers => Handlers }
                      }).
 
