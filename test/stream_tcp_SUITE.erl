@@ -6,17 +6,36 @@
 all() ->
     [
      init_stop_test,
-     init_stop_send_test,
+     init_stop_action_test,
      init_ok_test,
      info_test,
-     command_test
+     command_test,
+     swap_stop_test,
+     swap_stop_action_test,
+     swap_ok_test
     ].
 
 
-mk_client_server(Config) when is_list(Config) ->
-    LSock = proplists:get_value(listen_sock, Config),
-    mk_client_server(LSock);
-mk_client_server(LSock) ->
+
+init_per_testcase(init_stop_action_test, Config) ->
+    init_common(Config);
+init_per_testcase(init_stop_test, Config) ->
+    init_common(Config);
+init_per_testcase(_, Config) ->
+    init_test_stream(init_common(Config)).
+
+end_per_testcase(_, Config) ->
+    gen_tcp:close(proplists:get_value(listen_sock, Config)),
+    {CSock, SSock} = proplists:get_value(client_server, Config),
+    gen_tcp:close(CSock),
+    gen_tcp:close(SSock),
+    meck_unload_stream(test_stream),
+    ok.
+
+init_common(Config) ->
+    test_util:setup(),
+    meck_stream(test_stream),
+    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}]),
     Parent = self(),
     spawn(fun() ->
                   {ok, ServerSock} = gen_tcp:accept(LSock),
@@ -31,58 +50,28 @@ mk_client_server(LSock) ->
     receive
         {accepted, SSock} -> SSock
     end,
-    {CSock, SSock}.
-
-
-init_per_testcase(_, Config) ->
-    test_util:setup(),
-    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}]),
-    {CSock, SSock} = mk_client_server(LSock),
     [{listen_sock, LSock}, {client_server, {CSock, SSock}} | Config].
 
-end_per_testcase(_, Config) ->
-    gen_tcp:close(proplists:get_value(listen_sock, Config)),
-    {CSock, SSock} = proplists:get_value(client_server, Config),
-    gen_tcp:close(CSock),
-    gen_tcp:close(SSock),
-    ok.
+init_test_stream(Config) ->
+    {_CSock, SSock} = ?config(client_server, Config),
+
+    {ok, Pid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
+                                                       mod => test_stream
+                                                      }),
+    gen_tcp:controlling_process(SSock, Pid),
+    [{stream, Pid} | Config].
 
 
-meck_stream() ->
-    meck:new(test_stream, [non_strict]),
-    meck:expect(test_stream, init,
-                fun(server, Opts=#{init_type := echo}) ->
-                        {ok, Opts, [{packet_spec, [u8]},
-                                    {active, once}
-                                   ]};
-                   (server, #{init_type := {stop, Reason}}) ->
-                        {stop, Reason};
-                   (server, Opts=#{init_type := {stop_send, Reason, Data}}) ->
-                        Packet = encode_packet(Data),
-                        {stop, Reason, Opts, [{send, Packet}]}
-                end),
-    meck:expect(test_stream, handle_packet,
-               fun(server, _, Data, State) ->
-                       Packet = encode_packet(Data),
-                       {noreply, State, [{send, Packet}, {active, once}]}
-               end),
-    ok.
+%%
+%% Tests
+%%
 
-
-meck_unload_stream() ->
-    meck:unload(test_stream).
-
-init_stop_send_test(Config) ->
-    meck_stream(),
-
+init_stop_action_test(Config) ->
     {CSock, SSock} = ?config(client_server, Config),
 
     StartResult = libp2p_stream_tcp:start_link(server, #{socket => SSock,
                                                          mod => test_stream,
-                                                         mod_opts =>
-                                                             #{ init_type => {stop_send,
-                                                                              normal,
-                                                                              <<"hello">>}}
+                                                         mod_opts => #{stop => {send, normal, <<"hello">>}}
                                                         }),
 
     %% Since terminate doesn't get called on a close on startup, close
@@ -92,19 +81,14 @@ init_stop_send_test(Config) ->
     ?assertEqual(<<"hello">>, receive_packet(CSock)),
     ?assertEqual({error, normal}, StartResult),
     ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
-
-    meck_unload_stream(),
     ok.
 
 init_stop_test(Config) ->
-    meck_stream(),
-
     {CSock, SSock} = ?config(client_server, Config),
 
     StartResult = libp2p_stream_tcp:start_link(server, #{socket => SSock,
                                                          mod => test_stream,
-                                                         mod_opts =>
-                                                             #{ init_type => {stop, normal} }
+                                                         mod_opts => #{stop => normal}
                                                         }),
 
     %% Since terminate doesn't get called on a close on startup, close
@@ -114,71 +98,29 @@ init_stop_test(Config) ->
     ?assertEqual({error, normal}, StartResult),
     ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
 
-    meck_unload_stream(),
     ok.
 
 
-encode_packet(Data) ->
-    DataSize = byte_size(Data),
-    libp2p_packet:encode_packet([u8], [DataSize], Data).
-
-send_packet(Sock, Data) ->
-    Packet = encode_packet(Data),
-    ok = gen_tcp:send(Sock, Packet).
-
-
-receive_packet(Sock) ->
-    {ok, Bin} = gen_tcp:recv(Sock, 0),
-    {ok, [DataSize], Data, <<>>} = libp2p_packet:decode_packet([u8], Bin),
-    ?assertEqual(DataSize, byte_size(Data)),
-    Data.
-
 init_ok_test(Config) ->
-    meck_stream(),
-
-    {CSock, SSock} = ?config(client_server, Config),
-
-    {ok, Pid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                       mod => test_stream,
-                                                       mod_opts => #{ init_type => echo }
-                                                      }),
-
-    gen_tcp:controlling_process(SSock, Pid),
+    {CSock, _SSock} = ?config(client_server, Config),
 
     send_packet(CSock, <<"hello">>),
     ?assertEqual(<<"hello">>, receive_packet(CSock)),
-
-    meck_unload_stream(),
     ok.
 
 sock_close_test(Config) ->
-    meck_stream(),
+    {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
 
-    {CSock, SSock} = ?config(client_server, Config),
-    {ok, Pid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                       mod => test_stream,
-                                                       mod_opts => #{ init_type => echo }
-                                                      }),
-    gen_tcp:controlling_process(SSock, Pid),
     gen_tcp:close(CSock),
 
-    ok = test_util:wait_until(fun() ->
-                                      not erlang:is_process_alive(Pid)
-                              end),
-
+    ?assert(pid_should_die(Pid)),
     ok.
 
 
 info_test(Config) ->
-    meck_stream(),
-
-    {CSock, SSock} = ?config(client_server, Config),
-
-    {ok, Pid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                       mod => test_stream,
-                                                       mod_opts => #{ init_type => echo }
-                                                      }),
-    gen_tcp:controlling_process(SSock, Pid),
+    {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
 
     Pid ! no_handler,
 
@@ -202,23 +144,13 @@ info_test(Config) ->
     Pid ! multi_active,
     Pid ! {stop, normal},
 
-    ok = test_util:wait_until(fun() ->
-                                      not erlang:is_process_alive(Pid)
-                              end),
+    ?assert(pid_should_die(Pid)),
 
-    meck_unload_stream(),
     ok.
 
 command_test(Config) ->
-    meck_stream(),
-
-    {CSock, SSock} = ?config(client_server, Config),
-
-    {ok, Pid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                       mod => test_stream,
-                                                       mod_opts => #{ init_type => echo }
-                                                      }),
-    gen_tcp:controlling_process(SSock, Pid),
+    {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
 
     ?assertEqual(ok, libp2p_stream_transport:command(Pid, no_implementation)),
 
@@ -267,3 +199,103 @@ command_test(Config) ->
     ?assertEqual(server, libp2p_stream_tcp:command(Pid, kind)),
 
     ok.
+
+swap_stop_test(Config) ->
+    {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
+
+    meck:expect(test_stream, handle_command,
+               fun(server, {swap, Mod, ModOpts}, _From, State) ->
+                       {reply, ok, State, [{swap, Mod, ModOpts}]}
+               end),
+
+    libp2p_stream_tcp:command(Pid, {swap, test_stream, #{stop => normal}}),
+
+    ?assert(pid_should_die(Pid)),
+    ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
+
+    ok.
+
+
+swap_stop_action_test(Config) ->
+    {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
+
+    meck:expect(test_stream, handle_command,
+               fun(server, {swap, Mod, ModOpts}, _From, State) ->
+                       {reply, ok, State, [{swap, Mod, ModOpts}]}
+               end),
+
+    libp2p_stream_tcp:command(Pid, {swap, test_stream, #{stop => {send, normal, <<"hello">>}}}),
+
+    ?assert(pid_should_die(Pid)),
+
+    ?assertEqual(<<"hello">>, receive_packet(CSock)),
+    ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
+
+    ok.
+
+swap_ok_test(Config) ->
+    {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
+
+    meck:expect(test_stream, handle_command,
+               fun(server, {swap, Mod, ModOpts}, _From, State) ->
+                       {reply, ok, State, [{swap, Mod, ModOpts}]}
+               end),
+
+    libp2p_stream_tcp:command(Pid, {swap, test_stream, #{}}),
+
+    send_packet(CSock, <<"hello">>),
+    ?assertEqual(<<"hello">>, receive_packet(CSock)),
+
+    ok.
+
+
+%%
+%% Utilities
+%%
+
+pid_should_die(Pid) ->
+    ok == test_util:wait_until(fun() ->
+                                       not erlang:is_process_alive(Pid)
+                               end).
+
+encode_packet(Data) ->
+    DataSize = byte_size(Data),
+    libp2p_packet:encode_packet([u8], [DataSize], Data).
+
+send_packet(Sock, Data) ->
+    Packet = encode_packet(Data),
+    ok = gen_tcp:send(Sock, Packet).
+
+receive_packet(Sock) ->
+    {ok, Bin} = gen_tcp:recv(Sock, 0, 500),
+    {ok, [DataSize], Data, <<>>} = libp2p_packet:decode_packet([u8], Bin),
+    ?assertEqual(DataSize, byte_size(Data)),
+    Data.
+
+
+meck_stream(Name) ->
+    meck:new(Name, [non_strict]),
+    meck:expect(Name, init,
+                fun(server, Opts=#{stop := {send, Reason, Data}}) ->
+                        Packet = encode_packet(Data),
+                        {stop, Reason, Opts, [{send, Packet}]};
+                   (server, #{stop := Reason}) ->
+                        {stop, Reason};
+                   (server, Opts) ->
+                        {ok, Opts, [{packet_spec, [u8]},
+                                    {active, once}
+                                   ]}
+                end),
+    meck:expect(Name, handle_packet,
+               fun(server, _, Data, State) ->
+                       Packet = encode_packet(Data),
+                       {noreply, State, [{send, Packet}, {active, once}]}
+               end),
+    ok.
+
+
+meck_unload_stream(Name) ->
+    meck:unload(Name).

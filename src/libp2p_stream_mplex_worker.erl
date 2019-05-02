@@ -180,7 +180,7 @@ handle_action(swap_kind, State=#state{kind=server}) ->
 handle_action(swap_kind, State=#state{kind=client}) ->
     erlang:put(stream_type, {server, State#state.mod}),
     {ok, State#state{kind=server}};
-handle_action([{swap, Mod, ModOpts}], State=#state{}) ->
+handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     %% In a swap we ignore any furhter actions in the action list
     erlang:put(stream_type, {State#state.kind, Mod}),
     case Mod:init(State#state.kind, ModOpts) of

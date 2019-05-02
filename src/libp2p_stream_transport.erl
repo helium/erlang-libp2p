@@ -78,6 +78,17 @@
                 data= <<>> :: binary()
                }).
 
+%% The time to wait for the async sender to stop gracefully before
+%% allowing the callback module to to terrible things with the
+%% underlying sending socket (like closing it). This avoids the
+%% callback module closing the socket before the async sender has a
+%% chance to flush its final queue of sends.
+%%
+%% Note this does _not_ guarantee that any number of sends that are
+%% specified when the stop action is handled are delivered to the
+%% underlying socket before termination may close it.
+-define(ASYNC_SENDER_STOP_TIMEOUT, 100).
+
 start_link(Module, Kind, Opts) ->
     gen_server:start_link(?MODULE, {Module, Kind, Opts}, []).
 
@@ -221,7 +232,13 @@ handle_continue(Msg, State=#state{mod=Mod}) ->
     end.
 
 -spec terminate(Reason::term(), State::#state{}) -> any().
-terminate(Reason, State=#state{mod=Mod}) ->
+terminate(Reason, State=#state{mod=Mod, send_pid=SendPid}) ->
+    SendPid ! stop,
+    receive
+        sender_stopped -> ok
+    after ?ASYNC_SENDER_STOP_TIMEOUT ->
+            lager:debug("Async sender may not have sent all data")
+    end,
     case erlang:function_exported(Mod, terminate, 2) of
         true -> Mod:terminate(Reason, State#state.mod_state);
         false -> ok
@@ -317,9 +334,13 @@ mk_async_sender(SendFun) ->
                      receive
                          {'DOWN', _, process, Parent, _} ->
                              ok;
+                         stop ->
+                             Parent ! send_stopped,
+                             ok;
                          {send, Data} ->
                              case SendFun(Data) of
-                                 ok -> ok;
+                                 ok ->
+                                     ok;
                                  {error, Error} ->
                                      Parent ! {send_error, {error, Error}}
                              end,
