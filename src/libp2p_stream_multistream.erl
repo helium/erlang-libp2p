@@ -232,19 +232,19 @@ line_to_binary(Line) when is_list(Line) ->
 line_to_binary(Line) when byte_size(Line) > ?MAX_LINE_LENGTH ->
     erlang:error({max_line, byte_size(Line)});
 line_to_binary(Line) ->
-    LineSize = small_ints:encode_varint(byte_size(Line) + 1),
+    LineSize = libp2p_packet:encode_varint(byte_size(Line) + 1),
     <<LineSize/binary, Line/binary, $\n>>.
 
 lines_to_binary(Lines) when is_list(Lines) ->
     EncodedLines = lists:foldr(fun(L, Acc) ->
                                        <<(line_to_binary(L))/binary, Acc/binary>>
                                end, <<>>, Lines),
-    EncodedCount = small_ints:encode_varint(length(Lines)),
+    EncodedCount = libp2p_packet:encode_varint(length(Lines)),
     <<EncodedCount/binary, EncodedLines/binary>>.
 
 -spec binary_to_lines(binary()) -> [string()].
 binary_to_lines(Bin) ->
-    {Count, Data} = small_ints:decode_varint(Bin),
+    {Count, Data} = libp2p_packet:decode_varint(Bin),
     binary_to_lines(Data, Count, []).
 
 -spec binary_to_lines(binary(), non_neg_integer(), list()) -> [string()].
@@ -256,7 +256,7 @@ binary_to_lines(Bin, Count, Acc) ->
 
 -spec binary_to_line(binary()) -> {list(), binary()}.
 binary_to_line(Bin) ->
-    case small_ints:decode_varint(Bin) of
+    case libp2p_packet:decode_varint(Bin) of
         {Size, _} when Size > ?MAX_LINE_LENGTH ->
             erlang:error({max_line, Size});
         {Size, Rest}->
@@ -294,7 +294,7 @@ line_test() ->
     MaxLine = crypto:strong_rand_bytes(MaxLineSize),
     ?assertError({max_line, MaxLineSize}, line_to_binary(MaxLine)),
 
-    MaxBin = <<(small_ints:encode_varint(?MAX_LINE_LENGTH+1))/binary>>,
+    MaxBin = <<(libp2p_packet:encode_varint(?MAX_LINE_LENGTH+1))/binary>>,
     ?assertError({max_line, MaxLineSize}, binary_to_line(MaxBin)),
 
     ok.
