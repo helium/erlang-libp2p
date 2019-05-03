@@ -189,6 +189,7 @@ handle_cast_result({stop, Reason, ModState, Actions}, State=#state{}) ->
                          {noreply, #state{}, {continue, Continue::term()}} |
                          {stop, Reason::term(), #state{}}.
 handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod}) ->
+    lager:debug("TIMEOUT ~p", [Key]),
     case maps:take(Key, Timers) of
         error ->
             {noreply, State};
@@ -305,15 +306,10 @@ handle_action({reply, To, Reply}, State=#state{}) ->
     gen_server:reply(To, Reply),
     State;
 handle_action({timer, Key, Timeout}, State=#state{timers=Timers}) ->
-    NewTimers = case maps:get(Key, Timers, false) of
-                    false ->
-                        Timers;
-                    Timer ->
-                        erlang:cancel_timer(Timer),
-                        NewTimer = erlang:send_after(Timeout, self(), {timeout, Key}),
-                        maps:put(Key, NewTimer, Timers)
-                end,
-    State#state{timers=NewTimers};
+    OldTimer = maps:get(Key, Timers, make_ref()),
+    erlang:cancel_timer(OldTimer),
+    NewTimer = erlang:send_after(Timeout, self(), {timeout, Key}),
+    State#state{timers=maps:put(Key, NewTimer, Timers)};
 handle_action({cancel_timer, Key}, State=#state{timers=Timers}) ->
     NewTimers = case maps:take(Key, Timers) of
                     error ->

@@ -1,6 +1,6 @@
 -module(stream_tcp_SUITE).
 
- -include_lib("common_test/include/ct.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() ->
@@ -27,32 +27,14 @@ init_per_testcase(_, Config) ->
     init_test_stream(init_common(Config)).
 
 end_per_testcase(_, Config) ->
-    gen_tcp:close(proplists:get_value(listen_sock, Config)),
-    {CSock, SSock} = proplists:get_value(client_server, Config),
-    gen_tcp:close(CSock),
-    gen_tcp:close(SSock),
+    test_util:teardown_sock_pair(Config),
     meck_unload_stream(test_stream),
     ok.
 
 init_common(Config) ->
     test_util:setup(),
     meck_stream(test_stream),
-    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}]),
-    Parent = self(),
-    spawn(fun() ->
-                  {ok, ServerSock} = gen_tcp:accept(LSock),
-                  gen_tcp:controlling_process(ServerSock, Parent),
-                  Parent ! {accepted, ServerSock}
-          end),
-    {ok, LPort} = inet:port(LSock),
-    {ok, CSock} = gen_tcp:connect("localhost", LPort, [binary,
-                                                       {active, false},
-                                                       {packet, raw},
-                                                       {nodelay, true}]),
-    receive
-        {accepted, SSock} -> SSock
-    end,
-    [{listen_sock, LSock}, {client_server, {CSock, SSock}} | Config].
+    test_util:setup_sock_pair(Config).
 
 init_test_stream(Config) ->
     {_CSock, SSock} = ?config(client_server, Config),

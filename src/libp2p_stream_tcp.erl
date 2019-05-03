@@ -2,16 +2,10 @@
 
 -behavior(libp2p_stream_transport).
 
--type handler_opts() :: #{socket => gen_tcp:socket(),
-                          handlers => libp2p_stream_multistream:handlers(),
-                          send_fn => libp2p_stream_transport:send_fn()
-                         }.
--type mod_opts() :: #{socket => gen_tcp:socket(),
-                      mod => atom(),
-                      mod_opts => map(),
-                      send_fn => libp2p_stream_transport:send_fn()
-                     }.
--type opts() :: handler_opts() | mod_opts().
+-type opts() :: #{socket => gen_tcp:socket(),
+                  mod => atom(),
+                  send_fn => libp2p_stream_transport:send_fn()
+                 }.
 
 -export_type([opts/0]).
 
@@ -40,7 +34,7 @@ command(Pid, Cmd) ->
     gen_server:call(Pid, Cmd, infinity).
 
 
-start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, mod := _Mod}) ->
+start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts);
 start_link(Kind, Opts=#{socket := Sock}) ->
     SendFun = fun(Data) ->
@@ -65,11 +59,7 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
             {stop, Reason};
         {stop, Reason, ModState, Actions} ->
             {stop, Reason, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions}
-    end;
-init(Kind, Opts=#{handlers := Handlers, socket := _Sock, send_fn := _SendFun}) ->
-    init(Kind, Opts#{mod => libp2p_stream_multistream,
-                     mod_opts => #{ handlers => Handlers }
-                     }).
+    end.
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     case erlang:function_exported(Mod, handle_command, 4) of

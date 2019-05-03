@@ -1,6 +1,10 @@
 -module(test_util).
 
--export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
+ -include_lib("common_test/include/ct.hrl").
+
+-export([setup/0,
+         setup_sock_pair/1, teardown_sock_pair/1,
+         setup_swarms/0, setup_swarms/2, teardown_swarms/1,
          connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1]).
 
@@ -11,6 +15,31 @@ setup() ->
     lager:set_loglevel(lager_console_backend, debug),
     lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
     ok.
+
+setup_sock_pair(Config) ->
+    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}]),
+    Parent = self(),
+    spawn(fun() ->
+                  {ok, ServerSock} = gen_tcp:accept(LSock),
+                  gen_tcp:controlling_process(ServerSock, Parent),
+                  Parent ! {accepted, ServerSock}
+          end),
+    {ok, LPort} = inet:port(LSock),
+    {ok, CSock} = gen_tcp:connect("localhost", LPort, [binary,
+                                                       {active, false},
+                                                       {packet, raw},
+                                                       {nodelay, true}]),
+    receive
+        {accepted, SSock} -> SSock
+    end,
+    [{listen_sock, LSock}, {client_server, {CSock, SSock}} | Config].
+
+teardown_sock_pair(Config) ->
+    LSock = ?config(listen_sock, Config),
+    gen_tcp:close(LSock),
+    {CSock, SSock} = ?config(client_server, Config),
+    gen_tcp:close(CSock),
+    gen_tcp:close(SSock).
 
 setup_swarms(0, _Opts, Acc) ->
     Acc;
