@@ -53,7 +53,7 @@ handle_reset(Pid) ->
 
 
 start_link(Kind, Opts=#{send_fn := _SendFun}) ->
-    libp2p_stream_transport:start_link(?MODULE, Kind, Opts).
+    libp2p_stream_transport:start_link(?MODULE, Kind, Opts#{}).
 
 init(Kind, Opts=#{stream_id := StreamID, mod := Mod}) ->
     erlang:put(stream_type, {Kind, Mod}),
@@ -61,15 +61,11 @@ init(Kind, Opts=#{stream_id := StreamID, mod := Mod}) ->
     case Mod:init(Kind, ModOpts) of
         {ok, ModState, Actions} ->
             {ok, #state{mod=Mod, stream_id=StreamID, mod_state=ModState, kind=Kind}, Actions};
-        {close, Reason} ->
+        {stop, Reason} ->
             {stop, Reason};
-        {close, Reason, Actions} ->
-            {stop, Reason, Actions}
-    end;
-init(Kind, Opts=#{handlers := Handlers, stream_id := _StreamID}) ->
-    init(Kind, Opts#{mod => libp2p_multistream,
-                     mod_opts => #{ handlers => Handlers }
-                    }).
+        {stop, Reason, ModState, Actions} ->
+            {stop, Reason, #state{mod=Mod, stream_id=StreamID, mod_state=ModState, kind=Kind}, Actions}
+    end.
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     case erlang:function_exported(Mod, handle_command, 4) of
@@ -96,7 +92,7 @@ handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
 
 handle_cast(handle_reset, State=#state{}) ->
     %% Received a reset, stop stream
-    lager:debug("Resetting stream: ~p", [State#state.stream_id]),
+    lager:debug("Resetting ~p stream: ~p", [State#state.kind, State#state.stream_id]),
     {stop, normal, State};
 handle_cast(handle_close, State=#state{close_state=write}) ->
     %% Received a remote close when we'd already closed this side for
@@ -138,7 +134,7 @@ handle_info(Msg, State=#state{mod=Mod}) ->
     case erlang:function_exported(Mod, handle_info, 3) of
         true->
             Result = Mod:handle_info(State#state.kind, Msg, State#state.mod_state),
-            handle_info_result(Result, State);
+            handle_info_result(Result, State, []);
         false ->
             lager:warning("Unhandled callback info: ~p", [Msg]),
             {noreply, State}
@@ -149,19 +145,22 @@ handle_packet(Header, Packet, State=#state{mod=Mod}) ->
                  once -> false;
                  true -> true
              end,
-    Result = Mod:handle_packet(Header, Packet, State#state.mod_state),
-    handle_info_result(Result, State#state{active=Active}).
+    Result = Mod:handle_packet(State#state.kind, Header, Packet, State#state.mod_state),
+    handle_info_result(Result, State#state{}, [{active, Active}]).
 
--spec handle_info_result(libp2p_stream:handle_info_result(), #state{}) ->
+-spec handle_info_result(libp2p_stream:handle_info_result(), #state{}, libp2p_stream:actions()) ->
                                 libp2p_stream_transport:handle_info_result().
-handle_info_result({noreply, ModState}, State=#state{}) ->
-    handle_info_result({noreply, ModState, []}, State);
-handle_info_result({noreply, ModState, Actions}, State=#state{}) ->
-    {noreply, State#state{mod_state=ModState}, Actions};
-handle_info_result({stop, Reason, ModState}, State=#state{}) ->
-    handle_info_result({stop, Reason, ModState, []}, State);
-handle_info_result({stop, Reason, ModState, Actions}, State=#state{}) ->
-    {stop, Reason, State#state{mod_state=ModState}, Actions}.
+handle_info_result({noreply, ModState}, State=#state{}, PreActions) ->
+    handle_info_result({noreply, ModState, []}, State, PreActions);
+handle_info_result({noreply, ModState, Actions}, State=#state{}, PreActions) ->
+    {noreply, State#state{mod_state=ModState}, PreActions ++ Actions};
+handle_info_result({stop, Reason, ModState}, State=#state{}, PreActions) ->
+    handle_info_result({stop, Reason, ModState, []}, State, PreActions);
+handle_info_result({stop, Reason, ModState, Actions}, State=#state{}, PreActions) ->
+    {stop, Reason, State#state{mod_state=ModState}, PreActions ++ Actions};
+handle_info_result(Other, State=#state{}, _PreActions) ->
+    {stop, {error, {invalid_handle_info_result, Other}}, State}.
+
 
 handle_action({send, reset}, State=#state{}) ->
     Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, reset),
@@ -173,7 +172,23 @@ handle_action({send, Data}, State=#state{}) ->
     Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, msg, Data),
     {action, {send, Packet}, State};
 handle_action({active, Active}, State=#state{}) ->
-    {ok, State#state{active=Active}};
+    case Active of
+        true ->
+            %% Active true means we continue to deliver to our
+            %% callback.  Tell the underlying transport to be in true
+            %% mode to deliver packets until we tell it otherwise.
+            {action, {active, true}, State#state{active=Active}};
+        once ->
+            %% Active once meands we're only delivering one of _our_
+            %% packets up to the next layer.  Tell the underlying
+            %% transport to be in true mode since we may need more
+            %% than one of their packets to make one of ours.
+            {action, {active, true}, State#state{active=Active}};
+        false ->
+            %% Turn of active mode for at this layer means turning it
+            %% off all the way down.
+            {action, {active, false}, State#state{active=Active}}
+    end;
 handle_action(swap_kind, State=#state{kind=server}) ->
     erlang:put(stream_type, {client, State#state.mod}),
     {ok, State#state{kind=client}};
@@ -186,12 +201,12 @@ handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     case Mod:init(State#state.kind, ModOpts) of
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
-        {close, Reason} ->
+        {stop, Reason} ->
             self() ! {stop, Reason},
             {ok, State};
-        {close, Reason, Actions} ->
+        {stop, Reason, ModState, Actions} ->
             self() ! {stop, Reason},
-            {replace, Actions, State}
+            {replace, Actions, State#state{mod_state=ModState}}
     end;
 handle_action(Action, State) ->
     {action, Action, State}.

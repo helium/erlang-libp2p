@@ -2,10 +2,15 @@
 
 -behavior(libp2p_stream).
 
--export([init/2, handle_packet/4, handle_info/3, handle_command/4]).
+-export([init/2,
+         handle_packet/4,
+         handle_info/3,
+         handle_command/4,
+         protocol_id/0
+        ]).
 -export([encode_packet/3,
-         encode_packet/4,
-         open/1]).
+         encode_packet/4
+        ]).
 
 -type flag() :: new | close | reset | msg.
 -type stream_id() :: non_neg_integer().
@@ -38,10 +43,8 @@
 
 %% API
 
--spec open(pid()) -> ok.
-open(Pid) ->
-    Pid ! open,
-    ok.
+protocol_id() ->
+    <<"/mplex/6.7.0">>.
 
 -spec encode_packet(stream_id(), libp2p_stream:kind(), flag()) -> binary().
 encode_packet(StreamID, Kind, Flag) ->
@@ -55,12 +58,13 @@ encode_packet(StreamID, Kind, Flag, Data) ->
 %% libp2p_stream
 
 init(_Kind, Opts=#{send_fn := SendFun}) ->
-    WorkerOpts = maps:get(worker_opts, Opts, #{}),
+    WorkerOpts = maps:get(mod_opts, Opts, #{}),
     {ok, #state{
             max_received_workers=maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
             worker_opts=WorkerOpts#{send_fn => SendFun}
            },
-     [{packet_spec, ?PACKET_SPEC}]}.
+     [{packet_spec, ?PACKET_SPEC},
+      {active, once}]}.
 
 
 handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
@@ -69,10 +73,10 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
     WorkerDo = fun(Kind, StreamID, Fun) ->
                        case maps:get({Kind, StreamID}, Workers, false) of
                            false ->
-                               {noreply, State};
+                               {noreply, State, [{active, once}]};
                            WorkerPid ->
                                Fun(WorkerPid),
-                               {noreply, State}
+                               {noreply, State, [{active, once}]}
                        end
                end,
 
@@ -81,10 +85,10 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
             lager:info("Declining inbound stream: ~p: max inbound streams (~p) reached",
                        [StreamID, MaxReceivedWorkers]),
             Packet = encode_packet(StreamID, server, reset),
-            {ok, State, [{send, Packet}]};
+            {noreply, State, [{send, Packet}, {active, once}]};
         {StreamID, ?FLAG_NEW_STREAM} ->
-            {_, NewState} = start_worker({server, StreamID}, State),
-            {ok, NewState};
+            {ok, _, NewState} = start_worker({server, StreamID}, State),
+            {noreply, NewState, [{active, once}]};
 
         {StreamID, ?FLAG_MSG_INITIATOR} ->
             WorkerDo(server, StreamID,
@@ -122,20 +126,23 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
                      end);
 
         _ ->
-            {ok, State}
+            {noreply, State}
     end.
 
+handle_command(_Kind, open, _From, State=#state{next_stream_id=StreamID}) ->
+    case start_worker({client, StreamID}, State) of
+        {ok, Pid, NewState} ->
+            Packet = encode_packet(StreamID, client, new),
+            {reply, {ok, Pid}, NewState#state{next_stream_id=StreamID + 1},
+             [{send, Packet}]};
+        {error, Error} ->
+            {reply, {error, Error}, State}
+    end;
 
 handle_command(_Kind, Cmd, _From, State=#state{}) ->
     lager:warning("Unhandled command ~p", [Cmd]),
     {reply, ok, State}.
 
-
-handle_info(_Kind, open, State=#state{next_stream_id=StreamID}) ->
-    {_, NewState} = start_worker({client, StreamID}, State),
-    Packet = encode_packet(StreamID, client, new),
-    {noreply, NewState#state{next_stream_id=StreamID + 1},
-     [{send, Packet}]};
 
 handle_info(_, {'EXIT', WorkerPid, Reason}, State=#state{}) ->
     case remove_worker(WorkerPid, State) of
@@ -155,8 +162,9 @@ handle_info(_, {'EXIT', WorkerPid, Reason}, State=#state{}) ->
             {noreply, State}
     end;
 
-handle_info(_Kind, _Msg, State=#state{}) ->
-    {ok, State}.
+handle_info(_Kind, Msg, State=#state{}) ->
+    lager:warning("Unhandled info ~p", [Msg]),
+    {noreply, State}.
 
 
 %%
@@ -169,14 +177,18 @@ start_worker(WorkerKey={Kind, StreamID}, State=#state{worker_opts=WorkerOpts0,
                                                       worker_pids=WorkerPids,
                                                       count_received_workers=CountReceived}) ->
     WorkerOpts = WorkerOpts0#{stream_id => StreamID},
-    {ok, WorkerPid} = libp2p_stream_mplex_worker:start_link(Kind, WorkerOpts),
-    NewCountReceived = case Kind of
-                           server -> CountReceived + 1;
-                           client -> CountReceived
-                       end,
-    {WorkerPid, State#state{workers=Workers#{WorkerKey => WorkerPid},
-                            worker_pids=WorkerPids#{WorkerPid => WorkerKey},
-                            count_received_workers=NewCountReceived}}.
+    case libp2p_stream_mplex_worker:start_link(Kind, WorkerOpts) of
+        {ok, WorkerPid} ->
+            NewCountReceived = case Kind of
+                                   server -> CountReceived + 1;
+                                   client -> CountReceived
+                               end,
+            {ok, WorkerPid, State#state{workers=Workers#{WorkerKey => WorkerPid},
+                                        worker_pids=WorkerPids#{WorkerPid => WorkerKey},
+                                        count_received_workers=NewCountReceived}};
+        {error, Error} ->
+            {error, Error}
+    end.
 
 -spec remove_worker(worker_key() | pid(), #state{}) -> {worker_key(), #state{}} | false.
 remove_worker(WorkerKey={Kind, _StreamID}, State=#state{workers=Workers,

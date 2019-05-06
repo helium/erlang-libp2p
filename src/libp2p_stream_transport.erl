@@ -189,7 +189,6 @@ handle_cast_result({stop, Reason, ModState, Actions}, State=#state{}) ->
                          {noreply, #state{}, {continue, Continue::term()}} |
                          {stop, Reason::term(), #state{}}.
 handle_info({timeout, Key}, State=#state{timers=Timers, mod=Mod}) ->
-    lager:debug("TIMEOUT ~p", [Key]),
     case maps:take(Key, Timers) of
         error ->
             {noreply, State};

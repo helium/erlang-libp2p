@@ -39,7 +39,6 @@ start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts);
 start_link(Kind, Opts=#{socket := Sock}) ->
     SendFun = fun(Data) ->
-                      lager:debug("SENDING ~p: ~p", [Kind, Data]),
                       gen_tcp:send(Sock, Data)
               end,
     start_link(Kind, Opts#{send_fn => SendFun}).
@@ -125,7 +124,10 @@ handle_info_result({noreply, ModState, Actions}, State=#state{}, PreActions) ->
 handle_info_result({stop, Reason, ModState}, State=#state{}, PreActions) ->
     handle_info_result({stop, Reason, ModState, []}, State, PreActions);
 handle_info_result({stop, Reason, ModState, Actions}, State=#state{}, PreActions) ->
-    {stop, Reason, State#state{mod_state=ModState}, PreActions ++ Actions}.
+    {stop, Reason, State#state{mod_state=ModState}, PreActions ++ Actions};
+handle_info_result(Other, State=#state{}, _PreActions) ->
+    {stop, {error, {invalid_handle_info_result, Other}}, State}.
+
 
 terminate(_Reason, State=#state{}) ->
     gen_tcp:close(State#state.socket).
