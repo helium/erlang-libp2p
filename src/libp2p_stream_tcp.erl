@@ -25,6 +25,7 @@
                 kind :: libp2p_stream:kind(),
                 active=false :: libp2p_stream:active(),
                 socket :: gen_tcp:socket(),
+                socket_active=false :: libp2p_stream:active(),
                 mod :: atom(),
                 mod_state :: any(),
                 data= <<>> :: binary()
@@ -38,6 +39,7 @@ start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts);
 start_link(Kind, Opts=#{socket := Sock}) ->
     SendFun = fun(Data) ->
+                      lager:debug("SENDING ~p: ~p", [Kind, Data]),
                       gen_tcp:send(Sock, Data)
               end,
     start_link(Kind, Opts#{send_fn => SendFun}).
@@ -49,7 +51,10 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     case Kind of
         server -> ok;
         client ->
-            ok = inet:setopts(Sock, [binary, nodelay, {packet, raw}])
+            ok = inet:setopts(Sock, [binary,
+                                     {nodelay, true},
+                                     {active, false},
+                                     {packet, raw}])
     end,
     ModOpts = maps:get(mod_opts, Opts, #{}),
     case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
@@ -125,28 +130,37 @@ handle_info_result({stop, Reason, ModState, Actions}, State=#state{}, PreActions
 terminate(_Reason, State=#state{}) ->
     gen_tcp:close(State#state.socket).
 
+
 -spec handle_action(libp2p_stream:action(), #state{}) ->
                            libp2p_stream_transport:handle_action_result().
 handle_action({active, Active}, State=#state{}) ->
+    %% Avoid calling setopts many times for the same active value.
+    SetSocketActive = fun(V) when V == State#state.socket_active ->
+                              V;
+                         (V) ->
+                              ok = inet:setopts(State#state.socket, [{active, V}]),
+                              V
+                      end,
     case Active of
         true ->
             %% Active true means we continue to deliver to our
             %% callback.  Tell the underlying transport to be in true
             %% mode to deliver packets until we tell it otherwise.
-            ok = inet:setopts(State#state.socket, [{active, true}]),
-            {action, {active, true}, State#state{active=Active}};
+            {action, {active, true}, State#state{active=Active,
+                                                 socket_active=SetSocketActive(true)}};
         once ->
             %% Active once meands we're only delivering one of _our_
             %% packets up to the next layer.  Tell the underlying
             %% transport to be in true mode since we may need more
             %% than one of their packets to make one of ours.
-            ok = inet:setopts(State#state.socket, [{active, true}]),
-            {action, {active, true}, State#state{active=Active}};
+            {action, {active, true}, State#state{active=Active,
+                                                 socket_active=SetSocketActive(true)}};
         false ->
             %% Turn of active mode for at this layer means turning it
             %% off all the way down.
             ok = inet:setopts(State#state.socket, [{active, false}]),
-            {action, {active, false}, State#state{active=Active}}
+            {action, {active, false}, State#state{active=Active,
+                                                 socket_active=SetSocketActive(false)}}
     end;
 handle_action(swap_kind, State=#state{kind=server}) ->
     erlang:put(stream_type, {client, State#state.mod}),

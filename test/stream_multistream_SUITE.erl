@@ -6,27 +6,42 @@
 all() ->
     [
      ls_test,
-     negotiate_handler_test,
+     negotiate_server_test,
+     negotiate_client_test,
      negotiate_timeout_test,
-     handshake_mismatch_test
+     handshake_server_mismatch_test,
+     handshake_client_mismatch_test,
+     negotiate_client_fail_test
     ].
 
 init_per_testcase(negotiate_timeout_test, Config) ->
     test_util:setup(),
-    meck_stream(test_stream),
-    init_test_stream(test_util:setup_sock_pair(Config),
+    meck_stream(server, test_stream),
+    init_test_stream(server, test_util:setup_sock_pair(Config),
                      #{ negotiation_timeout => 300 });
+init_per_testcase(negotiate_client_test, Config) ->
+    test_util:setup(),
+    meck_stream(client, test_stream),
+    init_test_stream(client, test_util:setup_sock_pair(Config), #{});
+init_per_testcase(handshake_client_mismatch_test, Config) ->
+    test_util:setup(),
+    meck_stream(client, test_stream),
+    init_test_stream(client, test_util:setup_sock_pair(Config), #{});
+init_per_testcase(negotiate_client_fail_test, Config) ->
+    test_util:setup(),
+    meck_stream(client, test_stream),
+    init_test_stream(client, test_util:setup_sock_pair(Config), #{});
 init_per_testcase(_, Config) ->
     test_util:setup(),
-    meck_stream(test_stream),
-    init_test_stream(test_util:setup_sock_pair(Config), #{}).
+    meck_stream(server, test_stream),
+    init_test_stream(server, test_util:setup_sock_pair(Config), #{}).
 
 end_per_testcase(_, Config) ->
     test_util:teardown_sock_pair(Config),
     meck_unload_stream(test_stream).
 
-init_test_stream(Config, AddModOpts) ->
-    {_CSock, SSock} = ?config(client_server, Config),
+init_test_stream(Kind, Config, AddModOpts) ->
+    {CSock, SSock} = ?config(client_server, Config),
 
     Handlers = [{"mplex/1.0.0", {no_mplex_mod, no_mplex_opts}},
                 {"yamux/1.2.0", {no_yamux_mod, no_yamux_opts}},
@@ -34,11 +49,15 @@ init_test_stream(Config, AddModOpts) ->
     ModOpts = maps:merge(#{
                            handlers => Handlers
                           }, AddModOpts),
-    {ok, Pid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                       mod => libp2p_stream_multistream,
-                                                       mod_opts => ModOpts
-                                                      }),
-    gen_tcp:controlling_process(SSock, Pid),
+    StreamSock = case Kind of
+                     server -> SSock;
+                     client -> CSock
+                 end,
+    {ok, Pid} = libp2p_stream_tcp:start_link(Kind, #{socket => StreamSock,
+                                                     mod => libp2p_stream_multistream,
+                                                     mod_opts => ModOpts
+                                                    }),
+    gen_tcp:controlling_process(StreamSock, Pid),
     [{stream, Pid} | Config].
 
 
@@ -61,7 +80,7 @@ ls_test(Config) ->
 
     ok.
 
-negotiate_handler_test(Config) ->
+negotiate_server_test(Config) ->
     {CSock, _SSock} = ?config(client_server, Config),
 
     handshake(client, CSock),
@@ -69,6 +88,20 @@ negotiate_handler_test(Config) ->
     SelectLine = <<"test_stream/1.0.0/extra/path">>,
     send_line(CSock, SelectLine),
     ?assertEqual(SelectLine, receive_line(CSock)),
+
+    ok.
+
+negotiate_client_test(Config) ->
+    {_CSock, SSock} = ?config(client_server, Config),
+
+    handshake(server, SSock),
+
+    ?assertEqual(<<"mplex/1.0.0">>, receive_line(SSock)),
+    send_line(SSock, <<"na">>),
+    ?assertEqual(<<"yamux/1.2.0">>, receive_line(SSock)),
+    send_line(SSock, <<"na">>),
+    ?assertEqual(<<"test_stream/1.0.0">>, receive_line(SSock)),
+    send_line(SSock, <<"test_stream/1.0.0">>),
 
     ok.
 
@@ -87,7 +120,7 @@ negotiate_timeout_test(Config) ->
     ?assert(pid_should_die(Pid)),
     ok.
 
-handshake_mismatch_test(Config) ->
+handshake_server_mismatch_test(Config) ->
     {CSock, _SSock} = ?config(client_server, Config),
 
     Pid = ?config(stream, Config),
@@ -100,6 +133,32 @@ handshake_mismatch_test(Config) ->
 
     ok.
 
+handshake_client_mismatch_test(Config) ->
+    {_CSock, SSock} = ?config(client_server, Config),
+
+    Pid = ?config(stream, Config),
+
+    send_line(SSock, <<"bad_handshake">>),
+    ?assert(pid_should_die(Pid)),
+
+    ok.
+
+negotiate_client_fail_test(Config) ->
+    {_CSock, SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
+
+    handshake(server, SSock),
+
+    ?assertEqual(<<"mplex/1.0.0">>, receive_line(SSock)),
+    send_line(SSock, <<"na">>),
+    ?assertEqual(<<"yamux/1.2.0">>, receive_line(SSock)),
+    send_line(SSock, <<"na">>),
+    ?assertEqual(<<"test_stream/1.0.0">>, receive_line(SSock)),
+    send_line(SSock, <<"na">>),
+
+    ?assert(pid_should_die(Pid)),
+
+    ok.
 
 
 
@@ -113,17 +172,30 @@ pid_should_die(Pid) ->
                                end).
 
 handshake(client, Sock) ->
-    %% handshake
-    ?assertEqual(libp2p_stream_multistream:protocol_id(), receive_line(Sock)),
+    %% receive server handshake
+    ProtocolId = libp2p_stream_multistream:protocol_id(),
+    HandshakeSize = byte_size(libp2p_stream_multistream:encode_line(ProtocolId)),
+    ?assertEqual(ProtocolId, receive_line(Sock, HandshakeSize)),
     %% Send client handshake
-    send_line(Sock, libp2p_stream_multistream:protocol_id()).
+    send_line(Sock, ProtocolId);
+handshake(server, Sock) ->
+    ProtocolId = libp2p_stream_multistream:protocol_id(),
+    HandshakeSize = byte_size(libp2p_stream_multistream:encode_line(ProtocolId)),
+    %% send server handshake
+    send_line(Sock, ProtocolId),
+    %% receive client handshake
+    ?assertEqual(libp2p_stream_multistream:protocol_id(), receive_line(Sock, HandshakeSize)).
+
 
 send_line(Sock, Line) ->
     Bin = libp2p_stream_multistream:encode_line(Line),
     ok = gen_tcp:send(Sock, Bin).
 
 receive_line(Sock) ->
-    {ok, Bin} = gen_tcp:recv(Sock, 0, 500),
+    receive_line(Sock, 0).
+
+receive_line(Sock, Size) ->
+    {ok, Bin} = gen_tcp:recv(Sock, Size, 500),
     {Line, _Rest} = libp2p_stream_multistream:decode_line(Bin),
     Line.
 
@@ -151,7 +223,7 @@ receive_packet(Sock) ->
     Data.
 
 
-meck_stream(Name) ->
+meck_stream(server, Name) ->
     meck:new(Name, [non_strict]),
     meck:expect(Name, init,
                 fun(server, Opts=#{stop := {send, Reason, Data}}) ->
@@ -166,6 +238,25 @@ meck_stream(Name) ->
                 end),
     meck:expect(Name, handle_packet,
                fun(server, _, Data, State) ->
+                       Packet = encode_packet(Data),
+                       {noreply, State, [{send, Packet}]}
+               end),
+    ok;
+meck_stream(client, Name) ->
+    meck:new(Name, [non_strict]),
+    meck:expect(Name, init,
+                fun(client, Opts=#{stop := {send, Reason, Data}}) ->
+                        Packet = encode_packet(Data),
+                        {stop, Reason, Opts, [{send, Packet}]};
+                   (client, #{stop := Reason}) ->
+                        {stop, Reason};
+                   (client, Opts) ->
+                        {ok, Opts, [{packet_spec, [u8]},
+                                    {active, once}
+                                   ]}
+                end),
+    meck:expect(Name, handle_packet,
+               fun(client, _, Data, State) ->
                        Packet = encode_packet(Data),
                        {noreply, State, [{send, Packet}]}
                end),

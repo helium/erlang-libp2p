@@ -18,7 +18,7 @@
         {stop, Reason::term(), Data::any()}.
 
 -record(state, {
-                handlers=[] :: handlers(),
+                handlers :: handlers(),
                 fsm_state :: atom(),
                 selected_handler=1 :: pos_integer(),
                 negotiation_timeout :: pos_integer()
@@ -38,15 +38,14 @@
          decode_line/1, decode_lines/1]).
 
 
-init(server, Opts=#{handlers := Handlers}) ->
+init(server, Opts=#{handlers := Handlers}) when is_list(Handlers), length(Handlers) > 0 ->
     NegotiationTime = maps:get(negotiation_timeout, Opts, ?DEFAULT_NEGOTIATION_TIME),
-    lager:debug("SETTING TIMEOUT TO ~p from ~p", [NegotiationTime, Opts]),
     {ok, #state{fsm_state=handshake, handlers=Handlers, negotiation_timeout=NegotiationTime},
      [{packet_spec, [varint]},
       {active, once},
       {send, encode_line(<<?PROTOCOL>>)},
       {timer, negotiate_timeout, NegotiationTime}]};
-init(client, Opts=#{handlers := Handlers}) ->
+init(client, Opts=#{handlers := Handlers}) when is_list(Handlers), length(Handlers) > 0 ->
     NegotiationTime = maps:get(negotiation_timeout, Opts, ?DEFAULT_NEGOTIATION_TIME),
     {ok, #state{fsm_state=handshake, handlers=Handlers, negotiation_timeout=NegotiationTime},
      [{packet_spec, [varint]},
@@ -68,17 +67,13 @@ handshake(client, {packet, Packet}, Data=#state{handlers=Handlers}) ->
         <<?PROTOCOL>> ->
             %% Handshake success. Request the first handler in handler
             %% list and move on to negotiation state.
-            case select_handler(1, Data) of
-                not_found ->
-                    handshake(client, {error, no_handlers}, Data);
-                {Key, _} ->
-                    lager:debug("Client negotiating handler using: ~p", [K || {K, _} <- Handlers]),
-                    {next_state, negotiate, Data#state{selected_handler=1},
-                     {[{cancel_timer, handshake_timeout},
-                       {active, once},
-                       {send, encode_line(<<?PROTOCOL>>)},
-                       {send, encode_line(list_to_binary(Key))}]}}
-            end;
+            {Key, _} = select_handler(1, Data),
+            lager:debug("Client negotiating handler using: ~p", [[K || {K, _} <- Handlers]]),
+            {next_state, negotiate, Data#state{selected_handler=1},
+             [{cancel_timer, handshake_timeout},
+              {active, once},
+              {send, encode_line(<<?PROTOCOL>>)},
+              {send, encode_line(list_to_binary(Key))}]};
         Other ->
             handshake(client, {error, {handshake_mismatch, Other}}, Data)
     end;
@@ -148,9 +143,9 @@ negotiate(client, {packet, Packet}, Data=#state{}) ->
                 {Key, _} ->
                     lager:debug("Client negotiating next handler: ~p", [Key]),
                     {keep_state, Data#state{selected_handler=NextHandler},
-                     {[{cancel_timer, handshake_timeout},
-                       {active, once},
-                       {send, encode_line(list_to_binary(Key))}]}}
+                     [{cancel_timer, handshake_timeout},
+                      {active, once},
+                      {send, encode_line(list_to_binary(Key))}]}
             end;
         Line ->
             %% Server agreed and switched to the handler.
@@ -300,7 +295,7 @@ decode_lines(Bin) ->
         {ok, _, _, _} ->
             erlang:error(invalid_lines);
         {more, _} ->
-            erlang:error(inalid_lines)
+            erlang:error(invalid_lines)
     end.
 
 -spec binary_to_lines(binary()) -> [binary()].
@@ -339,8 +334,11 @@ line_test() ->
 
     ?assertEqual({Line, <<>>}, decode_line(Encoded)),
     %% Strip end of binary to check invalid line response
-    ?assertError(invalid_line,
-                 decode_line(binary_part(Encoded, 0, byte_size(Encoded) - 1))),
+    StrippedEnd = binary_part(Encoded, 0, byte_size(Encoded) - 1),
+    ?assertError(invalid_line, decode_line(StrippedEnd)),
+    %% Replace end of binary (newline) with another character to check
+    %% error
+    ?assertError(invalid_line, decode_line(<<StrippedEnd/binary, $\t>>)),
 
     MaxLineSize = ?MAX_LINE_LENGTH + 1,
     MaxLine = crypto:strong_rand_bytes(MaxLineSize),
@@ -348,6 +346,10 @@ line_test() ->
 
     MaxBin = <<(libp2p_packet:encode_varint(?MAX_LINE_LENGTH+1))/binary>>,
     ?assertError({max_line, MaxLineSize}, decode_line(MaxBin)),
+
+    %% Don't decode if you're expecting more. The stream should have
+    %% been fed a complete packet
+    ?assertError(invalid_line, decode_line(<<255>>)),
 
     ok.
 
@@ -362,6 +364,11 @@ lines_test() ->
     ?assertEqual(Lines, decode_lines(Encoded)),
     ?assertError(invalid_lines,
                  decode_lines(binary_part(Encoded, 1, byte_size(Encoded) - 1))),
+
+    %% Don't decode if you're expecting more. The stream should have
+    %% been fed a complete packet
+    ?assertError(invalid_lines, decode_lines(<<255>>)),
+    ?assertError(invalid_line_count, decode_lines(<<1, 255>>)),
 
     ok.
 
