@@ -47,10 +47,19 @@ init(server, Opts=#{handlers := Handlers}) when is_list(Handlers), length(Handle
       {timer, negotiate_timeout, NegotiationTime}]};
 init(client, Opts=#{handlers := Handlers}) when is_list(Handlers), length(Handlers) > 0 ->
     NegotiationTime = maps:get(negotiation_timeout, Opts, ?DEFAULT_NEGOTIATION_TIME),
+    %% The client side of a multistream _should_ get a server
+    %% handshake right away. The tcp stack may combine an incoming and
+    %% an outgoing connection as part of a simultaneous
+    %% connection. This would mean we'd end up with two clients. In
+    %% order to break this deadlock we add some randomness to the
+    %% timeout and end up having one of the clients do a reverse
+    %% handshake, when successful turns the originating client into a
+    %% server.
+    HandshakeTime = maps:get(handshake_timeout, Opts, rand:uniform(20000) + 15000),
     {ok, #state{fsm_state=handshake, handlers=Handlers, negotiation_timeout=NegotiationTime},
      [{packet_spec, [varint]},
       {active, once},
-      {timer, handshake_timeout, rand:uniform(20000) + 15000}]};
+      {timer, handshake_timeout, HandshakeTime}]};
 init(_, _) ->
     {stop, missing_handlers}.
 
@@ -81,12 +90,13 @@ handshake(client, {timeout, handshake_timeout}, Data=#state{}) ->
     %% The client failed to receive a handshake from the server. This
     %% _may_ happen if there's a simultaneous connection that happens
     %% where two nodes connect to eachother at the same time which
-    %% bypasses the listen socket.Port reuse causes this corner case
-    %% of tcp behavior.
+    %% bypasses the listen socket. Port reuse and slow internet causes
+    %% this corner case of tcp behavior.
     %%
     %% We verify this happened by having the client send the
     %% handshake.If it receives a response it means this client should
     %% behave like a server instead.
+    lager:debug("Client attempting reverse handshake to detect simultaneous connection"),
     {next_state, handshake_reverse, Data,
     [{active, once},
      {send, encode_line(<<?PROTOCOL>>)}]};
@@ -103,22 +113,20 @@ handshake(Kind, {error, Error}, Data=#state{}) ->
     {stop, normal, Data};
 
 handshake(Kind, Msg, State) ->
-    handle_event(Kind, Msg, State).
+    handle_event(handshake, Kind, Msg, State).
 
 
 -spec handshake_reverse(libp2p_stream:kind(), fsm_msg(), #state{}) -> fsm_result().
 handshake_reverse(client, {packet, Packet}, Data=#state{}) ->
     case binary_to_line(Packet) of
         <<?PROTOCOL>> ->
-            %% We received a handshake that we initiated, which is
-            %% usually server beavior. This likely means that we're in
-            %% the simultaneouso connection scenario as described in
-            %% `handshake'. We send the handshake response and reverse
-            %% our `kind' to start behaving like a server post
-            %% handshake.
+            %% We received a handshake that we initiated during
+            %% handshake_timeout, which is usually server
+            %% beavior. This likely means that we're in the
+            %% simultaneouso connection scenario as described in
+            %% `handshake'.
             {next_state, negotiate, Data,
-             [{send, encode_line(<<?PROTOCOL>>)},
-              {active, once},
+             [{active, once},
               swap_kind,
               {timer, negotiate_timeout, Data#state.negotiation_timeout}]};
         Other ->
@@ -126,9 +134,9 @@ handshake_reverse(client, {packet, Packet}, Data=#state{}) ->
     end;
 handshake_reverse(client, {error, Error}, Data=#state{}) ->
     lager:notice("Client reverse handshake failed: ~p", [Error]),
-    {stop, {error, Error}, Data};
+    {stop, normal, Data};
 handshake_reverse(Kind, Msg, State) ->
-    handle_event(Kind, Msg, State).
+    handle_event(handshake_reverse, Kind, Msg, State).
 
 -spec negotiate(libp2p_stream:kind(), fsm_msg(), #state{}) -> fsm_result().
 negotiate(client, {packet, Packet}, Data=#state{}) ->
@@ -187,7 +195,7 @@ negotiate(Kind, {error, Error}, Data=#state{}) ->
     {stop, normal, Data};
 
 negotiate(Kind, Msg, State) ->
-    handle_event(Kind, Msg, State).
+    handle_event(negotiate, Kind, Msg, State).
 
 
 %%
@@ -195,17 +203,11 @@ negotiate(Kind, Msg, State) ->
 %%
 
 handle_message(Kind, Msg, Data0=#state{fsm_state=State}) ->
-    try
-        case erlang:apply(?MODULE, State, [Kind, Msg, Data0]) of
-            {keep_state, Data} -> {noreply, Data};
-            {keep_state, Data, Actions} -> {noreply, Data, Actions};
-            {next_state, NextState, Data} -> {noreply, Data#state{fsm_state=NextState}};
-            {next_state, NextState, Data, Actions} -> {noreply, Data#state{fsm_state=NextState}, Actions};
-            {stop, Reason, Data} -> {stop, Reason, Data}
-        end
-    catch
-        What:Why:Who ->
-            {stop, {What, Why, Who}}
+    case erlang:apply(?MODULE, State, [Kind, Msg, Data0]) of
+        {keep_state, Data} -> {noreply, Data};
+        {keep_state, Data, Actions} -> {noreply, Data, Actions};
+        {next_state, NextState, Data, Actions} -> {noreply, Data#state{fsm_state=NextState}, Actions};
+        {stop, Reason, Data} -> {stop, Reason, Data}
     end.
 
 
@@ -223,12 +225,12 @@ handle_info(Kind, Msg, Data=#state{}) ->
 protocol_id() ->
     <<?PROTOCOL>>.
 
-handle_event(server, {timeout, negotiate_timeout}, Data=#state{}) ->
-    lager:notice("Server timeout negotiating with client"),
+handle_event(State, server, {timeout, negotiate_timeout}, Data=#state{}) ->
+    lager:notice("Server timeout negotiating with client (~p)", [State]),
     {stop, normal, Data};
 
-handle_event(Kind, Msg, Data=#state{}) ->
-    lager:warning("Unhandled ~p message: ~p", [Kind, Msg]),
+handle_event(State, Kind, Msg, Data=#state{}) ->
+    lager:warning("Unhandled ~p (~p) message: ~p", [Kind, State, Msg]),
     {keep_state, Data}.
 
 select_handler(Index, #state{handlers=Handlers}) when Index =< length(Handlers)->
