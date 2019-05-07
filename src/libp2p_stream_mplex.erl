@@ -87,7 +87,7 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
             Packet = encode_packet(StreamID, server, reset),
             {noreply, State, [{send, Packet}, {active, once}]};
         {StreamID, ?FLAG_NEW_STREAM} ->
-            {ok, _, NewState} = start_worker({server, StreamID}, State),
+            {ok, _Pid, NewState} = start_worker({server, StreamID}, State),
             {noreply, NewState, [{active, once}]};
 
         {StreamID, ?FLAG_MSG_INITIATOR} ->
@@ -129,7 +129,7 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
             {noreply, State}
     end.
 
-handle_command(_Kind, open, _From, State=#state{next_stream_id=StreamID}) ->
+handle_command(_Kind, stream_open, _From, State=#state{next_stream_id=StreamID}) ->
     case start_worker({client, StreamID}, State) of
         {ok, Pid, NewState} ->
             Packet = encode_packet(StreamID, client, new),
@@ -138,6 +138,13 @@ handle_command(_Kind, open, _From, State=#state{next_stream_id=StreamID}) ->
         {error, Error} ->
             {reply, {error, Error}, State}
     end;
+handle_command(_Kind, {stream_streams, StreamKind}, _From, State=#state{}) ->
+    Result = maps:fold(fun({K, _}, StreamPid, Acc) when K == StreamKind ->
+                               [StreamPid | Acc];
+                          (_, _, Acc) ->
+                               Acc
+                       end, [], State#state.workers),
+    {reply, {ok, Result}, State};
 
 handle_command(_Kind, Cmd, _From, State=#state{}) ->
     lager:warning("Unhandled command ~p", [Cmd]),

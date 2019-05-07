@@ -4,9 +4,9 @@
 
 %% API
 -export([start_link/2,
-         command/2,
          reset/1,
-         close/1]).
+         close/1,
+         close_state/1]).
 
 %% libp2p_stream_transport
 -export([init/2,
@@ -30,16 +30,16 @@
 
 %% API
 
-command(Pid, Cmd) ->
-    gen_server:call(Pid, Cmd, infinity).
-
 -spec reset(pid()) -> ok.
 reset(Pid) ->
-    gen_server:cast(Pid, reset).
+    gen_server:cast(Pid, stream_reset).
 
 -spec close(pid()) -> ok.
 close(Pid) ->
-    gen_server:cast(Pid, close).
+    gen_server:cast(Pid, stream_close).
+
+close_state(Pid) ->
+    libp2p_stream_transport:command(Pid, stream_close_state).
 
 %% libp2p_stream_mplex
 
@@ -67,6 +67,8 @@ init(Kind, Opts=#{stream_id := StreamID, mod := Mod}) ->
             {stop, Reason, #state{mod=Mod, stream_id=StreamID, mod_state=ModState, kind=Kind}, Actions}
     end.
 
+handle_call(stream_close_state, _From, State=#state{}) ->
+    {reply, {ok, State#state.close_state}, State};
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
     case erlang:function_exported(Mod, handle_command, 4) of
         true->
@@ -104,23 +106,22 @@ handle_cast(handle_close, State=#state{}) ->
     self() ! {packet, <<>>},
     {noreply, State#state{close_state=read}};
 
-handle_cast(reset, State=#state{}) ->
+handle_cast(stream_reset, State=#state{}) ->
     %% reset command. Dispatch the reset and close this stream
     {stop, normal, State, [{send, reset}]};
-handle_cast(close, State=#state{close_state=read}) ->
+handle_cast(stream_close, State=#state{close_state=read}) ->
     %% Closes _this_ side of the stream for writing and the
     %% remote side for reading. If this side was already remotely
     %% closed we can stop the stream since neither side can read or
     %% write.
     {stop, normal, State, [{send, close}]};
-handle_cast(close, State=#state{close_state=write}) ->
+handle_cast(stream_close, State=#state{close_state=write}) ->
     %% ignore multiple close commandds
     {noreply, State};
-handle_cast(close, State=#state{}) ->
+handle_cast(stream_close, State=#state{}) ->
     %% This closes _this_ side of the stream for writing and the
     %% remote side for reading
-    Packet = libp2p_stream_mplex:encode_packet(State#state.stream_id, State#state.kind, close),
-    {noreply, State#state{close_state=write}, [{send, Packet}]};
+    {noreply, State#state{close_state=write}, [{send, close}]};
 
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
