@@ -56,7 +56,7 @@ start_link(Kind, Opts=#{send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts#{}).
 
 init(Kind, Opts=#{stream_id := StreamID, mod := Mod}) ->
-    erlang:put(stream_type, {Kind, Mod}),
+    libp2p_stream_transport:stream_stack_update(Mod, Kind),
     ModOpts = maps:get(mod_opts, Opts, #{}),
     case Mod:init(Kind, ModOpts) of
         {ok, ModState, Actions} ->
@@ -190,14 +190,14 @@ handle_action({active, Active}, State=#state{}) ->
             {action, {active, false}, State#state{active=Active}}
     end;
 handle_action(swap_kind, State=#state{kind=server}) ->
-    erlang:put(stream_type, {client, State#state.mod}),
+    libp2p_stream_transport:stream_stack_update(State#state.mod, client),
     {ok, State#state{kind=client}};
 handle_action(swap_kind, State=#state{kind=client}) ->
-    erlang:put(stream_type, {server, State#state.mod}),
+    libp2p_stream_transport:stream_stack_update(State#state.mod, server),
     {ok, State#state{kind=server}};
 handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     %% In a swap we ignore any furhter actions in the action list
-    erlang:put(stream_type, {State#state.kind, Mod}),
+    libp2p_stream_transport:stream_stack_replace(State#state.mod, Mod, State#state.kind),
     case Mod:init(State#state.kind, ModOpts) of
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
@@ -210,19 +210,3 @@ handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     end;
 handle_action(Action, State) ->
     {action, Action, State}.
-
-
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-pdict_test() ->
-    %% test kind and mod after start
-
-    %% test kind and mod after swap_kind
-
-    %% test kind and mod after swap
-    ok.
-
-
--endif.

@@ -46,7 +46,7 @@ start_link(Kind, Opts=#{socket := Sock}) ->
 -spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
 init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     erlang:process_flag(trap_exit, true),
-    erlang:put(stream_type, {Kind, Mod}),
+    libp2p_stream_transport:stream_stack_update(Mod, Kind),
     case Kind of
         server -> ok;
         client ->
@@ -165,14 +165,14 @@ handle_action({active, Active}, State=#state{}) ->
                                                  socket_active=SetSocketActive(false)}}
     end;
 handle_action(swap_kind, State=#state{kind=server}) ->
-    erlang:put(stream_type, {client, State#state.mod}),
+    libp2p_stream_transport:stream_stack_update(State#state.mod, client),
     {ok, State#state{kind=client}};
 handle_action(swap_kind, State=#state{kind=client}) ->
-    erlang:put(stream_type, {server, State#state.mod}),
+    libp2p_stream_transport:stream_stack_update(State#state.mod, server),
     {ok, State#state{kind=server}};
 handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     %% In a swap we ignore any furhter actions in the action list and
-    erlang:put(stream_type, {State#state.kind, Mod}),
+    libp2p_stream_transport:stream_stack_replace(State#state.mod, Mod, State#state.kind),
     case Mod:init(State#state.kind, ModOpts) of
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};

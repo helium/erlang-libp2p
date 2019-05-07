@@ -87,9 +87,13 @@ init_stop_test(Config) ->
 
 init_ok_test(Config) ->
     {CSock, _SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
 
     send_packet(CSock, <<"hello">>),
     ?assertEqual(<<"hello">>, receive_packet(CSock)),
+
+    ?assertEqual([{libp2p_stream_tcp, server}, {test_stream, server}], stream_stack(Pid)),
+
     ok.
 
 sock_close_test(Config) ->
@@ -215,8 +219,10 @@ command_test(Config) ->
     %% Swap kind to client and back
     ?assertEqual(ok, libp2p_stream_tcp:command(Pid, swap_kind)),
     ?assertEqual(client, libp2p_stream_tcp:command(Pid, kind)),
+    ?assertEqual([{libp2p_stream_tcp, server}, {test_stream, client}], stream_stack(Pid)),
     ?assertEqual(ok, libp2p_stream_tcp:command(Pid, swap_kind)),
     ?assertEqual(server, libp2p_stream_tcp:command(Pid, kind)),
+    ?assertEqual([{libp2p_stream_tcp, server}, {test_stream, server}], stream_stack(Pid)),
 
     ok.
 
@@ -280,6 +286,11 @@ pid_should_die(Pid) ->
     ok == test_util:wait_until(fun() ->
                                        not erlang:is_process_alive(Pid)
                                end).
+
+stream_stack(Pid) ->
+    {dictionary, PDict} = erlang:process_info(Pid, dictionary),
+    {stream_stack, Stack} = lists:keyfind(stream_stack, 1, PDict),
+    Stack.
 
 encode_packet(Data) ->
     DataSize = byte_size(Data),

@@ -56,8 +56,9 @@
 
 %% API
 -export([start_link/3,
-         active/1,
-         command/2
+         command/2,
+         stream_stack_update/2,
+         stream_stack_replace/3
          ]).
 %% gen_server
 -export([init/1,
@@ -96,14 +97,20 @@ start_link(Module, Kind, Opts) ->
 command(Pid, Cmd) ->
     gen_server:call(Pid, Cmd, infinity).
 
--spec active(pid()) -> libp2p_stream:active().
-active(Pid) ->
-    command(Pid, active).
+
+stream_stack_update(Mod, NewKind) ->
+    Stack = lists:keystore(Mod, 1, stream_stack_get(), {Mod, NewKind}),
+    stream_stack_put(Stack).
+
+stream_stack_replace(Mod, NewMod, NewKind) ->
+    Stack = lists:keyreplace(Mod, 1, stream_stack_get(), {NewMod, NewKind}),
+    stream_stack_put(Stack).
+
 
 -spec init({atom(), libp2p_stream:kind(), Opts::map()}) -> {stop, Reason::any()} |
                                                            {ok, #state{}}.
 init({Mod, Kind, Opts=#{send_fn := SendFun}}) ->
-    erlang:put(transport_type, {Kind, Mod}),
+    stream_stack_update(Mod, Kind),
     SendPid = spawn_link(mk_async_sender(SendFun)),
     State = #state{mod=Mod, mod_state=undefined, send_pid=SendPid},
     Result = Mod:init(Kind, Opts),
@@ -322,6 +329,19 @@ handle_action(Action, State) ->
     lager:warning("Unhandled action: ~p", [Action]),
     State.
 
+%%
+%% Utils
+%%
+
+stream_stack_get() ->
+    case erlang:get(stream_stack) of
+        undefined -> [];
+        Other -> Other
+    end.
+
+stream_stack_put(Stack) ->
+    erlang:put(stream_stack, Stack),
+    ok.
 
 mk_async_sender(SendFun) ->
     Parent = self(),

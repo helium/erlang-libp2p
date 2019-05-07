@@ -171,7 +171,7 @@ handle_info(_Kind, Msg, State=#state{}) ->
 %% Internal
 %%
 
--spec start_worker(worker_key(), #state{}) -> {pid(), #state{}}.
+-spec start_worker(worker_key(), #state{}) -> {ok, pid(), #state{}} | {error, term()}.
 start_worker(WorkerKey={Kind, StreamID}, State=#state{worker_opts=WorkerOpts0,
                                                       workers=Workers,
                                                       worker_pids=WorkerPids,
