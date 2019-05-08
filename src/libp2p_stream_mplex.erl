@@ -81,11 +81,11 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
                end,
 
     case decode_header(Header) of
-        {StreamID, ?FLAG_NEW_STREAM} when CountReceivedWorkers > MaxReceivedWorkers ->
+        {StreamID, ?FLAG_NEW_STREAM} when CountReceivedWorkers >= MaxReceivedWorkers ->
             lager:info("Declining inbound stream: ~p: max inbound streams (~p) reached",
                        [StreamID, MaxReceivedWorkers]),
-            Packet = encode_packet(StreamID, server, reset),
-            {noreply, State, [{send, Packet}, {active, once}]};
+            {noreply, State,
+             [{send, encode_packet(StreamID, server, reset)}, {active, once}]};
         {StreamID, ?FLAG_NEW_STREAM} ->
             {ok, _Pid, NewState} = start_worker({server, StreamID}, State),
             {noreply, NewState, [{active, once}]};
@@ -155,11 +155,8 @@ handle_info(_, {'EXIT', WorkerPid, Reason}, State=#state{}) ->
     case remove_worker(WorkerPid, State) of
         {{Kind, StreamID}, NewState} ->
             %% Don't bother sending resets when the worker already has
-            %% or if we are getting shut down
             case Reason of
                 normal ->
-                    {noreply, NewState};
-                shutdown ->
                     {noreply, NewState};
                 _Other ->
                     Packet = encode_packet(StreamID, Kind, reset),

@@ -8,26 +8,36 @@ all() ->
      open_test,
      reset_client_test,
      reset_server_test,
-     close_client_test
+     close_client_test,
+     shutdown_client_test,
+     exit_client_test,
+     max_received_test
     ].
 
+init_per_testcase(max_received_test, Config) ->
+    test_util:setup(),
+    meck_stream(test_stream_server),
+    meck_stream(test_stream_client),
+    init_test_streams(test_util:setup_sock_pair(Config),
+                      #{max_received_streams => 0});
 init_per_testcase(_, Config) ->
     test_util:setup(),
     meck_stream(test_stream_server),
     meck_stream(test_stream_client),
-    init_test_streams(test_util:setup_sock_pair(Config)).
+    init_test_streams(test_util:setup_sock_pair(Config), #{}).
 
 end_per_testcase(_, Config) ->
     test_util:teardown_sock_pair(Config),
     meck_unload_stream(test_stream_server),
     meck_unload_stream(test_stream_client).
 
-init_test_streams(Config) ->
+init_test_streams(Config, MuxerOpts) ->
     {CSock, SSock} = ?config(client_server, Config),
 
     %% Server muxer
     ServerStreamOpts = #{ mod => test_stream_server },
-    ServerModOpts = #{ mod_opts => ServerStreamOpts },
+    ServerModOpts = maps:merge(#{ mod_opts => ServerStreamOpts },
+                               MuxerOpts),
     {ok, SPid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
                                                         mod => libp2p_stream_mplex,
                                                         mod_opts => ServerModOpts
@@ -36,7 +46,8 @@ init_test_streams(Config) ->
 
     %% Client muxer
     ClientStreamOpts = #{ mod => test_stream_client },
-    ClientModOpts = #{ mod_opts => ClientStreamOpts },
+    ClientModOpts = maps:merge(#{ mod_opts => ClientStreamOpts },
+                               MuxerOpts),
     {ok, CPid} = libp2p_stream_tcp:start_link(client, #{socket => CSock,
                                                         mod => libp2p_stream_mplex,
                                                         mod_opts => ClientModOpts
@@ -55,28 +66,44 @@ init_test_streams(Config) ->
 open_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
+    %% Check that there are no streams for either on startop
+    ?assertMatch({ok, []}, libp2p_stream_muxer:streams(CMPid, client)),
+    ?assertMatch({ok, []}, libp2p_stream_muxer:streams(SMPid, server)),
+
+    %% Open a stream, ensure client knows about it
     {ok, CPid} = libp2p_stream_muxer:open(CMPid),
-    ?assertMatch({ok, [CPid]}, streams(CMPid, client)),
+    ?assertMatch({ok, [CPid]}, libp2p_stream_muxer:streams(CMPid, client)),
+    %% and that it has no "server" streams
+    ?assertMatch({ok, []}, libp2p_stream_muxer:streams(CMPid, server)),
 
+    %% Wait for the server muxer to know about it's side of the stream
     {ok, [SPid]} = streams(SMPid, server),
+    %% and that the server muxer has no client streams
+    ?assertMatch({ok, []}, libp2p_stream_muxer:streams(SMPid, client)),
 
+    %% Send from client to server
     CPid ! {send, <<"hello">>},
     ?assertEqual(<<"hello">>, stream_cmd(SPid, recv)),
 
+    %% Send from server to client
     SPid ! {send, <<"world">>},
     ?assertEqual(<<"world">>, stream_cmd(CPid, recv)),
     ok.
+
 
 reset_client_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
     {ok, CPid} = libp2p_stream_muxer:open(CMPid),
 
+    %% Wait for server to know about the stream so we can check that a
+    %% reset stops both sides.
     {ok, [SPid]} = streams(SMPid, server),
+    %% Reset the client
     libp2p_stream_mplex_worker:reset(CPid),
-
-    pid_should_die(CPid),
-    pid_should_die(SPid),
+    %% both client and server streams should go away
+    ?assert(pid_should_die(CPid)),
+    ?assert(pid_should_die(SPid)),
 
     ok.
 
@@ -85,13 +112,45 @@ reset_server_test(Config) ->
 
     {ok, CPid} = libp2p_stream_muxer:open(CMPid),
 
+    %% Wait for server to know about the stream so we can check that a
+    %% reset stops both sides.
     {ok, [SPid]} = streams(SMPid, server),
+    %% Reset server stream
     libp2p_stream_mplex_worker:reset(SPid),
+    %% both client and server streams should go away
+    ?assert(pid_should_die(CPid)),
+    ?assert(pid_should_die(SPid)),
+
+    ok.
+
+shutdown_client_test(Config) ->
+    {CMPid, SMPid} = ?config(stream_client_server, Config),
+
+    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, [SPid]} = streams(SMPid, server),
+
+    %% Shutting down a client stream should shut down both sides.
+    exit(CPid, shutdown),
 
     pid_should_die(CPid),
     pid_should_die(SPid),
 
     ok.
+
+exit_client_test(Config) ->
+    {CMPid, SMPid} = ?config(stream_client_server, Config),
+
+    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, [SPid]} = streams(SMPid, server),
+
+    %% Crashing a stream should shut down both sides.
+    exit(CPid, abornal_exit),
+
+    ?assert(pid_should_die(CPid)),
+    ?assert(pid_should_die(SPid)),
+
+    ok.
+
 
 close_client_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
@@ -115,11 +174,18 @@ close_client_test(Config) ->
     %% Close the server, which will then close both sides
     libp2p_stream_mplex_worker:close(SPid),
 
-    pid_should_die(CPid),
-    pid_should_die(SPid),
+    ?assert(pid_should_die(CPid)),
+    ?assert(pid_should_die(SPid)),
 
     ok.
 
+max_received_test(Config) ->
+    {CMPid, _SMPid} = ?config(stream_client_server, Config),
+    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+
+    ?assert(pid_should_die(CPid)),
+
+    ok.
 
 %%
 %% Utilities
