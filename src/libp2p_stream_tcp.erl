@@ -47,6 +47,9 @@ start_link(Kind, Opts=#{socket := Sock}) ->
 init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     erlang:process_flag(trap_exit, true),
     libp2p_stream_transport:stream_stack_update(Mod, Kind),
+    {ok, LocalAddr} = inet:sockname(Sock),
+    {ok, RemoteAddr} = inet:peername(Sock),
+    libp2p_stream_transport:stream_addr_info_update({to_multiaddr(LocalAddr), to_multiaddr(RemoteAddr)}),
     case Kind of
         server -> ok;
         client ->
@@ -185,3 +188,14 @@ handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     end;
 handle_action(Action, State) ->
     {action, Action, State}.
+
+%%
+%% Utilities
+%%
+
+to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
+    Prefix  = case size(IP) of
+                  4 -> "/ip4";
+                  8 -> "/ip6"
+              end,
+    lists:flatten(io_lib:format("~s/~s/tcp/~b", [Prefix, inet:ntoa(IP), Port ])).

@@ -2,59 +2,59 @@
 
 -include("pb/libp2p_identify_pb.hrl").
 
--behavior(libp2p_framed_stream).
+-behavior(libp2p_stream).
 
--export([dial_spawn/3]).
--export([client/2, server/4, init/3, handle_data/3, handle_info/3]).
+%% API
+-export([start/2, start/3]).
+%% libp2p_stream
+-export([init/2, handle_packet/4, handle_info/3]).
 
 -record(state,
-       { tid :: ets:tab(),
-         session :: pid(),
-         handler:: pid(),
-         timeout :: reference()
-       }).
+        { result_handler=undefinde :: pid() | undefined,
+          muxer=undefined :: pid() | undefined
+        }).
 
 -define(PATH, "identify/1.0.0").
--define(TIMEOUT, 5000).
+-define(DEFAULT_TIMEOUT, 5000).
 
--spec dial_spawn(Session::pid(), ets:tab(), Handler::pid()) -> pid().
-dial_spawn(Session, TID, Handler) ->
-    spawn(fun() ->
-                  Challenge = crypto:strong_rand_bytes(20),
-                  Path = lists:flatten([?PATH, "/", base58:binary_to_base58(Challenge)]),
-                  libp2p_session:dial_framed_stream(Path, Session, ?MODULE, [TID, Handler])
-          end).
+-spec start(Muxer::pid(), ResultHandler::pid()) -> pid().
+start(Muxer, ResultHandler) ->
+    start(Muxer, ResultHandler, ?DEFAULT_TIMEOUT).
 
-client(Connection, Args=[_TID, _Handler]) ->
-    libp2p_framed_stream:client(?MODULE, Connection, Args).
+-spec start(Muxer::pid(), ResultHandler::pid(), Timeout::pos_integer()) -> pid().
+start(Muxer, ResultHandler, Timeout) ->
+    Challenge = crypto:strong_rand_bytes(20),
+    Path = lists:flatten([?PATH, "/", base58:binary_to_base58(Challenge)]),
+    ModOpts = #{ result_handler => ResultHandler,
+                 identify_timeout => Timeout,
+                 muxer => Muxer},
+    libp2p_stream_muxer:dial(Muxer, #{ handlers => [{Path, {?MODULE, ModOpts}}]
+                                     }).
 
-server(Connection, Path, TID, []) ->
-    libp2p_framed_stream:server(?MODULE, Connection, [Path, TID]).
-
-init(client, Connection, [_TID, Handler]) ->
-    {ok, Session} = libp2p_connection:session(Connection),
-    Timer = erlang:send_after(?TIMEOUT, self(), identify_timeout),
-    {ok, #state{handler=Handler, session=Session, timeout=Timer}};
-init(server, Connection, [Path, TID]) ->
+init(client, #{ result_handler := ResultHandler, muxer := Muxer, identify_timeout := IdentifyTimeout}) ->
+    {ok, #state{result_handler=ResultHandler, muxer=Muxer},
+     [{timer, identify_timeout, IdentifyTimeout},
+      {packet_spec, [varint]},
+      {active, once}]};
+init(server, #{ path := Path, sig_fn := SigFun, peer := Peer }) ->
     "/" ++ Str = Path,
     Challenge = base58:base58_to_binary(Str),
-    {ok, _, SigFun} = libp2p_swarm:keys(TID),
-    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
-    {ok, Peer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
+    {_, RemoteAddr} = libp2p_stream_transport:stream_addr_info(),
     Identify = libp2p_identify:from_map(#{peer => Peer,
                                           observed_addr => RemoteAddr,
-                                          nonce => Challenge},
-                                        SigFun),
-    {stop, normal, libp2p_identify:encode(Identify)}.
+                                          nonce => Challenge}, SigFun),
+    Data = libp2p_identify:encode(Identify),
+    {stop, normal, undefined,
+     [{send, libp2p_packet:encode_packet([varint], [byte_size(Data)], Data)}]}.
 
 
-handle_data(client, Data, State=#state{}) ->
-    erlang:cancel_timer(State#state.timeout),
-    State#state.handler ! {handle_identify, State#state.session, libp2p_identify:decode(Data)},
-    {stop, normal, State}.
+handle_packet(client, _, Data, State=#state{muxer=Muxer}) ->
+    State#state.result_handler ! {handle_identify, Muxer, libp2p_identify:decode(Data)},
+    {stop, normal, State,
+    [{cancel_timer, identify_timeout}]}.
 
 
-handle_info(client, identify_timeout, State=#state{}) ->
-    State#state.handler ! {handle_identify, State#state.session, {error, timeout}},
+handle_info(client, {timeout, identify_timeout}, State=#state{}) ->
+    State#state.result_handler ! {handle_identify, State#state.muxer, {error, timeout}},
     lager:notice("Identify timed out"),
     {stop, normal, State}.

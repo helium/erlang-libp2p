@@ -157,13 +157,14 @@ negotiate(client, {packet, Packet}, Data=#state{}) ->
             end;
         Line ->
             %% Server agreed and switched to the handler.
+            LineStr = binary_to_list(Line),
             case select_handler(Data#state.selected_handler, Data) of
-                {_, {M, A}} ->
+                {Key, {M, A}} when Key == LineStr ->
                     lager:debug("Client negotiated handler for: ~p, handler: ~p", [Line, M]),
                     {keep_state, Data, [{swap, M, A}]};
                 _ ->
-                    lager:debug("Client got unexpected server response during negotiation: ~p", [Line]),
-                    {stop, {error, protocol_error}, Data}
+                    lager:debug("HANDLERS ~p ~p ~p", [Data#state.selected_handler, Data#state.handlers, select_handler(Data#state.selected_handler, Data)]),
+                    negotiate(client, {error, {unexpected_server_response, Line}}, Data)
             end
     end;
 
@@ -190,7 +191,7 @@ negotiate(server, {packet, Packet}, Data=#state{}) ->
     end;
 
 negotiate(Kind, {error, Error}, Data=#state{}) ->
-    lager:notice("~p negotiation failed for: ~p", [Kind, Error]),
+    lager:notice("~p negotiation failed: ~p", [Kind, Error]),
     %% Stop quietly after noticing the failure
     {stop, normal, Data};
 
@@ -207,7 +208,8 @@ handle_message(Kind, Msg, Data0=#state{fsm_state=State}) ->
         {keep_state, Data} -> {noreply, Data};
         {keep_state, Data, Actions} -> {noreply, Data, Actions};
         {next_state, NextState, Data, Actions} -> {noreply, Data#state{fsm_state=NextState}, Actions};
-        {stop, Reason, Data} -> {stop, Reason, Data}
+        {stop, Reason, Data} -> {stop, Reason, Data};
+        {stop, Reason, Data, Actions} -> {stop, Reason, Data, Actions}
     end.
 
 

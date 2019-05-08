@@ -57,6 +57,11 @@ encode_packet(StreamID, Kind, Flag, Data) ->
 
 %% libp2p_stream
 
+init(Kind, Opts=#{send_fn := _SendFun, handlers := Handlers}) ->
+    WorkerOpts = #{ mod => libp2p_stream_multistream,
+                    mod_opts => #{ handlers => Handlers }
+                  },
+    init(Kind, maps:remove(handlers, Opts#{ mod_opts => WorkerOpts}));
 init(_Kind, Opts=#{send_fn := SendFun}) ->
     WorkerOpts = maps:get(mod_opts, Opts, #{}),
     {ok, #state{
@@ -87,7 +92,7 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
             {noreply, State,
              [{send, encode_packet(StreamID, server, reset)}, {active, once}]};
         {StreamID, ?FLAG_NEW_STREAM} ->
-            {ok, _Pid, NewState} = start_worker({server, StreamID}, State),
+            {ok, _Pid, NewState} = start_worker({server, StreamID}, #{}, State),
             {noreply, NewState, [{active, once}]};
 
         {StreamID, ?FLAG_MSG_INITIATOR} ->
@@ -129,8 +134,12 @@ handle_packet(_Kind, [Header | _], Packet, State=#state{workers=Workers,
             {noreply, State}
     end.
 
-handle_command(_Kind, stream_open, _From, State=#state{next_stream_id=StreamID}) ->
-    case start_worker({client, StreamID}, State) of
+handle_command(Kind, {stream_dial, Opts=#{ handlers := Handlers}}, From, State=#state{}) ->
+    NewOpts = Opts#{ mod => libp2p_stream_multistream,
+                     mod_opts => #{ handlers => Handlers}},
+    handle_command(Kind, {stream_dial, maps:remove(handlers, NewOpts)}, From, State);
+handle_command(_Kind, {stream_dial, Opts}, _From, State=#state{next_stream_id=StreamID}) ->
+    case start_worker({client, StreamID}, Opts, State) of
         {ok, Pid, NewState} ->
             Packet = encode_packet(StreamID, client, new),
             {reply, {ok, Pid}, NewState#state{next_stream_id=StreamID + 1},
@@ -175,12 +184,14 @@ handle_info(_Kind, Msg, State=#state{}) ->
 %% Internal
 %%
 
--spec start_worker(worker_key(), #state{}) -> {ok, pid(), #state{}} | {error, term()}.
-start_worker(WorkerKey={Kind, StreamID}, State=#state{worker_opts=WorkerOpts0,
-                                                      workers=Workers,
-                                                      worker_pids=WorkerPids,
-                                                      count_received_workers=CountReceived}) ->
-    WorkerOpts = WorkerOpts0#{stream_id => StreamID},
+-spec start_worker(worker_key(), Opts::map(), #state{}) -> {ok, pid(), #state{}} | {error, term()}.
+start_worker(WorkerKey={Kind, StreamID}, Opts, State=#state{worker_opts=WorkerOpts0,
+                                                            workers=Workers,
+                                                            worker_pids=WorkerPids,
+                                                            count_received_workers=CountReceived}) ->
+    WorkerOpts = maps:merge(WorkerOpts0#{stream_id => StreamID,
+                                         addr_info => libp2p_stream_transport:stream_addr_info()},
+                            Opts),
     case libp2p_stream_mplex_worker:start_link(Kind, WorkerOpts) of
         {ok, WorkerPid} ->
             NewCountReceived = case Kind of

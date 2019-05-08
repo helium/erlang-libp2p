@@ -55,16 +55,23 @@ handle_reset(Pid) ->
 start_link(Kind, Opts=#{send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts#{}).
 
-init(Kind, Opts=#{stream_id := StreamID, mod := Mod}) ->
+init(Kind, Opts=#{stream_id := StreamID, mod := Mod, addr_info := AddrInfo}) ->
     libp2p_stream_transport:stream_stack_update(Mod, Kind),
+    libp2p_stream_transport:stream_addr_info_update(AddrInfo),
     ModOpts = maps:get(mod_opts, Opts, #{}),
+    MakeState = fun(ModState) ->
+                        #state{mod=Mod,
+                               stream_id=StreamID,
+                               mod_state=ModState,
+                               kind=Kind}
+                end,
     case Mod:init(Kind, ModOpts) of
         {ok, ModState, Actions} ->
-            {ok, #state{mod=Mod, stream_id=StreamID, mod_state=ModState, kind=Kind}, Actions};
+            {ok, MakeState(ModState), Actions};
         {stop, Reason} ->
             {stop, Reason};
         {stop, Reason, ModState, Actions} ->
-            {stop, Reason, #state{mod=Mod, stream_id=StreamID, mod_state=ModState, kind=Kind}, Actions}
+            {stop, Reason, MakeState(ModState), Actions}
     end.
 
 handle_call(stream_close_state, _From, State=#state{}) ->
@@ -131,6 +138,8 @@ handle_cast(Msg, State) ->
 handle_info({packet, _Incoming}, State=#state{close_state=read}) ->
     %% Ignore incoming data when the read side is closed
     {noreply, State};
+handle_info({swap_stop, Reason}, State) ->
+    {stop, Reason, State};
 handle_info(Msg, State=#state{mod=Mod}) ->
     case erlang:function_exported(Mod, handle_info, 3) of
         true->
@@ -203,10 +212,10 @@ handle_action({swap, Mod, ModOpts}, State=#state{}) ->
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
         {stop, Reason} ->
-            self() ! {stop, Reason},
+            self() ! {swap_stop, Reason},
             {ok, State};
         {stop, Reason, ModState, Actions} ->
-            self() ! {stop, Reason},
+            self() ! {swap_stop, Reason},
             {replace, Actions, State#state{mod_state=ModState}}
     end;
 handle_action(Action, State) ->

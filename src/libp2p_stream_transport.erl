@@ -57,8 +57,11 @@
 %% API
 -export([start_link/3,
          command/2,
+         %% in-stream APIs
          stream_stack_update/2,
-         stream_stack_replace/3
+         stream_stack_replace/3,
+         stream_addr_info/0,
+         stream_addr_info_update/1
          ]).
 %% gen_server
 -export([init/1,
@@ -97,6 +100,9 @@ start_link(Module, Kind, Opts) ->
 command(Pid, Cmd) ->
     gen_server:call(Pid, Cmd, infinity).
 
+%%
+%% API for use inside streams
+%%
 
 stream_stack_update(Mod, NewKind) ->
     Stack = lists:keystore(Mod, 1, stream_stack_get(), {Mod, NewKind}),
@@ -106,6 +112,11 @@ stream_stack_replace(Mod, NewMod, NewKind) ->
     Stack = lists:keyreplace(Mod, 1, stream_stack_get(), {NewMod, NewKind}),
     stream_stack_put(Stack).
 
+stream_addr_info() ->
+    erlang:get(stream_addr_info).
+
+stream_addr_info_update({LocalAddr, RemoteAddr}) when is_list(LocalAddr), is_list(RemoteAddr) ->
+    erlang:put(stream_addr_info, {LocalAddr, RemoteAddr}).
 
 -spec init({atom(), libp2p_stream:kind(), Opts::map()}) -> {stop, Reason::any()} |
                                                            {ok, #state{}}.
