@@ -76,7 +76,7 @@ gossip_accept_test(Config) ->
                         Parent ! {handle_gossip_data, Key, Data},
                         ok
                 end),
-    CPid ! {send, "test_gossip", <<"hello_world">>},
+    CPid ! {send, {"test_gossip", <<"hello_world">>}},
     receive
         {handle_gossip_data, Key, Data} ->
             ?assertEqual("test_gossip", Key),

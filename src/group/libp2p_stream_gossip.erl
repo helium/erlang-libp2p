@@ -65,7 +65,7 @@ handle_packet(_, _, Data, State=#state{handler_module=HandlerModule,
     {noreply, State, [{active, once}]}.
 
 
-handle_info(_, {send, Key, Data}, State=#state{}) ->
+handle_info(_, {send, {Key, Data}}, State=#state{}) ->
     Encoded = ?MODULE:encode(Key, Data),
     Packet = libp2p_packet:encode_packet([varint], [byte_size(Encoded)], Encoded),
     {noreply, State, [{send, Packet}]};
