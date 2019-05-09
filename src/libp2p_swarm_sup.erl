@@ -83,7 +83,7 @@ init([Name, Opts]) ->
     ets:insert(TID, {?NAME, Name}),
     ets:insert(TID, {?OPTS, Opts}),
     % Get or generate our keys
-    {PubKey, SigFun} = init_keys(Opts),
+    {PubKey, SigFun, ECDHFun} = init_keys(Opts),
     ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_bin(PubKey)}),
 
     SupFlags = {one_for_all, 3, 10},
@@ -117,7 +117,7 @@ init([Name, Opts]) ->
             [libp2p_swarm_group_sup]
         },
         {?SERVER,
-            {libp2p_swarm_server, start_link, [TID, SigFun]},
+            {libp2p_swarm_server, start_link, [TID, SigFun, ECDHFun]},
             permanent,
             10000,
             worker,
@@ -151,11 +151,11 @@ init([Name, Opts]) ->
 %% Internal functions
 %%====================================================================
 
--spec init_keys(libp2p_swarm:swarm_opts()) -> {libp2p_crypto:pubkey(), libp2p_crypto:sig_fun()}.
+-spec init_keys(libp2p_swarm:swarm_opts()) -> {libp2p_crypto:pubkey(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()}.
 init_keys(Opts) ->
     case libp2p_config:get_opt(Opts, key, false) of
         false ->
             #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-            {PubKey, libp2p_crypto:mk_sig_fun(PrivKey)};
-        {PubKey, SigFun} -> {PubKey, SigFun}
+            {PubKey, libp2p_crypto:mk_sig_fun(PrivKey), libp2p_crypto:mk_ecdh_fun(PrivKey)};
+        {PubKey, SigFun, ECDHFun} -> {PubKey, SigFun, ECDHFun}
     end.

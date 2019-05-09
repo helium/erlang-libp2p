@@ -5,18 +5,19 @@
 -record(state,
         { tid :: ets:tab(),
           sig_fun :: libp2p_crypto:sig_fun(),
+          ecdh_fun :: libp2p_crypto:ecdh_fun(),
           monitors=[] :: [{pid(), {reference(), atom()}}]
          }).
 
--export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
+-export([start_link/3, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 %% gen_server
 %%
 
-start_link(TID, SigFun) ->
-    gen_server:start_link(?MODULE, [TID, SigFun], []).
+start_link(TID, SigFun, ECDHFun) ->
+    gen_server:start_link(?MODULE, [TID, SigFun, ECDHFun], []).
 
-init([TID, SigFun]) ->
+init([TID, SigFun, ECDHFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_server(TID),
     % Add tcp and p2p as a default transports
@@ -32,13 +33,13 @@ init([TID, SigFun]) ->
     libp2p_swarm:add_stream_handler(TID, "identify/1.0.0",
                                     {libp2p_stream_identify, server, []}),
 
-    {ok, #state{tid=TID, sig_fun=SigFun}}.
+    {ok, #state{tid=TID, sig_fun=SigFun, ecdh_fun=ECDHFun}}.
 
 handle_call(tid, _From, State=#state{tid=TID}) ->
     {reply, TID, State};
-handle_call(keys, _From, State=#state{tid=TID, sig_fun=SigFun}) ->
+handle_call(keys, _From, State=#state{tid=TID, sig_fun=SigFun, ecdh_fun=ECDHFun}) ->
     PubKey = libp2p_crypto:bin_to_pubkey(libp2p_swarm:pubkey_bin(TID)),
-    {reply, {ok, PubKey, SigFun}, State};
+    {reply, {ok, PubKey, SigFun, ECDHFun}, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
