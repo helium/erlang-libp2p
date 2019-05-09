@@ -66,7 +66,8 @@ init(_Kind, Opts=#{send_fn := SendFun}) ->
     WorkerOpts = maps:get(mod_opts, Opts, #{}),
     {ok, #state{
             max_received_workers=maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
-            worker_opts=WorkerOpts#{send_fn => SendFun}
+            worker_opts=WorkerOpts#{send_fn => SendFun,
+                                    muxer => self()}
            },
      [{packet_spec, ?PACKET_SPEC},
       {active, once}]}.
@@ -175,8 +176,8 @@ handle_info(_, {'EXIT', WorkerPid, Reason}, State=#state{}) ->
             {noreply, State}
     end;
 
-handle_info(_Kind, Msg, State=#state{}) ->
-    lager:warning("Unhandled info ~p", [Msg]),
+handle_info(Kind, Msg, State=#state{}) ->
+    lager:warning("Unhandled ~p info ~p", [Kind, Msg]),
     {noreply, State}.
 
 
@@ -190,7 +191,8 @@ start_worker(WorkerKey={Kind, StreamID}, Opts, State=#state{worker_opts=WorkerOp
                                                             worker_pids=WorkerPids,
                                                             count_received_workers=CountReceived}) ->
     WorkerOpts = maps:merge(WorkerOpts0#{stream_id => StreamID,
-                                         addr_info => libp2p_stream_transport:stream_addr_info()},
+                                         addr_info => libp2p_stream_transport:stream_addr_info(),
+                                         muxer => self()},
                             Opts),
     case libp2p_stream_mplex_worker:start_link(Kind, WorkerOpts) of
         {ok, WorkerPid} ->

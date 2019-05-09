@@ -55,9 +55,10 @@ handle_reset(Pid) ->
 start_link(Kind, Opts=#{send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts#{}).
 
-init(Kind, Opts=#{stream_id := StreamID, mod := Mod, addr_info := AddrInfo}) ->
+init(Kind, Opts=#{stream_id := StreamID, mod := Mod, addr_info := AddrInfo, muxer := Muxer}) ->
     libp2p_stream_transport:stream_stack_update(Mod, Kind),
     libp2p_stream_transport:stream_addr_info_update(AddrInfo),
+    libp2p_stream_transport:stream_muxer_update(Muxer),
     ModOpts = maps:get(mod_opts, Opts, #{}),
     MakeState = fun(ModState) ->
                         #state{mod=Mod,

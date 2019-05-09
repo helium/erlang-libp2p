@@ -61,7 +61,9 @@
          stream_stack_update/2,
          stream_stack_replace/3,
          stream_addr_info/0,
-         stream_addr_info_update/1
+         stream_addr_info_update/1,
+         stream_muxer/0,
+         stream_muxer_update/1
          ]).
 %% gen_server
 -export([init/1,
@@ -117,6 +119,13 @@ stream_addr_info() ->
 
 stream_addr_info_update({LocalAddr, RemoteAddr}) when is_list(LocalAddr), is_list(RemoteAddr) ->
     erlang:put(stream_addr_info, {LocalAddr, RemoteAddr}).
+
+
+stream_muxer() ->
+    erlang:get(stream_muxer).
+
+stream_muxer_update(Pid) when is_pid(Pid) ->
+    erlang:put(stream_muxer, Pid).
 
 -spec init({atom(), libp2p_stream:kind(), Opts::map()}) -> {stop, Reason::any()} |
                                                            {ok, #state{}}.

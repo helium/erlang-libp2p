@@ -93,6 +93,7 @@ init_ok_test(Config) ->
     ?assertEqual(<<"hello">>, receive_packet(CSock)),
 
     ?assertEqual([{libp2p_stream_tcp, server}, {test_stream, server}], stream_stack(Pid)),
+    ?assertMatch({_, _}, stream_addr_info(Pid)),
 
     ok.
 
@@ -291,6 +292,11 @@ stream_stack(Pid) ->
     {dictionary, PDict} = erlang:process_info(Pid, dictionary),
     {stream_stack, Stack} = lists:keyfind(stream_stack, 1, PDict),
     Stack.
+
+stream_addr_info(Pid) ->
+    {dictionary, PDict} = erlang:process_info(Pid, dictionary),
+    {stream_addr_info, Info} = lists:keyfind(stream_addr_info, 1, PDict),
+    Info.
 
 encode_packet(Data) ->
     DataSize = byte_size(Data),

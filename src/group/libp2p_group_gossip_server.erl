@@ -1,14 +1,14 @@
 -module(libp2p_group_gossip_server).
 
 -behaviour(gen_server).
--behavior(libp2p_gossip_stream).
+-behavior(libp2p_stream_gossip).
 
 %% API
 -export([start_link/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
-%% libp2p_gossip_stream
--export([accept_stream/3, handle_data/3]).
+%% libp2p_stream_gossip
+-export([accept_stream_gossip/3, handle_stream_gossip_data/3]).
 
 -record(worker,
        { target :: string() | undefined,
@@ -52,10 +52,10 @@ start_link(Sup, TID) ->
 %% libp2p_gossip_stream
 %%
 
-handle_data(Pid, Key, Bin) ->
+handle_stream_gossip_data(Pid, Key, Bin) ->
     gen_server:cast(Pid, {handle_data, Key, Bin}).
 
-accept_stream(Pid, SessionPid, StreamPid) ->
+accept_stream_gossip(Pid, SessionPid, StreamPid) ->
     gen_server:call(Pid, {accept_stream, SessionPid, StreamPid}).
 
 

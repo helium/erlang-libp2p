@@ -71,7 +71,7 @@ open_test(Config) ->
     ?assertMatch({ok, []}, libp2p_stream_muxer:streams(SMPid, server)),
 
     %% Open a stream, ensure client knows about it
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
     ?assertMatch({ok, [CPid]}, libp2p_stream_muxer:streams(CMPid, client)),
     %% and that it has no "server" streams
     ?assertMatch({ok, []}, libp2p_stream_muxer:streams(CMPid, server)),
@@ -88,13 +88,15 @@ open_test(Config) ->
     %% Send from server to client
     SPid ! {send, <<"world">>},
     ?assertEqual(<<"world">>, stream_cmd(CPid, recv)),
+
+    ?assertEqual(CMPid, stream_muxer(CPid)),
     ok.
 
 
 reset_client_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
 
     %% Wait for server to know about the stream so we can check that a
     %% reset stops both sides.
@@ -110,7 +112,7 @@ reset_client_test(Config) ->
 reset_server_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
 
     %% Wait for server to know about the stream so we can check that a
     %% reset stops both sides.
@@ -126,7 +128,7 @@ reset_server_test(Config) ->
 shutdown_client_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
     {ok, [SPid]} = streams(SMPid, server),
 
     %% Shutting down a client stream should shut down both sides.
@@ -140,7 +142,7 @@ shutdown_client_test(Config) ->
 exit_client_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
     {ok, [SPid]} = streams(SMPid, server),
 
     %% Crashing a stream should shut down both sides.
@@ -155,7 +157,7 @@ exit_client_test(Config) ->
 close_client_test(Config) ->
     {CMPid, SMPid} = ?config(stream_client_server, Config),
 
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
 
     {ok, [SPid]} = streams(SMPid, server),
 
@@ -181,7 +183,7 @@ close_client_test(Config) ->
 
 max_received_test(Config) ->
     {CMPid, _SMPid} = ?config(stream_client_server, Config),
-    {ok, CPid} = libp2p_stream_muxer:open(CMPid),
+    {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
 
     ?assert(pid_should_die(CPid)),
 
@@ -195,6 +197,11 @@ pid_should_die(Pid) ->
     ok == test_util:wait_until(fun() ->
                                        not erlang:is_process_alive(Pid)
                                end).
+
+stream_muxer(Pid) ->
+    {dictionary, PDict} = erlang:process_info(Pid, dictionary),
+    {stream_muxer, Info} = lists:keyfind(stream_muxer, 1, PDict),
+    Info.
 
 close_state_should_be(Pid, CloseState) ->
     ok == test_util:wait_until(fun() ->

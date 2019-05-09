@@ -68,13 +68,13 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
             {stop, Reason, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions}
     end.
 
-handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState}) ->
+handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState, kind=Kind}) ->
     case erlang:function_exported(Mod, handle_command, 4) of
         true->
-            Result = Mod:handle_command(State#state.kind, Cmd, From, ModState),
+            Result = Mod:handle_command(Kind, Cmd, From, ModState),
             handle_command_result(Result, State);
         false ->
-            lager:warning("Unhandled callback call: ~p", [Cmd]),
+            lager:warning("Unhandled ~p callback call: ~p", [Kind, Cmd]),
             {reply, ok, State}
     end.
 
@@ -100,13 +100,13 @@ handle_info({'EXIT', Sock, Reason}, State=#state{socket=Sock}) ->
     {stop, Reason, State};
 handle_info({swap_stop, Reason}, State) ->
     {stop, Reason, State};
-handle_info(Msg, State=#state{mod=Mod}) ->
+handle_info(Msg, State=#state{mod=Mod, kind=Kind}) ->
     case erlang:function_exported(Mod, handle_info, 3) of
         true->
-            Result = Mod:handle_info(State#state.kind, Msg, State#state.mod_state),
+            Result = Mod:handle_info(Kind, Msg, State#state.mod_state),
             handle_info_result(Result, State, []);
         false ->
-            lager:warning("Unhandled callback info: ~p", [Msg]),
+            lager:warning("Unhandled ~p callback info: ~p", [Kind, Msg]),
             {noreply, State}
     end.
 
