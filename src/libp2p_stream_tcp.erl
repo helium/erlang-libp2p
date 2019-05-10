@@ -44,6 +44,12 @@ start_link(Kind, Opts=#{socket := Sock}) ->
     start_link(Kind, Opts#{send_fn => SendFun}).
 
 -spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
+init(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, handlers := Handlers}) ->
+    ModOpts = maps:get(mod_opts, Opts, #{}),
+    NewOpts = Opts#{ mod => libp2p_stream_multistream,
+                     mod_opts => maps:merge(ModOpts, #{ handlers => Handlers})
+                   },
+    init(Kind, maps:remove(handlers, NewOpts));
 init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     erlang:process_flag(trap_exit, true),
     libp2p_stream_transport:stream_stack_update(Mod, Kind),

@@ -13,7 +13,8 @@ all() ->
      handshake_server_mismatch_test,
      handshake_client_mismatch_test,
      handshake_client_reverse_fail_test,
-     negotiate_client_fail_test
+     negotiate_client_fail_test,
+     negotiate_client_mismatch_test
     ].
 
 init_per_testcase(negotiate_client_test, Config) ->
@@ -23,6 +24,8 @@ init_per_testcase(handshake_client_reverse_test, Config) ->
 init_per_testcase(handshake_client_mismatch_test, Config) ->
     init_client_test_common(Config, #{});
 init_per_testcase(negotiate_client_fail_test, Config) ->
+    init_client_test_common(Config, #{});
+init_per_testcase(negotiate_client_mismatch_test, Config) ->
     init_client_test_common(Config, #{});
 init_per_testcase(handshake_client_reverse_fail_test, Config) ->
     init_client_test_common(Config, #{handshake_timeout => 300});
@@ -51,16 +54,13 @@ init_test_stream(Kind, Config, AddModOpts) ->
     Handlers = [{"mplex/1.0.0", {no_mplex_mod, no_mplex_opts}},
                 {"yamux/1.2.0", {no_yamux_mod, no_yamux_opts}},
                 {"test_stream/1.0.0", {test_stream, #{}}}],
-    ModOpts = maps:merge(#{
-                           handlers => Handlers
-                          }, AddModOpts),
     StreamSock = case Kind of
                      server -> SSock;
                      client -> CSock
                  end,
     {ok, Pid} = libp2p_stream_tcp:start_link(Kind, #{socket => StreamSock,
-                                                     mod => libp2p_stream_multistream,
-                                                     mod_opts => ModOpts
+                                                     handlers => Handlers,
+                                                     mod_opts => AddModOpts
                                                     }),
     gen_tcp:controlling_process(StreamSock, Pid),
     [{stream, Pid} | Config].
@@ -196,6 +196,19 @@ negotiate_client_fail_test(Config) ->
     send_line(SSock, <<"na">>),
     ?assertEqual(<<"test_stream/1.0.0">>, receive_line(SSock)),
     send_line(SSock, <<"na">>),
+
+    ?assert(pid_should_die(Pid)),
+
+    ok.
+
+negotiate_client_mismatch_test(Config) ->
+    {_CSock, SSock} = ?config(client_server, Config),
+    Pid = ?config(stream, Config),
+
+    handshake(server, SSock),
+
+    ?assertEqual(<<"mplex/1.0.0">>, receive_line(SSock)),
+    send_line(SSock, <<"yamux/1.2.0">>),
 
     ?assert(pid_should_die(Pid)),
 

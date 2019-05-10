@@ -163,7 +163,6 @@ negotiate(client, {packet, Packet}, Data=#state{}) ->
                     lager:debug("Client negotiated handler for: ~p, handler: ~p", [Line, M]),
                     {keep_state, Data, [{swap, M, A}]};
                 _ ->
-                    lager:debug("HANDLERS ~p ~p ~p", [Data#state.selected_handler, Data#state.handlers, select_handler(Data#state.selected_handler, Data)]),
                     negotiate(client, {error, {unexpected_server_response, Line}}, Data)
             end
     end;
