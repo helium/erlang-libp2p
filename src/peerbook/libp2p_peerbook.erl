@@ -203,10 +203,14 @@ init([TID, SigFun]) ->
     SwarmName = libp2p_swarm:name(TID),
     Group = group_create(SwarmName),
     Opts = libp2p_swarm:opts(TID),
+
+    CFOpts = application:get_env(rocksdb, global_opts, []),
+
     StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
     case libp2p_swarm:peerbook(TID) of
         false ->
-            case rocksdb:open_with_ttl(DataDir, [{create_if_missing, true}], (2 * StaleTime) div 1000, false) of
+            case rocksdb:open_with_ttl(DataDir, [{create_if_missing, true}] ++ CFOpts,
+                                       (2 * StaleTime) div 1000, false) of
                 {error, Reason} -> {stop, Reason};
                 {ok, DB} ->
                     Handle = #peerbook{store=DB, tid=TID, stale_time=StaleTime},
