@@ -2,11 +2,12 @@
 
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([open_close_test/1, ping_test/1, sessions_test/1]).
+-export([open_close_test/1, idle_test/1, ping_test/1, sessions_test/1]).
 
 all() ->
     [
      open_close_test,
+     idle_test,
      ping_test,
      sessions_test
     ].
@@ -15,6 +16,14 @@ init_per_testcase(open_close_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 0}]
                                         }]),
+    [{swarms, Swarms} | Config];
+init_per_testcase(idle_test, Config) ->
+    Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
+                                         [{peerbook_connections, 0}]
+                                        },
+                                       {libp2p_session,
+                                        [{idle_timeout, 1500}]
+                                       }]),
     [{swarms, Swarms} | Config];
 init_per_testcase(_, Config) ->
     Swarms = test_util:setup_swarms(2, []),
@@ -69,6 +78,19 @@ open_close_test(Config) ->
     ok = libp2p_session:close(Session1),
 
     ok.
+
+idle_test(Config) ->
+    [S1, S2] = proplists:get_value(swarms, Config),
+
+    [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
+    {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
+
+    test_util:wait_until(fun() ->
+                                 not erlang:is_process_alive(Session1)
+                         end),
+    ok.
+
+
 
 ping_test(Config) ->
     [S1, S2] = proplists:get_value(swarms, Config),

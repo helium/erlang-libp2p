@@ -12,7 +12,7 @@ register(Swarm, Name) ->
     libp2p_swarm:add_stream_handler(Swarm, Name, {?MODULE, serve_stream, [self()]}).
 
 serve_stream(Connection, _Path, _TID, [Parent]) ->
-    Parent ! {hello, self()},
+    Parent ! {hello, self(), Connection},
     serve_loop(Connection, Parent).
 
 serve_loop(Connection, Parent) ->
@@ -41,9 +41,9 @@ dial(FromSwarm, ToSwarm, Name) ->
     [ToAddr|_] = libp2p_swarm:listen_addrs(ToSwarm),
     {ok, Connection} = libp2p_swarm:dial(FromSwarm, ToAddr, Name),
     receive
-        {hello, Server} -> Server
+        {hello, Server, ServerConnection} -> {Server, ServerConnection}
     end,
-    {Connection, Server}.
+    {Connection, Server, ServerConnection}.
 
 send(Pid, Bin, Timeout) ->
     Pid ! {send, Bin, Timeout},

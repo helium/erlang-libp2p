@@ -33,7 +33,9 @@
           close_state=open :: open | pending,
           max_window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
           recv_state=#recv_state{} :: #recv_state{},
-          send_state=#send_state{} :: #send_state{}
+          send_state=#send_state{} :: #send_state{},
+          idle_timeout :: pos_integer(),
+          idle_timer=make_ref() :: reference()
          }).
 
 -type from() :: {pid(), term()}.
@@ -48,6 +50,7 @@
 -define(WAITER_DATA(S), S#state.recv_state#recv_state.waiter_data).
 -define(RECEIVABLE_SIZE(S), (byte_size(?WINDOW_DATA(S)) + byte_size(?WAITER_DATA(S)))).
 -define(REMOTE_CLOSED(S), ?CLOSE_STATE(S) == pending).
+-define(DEFAULT_IDLE_TIMEOUT, 15000).
 
 % gen_statem functions
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
@@ -75,9 +78,13 @@ init({Session, TID, StreamID, Flags}) ->
     gen_statem:cast(self(), {init, Flags}),
     MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, max_window],
                                       ?DEFAULT_MAX_WINDOW_SIZE),
-    {ok, connecting, #state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
+    IdleTimeout = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_stream, idle_timeout],
+                                        ?DEFAULT_IDLE_TIMEOUT),
+    State = kick_idle_timer(#state{session=Session, stream_id=StreamID, tid=TID, max_window=MaxWindow,
+                            idle_timeout=IdleTimeout,
                             send_state=#send_state{window=MaxWindow},
-                            recv_state=#recv_state{window=MaxWindow}}}.
+                            recv_state=#recv_state{window=MaxWindow}}),
+    {ok, connecting, State}.
 
 callback_mode() -> handle_event_function.
 
@@ -248,7 +255,7 @@ handle_event(info, send_timeout, established, Data=#state{}) ->
 % Receiving
 %
 handle_event(cast, {incoming_data, Bin}, _State, Data=#state{stream_id=StreamID}) ->
-    case data_incoming(Bin, Data) of
+    case data_incoming(Bin, kick_idle_timer(Data)) of
         {error, Error} ->
             lager:warning("Failure to handle data for ~p: ~p", [StreamID, Error]),
             {stop, {error, Error}, notify_inert(Data)};
@@ -266,7 +273,9 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data0=#state{}) when ?
     case ?RECEIVABLE_SIZE(Data) > 0 of
         % Check if we still have any cached data for future recvs
         true -> {keep_state, Data};
-        false -> {stop, normal, notify_inert(Data)}
+        false ->
+            lager:debug("Remote closed and no receivable data; closing"),
+            {stop, normal, notify_inert(Data)}
     end;
 handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
     % Normal open state
@@ -283,6 +292,16 @@ handle_event({call, From}, close, _State, Data=#state{}) ->
     {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
     {keep_state_and_data, {reply, From, CloseState}};
+
+%% Idle
+%%
+handle_event(info, timeout_idle, _State, Data=#state{}) ->
+    lager:debug("Closing stream due to inactivity"),
+    %% send close to other side to let them know we're going away.
+    catch close_send(Data),
+    %% notify any waiters that this stream is going away.
+    {stop, normal, notify_inert(Data)};
+
 
 % Info
 %
@@ -484,5 +503,13 @@ data_send(From, Data, Timeout, State=#state{session=Session, stream_id=StreamID,
             gen_statem:reply(From, {error, Error}),
             State;
         ok ->
-            data_send(From, Rest, Timeout, State#state{send_state=SendState#send_state{window=SendWindow - Window}})
+            NewSendState = SendState#send_state{window=SendWindow - Window},
+            data_send(From, Rest, Timeout, kick_idle_timer(State#state{send_state=NewSendState}))
     end.
+
+
+-spec kick_idle_timer(#state{}) -> #state{}.
+kick_idle_timer(State=#state{}) ->
+    erlang:cancel_timer(State#state.idle_timer),
+    Timer = erlang:send_after(State#state.idle_timeout, self(), timeout_idle),
+    State#state{idle_timer=Timer}.
