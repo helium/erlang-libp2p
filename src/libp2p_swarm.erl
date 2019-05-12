@@ -121,7 +121,7 @@ p2p_address(TidOrPid) ->
     libp2p_crypto:pubkey_bin_to_p2p(pubkey_bin(TidOrPid)).
 
 %% @doc Get the public key and signing function for a swarm
--spec keys(ets:tab() | pid()) -> {ok, libp2p_crypto:pubkey(), libp2p_crypto:sig_fun()} | {error, term()}.
+-spec keys(ets:tab() | pid()) -> {ok, libp2p_crypto:pubkey(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()} | {error, term()}.
 keys(Sup) when is_pid(Sup) ->
     keys(tid(Sup));
 keys(TID) ->
