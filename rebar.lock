@@ -35,7 +35,7 @@
  {<<"small_ints">>,{pkg,<<"small_ints">>,<<"0.1.0">>},1},
  {<<"splicer">>,
   {git,"https://github.com/helium/erlang-splicer.git",
-       {ref,"7f5c148c3b8cda6728cd3f8bd234e906cfad7abc"}},
+       {ref,"455217947dc2adcf1868806c7bb3925660b05be8"}},
   0}]}.
 [
 {pkg_hash,[
