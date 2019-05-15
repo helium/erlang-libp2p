@@ -110,6 +110,8 @@ handle_call({init_proxy, ID, _ServerStream, SAddress}, _From, #state{swarm=Swarm
                     receive
                         {'DOWN', Ref, process, ClientStream, _} ->
                             ok
+                    after 10000 ->
+                        ClientStream ! stop
                     end;
                 _ ->
                     ok
