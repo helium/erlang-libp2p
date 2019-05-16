@@ -6,6 +6,7 @@
          setup_sock_pair/1, teardown_sock_pair/1,
          setup_swarms/0, setup_swarms/2, teardown_swarms/1,
          connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1,
+         pid_should_die/1,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1]).
 
 setup() ->
@@ -80,6 +81,10 @@ disconnect_swarms(Source, Target) ->
             ok
     end.
 
+pid_should_die(Pid) ->
+    ok == test_util:wait_until(fun() ->
+                                       not erlang:is_process_alive(Pid)
+                               end).
 wait_until(Fun) ->
     wait_until(Fun, 40, 100).
 

@@ -145,7 +145,7 @@ negotiate_timeout_test(Config) ->
     ?assertEqual(libp2p_stream_multistream:protocol_id(), receive_line(CSock)),
     %% Negotation time is set short for this test so the server will
     %% timeout and case the stream to stop
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
     ok.
 
 handshake_server_mismatch_test(Config) ->
@@ -157,7 +157,7 @@ handshake_server_mismatch_test(Config) ->
     ?assertEqual(libp2p_stream_multistream:protocol_id(), receive_line(CSock)),
 
     send_line(CSock, <<"bad_handshake">>),
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ok.
 
@@ -167,7 +167,7 @@ handshake_client_mismatch_test(Config) ->
     Pid = ?config(stream, Config),
 
     send_line(SSock, <<"bad_handshake">>),
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ok.
 
@@ -180,7 +180,7 @@ handshake_client_reverse_fail_test(Config) ->
     %% Don't handshake, just send some random line
     send_line(SSock, <<"wut">>),
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ok.
 
@@ -197,7 +197,7 @@ negotiate_client_fail_test(Config) ->
     ?assertEqual(<<"test_stream/1.0.0">>, receive_line(SSock)),
     send_line(SSock, <<"na">>),
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ok.
 
@@ -210,7 +210,7 @@ negotiate_client_mismatch_test(Config) ->
     ?assertEqual(<<"mplex/1.0.0">>, receive_line(SSock)),
     send_line(SSock, <<"yamux/1.2.0">>),
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ok.
 
@@ -219,11 +219,6 @@ negotiate_client_mismatch_test(Config) ->
 %%
 %% Utils
 %%
-
-pid_should_die(Pid) ->
-    ok == test_util:wait_until(fun() ->
-                                       not erlang:is_process_alive(Pid)
-                               end).
 
 handshake(client, Sock) ->
     %% receive server handshake

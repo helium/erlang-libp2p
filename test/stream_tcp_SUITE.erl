@@ -103,7 +103,7 @@ sock_close_test(Config) ->
 
     gen_tcp:close(CSock),
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
     ok.
 
 active_test(Config) ->
@@ -169,7 +169,7 @@ info_test(Config) ->
     Pid ! multi_active,
     Pid ! {stop, normal},
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ok.
 
@@ -238,7 +238,7 @@ swap_stop_test(Config) ->
 
     libp2p_stream_tcp:command(Pid, {swap, test_stream, #{stop => normal}}),
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
     ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
 
     ok.
@@ -255,7 +255,7 @@ swap_stop_action_test(Config) ->
 
     libp2p_stream_tcp:command(Pid, {swap, test_stream, #{stop => {send, normal, <<"hello">>}}}),
 
-    ?assert(pid_should_die(Pid)),
+    ?assert(test_util:pid_should_die(Pid)),
 
     ?assertEqual(<<"hello">>, receive_packet(CSock)),
     ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
@@ -282,11 +282,6 @@ swap_ok_test(Config) ->
 %%
 %% Utilities
 %%
-
-pid_should_die(Pid) ->
-    ok == test_util:wait_until(fun() ->
-                                       not erlang:is_process_alive(Pid)
-                               end).
 
 stream_stack(Pid) ->
     {dictionary, PDict} = erlang:process_info(Pid, dictionary),

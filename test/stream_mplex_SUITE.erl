@@ -104,8 +104,8 @@ reset_client_test(Config) ->
     %% Reset the client
     libp2p_stream_mplex_worker:reset(CPid),
     %% both client and server streams should go away
-    ?assert(pid_should_die(CPid)),
-    ?assert(pid_should_die(SPid)),
+    ?assert(test_util:pid_should_die(CPid)),
+    ?assert(test_util:pid_should_die(SPid)),
 
     ok.
 
@@ -120,8 +120,8 @@ reset_server_test(Config) ->
     %% Reset server stream
     libp2p_stream_mplex_worker:reset(SPid),
     %% both client and server streams should go away
-    ?assert(pid_should_die(CPid)),
-    ?assert(pid_should_die(SPid)),
+    ?assert(test_util:pid_should_die(CPid)),
+    ?assert(test_util:pid_should_die(SPid)),
 
     ok.
 
@@ -134,8 +134,8 @@ shutdown_client_test(Config) ->
     %% Shutting down a client stream should shut down both sides.
     exit(CPid, shutdown),
 
-    pid_should_die(CPid),
-    pid_should_die(SPid),
+    test_util:pid_should_die(CPid),
+    test_util:pid_should_die(SPid),
 
     ok.
 
@@ -148,8 +148,8 @@ exit_client_test(Config) ->
     %% Crashing a stream should shut down both sides.
     exit(CPid, abornal_exit),
 
-    ?assert(pid_should_die(CPid)),
-    ?assert(pid_should_die(SPid)),
+    ?assert(test_util:pid_should_die(CPid)),
+    ?assert(test_util:pid_should_die(SPid)),
 
     ok.
 
@@ -176,8 +176,8 @@ close_client_test(Config) ->
     %% Close the server, which will then close both sides
     libp2p_stream_mplex_worker:close(SPid),
 
-    ?assert(pid_should_die(CPid)),
-    ?assert(pid_should_die(SPid)),
+    ?assert(test_util:pid_should_die(CPid)),
+    ?assert(test_util:pid_should_die(SPid)),
 
     ok.
 
@@ -185,18 +185,13 @@ max_received_test(Config) ->
     {CMPid, _SMPid} = ?config(stream_client_server, Config),
     {ok, CPid} = libp2p_stream_muxer:dial(CMPid),
 
-    ?assert(pid_should_die(CPid)),
+    ?assert(test_util:pid_should_die(CPid)),
 
     ok.
 
 %%
 %% Utilities
 %%
-
-pid_should_die(Pid) ->
-    ok == test_util:wait_until(fun() ->
-                                       not erlang:is_process_alive(Pid)
-                               end).
 
 stream_muxer(Pid) ->
     {dictionary, PDict} = erlang:process_info(Pid, dictionary),
