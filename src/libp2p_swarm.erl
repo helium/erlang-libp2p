@@ -253,9 +253,12 @@ listen_addrs(TID) ->
 %% start_server_session to get an accepted connection to be registered
 %% and monitored by the swarm server.
 -spec register_session(pid(), pid()) -> ok.
-register_session(Sup, SessionPid) ->
+register_session(Sup, SessionPid) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
-    gen_server:cast(Server, {register, libp2p_config:session(), SessionPid}).
+    gen_server:cast(Server, {register, libp2p_config:session(), SessionPid});
+register_session(TID, SessionPid) ->
+    register_session(swarm(TID), SessionPid).
+
 
 %% @private Register a session wih the swarm. This is used in `listen' a
 %% started connection to be registered and monitored by the sware

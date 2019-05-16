@@ -1,6 +1,7 @@
 -module(libp2p_stream_muxer).
 
--callback open(StreamMuxer::pid()) -> Stream::pid().
+-type opts() :: #{ handlers => libp2p_stream_multistream:handlers()}.
+-export_type([opts/0]).
 
 -export([dial/1,
          dial/2,
@@ -11,6 +12,7 @@
 dial(MuxerPid) ->
     dial(MuxerPid, #{}).
 
+-spec dial(pid(), opts()) -> {ok, pid()} | {error, term()}.
 dial(MuxerPid, Opts) ->
     libp2p_stream_transport:command(MuxerPid, {stream_dial, Opts}).
 

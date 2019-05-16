@@ -11,7 +11,7 @@
 
 -export_type([connection_handler/0]).
 -export([start_link/2, for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
-         start_client_session/3, start_server_session/3]).
+         start_client_session/3, start_server_session/2]).
 
 
 start_link(TransportMod, TID) ->
@@ -139,62 +139,26 @@ find_session([Addr | Tail], Options, TID) ->
 %% Session negotiation
 %%
 
--spec start_client_session(ets:tab(), string(), libp2p_connection:connection())
-                          -> {ok, pid()} | {error, term()}.
-start_client_session(TID, Addr, Connection) ->
-    Handlers = libp2p_config:lookup_connection_handlers(TID),
-    case libp2p_multistream_client:negotiate_handler(Handlers, Addr, Connection) of
-        {error, Error} -> {error, Error};
-        server_switch ->
-            ChildSpec = #{ id => make_ref(),
-                           start => {libp2p_multistream_server, start_link, [Connection, Handlers, TID]},
-                           restart => temporary,
-                           shutdown => 5000,
-                           type => worker },
-            SessionSup = libp2p_swarm_session_sup:sup(TID),
-            case supervisor:start_child(SessionSup, ChildSpec) of
-                {ok, SessionPid} ->
-                    lager:info("Started simultaneous connection with ~p as ~p", [libp2p_connection:addr_info(Connection), SessionPid]),
-                    case libp2p_connection:controlling_process(Connection, SessionPid) of
-                        {ok, _} ->
-                            libp2p_config:insert_session(TID, Addr, SessionPid),
-                            libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
-                            {ok, SessionPid};
-                        {error, Error} ->
-                            lager:error("Changing controlling process for ~p to ~p failed ~p",
-                                        [Connection, SessionPid, Error]),
-                            libp2p_connection:close(Connection),
-                            {error, Error}
-                    end;
-                Other ->
-                    lager:warning("failed to start simultaneous connection with ~p : ~p", [libp2p_connection:addr_info(Connection), Other]),
-                    {error, Other}
-            end;
-        {ok, {_, {M, F}}} ->
-            ChildSpec = #{ id => make_ref(),
-                           start => {M, F, [Connection, [], TID]},
-                           restart => temporary,
-                           shutdown => 5000,
-                           type => worker },
-            SessionSup = libp2p_swarm_session_sup:sup(TID),
-            {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
-            case libp2p_connection:controlling_process(Connection, SessionPid) of
-                {ok, _} ->
-                    libp2p_config:insert_session(TID, Addr, SessionPid),
-                    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
-                    {ok, SessionPid};
-                {error, Error} ->
-                    lager:error("Changing controlling process for ~p to ~p failed ~p",
-                                [Connection, SessionPid, Error]),
-                    libp2p_connection:close(Connection),
-                    {error, Error}
-            end
-    end.
+-spec start_client_session(ets:tab(), string(), gen_tcp:socket()) -> {ok, pid()} | {error, term()}.
+start_client_session(TID, Addr, Socket) ->
+    Opts = #{socket => Socket,
+             handlers => libp2p_config:lookup_connection_handlers(TID)},
+    ChildSpec = #{ id => make_ref(),
+                   start => {libp2p_stream_tcp, start_link, [client, Opts]},
+                   restart => temporary,
+                   shutdown => 5000,
+                   type => worker },
+    SessionSup = libp2p_swarm_session_sup:sup(TID),
+    {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
+    gen_tcp:controlling_process(Socket, SessionPid),
+    libp2p_config:insert_session(TID, Addr, SessionPid),
+    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
+    {ok, SessionPid}.
 
 
--spec start_server_session(reference(), ets:tab(), libp2p_connection:connection()) -> {ok, pid()} | {error, term()}.
-start_server_session(Ref, TID, Connection) ->
-    {_, RemoteAddr} = libp2p_connection:addr_info(Connection),
+-spec start_server_session(ets:tab(), gen_tcp:socket()) -> {ok, pid()} | {error, term()}.
+start_server_session(TID, Socket) ->
+    {_, RemoteAddr} = libp2p_stream_tcp:addr_info(Socket),
     case libp2p_config:lookup_session(TID, RemoteAddr) of
         {ok, Pid} ->
             % This should really not happen since the remote address
@@ -206,12 +170,20 @@ start_server_session(Ref, TID, Connection) ->
             % connection (using a 0 source port). We prefer the new
             % inbound connection, so close the other connection.
             lager:notice("Duplicate session for ~p at ~p", [RemoteAddr, Pid]),
-            libp2p_session:close(Pid);
+            exit(Pid, normal);
         false -> ok
     end,
-    Handlers = [{Key, Handler} ||
-                   {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
-    {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
+
+    Opts = #{socket => Socket,
+             handlers => libp2p_config:lookup_connection_handlers(TID)},
+    ChildSpec = #{ id => make_ref(),
+                   start => {libp2p_stream_tcp, start_link, [server, Opts]},
+                   restart => temporary,
+                   shutdown => 5000,
+                   type => worker },
+    SessionSup = libp2p_swarm_session_sup:sup(TID),
+    {ok, SessionPid} = supervisor:start_child(SessionSup, ChildSpec),
+    gen_tcp:controlling_process(Socket, SessionPid),
     libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
-    libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
+    libp2p_swarm:register_session(TID, SessionPid),
     {ok, SessionPid}.

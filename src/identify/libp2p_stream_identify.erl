@@ -17,11 +17,11 @@
 -define(PATH, "identify/1.0.0").
 -define(DEFAULT_TIMEOUT, 5000).
 
--spec start(Muxer::pid(), ResultHandler::pid()) -> pid().
+-spec start(Muxer::pid(), ResultHandler::pid()) -> {ok, pid()} | {error, term()}.
 start(Muxer, ResultHandler) ->
     start(Muxer, ResultHandler, ?DEFAULT_TIMEOUT).
 
--spec start(Muxer::pid(), ResultHandler::pid(), Timeout::pos_integer()) -> pid().
+-spec start(Muxer::pid(), ResultHandler::pid(), Timeout::pos_integer()) -> {ok, pid()} | {error, term()}.
 start(Muxer, ResultHandler, Timeout) ->
     Challenge = crypto:strong_rand_bytes(20),
     Path = lists:flatten([?PATH, "/", base58:binary_to_base58(Challenge)]),

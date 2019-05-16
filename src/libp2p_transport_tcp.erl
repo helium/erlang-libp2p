@@ -3,6 +3,9 @@
 -behaviour(libp2p_connection).
 -behavior(gen_server).
 
+
+-define(DEFAULT_CONNECT_TIMEOUT, 5000).
+
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -35,7 +38,7 @@
 
 %% libp2p_transport
 -export([start_listener/2, new_connection/1, new_connection/2,
-         connect/5, match_addr/2, sort_addrs/1, priority/0]).
+         connect/4, match_addr/2, sort_addrs/1, priority/0]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -47,7 +50,7 @@
         ]).
 
 %% for tcp sockets
--export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1]).
+-export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1, reuseport_raw_option/0]).
 
 -record(tcp_state,
         {
@@ -87,10 +90,10 @@ new_connection(Socket, PeerName) when is_list(PeerName) ->
 start_listener(Pid, Addr) ->
     gen_server:call(Pid, {start_listener, Addr}).
 
--spec connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
+-spec connect(pid(), string(), libp2p_swarm:connect_opts(), ets:tab())
              -> {ok, pid()} | {error, term()}.
-connect(Pid, MAddr, Options, Timeout, TID) ->
-    connect_to(MAddr, Options, Timeout, TID, Pid).
+connect(Pid, MAddr, Options, TID) ->
+    connect_to(MAddr, Options, TID, Pid).
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
@@ -162,8 +165,8 @@ close_state(#tcp_state{socket=Socket}) ->
     end.
 
 -spec acknowledge(tcp_state(), reference()) -> ok.
-acknowledge(#tcp_state{}, Ref) ->
-    ranch:accept_ack(Ref).
+acknowledge(#tcp_state{}, _Ref) ->
+    ok.
 
 fdset_loop(Socket, Parent, Count) ->
     %% this may screw up TLS sockets...
@@ -239,41 +242,8 @@ socket(#tcp_state{socket=Socket}) ->
     Socket.
 
 -spec fdclr(tcp_state()) -> ok.
-fdclr(#tcp_state{socket=Socket}) ->
-    case erlang:get(fdset_pid) of
-        undefined ->
-            ok;
-        Pid ->
-            case is_process_alive(Pid) of
-                true ->
-                    Ref = erlang:monitor(process, Pid),
-                    Pid ! {Ref, clear},
-                    receive {Ref, Return} ->
-                                erlang:demonitor(Ref, [flush]),
-                                %% consume any messages of this form in the mailbox
-                                receive
-                                    {inert_read, _N, Socket} ->
-                                        ok
-                                after 0 ->
-                                          ok
-                                end,
-                                erlang:put(fdset_pid, undefined),
-                                Return;
-                            {'DOWN', Ref, process, Pid, Reason} ->
-                                erlang:put(fdset_pid, undefined),
-                                {error, Reason}
-                    after 5000 ->
-                              %% client process wedged, kill it
-                              erlang:demonitor(Ref, [flush]),
-                              erlang:exit(Pid, kill),
-                              erlang:put(fdset_pid, undefined),
-                              ok
-                    end;
-                false ->
-                    erlang:put(fdset_pid, undefined),
-                    ok
-            end
-    end.
+fdclr(#tcp_state{}) ->
+    ok.
 
 -spec addr_info(tcp_state()) -> {string(), string()}.
 addr_info(#tcp_state{addr_info=AddrInfo}) ->
@@ -358,11 +328,9 @@ init([TID]) ->
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
     Response =
         case listen_on(Addr, TID) of
-            {ok, ListenAddrs, Socket, Pid} ->
-                erlang:monitor(process, Pid),
+            {ok, ListenAddrs, Pid} ->
                 libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
                 libp2p_config:insert_listener(TID, ListenAddrs, Pid),
-                libp2p_config:insert_listen_socket(TID, Pid, Addr, Socket),
                 {ok, ListenAddrs, Pid};
             {error, Error} -> {error, Error}
         end,
@@ -526,29 +494,6 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
         _ ->
             {noreply, State}
     end;
-handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
-    %% check if this is a listen socket pid
-    case libp2p_config:lookup_listen_socket(TID, Pid) of
-        {ok, {ListenAddr, Socket}} ->
-            libp2p_config:remove_listen_socket(TID, Pid),
-            %% we should restart the listener here because we have not been told to *not*
-            %% listen on this address
-            case listen_on(ListenAddr, TID) of
-                {ok, ListenAddrs, Socket, Pid} ->
-                    lager:debug("restarted listener for ~p as ~p", [ListenAddr, Pid]),
-                    erlang:monitor(process, Pid),
-                    libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
-                    libp2p_config:insert_listener(TID, ListenAddrs, Pid),
-                    libp2p_config:insert_listen_socket(TID, Pid, ListenAddr, Socket),
-                    Server = libp2p_swarm_sup:server(TID),
-                    gen_server:cast(Server, {register, libp2p_config:listener(), Pid});
-                {error, Error} ->
-                    lager:error("unable to restart listener for ~p : ~p", [ListenAddr, Error])
-            end;
-        false ->
-            ok
-    end,
-    {noreply, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled message ~p", [Msg]),
     {noreply, State}.
@@ -559,73 +504,40 @@ terminate(_Reason, #state{}) ->
 %% Internal: Listen/Connect
 %%
 
--spec listen_options(inet:ip_address(), ets:tab()) -> [term()].
-listen_options(IP, TID) ->
-    OptionDefaults = [
-                      {ip, IP},
-                      {backlog, 1024},
-                      {nodelay, true},
-                      {send_timeout, 30000},
-                      {send_timeout_close, true}
-                     ],
-    % Go get the tcp listen options
-    case libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, listen]) of
-        undefined -> OptionDefaults;
-        {ok, Values} ->
-            sets:to_list(sets:union(sets:from_list(Values),
-                                    sets:from_list(OptionDefaults)))
-    end.
-
-
--spec listen_on(string(), ets:tab()) -> {ok, [string()], gen_tcp:socket(), pid()} | {error, term()}.
+-spec listen_on(string(), ets:tab()) -> {ok, [string()], pid()} | {error, term()}.
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
-        {IP, Port0, Type, AddrOpts} ->
-            ListenOpts0 = listen_options(IP, TID),
-            % Non-overidable options, taken from ranch_tcp:listen
-            DefaultListenOpts = [{reuseaddr, true}, reuseport()] ++ common_options(),
-            % filter out disallowed options and supply default ones
-            ListenOpts = ranch:filter_options(ListenOpts0, ranch_tcp:disallowed_listen_options(),
-                                              DefaultListenOpts),
-            Port1 = reuseport0(TID, Type, IP, Port0),
-            % Dialyzer severely dislikes ranch_tcp:listen so we
-            % emulate it's behavior here
-            case gen_tcp:listen(Port1, [Type | AddrOpts] ++ ListenOpts) of
-                {ok, Socket} ->
-                    ListenAddrs = tcp_listen_addrs(Socket),
-
-                    Cache = libp2p_swarm:cache(TID),
-                    ok = libp2p_cache:insert(Cache, {tcp_listen_addrs, Type}, ListenAddrs),
-
-                    ChildSpec = ranch:child_spec(ListenAddrs,
-                                                 ranch_tcp, [{socket, Socket}],
-                                                 libp2p_transport_ranch_protocol, {?MODULE, TID}),
-                    case supervisor:start_child(Sup, ChildSpec) of
-                        {ok, Pid} ->
-                            ok = gen_tcp:controlling_process(Socket, Pid),
-                            {ok, ListenAddrs, Socket, Pid};
-                        {error, Reason} ->
-                            gen_tcp:close(Socket),
-                            {error, Reason}
-                    end;
-                {error, Reason} -> {error, Reason}
+        {IP, Port, _Type, _AddrOpts} ->
+            Opts = #{cache_dir => libp2p_config:swarm_dir(TID, [])},
+            ListenSpec = #{
+                           id => {?MODULE, Addr},
+                           start => {libp2p_transport_tcp_listen_sup, start_link, [IP, Port, Opts]},
+                           type => supervisor
+                          },
+            case supervisor:start_child(Sup, ListenSpec) of
+                {ok, Pid} ->
+                    ListenAddrs = libp2p_transport_tcp_listen_sup:listen_addrs(Pid),
+                    {ok, ListenAddrs, Pid};
+                {error, Error} ->
+                    {error, Error}
             end;
         {error, Error} -> {error, Error}
     end.
 
 
--spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab(), pid())
+-spec connect_to(string(), libp2p_swarm:connect_opts(), ets:tab(), pid())
                 -> {ok, pid()} | {error, term()}.
-connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
+connect_to(Addr, Opts, TID, TCPPid) ->
     case tcp_addr(Addr) of
         {IP, Port, Type, AddrOpts} ->
-            UniqueSession = proplists:get_value(unique_session, UserOptions, false),
-            UniquePort = proplists:get_value(unique_port, UserOptions, false),
+            ConnectTimeout = maps:get(connect_timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
+            UniqueSession = maps:get(unique_session, Opts, false),
+            UniquePort = maps:get(unique_port, Opts, false),
             ListenAddrs = libp2p_config:listen_addrs(TID),
             Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs,
                                       UniqueSession, UniquePort),
-            case ranch_tcp:connect(IP, Port, Options, Timeout) of
+            case gen_tcp:connect(IP, Port, Options, ConnectTimeout) of
                 {ok, Socket} ->
                     case libp2p_transport:start_client_session(TID, Addr, new_connection(Socket)) of
                         {ok, SessionPid} ->
@@ -648,7 +560,7 @@ connect_options(Type, Opts, _, _, false, UniquePort) when UniquePort == true ->
     [Type, {reuseaddr, true} | Opts];
 connect_options(Type, Opts, Addr, ListenAddrs, false, false) ->
     MAddr = multiaddr:new(Addr),
-    [Type, {reuseaddr, true}, reuseport(), {port, find_matching_listen_port(MAddr, ListenAddrs)} | Opts].
+    [Type, {reuseaddr, true}, reuseport_raw_option(), {port, find_matching_listen_port(MAddr, ListenAddrs)} | Opts].
 
 find_matching_listen_port(_Addr, []) ->
     0;
@@ -664,7 +576,7 @@ find_matching_listen_port(Addr, [H|ListenAddrs]) ->
             find_matching_listen_port(Addr, ListenAddrs)
     end.
 
-reuseport() ->
+reuseport_raw_option() ->
     %% TODO provide a more complete mapping of SOL_SOCKET and SO_REUSEPORT
     {Protocol, Option} = case os:type() of
                              {unix, linux} ->
@@ -687,55 +599,6 @@ tcp_listen_addrs(Socket) ->
             [to_multiaddr(libp2p_nat:maybe_apply_nat_map({Addr, Port}))
                 || Addr <- Addresses, size(Addr) == size(IP)]
     end.
-
-reuseport0(TID, Type, {0,0,0,0}, 0) ->
-    Cache = libp2p_swarm:cache(TID),
-    case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
-        [] -> 0;
-        ListenAddrs ->
-            TCPAddrs = [tcp_addr(L) || L <- ListenAddrs],
-            Ports = [P ||  {_, P, _, _} <- TCPAddrs],
-            [P1|_] = Ports,
-            Filtered = lists:filter(fun(P) -> P =:= P1 end, Ports),
-            case erlang:length(Filtered) =:= erlang:length(TCPAddrs) of
-                true -> P1;
-                false -> 0
-            end
-    end;
-reuseport0(TID, Type, {0,0,0,0,0,0,0,0}, 0) ->
-    Cache = libp2p_swarm:cache(TID),
-    case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
-        [] -> 0;
-        ListenAddrs ->
-            TCPAddrs = [tcp_addr(L) || L <- ListenAddrs],
-            Ports = [P ||  {_, P, _, _} <- TCPAddrs],
-            [P1|_] = Ports,
-            Filtered = lists:filter(fun(P) -> P =:= P1 end, Ports),
-            case erlang:length(Filtered) =:= erlang:length(TCPAddrs) of
-                true -> P1;
-                false -> 0
-            end
-    end;
-reuseport0(TID, Type, IP, 0) ->
-    Cache = libp2p_swarm:cache(TID),
-    case libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, []) of
-        [] -> 0;
-        ListenAddrs ->
-            lists:foldl(
-                fun(ListenAddr, 0) ->
-                    case tcp_addr(ListenAddr) of
-                        {IP, Port, _, _} -> Port;
-                        _ -> 0
-                    end;
-                   (_, Port) ->
-                       Port
-                end
-                ,0
-                ,ListenAddrs
-            )
-    end;
-reuseport0(_TID, _Type, _IP, Port) ->
-    Port.
 
 
 get_non_local_addrs() ->

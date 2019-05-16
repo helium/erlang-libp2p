@@ -1,6 +1,7 @@
 -module(libp2p_stream_tcp).
 
 -behavior(libp2p_stream_transport).
+-behavior(acceptor).
 
 -type opts() :: #{socket => gen_tcp:socket(),
                   mod => atom(),
@@ -19,12 +20,17 @@
          terminate/2]).
 
 %% API
--export([command/2]).
+-export([command/2, addr_info/1]).
+%% acceptor
+-export([acceptor_init/3,
+         acceptor_continue/3,
+         acceptor_terminate/2]).
 
 -record(state, {
                 kind :: libp2p_stream:kind(),
                 active=false :: libp2p_stream:active(),
                 socket :: gen_tcp:socket(),
+                listen_socket_monitor :: reference(),
                 socket_active=false :: libp2p_stream:active(),
                 mod :: atom(),
                 mod_state :: any(),
@@ -32,18 +38,38 @@
                }).
 
 command(Pid, Cmd) ->
-    gen_server:call(Pid, Cmd, infinity).
+    libp2p_stream_transport:command(Pid, Cmd).
 
+addr_info(Pid) when is_pid(Pid) ->
+    command(Pid, stream_addr_info);
+addr_info(Sock) ->
+    {ok, LocalAddr} = inet:sockname(Sock),
+    {ok, RemoteAddr} = inet:peername(Sock),
+    {to_multiaddr(LocalAddr), to_multiaddr(RemoteAddr)}.
+
+
+%% acceptor callbacks
+%%
+
+acceptor_init(_SockName, LSock, Opts) ->
+    MRef = monitor(port, LSock),
+    {ok, Opts#{listen_socket_monitor => MRef}}.
+
+acceptor_continue(_PeerName, Sock, Opts) ->
+    libp2p_stream_transport:enter_loop(?MODULE, server, Opts#{socket => Sock,
+                                                              send_fn => mk_send_fn(Sock)}).
+
+acceptor_terminate(_Reason, _) ->
+    exit(normal).
 
 start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun}) ->
     libp2p_stream_transport:start_link(?MODULE, Kind, Opts);
 start_link(Kind, Opts=#{socket := Sock}) ->
-    SendFun = fun(Data) ->
-                      gen_tcp:send(Sock, Data)
-              end,
-    start_link(Kind, Opts#{send_fn => SendFun}).
+    start_link(Kind, Opts#{send_fn => mk_send_fn(Sock)}).
 
 -spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
+init(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, handler_fn := HandlerFun}) ->
+    init(Kind, maps:remove(handler_fn, Opts#{ handlers => HandlerFun() }));
 init(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, handlers := Handlers}) ->
     ModOpts = maps:get(mod_opts, Opts, #{}),
     NewOpts = Opts#{ mod => libp2p_stream_multistream,
@@ -53,9 +79,7 @@ init(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, handlers := Handlers}) -
 init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
     erlang:process_flag(trap_exit, true),
     libp2p_stream_transport:stream_stack_update(Mod, Kind),
-    {ok, LocalAddr} = inet:sockname(Sock),
-    {ok, RemoteAddr} = inet:peername(Sock),
-    libp2p_stream_transport:stream_addr_info_update({to_multiaddr(LocalAddr), to_multiaddr(RemoteAddr)}),
+    libp2p_stream_transport:stream_addr_info_update(addr_info(Sock)),
     case Kind of
         server -> ok;
         client ->
@@ -65,14 +89,25 @@ init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
                                      {packet, raw}])
     end,
     ModOpts = maps:get(mod_opts, Opts, #{}),
+    ListenSocketMonitor = maps:get(listen_socket_monitor, Opts, undefined),
+    MkState = fun(ModState) ->
+                      #state{mod=Mod,
+                             mod_state=ModState,
+                             socket=Sock,
+                             listen_socket_monitor=ListenSocketMonitor,
+                             kind=Kind}
+              end,
     case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
         {ok, ModState, Actions} ->
-            {ok, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions};
+            {ok, MkState(ModState), Actions};
         {stop, Reason} ->
             {stop, Reason};
         {stop, Reason, ModState, Actions} ->
-            {stop, Reason, #state{mod=Mod, socket=Sock, mod_state=ModState, kind=Kind}, Actions}
+            {stop, Reason, MkState(ModState), Actions}
     end.
+
+handle_call(stream_addr_info, _From, State=#state{}) ->
+    {reply, libp2p_stream_transport:stream_addr_info(), State};
 
 handle_call(Cmd, From, State=#state{mod=Mod, mod_state=ModState, kind=Kind}) ->
     case erlang:function_exported(Mod, handle_command, 4) of
@@ -104,6 +139,11 @@ handle_info({tcp_closed, Sock}, State=#state{socket=Sock}) ->
     {stop, normal, State};
 handle_info({'EXIT', Sock, Reason}, State=#state{socket=Sock}) ->
     {stop, Reason, State};
+handle_info({'DOWN', MRef, port, _, _}, State=#state{listen_socket_monitor=MRef}) ->
+    lager:debug("Listen socket closed, shutting down"),
+    %% TODO: Should we try to receive any remaining data and send
+    %% outbound data before actually shutting down? For now this works
+    {stop, normal, State};
 handle_info({swap_stop, Reason}, State) ->
     {stop, Reason, State};
 handle_info(Msg, State=#state{mod=Mod, kind=Kind}) ->
@@ -198,6 +238,11 @@ handle_action(Action, State) ->
 %%
 %% Utilities
 %%
+
+mk_send_fn(Sock) ->
+    fun(Data) ->
+            gen_tcp:send(Sock, Data)
+    end.
 
 to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
     Prefix  = case size(IP) of

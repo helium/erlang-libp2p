@@ -56,6 +56,7 @@
 
 %% API
 -export([start_link/3,
+         enter_loop/3,
          command/2,
          %% in-stream APIs
          stream_stack_update/2,
@@ -97,6 +98,15 @@
 
 start_link(Module, Kind, Opts) ->
     gen_server:start_link(?MODULE, {Module, Kind, Opts}, []).
+
+
+enter_loop(Module, Kind, Opts) ->
+    case ?MODULE:init({Module, Kind, Opts}) of
+        {ok, State} ->
+            gen_server:enter_loop(?MODULE, [], State);
+        {stop, Reason} ->
+            {stop, Reason}
+    end.
 
 
 command(Pid, Cmd) ->
