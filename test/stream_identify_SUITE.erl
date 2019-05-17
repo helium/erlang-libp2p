@@ -37,7 +37,7 @@ init_streams(Config) ->
                    sig_fn => SigFun,
                    peer => Peer
                   },
-    Handlers = [{"identify/1.0.0", {libp2p_stream_identify, ServerOpts}}],
+    Handlers = [{<<"identify/1.0.0">>, {libp2p_stream_identify, ServerOpts}}],
     {ok, SPid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
                                                         mod => libp2p_stream_mplex,
                                                         mod_opts => #{ handlers => Handlers }

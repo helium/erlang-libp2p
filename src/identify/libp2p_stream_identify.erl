@@ -23,12 +23,12 @@ start(Muxer, ResultHandler) ->
 
 -spec start(Muxer::pid(), ResultHandler::pid(), Timeout::pos_integer()) -> {ok, pid()} | {error, term()}.
 start(Muxer, ResultHandler, Timeout) ->
-    Challenge = crypto:strong_rand_bytes(20),
-    Path = lists:flatten([?PATH, "/", base58:binary_to_base58(Challenge)]),
+    Challenge = base58:binary_to_base58(crypto:strong_rand_bytes(20)),
+    Path = lists:flatten([?PATH, "/", Challenge]),
     ModOpts = #{ result_handler => ResultHandler,
                  identify_timeout => Timeout,
                  muxer => Muxer},
-    libp2p_stream_muxer:dial(Muxer, #{ handlers => [{Path, {?MODULE, ModOpts}}]
+    libp2p_stream_muxer:dial(Muxer, #{ handlers => [{list_to_binary(Path), {?MODULE, ModOpts}}]
                                      }).
 
 init(client, #{ result_handler := ResultHandler, muxer := Muxer, identify_timeout := IdentifyTimeout}) ->
@@ -37,8 +37,8 @@ init(client, #{ result_handler := ResultHandler, muxer := Muxer, identify_timeou
       {packet_spec, [varint]},
       {active, once}]};
 init(server, #{ path := Path, sig_fn := SigFun, peer := Peer }) ->
-    "/" ++ Str = Path,
-    Challenge = base58:base58_to_binary(Str),
+    <<$/, Str/binary>> = Path,
+    Challenge = base58:base58_to_binary(binary_to_list(Str)),
     {_, RemoteAddr} = libp2p_stream_transport:stream_addr_info(),
     Identify = libp2p_identify:from_map(#{peer => Peer,
                                           observed_addr => RemoteAddr,

@@ -51,9 +51,9 @@ init_client_test_common(Config, AddModOpts) ->
 init_test_stream(Kind, Config, AddModOpts) ->
     {CSock, SSock} = ?config(client_server, Config),
 
-    Handlers = [{"mplex/1.0.0", {no_mplex_mod, no_mplex_opts}},
-                {"yamux/1.2.0", {no_yamux_mod, no_yamux_opts}},
-                {"test_stream/1.0.0", {test_stream, #{}}}],
+    Handlers = [{<<"mplex/1.0.0">>, {no_mplex_mod, no_mplex_opts}},
+                {<<"yamux/1.2.0">>, {no_yamux_mod, no_yamux_opts}},
+                {<<"test_stream/1.0.0">>, {test_stream, #{}}}],
     StreamSock = case Kind of
                      server -> SSock;
                      client -> CSock

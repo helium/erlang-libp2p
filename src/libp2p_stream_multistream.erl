@@ -2,7 +2,7 @@
 
 -behavior(libp2p_stream).
 
--type prefix() :: string().
+-type prefix() :: binary().
 -type path_handler() :: {Module::atom(), Opts::map()}.
 -type handler() :: {prefix(), path_handler()}.
 -type handlers() :: [handler()].
@@ -82,7 +82,7 @@ handshake(client, {packet, Packet}, Data=#state{handlers=Handlers}) ->
              [{cancel_timer, handshake_timeout},
               {active, once},
               {send, encode_line(<<?PROTOCOL>>)},
-              {send, encode_line(list_to_binary(Key))}]};
+              {send, encode_line(Key)}]};
         Other ->
             handshake(client, {error, {handshake_mismatch, Other}}, Data)
     end;
@@ -153,13 +153,12 @@ negotiate(client, {packet, Packet}, Data=#state{}) ->
                     {keep_state, Data#state{selected_handler=NextHandler},
                      [{cancel_timer, handshake_timeout},
                       {active, once},
-                      {send, encode_line(list_to_binary(Key))}]}
+                      {send, encode_line(Key)}]}
             end;
         Line ->
             %% Server agreed and switched to the handler.
-            LineStr = binary_to_list(Line),
             case select_handler(Data#state.selected_handler, Data) of
-                {Key, {M, A}} when Key == LineStr ->
+                {Key, {M, A}} when Key == Line ->
                     lager:debug("Client negotiated handler for: ~p, handler: ~p", [Line, M]),
                     {keep_state, Data, [{swap, M, A}]};
                 _ ->
@@ -170,12 +169,12 @@ negotiate(client, {packet, Packet}, Data=#state{}) ->
 negotiate(server, {packet, Packet}, Data=#state{}) ->
     case binary_to_line(Packet) of
         <<"ls">> ->
-            Keys = [list_to_binary(Key) || {Key, _} <- Data#state.handlers],
+            Keys = [Key || {Key, _} <- Data#state.handlers],
             {keep_state, Data,
              [{active, once},
               {send, encode_lines(Keys)}]};
         Line ->
-            case find_handler(binary_to_list(Line), Data#state.handlers) of
+            case find_handler(Line, Data#state.handlers) of
                 not_found ->
                     {keep_state, Data,
                      [{send, encode_line(<<"na">>)}]};
@@ -317,14 +316,16 @@ binary_to_lines(Bin, Count, Acc) ->
     {Line, Rest} = decode_line(Bin),
     binary_to_lines(Rest, Count - 1, [Line | Acc]).
 
--spec find_handler(string(), handlers()) ->
-                          {Prefix::string(), PathHandler::path_handler(), Rest::string()} | not_found.
+-spec find_handler(prefix(), handlers()) ->
+                          {Prefix::prefix(), PathHandler::path_handler(), Rest::binary()} | not_found.
 find_handler(_Line, []) ->
     not_found;
 find_handler(Line, [{Prefix, Handler} | Handlers]) ->
-    case string:prefix(Line, Prefix) of
-        nomatch -> find_handler(Line, Handlers);
-        Rest -> {Prefix, Handler, Rest}
+    PrefixSize = byte_size(Prefix),
+    case Line of
+        <<Prefix:PrefixSize/binary, Rest/binary>> ->
+            {Prefix, Handler, Rest};
+        _ -> find_handler(Line, Handlers)
     end.
 
 

@@ -63,7 +63,7 @@ init(Kind, Opts=#{send_fn := _SendFun, handlers := Handlers}) ->
                     mod_opts => maps:merge(ModOpts, #{ handlers => Handlers})
                   },
     init(Kind, maps:remove(handlers, Opts#{ mod_opts => WorkerOpts}));
-init(_Kind, Opts=#{send_fn := SendFun, mod := _Mod }) ->
+init(_Kind, Opts=#{send_fn := SendFun }) ->
     WorkerOpts = maps:get(mod_opts, Opts, #{}),
     {ok, #state{
             max_received_workers=maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
