@@ -5,7 +5,7 @@
 -behavior(libp2p_stream).
 
 %% API
--export([start/2, start/3]).
+-export([start/2, start/3, protocol_id/0]).
 %% libp2p_stream
 -export([init/2, handle_packet/4, handle_info/3]).
 
@@ -16,6 +16,10 @@
 
 -define(PATH, "identify/1.0.0").
 -define(DEFAULT_TIMEOUT, 5000).
+
+-spec protocol_id() -> binary().
+protocol_id() ->
+    <<?PATH>>.
 
 -spec start(Muxer::pid(), ResultHandler::pid()) -> {ok, pid()} | {error, term()}.
 start(Muxer, ResultHandler) ->
@@ -36,6 +40,13 @@ init(client, #{ result_handler := ResultHandler, muxer := Muxer, identify_timeou
      [{timer, identify_timeout, IdentifyTimeout},
       {packet_spec, [varint]},
       {active, once}]};
+init(server, Opts=#{ peer_fn := PeerFun }) ->
+    case PeerFun() of
+        {ok, Peer} ->
+            init(server, maps:remove(peer_fn, Opts#{ peer => Peer}));
+        {error, Error} ->
+            {stop, Error}
+    end;
 init(server, #{ path := Path, sig_fn := SigFun, peer := Peer }) ->
     <<$/, Str/binary>> = Path,
     Challenge = base58:base58_to_binary(binary_to_list(Str)),

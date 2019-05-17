@@ -139,8 +139,11 @@ handle_cast(Msg, State) ->
 handle_info({packet, _Incoming}, State=#state{close_state=read}) ->
     %% Ignore incoming data when the read side is closed
     {noreply, State};
-handle_info({swap_stop, Reason}, State) ->
-    {stop, Reason, State};
+handle_info({swap_stop, _, normal}, State) ->
+    {stop, normal, State};
+handle_info({swap_stop, Mod, Reason}, State) ->
+    lager:debug("Stopping after ~p:init error: ~p", [Mod, Reason]),
+    {stop, normal, State};
 handle_info(Msg, State=#state{mod=Mod}) ->
     case erlang:function_exported(Mod, handle_info, 3) of
         true->
@@ -213,10 +216,10 @@ handle_action({swap, Mod, ModOpts}, State=#state{}) ->
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
         {stop, Reason} ->
-            self() ! {swap_stop, Reason},
+            self() ! {swap_stop, Mod, Reason},
             {ok, State};
         {stop, Reason, ModState, Actions} ->
-            self() ! {swap_stop, Reason},
+            self() ! {swap_stop, Mod, Reason},
             {replace, Actions, State#state{mod_state=ModState}}
     end;
 handle_action(Action, State) ->

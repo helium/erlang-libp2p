@@ -5,12 +5,21 @@
 
 all() ->
     [
-     identify_test
+     identify_test,
+     identify_timeout_test
     ].
 
 
+init_per_testcase(identify_timeout_test, Config) ->
+    MkPeerFun = fun(_) ->
+                        fun() -> {error, fail_peer} end
+                end,
+    init_streams(init_common(Config), MkPeerFun);
 init_per_testcase(_, Config) ->
-    init_streams(init_common(Config)).
+    MkPeerFun = fun(Peer) ->
+                        fun() -> {ok, Peer} end
+                end,
+    init_streams(init_common(Config), MkPeerFun).
 
 end_per_testcase(_, Config) ->
     test_util:teardown_sock_pair(Config).
@@ -20,7 +29,7 @@ init_common(Config) ->
     test_util:setup(),
     test_util:setup_sock_pair(Config).
 
-init_streams(Config) ->
+init_streams(Config, MkPeerFun) ->
     {CSock, SSock} = ?config(client_server, Config),
 
     #{ secret := Secret, public := Public } = libp2p_crypto:generate_keys(ed25519),
@@ -33,9 +42,10 @@ init_streams(Config) ->
                connected => [],
                nat_type => unknown
              }, SigFun),
+    PeerFun = MkPeerFun(Peer),
     ServerOpts = #{
                    sig_fn => SigFun,
-                   peer => Peer
+                   peer_fn => PeerFun
                   },
     Handlers = [{<<"identify/1.0.0">>, {libp2p_stream_identify, ServerOpts}}],
     {ok, SPid} = libp2p_stream_tcp:start_link(server, #{socket => SSock,
@@ -66,6 +76,22 @@ identify_test(Config) ->
         {handle_identify, Muxer, {ok, Identify}} ->
             ?assertEqual(Muxer, CMPid),
             ?assertEqual(PubKeyBin, libp2p_identify:pubkey_bin(Identify))
+    after
+        %% Failed to get a response from identify
+        3000 -> ?assert(false)
+    end,
+
+    ok.
+
+
+identify_timeout_test(Config) ->
+    {CMPid, _SMPid} = ?config(stream_client_server, Config),
+
+    libp2p_stream_identify:start(CMPid, self(), 1000),
+
+    receive
+        {handle_identify, Muxer, {error, timeout}} ->
+            ?assertEqual(Muxer, CMPid)
     after
         %% Failed to get a response from identify
         3000 -> ?assert(false)
