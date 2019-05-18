@@ -24,7 +24,6 @@
 -define(RELAY, relay).
 -define(PROXY, proxy).
 
--type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
 
 -export_type([opts/0]).
@@ -142,8 +141,10 @@ insert_listener(TID, Addrs, Pid) ->
                   end, Addrs),
     %% TODO: This was a convenient place to notify peerbook, but can
     %% we not do this here?
-    PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:changed_listener(PeerBook),
+    case libp2p_swarm:peerbook(TID) of
+        false -> ok;
+        PeerBook -> libp2p_peerbook:changed_listener(PeerBook)
+    end,
     true.
 
 -spec lookup_listener(ets:tab(), string()) -> {ok, pid()} | false.
@@ -155,8 +156,10 @@ remove_listener(TID, Addr) ->
     remove_pid(TID, ?LISTENER, Addr),
     %% TODO: This was a convenient place to notify peerbook, but can
     %% we not do this here?
-    PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:changed_listener(PeerBook),
+    case libp2p_swarm:peerbook(TID) of
+        false -> ok;
+        PeerBook -> libp2p_peerbook:changed_listener(PeerBook)
+    end,
     true.
 
 -spec listen_addrs(ets:tab()) -> [string()].
@@ -245,27 +248,27 @@ lookup_session_addrs(TID) ->
 %% Connections
 %%
 
--spec lookup_connection_handlers(ets:tab()) -> [{string(), {handler(), handler() | undefined}}].
+-spec lookup_connection_handlers(ets:tab()) -> libp2p_stream_multistream:handlers().
 lookup_connection_handlers(TID) ->
     lookup_handlers(TID, ?CONNECTION_HANDLER).
 
--spec insert_connection_handler(ets:tab(), {string(), handler(), handler() | undefined}) -> true.
-insert_connection_handler(TID, {Key, ServerMF, ClientMF}) ->
-    ets:insert(TID, {{?CONNECTION_HANDLER, Key}, {ServerMF, ClientMF}}).
+-spec insert_connection_handler(ets:tab(), libp2p_stream_multistream:handler()) -> true.
+insert_connection_handler(TID, {Key, PathHandler}) ->
+    ets:insert(TID, {{?CONNECTION_HANDLER, Key}, PathHandler}).
 
 %%
 %% Streams
 %%
 
--spec lookup_stream_handlers(ets:tab()) -> [{string(), libp2p_session:stream_handler()}].
+-spec lookup_stream_handlers(ets:tab()) -> libp2p_stream_multistream:handlers().
 lookup_stream_handlers(TID) ->
     lookup_handlers(TID, ?STREAM_HANDLER).
 
--spec insert_stream_handler(ets:tab(), {string(), libp2p_session:stream_handler()}) -> true.
-insert_stream_handler(TID, {Key, ServerMF}) ->
-    ets:insert(TID, {{?STREAM_HANDLER, Key}, ServerMF}).
+-spec insert_stream_handler(ets:tab(), libp2p_stream_multistream:handler()) -> true.
+insert_stream_handler(TID, {Key, PathHandler}) ->
+    ets:insert(TID, {{?STREAM_HANDLER, Key}, PathHandler}).
 
--spec remove_stream_handler(ets:tab(), string()) -> true.
+-spec remove_stream_handler(ets:tab(), libp2p_stream_multistream:prefix()) -> true.
 remove_stream_handler(TID, Key) ->
     ets:delete(TID, {?STREAM_HANDLER, Key}).
 

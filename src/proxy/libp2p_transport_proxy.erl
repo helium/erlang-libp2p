@@ -8,7 +8,7 @@
     match_addr/2,
     sort_addrs/1,
     priority/0,
-    connect/5
+    connect/4
 ]).
 
 %% ------------------------------------------------------------------
@@ -33,9 +33,8 @@ sort_addrs(Addrs) ->
 -spec priority() -> integer().
 priority() -> 99.
 
--spec connect(pid(), string(), libp2p_swarm:connect_opts()
-              ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
-connect(_Pid, MAddr, _Options, _Timeout, TID) ->
+-spec connect(Transport::pid(), MAddr::string(), Opts::map(), TID::ets:tab()) -> {ok, pid()} | {error, term()}.
+connect(_Pid, MAddr, _Options, TID) ->
     {ok, {PAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     lager:info("init proxy with ~p", [[PAddress, AAddress]]),
     Swarm = libp2p_swarm:swarm(TID),

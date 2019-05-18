@@ -14,7 +14,8 @@ all() ->
      active_test,
      swap_stop_test,
      swap_stop_action_test,
-     swap_ok_test
+     swap_ok_test,
+     connect_test
     ].
 
 
@@ -23,9 +24,15 @@ init_per_testcase(init_stop_action_test, Config) ->
     init_common(Config);
 init_per_testcase(init_stop_test, Config) ->
     init_common(Config);
+init_per_testcase(connect_test, Config) ->
+    test_util:setup(),
+    meck_stream(test_stream),
+    Config;
 init_per_testcase(_, Config) ->
     init_test_stream(init_common(Config)).
 
+end_per_testcase(connect_test, _Config) ->
+    ok;
 end_per_testcase(_, Config) ->
     test_util:teardown_sock_pair(Config),
     meck_unload_stream(test_stream),
@@ -53,33 +60,27 @@ init_test_stream(Config) ->
 init_stop_action_test(Config) ->
     {CSock, SSock} = ?config(client_server, Config),
 
-    StartResult = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                         mod => test_stream,
-                                                         mod_opts => #{stop => {send, normal, <<"hello">>}}
-                                                        }),
-
-    %% Since terminate doesn't get called on a close on startup, close
-    %% the server socket here
-    gen_tcp:close(SSock),
+    libp2p_stream_tcp:start_link(server, #{socket => SSock,
+                                           mod => test_stream,
+                                           mod_opts => #{stop => {send, normal, <<"hello">>}}
+                                          }),
 
     ?assertEqual(<<"hello">>, receive_packet(CSock)),
-    ?assertEqual({error, normal}, StartResult),
-    ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
+    ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 10)),
     ok.
 
 init_stop_test(Config) ->
     {CSock, SSock} = ?config(client_server, Config),
 
-    StartResult = libp2p_stream_tcp:start_link(server, #{socket => SSock,
-                                                         mod => test_stream,
-                                                         mod_opts => #{stop => normal}
-                                                        }),
+    libp2p_stream_tcp:start_link(server, #{socket => SSock,
+                                           mod => test_stream,
+                                           mod_opts => #{stop => normal} }),
 
     %% Since terminate doesn't get called on a close on startup, close
     %% the server socket here
     gen_tcp:close(SSock),
 
-    ?assertEqual({error, normal}, StartResult),
+    %% ?assertEqual({error, normal}, StartResult),
     ?assertEqual({error, closed}, gen_tcp:recv(CSock, 0, 0)),
 
     ok.
@@ -278,6 +279,59 @@ swap_ok_test(Config) ->
 
     ok.
 
+connect_test(_Config) ->
+    {ok, LSock} = gen_tcp:listen(0, [binary, {active, false}]),
+    {ok, LPort} = inet:port(LSock),
+
+    Parent = self(),
+    spawn(fun() ->
+                  {ok, ServerSock} = gen_tcp:accept(LSock),
+                  gen_tcp:controlling_process(ServerSock, Parent),
+                  Parent ! {accepted, ServerSock}
+          end),
+
+    {ok, Pid} = libp2p_stream_tcp:start_link(client, #{addr => "/ip4/127.0.0.1/tcp/" ++ integer_to_list(LPort),
+                                                       mod => test_stream
+                                                      }),
+
+    SSock = receive
+                {accepted, S} -> S
+            after 5000 ->
+                    ?assert(timout_no_connect)
+    end,
+
+    gen_tcp:close(SSock),
+    ?assert(test_util:pid_should_die(Pid)),
+
+    {ok, C1Pid} = libp2p_stream_tcp:start_link(client, #{addr => "invalid/addr",
+                                                         mod => test_stream,
+                                                         stream_handler => {self(), connect_test}
+                                                        }),
+    unlink(C1Pid),
+
+    receive
+        {stream_error, connect_test, {error, {invalid_address, _}}} -> ok
+    after 5000 ->
+            %% invalid address didn't get here
+            ?assert(false)
+    end,
+
+    gen_tcp:close(LSock),
+    {ok, C2Pid} = libp2p_stream_tcp:start_link(client, #{addr => "/ip4/127.0.0.1/tcp/" ++ integer_to_list(LPort),
+                                                         mod => test_stream,
+                                                         stream_handler => {self(), connnect_test}
+                                                        }),
+    unlink(C2Pid),
+
+    receive
+        {stream_error, connect_test, {error, econnrefused}} -> ok
+    after 5000 ->
+            %% failed to connect to closed socket didn't get here
+            ?assert(false)
+    end,
+
+    ok.
+
 
 %%
 %% Utilities
@@ -311,18 +365,18 @@ receive_packet(Sock) ->
 meck_stream(Name) ->
     meck:new(Name, [non_strict]),
     meck:expect(Name, init,
-                fun(server, Opts=#{stop := {send, Reason, Data}}) ->
+                fun(_, Opts=#{stop := {send, Reason, Data}}) ->
                         Packet = encode_packet(Data),
                         {stop, Reason, Opts, [{send, Packet}]};
-                   (server, #{stop := Reason}) ->
+                   (_, #{stop := Reason}) ->
                         {stop, Reason};
-                   (server, Opts) ->
+                   (_, Opts) ->
                         {ok, Opts, [{packet_spec, [u8]},
                                     {active, once}
                                    ]}
                 end),
     meck:expect(Name, handle_packet,
-               fun(server, _, Data, State) ->
+               fun(_, _, Data, State) ->
                        Packet = encode_packet(Data),
                        {noreply, State, [{send, Packet}]}
                end),

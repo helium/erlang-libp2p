@@ -23,7 +23,6 @@
                   lager,
                   cuttlefish,
                   acceptor_pool,
-                  netlink,
                   inert,
                   multiaddr,
                   nat,

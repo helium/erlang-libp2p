@@ -1,6 +1,5 @@
 -module(libp2p_transport_tcp).
 
--behaviour(libp2p_connection).
 -behavior(gen_server).
 
 
@@ -10,57 +9,29 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type listen_opt() :: {backlog, non_neg_integer()}
-                    | {buffer, non_neg_integer()}
-                    | {delay_send, boolean()}
-                    | {dontroute, boolean()}
-                    | {exit_on_close, boolean()}
-                    | {fd, non_neg_integer()}
-                    | {high_msgq_watermark, non_neg_integer()}
-                    | {high_watermark, non_neg_integer()}
-                    | {keepalive, boolean()}
-                    | {linger, {boolean(), non_neg_integer()}}
-                    | {low_msgq_watermark, non_neg_integer()}
-                    | {low_watermark, non_neg_integer()}
-                    | {nodelay, boolean()}
-                    | {port, inet:port_number()}
-                    | {priority, integer()}
-                    | {raw, non_neg_integer(), non_neg_integer(), binary()}
-                    | {recbuf, non_neg_integer()}
-                    | {send_timeout, timeout()}
-                    | {send_timeout_close, boolean()}
-                    | {sndbuf, non_neg_integer()}
-                    | {tos, integer()}.
-
--type opt() :: {listen, [listen_opt()]}.
-
--export_type([opt/0, listen_opt/0]).
-
 %% libp2p_transport
--export([start_listener/2, new_connection/1, new_connection/2,
-         connect/4, match_addr/2, sort_addrs/1, priority/0]).
+-export([start_listener/2,
+         connect/3,
+         dial/4,
+         match_addr/2,
+         sort_addrs/1,
+         priority/0]).
 
 %% gen_server
--export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
-
-%% libp2p_connection
--export([send/3, recv/3, acknowledge/2, addr_info/1,
-         close/1, close_state/1, controlling_process/2,
-         session/1, fdset/1, socket/1, fdclr/1
-        ]).
+-export([start_link/1,
+         init/1,
+         handle_call/3,
+         handle_info/2,
+         handle_cast/2,
+         terminate/2]).
 
 %% for tcp sockets
--export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1, reuseport_raw_option/0]).
-
--record(tcp_state,
-        {
-         addr_info :: {string(), string()},
-         socket :: gen_tcp:socket(),
-         session=undefined :: pid() | undefined,
-         transport :: atom()
-        }).
-
--type tcp_state() :: #tcp_state{}.
+-export([to_multiaddr/1, from_multiaddr/1,
+         get_non_local_addrs/0,
+         tcp_addr/1,
+         ip_addr_type/1,
+         rfc1918/1,
+         reuseport_raw_option/0]).
 
 -record(state,
         {
@@ -71,29 +42,33 @@
         }).
 
 
-%% libp2p_transport
-%%
-
--spec new_connection(inet:socket()) -> libp2p_connection:connection().
-new_connection(Socket) ->
-    {ok, RemoteAddr} = inet:peername(Socket),
-    new_connection(Socket, to_multiaddr(RemoteAddr)).
-
--spec new_connection(inet:socket(), string()) -> libp2p_connection:connection().
-new_connection(Socket, PeerName) when is_list(PeerName) ->
-    {ok, LocalAddr} = inet:sockname(Socket),
-    libp2p_connection:new(?MODULE, #tcp_state{addr_info={to_multiaddr(LocalAddr), PeerName},
-                                              socket=Socket,
-                                              transport=ranch_tcp}).
-
 -spec start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()}.
 start_listener(Pid, Addr) ->
     gen_server:call(Pid, {start_listener, Addr}).
 
--spec connect(pid(), string(), libp2p_swarm:connect_opts(), ets:tab())
-             -> {ok, pid()} | {error, term()}.
-connect(Pid, MAddr, Options, TID) ->
-    connect_to(MAddr, Options, TID, Pid).
+-spec connect(Transport::pid(), MAddr::string(), Opts::map()) -> {ok, pid()} | {error, term()}.
+connect(_Pid, MAddr, Opts=#{tid := TID}) ->
+    ListenAddrs = libp2p_config:listen_addrs(TID),
+    SessionSup = libp2p_swarm_session_sup:sup(TID),
+    ChildOpts = Opts#{ addr => MAddr,
+                       from_port => find_matching_listen_port(MAddr, ListenAddrs),
+                       handlers => libp2p_config:lookup_connection_handlers(TID)},
+    ChildSpec = #{ id => make_ref(),
+                   start => {libp2p_stream_tcp, start_link, [client, ChildOpts]},
+                   restart => temporary,
+                   shutdown => 5000,
+                   type => worker },
+    SessionSup = libp2p_swarm_session_sup:sup(TID),
+    supervisor:start_child(SessionSup, ChildSpec).
+
+-spec dial(Transpor::pid(), MAddr::string(), Opts::map(), Handler::libp2p_stream_multistream:handler())
+          -> {ok, Muxee::pid()} | {error, term()}.
+dial(Pid, MAddr, Opts0, Handler) ->
+    Opts = Opts0#{
+                  stream_handler => {Pid, {MAddr, Handler}}
+                 },
+    connect(Pid, MAddr, Opts).
+
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
@@ -109,7 +84,7 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
     AddrIPs = lists:filtermap(fun(A) ->
         case tcp_addr(A) of
             {error, _} -> false;
-            {IP, _, _, _} -> {true, {A, IP}}
+            {IP, _} -> {true, {A, IP}}
         end
     end, Addrs),
     SortedAddrIps = lists:sort(fun({_, AIP}, {_, BIP}) ->
@@ -143,132 +118,7 @@ match_protocols(_) ->
     false.
 
 
-%% libp2p_connection
-%%
--spec send(tcp_state(), iodata(), non_neg_integer()) -> ok | {error, term()}.
-send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
-    Transport:send(Socket, Data).
-
--spec recv(tcp_state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
-recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
-    Transport:recv(Socket, Length, Timeout).
-
--spec close(tcp_state()) -> ok.
-close(#tcp_state{socket=Socket, transport=Transport}) ->
-    Transport:close(Socket).
-
--spec close_state(tcp_state()) -> open | closed.
-close_state(#tcp_state{socket=Socket}) ->
-    case inet:peername(Socket) of
-        {ok, _} -> open;
-        {error, _} -> closed
-    end.
-
--spec acknowledge(tcp_state(), reference()) -> ok.
-acknowledge(#tcp_state{}, _Ref) ->
-    ok.
-
-fdset_loop(Socket, Parent, Count) ->
-    %% this may screw up TLS sockets...
-    %% apparently this can also block forever, which is bad
-    %% we add receive timeouts to fdset/fdclr to compensate
-    Event = case gen_tcp:recv(Socket, 1, 1000) of
-                {ok, P} ->
-                    ok = gen_tcp:unrecv(Socket, P),
-                    true;
-                {error, timeout} ->
-                    %% timeouts are not an event, they're just a way to handle fdclrs
-                    false;
-                {error, _R} ->
-                    true
-            end,
-    receive {Ref, clear} ->
-                Parent ! {Ref, ok};
-            {Ref, fdset} ->
-                Parent ! {Ref, {error, already_fdset}}
-    after 0 ->
-              case Event of
-                  false ->
-                      %% resume waiting
-                      fdset_loop(Socket, Parent, Count);
-                  true ->
-                      Parent ! {inert_read, Count, Socket},
-                      receive {Ref, fdset} ->
-                                  Parent ! {Ref, ok},
-                                  fdset_loop(Socket, Parent, Count + 1);
-                              {Ref, clear} ->
-                                  Parent ! {Ref, ok}
-                      end
-              end
-    end.
-
--spec fdset(tcp_state()) -> ok | {error, term()}.
-fdset(#tcp_state{socket=Socket}=State) ->
-    %% XXX This is a temporary fix to remove inert while we rework connections to be
-    %% event driven and not use recv at all
-    Parent = self(),
-    case erlang:get(fdset_pid) of
-        undefined ->
-            Pid = spawn(fun() ->
-                                fdset_loop(Socket, Parent, 1)
-                        end),
-            erlang:put(fdset_pid, Pid),
-            ok;
-        Pid ->
-            case is_process_alive(Pid) of
-                true ->
-                    Ref = erlang:monitor(process, Pid),
-                    Pid ! {Ref, fdset},
-                    receive {Ref, Return} ->
-                                erlang:demonitor(Ref, [flush]),
-                                Return;
-                            {'DOWN', Ref, process, Pid, Reason} ->
-                                {error, Reason}
-                    after 5000 ->
-                              %% client process wedged, kill it
-                              erlang:demonitor(Ref, [flush]),
-                              erlang:exit(Pid, kill),
-                              erlang:put(fdset_pid, undefined),
-                              fdset(State)
-                    end;
-                false ->
-                    erlang:put(fdset_pid, undefined),
-                    fdset(State)
-            end
-    end.
-
--spec socket(tcp_state()) -> gen_tcp:socket().
-socket(#tcp_state{socket=Socket}) ->
-    Socket.
-
--spec fdclr(tcp_state()) -> ok.
-fdclr(#tcp_state{}) ->
-    ok.
-
--spec addr_info(tcp_state()) -> {string(), string()}.
-addr_info(#tcp_state{addr_info=AddrInfo}) ->
-    AddrInfo.
-
--spec session(tcp_state()) -> {ok, pid()} | {error, term()}.
-session(#tcp_state{session=undefined}) ->
-    {error, no_session};
-session(#tcp_state{session=Session}) ->
-    {ok, Session}.
-
--spec controlling_process(tcp_state(), pid())
-                         ->  {ok, tcp_state()} | {error, closed | not_owner | atom()}.
-controlling_process(State=#tcp_state{socket=Socket}, Pid) ->
-    case gen_tcp:controlling_process(Socket, Pid) of
-        ok -> {ok, State#tcp_state{session=Pid}};
-        Other -> Other
-    end.
-
--spec common_options() -> [term()].
-common_options() ->
-    [binary, {active, false}, {packet, raw}].
-
--spec tcp_addr(string() | multiaddr:multiaddr())
-              -> {inet:ip_address(), non_neg_integer(), inet | inet6, [any()]} | {error, term()}.
+-spec tcp_addr(string() | multiaddr:multiaddr()) -> {inet:ip_address(), non_neg_integer()} | {error, term()}.
 tcp_addr(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(MAddr)).
 
@@ -297,29 +147,10 @@ start_link(TID) ->
 init([TID]) ->
     erlang:process_flag(trap_exit, true),
 
-    libp2p_swarm:add_stream_handler(TID, "stungun/1.0.0",
-                                    {libp2p_framed_stream, server, [libp2p_stream_stungun, self(), TID]}),
-    libp2p_relay:add_stream_handler(TID),
-    libp2p_proxy:add_stream_handler(TID),
-
-    %% find all the listen addrs owned by this transport
-    ListenAddrs = [ LA || LA <- libp2p_config:listen_addrs(TID), match_addr(LA, TID) /= false ],
-    %% find the distinct list if listen pids
-    ListenPids = lists:foldl(fun(LA, Acc) ->
-                                     case libp2p_config:lookup_listener(TID, LA) of
-                                         {ok, Pid} ->
-                                             case lists:member(Pid, Acc) of
-                                                 true ->
-                                                     Acc;
-                                                 false ->
-                                                     [Pid | Acc]
-                                             end;
-                                         false ->
-                                             Acc
-                                     end
-                             end, [], ListenAddrs),
-    %% monitor all the listen pids
-    [ erlang:monitor(process, Pid) || Pid <- ListenPids],
+    libp2p_swarm:add_stream_handler(TID, {libp2p_stream_stungun:protocol_id(),
+                                          {libp2p_stream_stungun, #{}}}), %% self(), TID]}),
+    %% libp2p_relay:add_stream_handler(TID),
+    %% libp2p_proxy:add_stream_handler(TID),
 
     {ok, #state{tid=TID}}.
 
@@ -328,8 +159,9 @@ init([TID]) ->
 handle_call({start_listener, Addr}, _From, State=#state{tid=TID}) ->
     Response =
         case listen_on(Addr, TID) of
-            {ok, ListenAddrs, Pid} ->
-                libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
+            {ok, ListenIPPorts, Pid} ->
+                ListenAddrs = [to_multiaddr(L) || L <- ListenIPPorts],
+                %% libp2p_nat:maybe_spawn_discovery(self(), ListenAddrs, TID),
                 libp2p_config:insert_listener(TID, ListenAddrs, Pid),
                 {ok, ListenAddrs, Pid};
             {error, Error} -> {error, Error}
@@ -342,6 +174,13 @@ handle_call(Msg, _From, State) ->
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
+
+%% Connect
+%%
+handle_info({stream_muxer, {_MAddr, DialHandler}, MuxerPid}, State=#state{}) ->
+    libp2p_stream_muxer:dial(MuxerPid, #{handlers => [DialHandler]}),
+    {noreply, State};
+
 
 %%  Discover/Stun
 %%
@@ -508,8 +347,15 @@ terminate(_Reason, #state{}) ->
 listen_on(Addr, TID) ->
     Sup = libp2p_swarm_listener_sup:sup(TID),
     case tcp_addr(Addr) of
-        {IP, Port, _Type, _AddrOpts} ->
-            Opts = #{cache_dir => libp2p_config:swarm_dir(TID, [])},
+        {error, Error} ->
+            {error, Error};
+        {IP, Port} ->
+            Opts = #{
+                     cache_dir => libp2p_config:swarm_dir(TID, []),
+                     handler_fn => fun() ->
+                                           libp2p_config:lookup_connection_handlers(TID)
+                                   end
+                    },
             ListenSpec = #{
                            id => {?MODULE, Addr},
                            start => {libp2p_transport_tcp_listen_sup, start_link, [IP, Port, Opts]},
@@ -521,46 +367,9 @@ listen_on(Addr, TID) ->
                     {ok, ListenAddrs, Pid};
                 {error, Error} ->
                     {error, Error}
-            end;
-        {error, Error} -> {error, Error}
+            end
     end.
 
-
--spec connect_to(string(), libp2p_swarm:connect_opts(), ets:tab(), pid())
-                -> {ok, pid()} | {error, term()}.
-connect_to(Addr, Opts, TID, TCPPid) ->
-    case tcp_addr(Addr) of
-        {IP, Port, Type, AddrOpts} ->
-            ConnectTimeout = maps:get(connect_timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
-            UniqueSession = maps:get(unique_session, Opts, false),
-            UniquePort = maps:get(unique_port, Opts, false),
-            ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs,
-                                      UniqueSession, UniquePort),
-            case gen_tcp:connect(IP, Port, Options, ConnectTimeout) of
-                {ok, Socket} ->
-                    case libp2p_transport:start_client_session(TID, Addr, new_connection(Socket)) of
-                        {ok, SessionPid} ->
-                            libp2p_session:identify(SessionPid, TCPPid, SessionPid),
-                            {ok, SessionPid};
-                        {error, Reason} -> {error, Reason}
-                    end;
-                {error, Error} ->
-                    {error, Error}
-            end;
-        {error, Reason} -> {error, Reason}
-    end.
-
-
-connect_options(Type, Opts, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->
-    [Type | Opts];
-connect_options(Type, Opts, _, _, false, _UniquePort) when Type /= inet ->
-    [Type | Opts];
-connect_options(Type, Opts, _, _, false, UniquePort) when UniquePort == true ->
-    [Type, {reuseaddr, true} | Opts];
-connect_options(Type, Opts, Addr, ListenAddrs, false, false) ->
-    MAddr = multiaddr:new(Addr),
-    [Type, {reuseaddr, true}, reuseport_raw_option(), {port, find_matching_listen_port(MAddr, ListenAddrs)} | Opts].
 
 find_matching_listen_port(_Addr, []) ->
     0;
@@ -570,7 +379,7 @@ find_matching_listen_port(Addr, [H|ListenAddrs]) ->
     ListenProtocols = [ element(1, T) || T <- multiaddr:protocols(ListenAddr)],
     case ConnectProtocols == ListenProtocols of
         true ->
-            {_, Port, _, _} = tcp_addr(ListenAddr),
+            {_, Port} = tcp_addr(ListenAddr),
             Port;
         false ->
             find_matching_listen_port(Addr, ListenAddrs)
@@ -601,6 +410,29 @@ tcp_listen_addrs(Socket) ->
     end.
 
 
+to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
+    Prefix  = case size(IP) of
+                  4 -> "/ip4";
+                  8 -> "/ip6"
+              end,
+    lists:flatten(io_lib:format("~s/~s/tcp/~b", [Prefix, inet:ntoa(IP), Port ])).
+
+from_multiaddr(Addr) ->
+    case (catch multiaddr:protocols(Addr)) of
+        [{AddrType, Address}, {"tcp", PortStr}] ->
+            Port = list_to_integer(PortStr),
+            case AddrType of
+                "ip4" ->
+                    {ok, IP} = inet:parse_ipv4_address(Address),
+                    {ok, {IP, Port}};
+                "ip6" ->
+                    {ok, IP} = inet:parse_ipv6_address(Address),
+                    {ok, {IP, Port}}
+            end;
+        _ ->
+            {error, {invalid_address, Addr}}
+    end.
+
 get_non_local_addrs() ->
     {ok, IFAddrs} = inet:getifaddrs(),
     [
@@ -624,27 +456,27 @@ filter_ipv6(Addr) ->
     erlang:size(Addr) == 8
         andalso erlang:element(1, Addr) == 16#fe80.
 
+
+ip_addr_type(IP) ->
+    case size(IP) of
+        4 -> inet;
+        8 -> inet6
+    end.
+
 tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
     Port = list_to_integer(PortStr),
     case AddrType of
         "ip4" ->
             {ok, IP} = inet:parse_ipv4_address(Address),
-            {IP, Port, inet, []};
+            {IP, Port};
         "ip6" ->
             {ok, IP} = inet:parse_ipv6_address(Address),
-            {IP, Port, inet6, [{ipv6_v6only, true}]};
+            {IP, Port};
         _ -> {error, {unsupported_address, Addr}}
     end;
 tcp_addr(Addr, _Protocols) ->
     {error, {unsupported_address, Addr}}.
 
-
-to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
-    Prefix  = case size(IP) of
-                  4 -> "/ip4";
-                  8 -> "/ip6"
-              end,
-    lists:flatten(io_lib:format("~s/~s/tcp/~b", [Prefix, inet:ntoa(IP), Port ])).
 
 
 %% Internal: Discover/Stun

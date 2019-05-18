@@ -25,7 +25,8 @@
                 stream_id :: libp2p_stream_mplex:stream_id(),
                 close_state=undefined :: read | write | undefined,
                 mod :: atom(),
-                mod_state :: any()
+                mod_state :: any(),
+                mod_base_opts=#{} :: map()
                }).
 
 %% API
@@ -52,27 +53,31 @@ handle_reset(Pid) ->
     gen_server:cast(Pid, handle_reset).
 
 
-start_link(Kind, Opts=#{send_fn := _SendFun}) ->
-    libp2p_stream_transport:start_link(?MODULE, Kind, Opts#{}).
+start_link(Kind, Opts) ->
+    libp2p_stream_transport:start_link(?MODULE, Kind, Opts).
 
-init(Kind, Opts=#{stream_id := StreamID, mod := Mod, addr_info := AddrInfo, muxer := Muxer}) ->
+init(Kind, Opts=#{stream_id := StreamID, mod := Mod, addr_info := AddrInfo, muxer := Muxer, send_fn := SendFun}) ->
     libp2p_stream_transport:stream_stack_update(Mod, Kind),
     libp2p_stream_transport:stream_addr_info_update(AddrInfo),
     libp2p_stream_transport:stream_muxer_update(Muxer),
     ModOpts = maps:get(mod_opts, Opts, #{}),
+    ModBaseOpts = #{
+                    send_fn => SendFun
+                   },
     MakeState = fun(ModState) ->
                         #state{mod=Mod,
                                stream_id=StreamID,
+                               mod_base_opts=ModBaseOpts,
                                mod_state=ModState,
                                kind=Kind}
                 end,
-    case Mod:init(Kind, ModOpts) of
+    case Mod:init(Kind, maps:merge(ModOpts, ModBaseOpts)) of
         {ok, ModState, Actions} ->
-            {ok, MakeState(ModState), Actions};
+            {ok, MakeState(ModState), [{send_fn, SendFun} | Actions]};
         {stop, Reason} ->
             {stop, Reason};
         {stop, Reason, ModState, Actions} ->
-            {stop, Reason, MakeState(ModState), Actions}
+            {stop, Reason, MakeState(ModState), [{send_fn, SendFun} | Actions]}
     end.
 
 handle_call(stream_close_state, _From, State=#state{}) ->
@@ -212,7 +217,7 @@ handle_action(swap_kind, State=#state{kind=client}) ->
 handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     %% In a swap we ignore any furhter actions in the action list
     libp2p_stream_transport:stream_stack_replace(State#state.mod, Mod, State#state.kind),
-    case Mod:init(State#state.kind, ModOpts) of
+    case Mod:init(State#state.kind, maps:merge(ModOpts, State#state.mod_base_opts)) of
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
         {stop, Reason} ->

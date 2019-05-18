@@ -8,8 +8,8 @@
 -callback accept_stream_gossip(State::any(), Muxer::pid() | undefined, Stream::pid()) -> ok | {error, term()}.
 
 %% API
--export([encode/2]).
-%% libp2p_framed_stream
+-export([encode/2, protocol_id/0]).
+%% libp2p_stream
 -export([init/2,
          handle_packet/4,
          handle_info/3]).
@@ -23,6 +23,9 @@
 
 %% API
 %%
+protocol_id() ->
+    <<"gossip/1.0.0">>.
+
 encode(Key, Data) ->
     Msg = #libp2p_gossip_frame_pb{key=Key, data=Data},
     libp2p_gossip_pb:encode_msg(Msg).

@@ -214,7 +214,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
 handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     Client = libp2p_relay_bridge:client(Bridge),
     lager:debug("Server got a bridge request dialing Client ~s", [Client]),
-    case libp2p_relay:dial_framed_stream(Swarm, Client, [{type, {bridge_sc, Bridge}}]) of
+    case libp2p_relay:dial(Swarm, Client, #{type => {bridge_sc, Bridge}}) of
         {ok, _} ->
             {noreply, State};
         {error, _} ->

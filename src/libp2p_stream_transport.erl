@@ -2,37 +2,42 @@
 
 -behavior(gen_server).
 
+-type action() :: libp2p_stream:action() |
+                  {send_fn, send_fn()}.
+-type actions() :: [action()].
+
 -type init_result() ::
-        {ok, State::any(), libp2p_stream:actions()} |
+        {ok, State::any()} |
+        {ok, State::any(), actions()} |
         {stop, Reason::term()} |
-        {stop, Reason::term(), State::any(), libp2p_stream:actions()}.
+        {stop, Reason::term(), State::any(), actions()}.
 -type handle_call_result() ::
         {reply, Reply::term(), NewState::any()} |
         {reply, Reply::term(), NewState::any(), {continue, Continue::term()}} |
-        {reply, Reply::term(), NewState::any(), libp2p_stream:actions()} |
+        {reply, Reply::term(), NewState::any(), actions()} |
         {noreply, NewState::any()} |
         {noreply, NewState::any(), {continue, Continue::term()}} |
-        {noreply, NewState::any(), libp2p_stream:actions()} |
+        {noreply, NewState::any(), actions()} |
         {stop, Reason::any(), NewState::any()} |
-        {stop, Reason::any(), NewState::any(), libp2p_stream:actions()}.
+        {stop, Reason::any(), NewState::any(), actions()}.
 -type handle_cast_result() ::
         {noreply, NewState::any()} |
         {noreply, NewState::any(), {continue, Continue::term()}} |
         {noreply, NewState::any(), libp2p_stream:actions()} |
         {stop, Reason::any(), NewState::any()} |
-        {stop, Reason::any(), NewState::any(), libp2p_stream:actions()}.
+        {stop, Reason::any(), NewState::any(), actions()}.
 -type handle_info_result() ::
         {noreply, NewState::any()} |
         {noreply, NewState::any(), {continue, Continue::term()}} |
-        {noreply, NewState::any(), libp2p_stream:actions()} |
+        {noreply, NewState::any(), actions()} |
         {stop, Reason::any(), NewState::any()} |
-        {stop, Reason::any(), NewState::any(), libp2p_stream:actions()}.
+        {stop, Reason::any(), NewState::any(), actions()}.
 -type handle_continue_result() :: handle_info_result().
 -type handle_packet_result() :: handle_info_result().
 -type handle_action_result() ::
         {ok, NewState::any()} |
-        {action, libp2p_stream:action(), NewState::any()} |
-        {replace, libp2p_stream:actions(), NewState::any()}.
+        {action, action(), NewState::any()} |
+        {replace, actions(), NewState::any()}.
 -export_type([init_result/0,
               handle_call_result/0,
               handle_cast_result/0,
@@ -75,13 +80,13 @@
          terminate/2]).
 
 -record(state, {
-                send_pid :: pid(),
+                send_pid=undefined :: undefined | pid(),
                 %% packet_spec is used on receive only
                 packet_spec=undefined :: libp2p_packet:spec() | undefined,
                 active=false :: libp2p_stream:active(),
                 timers=#{} :: #{Key::term() => Timer::reference()},
                 mod :: atom(),
-                mod_state :: any(),
+                mod_state=undefined :: any(),
                 data= <<>> :: binary()
                }).
 
@@ -139,28 +144,22 @@ stream_muxer_update(Pid) when is_pid(Pid) ->
 
 -spec init({atom(), libp2p_stream:kind(), Opts::map()}) -> {stop, Reason::any()} |
                                                            {ok, #state{}}.
-init({Mod, Kind, Opts=#{send_fn := SendFun}}) ->
+init({Mod, Kind, Opts}) ->
     stream_stack_update(Mod, Kind),
-    SendPid = spawn_link(mk_async_sender(SendFun)),
-    State = #state{mod=Mod, mod_state=undefined, send_pid=SendPid},
+    State = #state{mod=Mod, mod_state=undefined},
     Result = Mod:init(Kind, Opts),
     handle_init_result(Result, State).
 
 -spec handle_init_result(init_result(), #state{}) -> {stop, Reason::any()} | {ok, #state{}}.
+handle_init_result({ok, ModState}, State=#state{})  ->
+    handle_init_result({ok, ModState, []}, State);
 handle_init_result({ok, ModState, Actions}, State=#state{}) when is_list(Actions) ->
-    case proplists:is_defined(packet_spec, Actions) of
-        false ->
-            handle_init_result({stop, {error, missing_packet_spec}}, State);
-        true ->
-            {ok, handle_actions(Actions, State#state{mod_state=ModState})}
-    end;
+    {ok, handle_actions(Actions, State#state{mod_state=ModState})};
 handle_init_result({stop, Reason}, #state{}) ->
     {stop, Reason};
 handle_init_result({stop, Reason, ModState, Actions}, State=#state{}) ->
     handle_actions(Actions, State#state{mod_state=ModState}),
-    {stop, Reason};
-handle_init_result(Result, #state{}) ->
-    {stop, {invalid_init_result, Result}}.
+    {stop, Reason}.
 
 
 -spec handle_call(Cmd::term(), From::term(), #state{}) -> {reply, any(), #state{}} |
@@ -269,13 +268,15 @@ handle_continue(Msg, State=#state{mod=Mod}) ->
     end.
 
 -spec terminate(Reason::term(), State::#state{}) -> any().
-terminate(Reason, State=#state{mod=Mod, send_pid=SendPid}) ->
+terminate(Reason, State=#state{send_pid=SendPid}) when SendPid /= undefined ->
     SendPid ! stop,
     receive
         sender_stopped -> ok
     after ?ASYNC_SENDER_STOP_TIMEOUT ->
             lager:debug("Async sender may not have sent all data")
     end,
+    terminate(Reason, State#state{send_pid=undefined});
+terminate(Reason, State=#state{mod=Mod}) ->
     case erlang:function_exported(Mod, terminate, 2) of
         true -> Mod:terminate(Reason, State#state.mod_state);
         false -> ok
@@ -309,9 +310,16 @@ dispatch_packets(State=#state{data=Data, mod=Mod}) ->
     end.
 
 
--spec handle_actions(libp2p_stream:actions(), #state{}) -> #state{}.
+-spec handle_actions(actions(), #state{}) -> #state{}.
 handle_actions([], State=#state{}) ->
     State;
+handle_actions([{send_fn, SendFun} | Tail], State=#state{}) ->
+    case State#state.send_pid of
+        undefined -> ok;
+        CurrentSendPid -> exit(CurrentSendPid, normal)
+    end,
+    SendPid = spawn_link(mk_async_sender(SendFun)),
+    handle_actions(Tail, State#state{send_pid=SendPid});
 handle_actions([Action | Tail], State=#state{mod=Mod}) ->
     case Mod:handle_action(Action, State#state.mod_state) of
         {ok, ModState} ->

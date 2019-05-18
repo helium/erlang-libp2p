@@ -10,6 +10,8 @@
 
 -export_type([opts/0]).
 
+-define(DEFAULT_CONNECT_TIMEOUT, 5000).
+
 %%% libp2p_stream_transport
 -export([start_link/2,
          init/2,
@@ -29,11 +31,12 @@
 -record(state, {
                 kind :: libp2p_stream:kind(),
                 active=false :: libp2p_stream:active(),
-                socket :: gen_tcp:socket(),
-                listen_socket_monitor :: reference(),
+                socket=undefined :: undefined | gen_tcp:socket(),
+                listen_socket_monitor=make_ref() :: reference(),
                 socket_active=false :: libp2p_stream:active(),
                 mod :: atom(),
-                mod_state :: any(),
+                mod_state=undefined :: any(),
+                mod_base_opts=#{} :: map(),
                 data= <<>> :: binary()
                }).
 
@@ -45,7 +48,7 @@ addr_info(Pid) when is_pid(Pid) ->
 addr_info(Sock) ->
     {ok, LocalAddr} = inet:sockname(Sock),
     {ok, RemoteAddr} = inet:peername(Sock),
-    {to_multiaddr(LocalAddr), to_multiaddr(RemoteAddr)}.
+    {libp2p_transport_tcp:to_multiaddr(LocalAddr), libp2p_transport_tcp:to_multiaddr(RemoteAddr)}.
 
 
 %% acceptor callbacks
@@ -62,49 +65,24 @@ acceptor_continue(_PeerName, Sock, Opts) ->
 acceptor_terminate(_Reason, _) ->
     exit(normal).
 
-start_link(Kind, Opts=#{socket := _Sock, send_fn := _SendFun}) ->
-    libp2p_stream_transport:start_link(?MODULE, Kind, Opts);
-start_link(Kind, Opts=#{socket := Sock}) ->
-    start_link(Kind, Opts#{send_fn => mk_send_fn(Sock)}).
+start_link(Kind, Opts) ->
+    libp2p_stream_transport:start_link(?MODULE, Kind, Opts).
 
 -spec init(libp2p_stream:kind(), Opts::opts()) -> libp2p_stream_transport:init_result().
-init(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, handler_fn := HandlerFun}) ->
+init(Kind, Opts=#{handler_fn := HandlerFun}) ->
     init(Kind, maps:remove(handler_fn, Opts#{ handlers => HandlerFun() }));
-init(Kind, Opts=#{socket := _Sock, send_fn := _SendFun, handlers := Handlers}) ->
+init(Kind, Opts=#{handlers := Handlers}) ->
     ModOpts = maps:get(mod_opts, Opts, #{}),
     NewOpts = Opts#{ mod => libp2p_stream_multistream,
                      mod_opts => maps:merge(ModOpts, #{ handlers => Handlers})
                    },
     init(Kind, maps:remove(handlers, NewOpts));
-init(Kind, Opts=#{socket := Sock, mod := Mod, send_fn := SendFun}) ->
+init(Kind, Opts=#{mod := Mod}) ->
     erlang:process_flag(trap_exit, true),
     libp2p_stream_transport:stream_stack_update(Mod, Kind),
-    libp2p_stream_transport:stream_addr_info_update(addr_info(Sock)),
-    case Kind of
-        server -> ok;
-        client ->
-            ok = inet:setopts(Sock, [binary,
-                                     {nodelay, true},
-                                     {active, false},
-                                     {packet, raw}])
-    end,
-    ModOpts = maps:get(mod_opts, Opts, #{}),
-    ListenSocketMonitor = maps:get(listen_socket_monitor, Opts, undefined),
-    MkState = fun(ModState) ->
-                      #state{mod=Mod,
-                             mod_state=ModState,
-                             socket=Sock,
-                             listen_socket_monitor=ListenSocketMonitor,
-                             kind=Kind}
-              end,
-    case Mod:init(Kind, ModOpts#{send_fn => SendFun}) of
-        {ok, ModState, Actions} ->
-            {ok, MkState(ModState), Actions};
-        {stop, Reason} ->
-            {stop, Reason};
-        {stop, Reason, ModState, Actions} ->
-            {stop, Reason, MkState(ModState), Actions}
-    end.
+    self() ! {init_mod, Opts},
+    {ok, #state{mod=Mod, kind=Kind}}.
+
 
 handle_call(stream_addr_info, _From, State=#state{}) ->
     {reply, libp2p_stream_transport:stream_addr_info(), State};
@@ -132,7 +110,70 @@ handle_command_result({noreply, ModState}, State=#state{}) ->
 handle_command_result({noreply, ModState, Actions}, State=#state{}) ->
     {noreply, State#state{mod_state=ModState}, Actions}.
 
+handle_info({init_mod, Opts=#{ socket := Sock }}, State=#state{mod=Mod, kind=Kind}) ->
+    libp2p_stream_transport:stream_addr_info_update(addr_info(Sock)),
+    case Kind of
+        server -> ok;
+        client ->
+            ok = inet:setopts(Sock, [binary,
+                                     {nodelay, true},
+                                     {active, false},
+                                     {packet, raw}])
+    end,
+    SendFun = maps:get(send_fn, Opts, mk_send_fn(Sock)),
+    ModOpts = maps:get(mod_opts, Opts, #{}),
+    ModBaseOpts = #{ send_fn => SendFun,
+                     stream_handler => maps:get(stream_handler, Opts, undefined)
+                   },
+    ListenSocketMonitor = maps:get(listen_socket_monitor, Opts, undefined),
+    MkState = fun(ModState) ->
+                      State#state{mod_state=ModState,
+                                  socket=Sock,
+                                  mod_base_opts=ModBaseOpts,
+                                  listen_socket_monitor=ListenSocketMonitor}
+              end,
+    case Mod:init(Kind, maps:merge(ModOpts, ModBaseOpts)) of
+        {ok, ModState, Actions} ->
+            {noreply, MkState(ModState), [{send_fn, SendFun} | Actions]};
+        {stop, Reason} ->
+            {stop, Reason, State};
+        {stop, Reason, ModState, Actions} ->
+            {stop, Reason, MkState(ModState), [{send_fn, SendFun} | Actions]}
+    end;
+handle_info({init_mod, Opts=#{ ip := IP, port := Port }}, State=#state{kind=client}) ->
+    ConnectTimeout = maps:get(connect_timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
+    UniqueSession = maps:get(unique_session, Opts, false),
+    HasFromPort = maps:is_key(from_port, Opts),
+    BaseOpts = [binary,
+                {nodelay, true},
+                {active, false},
+                {packet, raw}],
+    AddrOpts = case libp2p_transport_tcp:ip_addr_type(IP) == inet of
+                      true ->
+                       %% TODO: ipv6 address and port reuse is not quite implemented yet
+                       [inet] ++
+                           [{reuseaddr, true} || not UniqueSession] ++
+                           [libp2p_transport_tcp:reuseport_raw_option() || not UniqueSession andalso HasFromPort] ++
+                           [{port, maps:get(from_port, Opts)} || not UniqueSession, HasFromPort];
+                   false ->
+                       [inet6, {ipv6_v6only, true}]
+               end,
+    case gen_tcp:connect(IP, Port, BaseOpts ++ AddrOpts, ConnectTimeout) of
+        {ok, Socket} ->
+            handle_info({init_mod, Opts#{socket => Socket}}, State);
+        {error, Error} ->
+            maybe_notify_connect_hanler({error, Error}, Opts),
+            {stop, {error, Error}, State}
+    end;
 
+handle_info({init_mod, Opts=#{ addr := Addr }}, State=#state{kind=client}) ->
+    case libp2p_transport_tcp:from_multiaddr(Addr) of
+        {ok, {IP, Port}} ->
+            handle_info({init_mod, maps:remove(addr, Opts#{ ip => IP, port => Port})}, State);
+        {error, Error} ->
+            maybe_notify_connect_hanler({error, Error}, Opts),
+            {stop, {error, Error}, State}
+    end;
 handle_info({tcp, Sock, Incoming}, State=#state{socket=Sock}) ->
     {noreply, State, {continue, {packet, Incoming}}};
 handle_info({tcp_closed, Sock}, State=#state{socket=Sock}) ->
@@ -178,8 +219,13 @@ handle_info_result(Other, State=#state{}, _PreActions) ->
     {stop, {error, {invalid_handle_info_result, Other}}, State}.
 
 
-terminate(_Reason, State=#state{}) ->
-    gen_tcp:close(State#state.socket).
+terminate(_Reason, State=#state{socket=Socket}) ->
+    case Socket of
+        undefined ->
+            ok;
+        _ ->
+            gen_tcp:close(State#state.socket)
+    end.
 
 
 -spec handle_action(libp2p_stream:action(), #state{}) ->
@@ -222,7 +268,7 @@ handle_action(swap_kind, State=#state{kind=client}) ->
 handle_action({swap, Mod, ModOpts}, State=#state{}) ->
     %% In a swap we ignore any furhter actions in the action list and
     libp2p_stream_transport:stream_stack_replace(State#state.mod, Mod, State#state.kind),
-    case Mod:init(State#state.kind, ModOpts) of
+    case Mod:init(State#state.kind, maps:merge(ModOpts, State#state.mod_base_opts)) of
         {ok, ModState, Actions} ->
             {replace, Actions, State#state{mod_state=ModState, mod=Mod}};
         {stop, Reason} ->
@@ -239,14 +285,14 @@ handle_action(Action, State) ->
 %% Utilities
 %%
 
+maybe_notify_connect_hanler(Notice, Opts) ->
+    case maps:get(stream_handler, Opts, undefined) of
+        undefined -> ok;
+        {Handler, HandlerState} ->
+            Handler ! {stream_error, HandlerState, Notice}
+    end.
+
 mk_send_fn(Sock) ->
     fun(Data) ->
             gen_tcp:send(Sock, Data)
     end.
-
-to_multiaddr({IP, Port}) when is_tuple(IP) andalso is_integer(Port) ->
-    Prefix  = case size(IP) of
-                  4 -> "/ip4";
-                  8 -> "/ip6"
-              end,
-    lists:flatten(io_lib:format("~s/~s/tcp/~b", [Prefix, inet:ntoa(IP), Port ])).

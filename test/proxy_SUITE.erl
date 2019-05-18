@@ -90,12 +90,12 @@ basic(_Config) ->
     [ProxyAddress|_] = libp2p_swarm:listen_addrs(ProxySwarm),
 
     % NAT fails so A dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, ProxyAddress, []),
+    {ok, _} = libp2p_relay:dial(ServerSwarm, ProxyAddress, #{}),
     % Waiting for connection
     timer:sleep(2000),
 
     % NAT fails so B dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(ClientSwarm, ProxyAddress, []),
+    {ok, _} = libp2p_relay:dial(ClientSwarm, ProxyAddress, #{}),
     % Waiting for connection
     % Wait for a relay address to be provided
     ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ServerSwarm) end),
@@ -196,13 +196,13 @@ two_proxy(_Config) ->
     [ProxyAddress|_] = libp2p_swarm:listen_addrs(ProxySwarm),
 
     % NAT fails so A dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, ProxyAddress, []),
+    {ok, _} = libp2p_relay:dial(ServerSwarm, ProxyAddress, #{}),
 
     % NAT fails so B dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(Client1Swarm, ProxyAddress, []),
+    {ok, _} = libp2p_relay:dial(Client1Swarm, ProxyAddress, #{}),
 
     % NAT fails so C dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(Client2Swarm, ProxyAddress, []),
+    {ok, _} = libp2p_relay:dial(Client2Swarm, ProxyAddress, #{}),
 
     % Waiting for connection
     timer:sleep(2000),

@@ -4,14 +4,19 @@
 
 -callback start_link(ets:tab()) -> {ok, pid()} | ignore | {error, term()}.
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
--callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
+-callback connect(Transport::pid(), MAddr::string(), Opts::map(), TID::ets:tab()) -> {ok, pid()} | {error, term()}.
 -callback match_addr(string(), ets:tab()) -> {ok, string()} | false.
 -callback sort_addrs([string()]) -> [string()].
 
 
 -export_type([connection_handler/0]).
--export([start_link/2, for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
-         start_client_session/3, start_server_session/2]).
+-export([start_link/2,
+         for_addr/2,
+         sort_addrs/2,
+         connect/3,
+         find_session/3,
+         start_client_session/3,
+         start_server_session/2]).
 
 
 start_link(TransportMod, TID) ->
@@ -44,9 +49,7 @@ for_addr(TID, Addr) ->
                     Priority = Transport:priority(),
                     [{Priority, Matched, {Transport, Pid}}|Acc]
             end
-        end
-        ,[]
-        ,libp2p_config:lookup_transports(TID)
+        end, [], libp2p_config:lookup_transports(TID)
     ),
 
     case lists:sort(Matches) of
@@ -75,21 +78,18 @@ sort_addrs(TID, Addrs) ->
     lists:foldl(
         fun(Elements, Acc) ->
             Acc ++ [E || E <- Elements, not lists:member(E, Acc)]
-        end
-        ,[]
-        ,SortedAddrLists
+        end, [], SortedAddrLists
     ).
 
 
 %% @doc Connect through a transport service. This is a convenience
 %% function that verifies the given multiaddr, finds the right
-%% transport, and checks if a session already exists for the given
-%% multiaddr. The existing session is returned if it already exists,
-%% or a `connect' call is made to transport service to perform the
-%% actual connect.
--spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
-                -> {ok, pid()} | {error, term()}.
-connect_to(Addr, Options, Timeout, TID) ->
+%% transport, and checks if a multiplex session already exists for the
+%% given multiaddr. The existing session is returned if it already
+%% exists, or a `dial' call is made to transport service to perform
+%% the actual connect.
+-spec connect(string(), Opts::map(), ets:tab()) -> {ok, pid()} | {error, term()}.
+connect(Addr, Options, TID) ->
     case libp2p_swarm:is_stopping(TID) of
         true -> {error, stopping};
         false ->
@@ -105,7 +105,7 @@ connect_to(Addr, Options, Timeout, TID) ->
                             case for_addr(TID, Addr) of
                                 {ok, ConnAddr, {Transport, TransportPid}} ->
                                     lager:debug("~p connecting to ~p", [Transport, ConnAddr]),
-                                    try Transport:connect(TransportPid, ConnAddr, Options, Timeout, TID) of
+                                    try Transport:connect(TransportPid, ConnAddr, Options, TID) of
                                         {error, Error} -> {error, Error};
                                         {ok, SessionPid} -> {ok, SessionPid}
                                     catch

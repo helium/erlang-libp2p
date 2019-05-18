@@ -8,7 +8,7 @@
     ,match_addr/2
     ,sort_addrs/1
     ,priority/0
-    ,connect/5
+    ,connect/4
 ]).
 
 %% ------------------------------------------------------------------
@@ -45,12 +45,11 @@ sort_addrs(Addrs) ->
 -spec priority() -> integer().
 priority() -> 1.
 
--spec connect(pid(), string(), libp2p_swarm:connect_opts()
-              ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
-connect(Pid, MAddr, Options, Timeout, TID) ->
+-spec connect(Transport::pid(), MAddr::string(), Opts::map(), TID::ets:tab()) -> {ok, pid()} | {error, term()}.
+connect(Pid, MAddr, Options, TID) ->
     Swarm = libp2p_swarm:swarm(TID),
     ListenAddresses = libp2p_swarm:listen_addrs(Swarm),
-    case proplists:get_value(no_relay, Options, false) of
+    case maps:get(no_relay, Options, false) of
         true ->
             {error, relay_not_allowed};
         false ->
@@ -68,9 +67,9 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
                 true ->
                     case has_p2p_circuit(ListenAddresses) of
                         false ->
-                            connect_to(Pid, MAddr, Options, Timeout, TID);
+                            connect_to(Pid, MAddr, Options, TID);
                         true ->
-                            libp2p_transport_proxy:connect(Pid, MAddr, [no_relay|Options], Timeout, TID)
+                            libp2p_transport_proxy:connect(Pid, MAddr, Options#{no_relay => true}, TID)
                     end
             end
     end.
@@ -78,22 +77,17 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec connect_to(pid(), string(), libp2p_swarm:connect_opts()
-                 ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
-connect_to(_Pid, MAddr, Options, Timeout, TID) ->
+-spec connect_to(Transport::pid(), MAddr::string(), Opts::map(), ets:tab()) -> {ok, pid()} | {error, term()}.
+connect_to(_Pid, MAddr, Options, TID) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
     true = libp2p_relay:reg_addr_sessions(SAddress, self()),
     lager:info("init relay with ~p", [[MAddr, RAddress, SAddress]]),
-    case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
+    case libp2p_transport:connect(RAddress, Options, TID) of
         {error, _Reason}=Error ->
             Error;
         {ok, SessionPid} ->
             Swarm = libp2p_swarm:swarm(TID),
-            {ok, _} = libp2p_relay:dial_framed_stream(
-                Swarm
-                ,RAddress
-                ,[{type, {bridge_cr, MAddr}}]
-            ),
+            {ok, _} = libp2p_relay:dial(Swarm, RAddress , #{type => {bridge_cr, MAddr}}),
             receive
                 {sessions, [SessionPid2|_]=Sessions} ->
                     lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),

@@ -3,9 +3,6 @@
 -behaviour(gen_statem).
 -behavior(libp2p_info).
 
--type stream_client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
--export_type([stream_client_spec/0]).
-
 %% API
 -export([start_link/4, start_link/5,
          assign_target/2, clear_target/1,
@@ -29,7 +26,7 @@
 -define(MIN_TARGETING_RETRY_TIMEOUT, 1000).
 -define(MAX_TARGETING_RETRY_TIMEOUT, 10000).
 
--type target() :: {MAddr::string(), Spec::stream_client_spec()}.
+-type target() :: {MAddr::string(), Spec::libp2p_stream_multistream:handler()}.
 
 -record(data,
         { tid :: ets:tab(),

@@ -38,6 +38,8 @@
          decode_line/1, decode_lines/1]).
 
 
+init(Kind, Opts=#{handler_fn := HandlerFun}) ->
+    init(Kind, maps:remove(handler_fn, Opts#{ handlers => HandlerFun()}));
 init(server, Opts=#{handlers := Handlers}) when is_list(Handlers), length(Handlers) > 0 ->
     NegotiationTime = maps:get(negotiation_timeout, Opts, ?DEFAULT_NEGOTIATION_TIME),
     {ok, #state{fsm_state=handshake, handlers=Handlers, negotiation_timeout=NegotiationTime},

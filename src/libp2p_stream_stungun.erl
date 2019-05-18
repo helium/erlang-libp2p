@@ -1,29 +1,38 @@
 -module(libp2p_stream_stungun).
 
--behavior(libp2p_framed_stream).
+-behavior(libp2p_stream).
 
 -type txn_id() :: non_neg_integer().
 -export_type([txn_id/0]).
 
 %% API
--export([mk_stun_txn/0, dial/5]).
-%% libp2p_framed_stream
--export([client/2, server/4, init/3, handle_data/3]).
+-export([protocol_id/0, mk_stun_txn/0, dial/5]).
+%% libp2p_stream
+-export([init/2, handle_packet/4, handle_info/3]).
 
 -define(OK, <<0:8/integer-unsigned>>).
 -define(RESTRICTED_NAT, <<1:8/integer-unsigned>>).
 -define(PORT_RESTRICTED_NAT, <<2:8/integer-unsigned>>).
 -define(SYMMETRIC_NAT, <<3:8/integer-unsigned>>).
 -define(FAILED, <<4:8/integer-unsigned>>).
+-define(PACKET(P), libp2p_packet:encode_packet([u8], 1, P)).
 
 -record(client_state, {
           txn_id :: binary(),
           handler :: pid()
          }).
 
+-record(server_state, {
+                       state :: dial_verify,
+                       observed_addr :: string()
+                      }).
+
 %%
 %% API
 %%
+
+protocol_id() ->
+    <<"stungun/1.0.0">>.
 
 -spec mk_stun_txn() -> {string(), txn_id()}.
 mk_stun_txn() ->
@@ -39,28 +48,20 @@ dial(TID, PeerAddr, PeerPath, TxnID, Handler) ->
 %% libp2p_framed_stream
 %%
 
-client(Connection, Args) ->
-    libp2p_framed_stream:client(?MODULE, Connection, Args).
-
-server(Connection, Path, _TID, Args) ->
-    libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
-
-init(client, _Connection, [TxnID, Handler]) ->
-    {ok, #client_state{txn_id=TxnID, handler=Handler}};
-init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
-    {ok, SessionPid} = libp2p_connection:session(Connection),
-    {_, ObservedAddr} = libp2p_connection:addr_info(Connection),
+init(client, #{ txn_id :=  TxnID, handler :=  Handler}) ->
+    {ok, #client_state{txn_id=TxnID, handler=Handler},
+    [{active, once},
+     {packet_spec, [u8]}]};
+init(server, #{ path := "/dial/"++TxnID, tid := TID }) ->
+    SessionPid = libp2p_stream_transport:stream_muxer(),
+    {_, ObservedAddr} = libp2p_stream_transport:stream_addr_info(),
     %% first, try with the unique dial option, so we can check if the
     %% peer has Full Cone or Restricted Cone NAT
-    ReplyPath = reply_path(TxnID),
     lager:debug("stungun attempting dial back with unique session and port to ~p", [ObservedAddr]),
     [{"ip4", IP}, {"tcp", PortStr}] = multiaddr:protocols(ObservedAddr),
-    %case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath,
-                           %[{unique_session, true}, {unique_port, true}], 5000) of
     case gen_tcp:connect(IP, list_to_integer(PortStr), [binary, {active, false}], 5000) of
         {ok, C} ->
             lager:debug("successfully dialed ~p using unique session/port", [ObservedAddr]),
-            %libp2p_connection:close(C),
             gen_tcp:close(C),
             %% ok they have full-cone or restricted cone NAT without
             %% trying from an unrelated IP we can't distinguish Find
@@ -70,34 +71,28 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
                 {ok, VerifierAddr} ->
                     lager:debug("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
-                    case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
-                        {ok, VC} ->
-                            lager:debug("verifier dial suceeded for ~p", [ObservedAddr]),
-                            %% Read the response
-                            case libp2p_framed_stream:recv(VC, 5000) of
-                                {ok, ?OK} ->
-                                    lager:debug("verifier dial reported ok"),
-                                    %% Full cone or no restrictions on dialing back
-                                    {stop, normal, ?OK};
-                                {ok, ?FAILED} ->
-                                    lager:debug("verifier dial reported failure for ~p", [ObservedAddr]),
-                                    %% Restricted cone
-                                    {stop, normal, ?RESTRICTED_NAT};
-                                {error, Reason} ->
-                                    lager:debug("verifier dial failed to respond for ~p : ~p", [ObservedAddr, Reason]),
-                                    %% Could not determine
-                                    {stop, normal, ?FAILED}
-                            end;
+                    case libp2p_muxer:dial(SessionPid,
+                                           #{ handlers => [{list_to_binary(VerifyPath),
+                                                            {?MODULE, #{ txn_id => TxnID,
+                                                                         handler => self()}}}]}) of
+                        {ok, _} ->
+                            {ok, #server_state{state=dial_verify, observed_addr=ObservedAddr},
+                            [ {active, once},
+                              {packet_spec, [u8]},
+                              {timer, dial_verify_timeout, 5000}]};
                         {error, Reason} ->
                             lager:debug("verifier dial failed for ~p : ~p", [ObservedAddr, Reason]),
-                            {stop, normal, ?FAILED}
+                            {stop, normal, undefined,
+                             [{send, ?PACKET(?FAILED)}]}
                     end;
                 {error, not_found} ->
                     lager:debug("no verifiers available for ~p", [ObservedAddr]),
-                    {stop, normal, ?FAILED}
+                    {stop, normal, undefined,
+                     [{send, ?PACKET(?FAILED)}]}
             end;
         {error, Reason} ->
             lager:debug("unique session/port dial failed: ~p, trying simple dial back", [Reason]),
+            ReplyPath = reply_path(TxnID),
             case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath, [{unique_session, true}], 5000) of
                 {ok, C2} ->
                     lager:debug("detected port restricted NAT for ~p", [ObservedAddr]),
@@ -111,11 +106,11 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
                     {stop, normal, ?SYMMETRIC_NAT}
             end
     end;
-init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
-    {LocalAddr, _} = libp2p_connection:addr_info(Connection),
+init(server, #{ path := "/reply/"++TxnID, handler := Handler}) ->
+    {LocalAddr, _} = libp2p_stream_transport:stream_addr_info(),
     Handler ! {stungun_reply, list_to_integer(TxnID), LocalAddr},
     {stop, normal};
-init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
+init(server, #{ path := "/verify/"++Info, handler := _Handler, tid := TID}) ->
     {TxnID, TargetAddr} = string:take(Info, "/", true),
     lager:debug("got verify request for ~p", [TargetAddr]),
     ReplyPath = reply_path(TxnID),
@@ -132,13 +127,32 @@ init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
             {stop, normal, ?FAILED}
     end.
 
-handle_data(client, Code, State=#client_state{txn_id=TxnID, handler=Handler}) ->
+
+handle_packet(client, _, Code, State=#client_state{txn_id=TxnID, handler=Handler}) ->
     {NatType, _Info} = to_nat_type(Code),
     Handler ! {stungun_nat, TxnID, NatType},
     {stop, normal, State};
 
-handle_data(server, _,  _) ->
+handle_packet(server, _, _,  _) ->
     {stop, normal, undefined}.
+
+%% Dial verify
+handle_info(server, {stungun_nat, _, none}, State=#server_state{state=dial_verify}) ->
+    lager:debug("verifier dial reported ok"),
+    %% Full cone or no restrictions on dialing back
+    {stop, normal, State,
+     [{send, ?PACKET(?OK)}]};
+handle_info(server, {stungun_nat, _, unknown}, State=#server_state{state=dial_verify}) ->
+    lager:debug("verifier dial reported failure for ~p", [State#server_state.observed_addr]),
+    %% Restricted cone
+    {stop, normal,
+     [{send, ?PACKET(?RESTRICTED_NAT)}]};
+handle_info(server, {timeout, dial_verify_timeout}, State=#server_state{state=dial_verify}) ->
+    lager:debug("verifier dial failed to respond for ~p : ~p", [State#server_state.observed_addr, timeout]),
+    %% Could not determine
+    {stop, normal,
+     [{send, ?PACKET(?FAILED)}]}.
+
 
 
 %%

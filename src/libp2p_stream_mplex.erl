@@ -57,7 +57,13 @@ encode_packet(StreamID, Kind, Flag, Data) ->
 
 %% libp2p_stream
 
-init(Kind, Opts=#{send_fn := _SendFun, handlers := Handlers}) ->
+init(Kind, Opts=#{handler_fn := HandlerFun}) ->
+    ModOpts = maps:get(mod_opts, Opts, #{}),
+    WorkerOpts = #{ mod => libp2p_stream_multistream,
+                    mod_opts => maps:merge(ModOpts, #{ handler_fn => HandlerFun})
+                  },
+    init(Kind, maps:remove(handler_fn, Opts#{ mod_opts => WorkerOpts}));
+init(Kind, Opts=#{handlers := Handlers}) ->
     ModOpts = maps:get(mod_opts, Opts, #{}),
     WorkerOpts = #{ mod => libp2p_stream_multistream,
                     mod_opts => maps:merge(ModOpts, #{ handlers => Handlers})
@@ -65,6 +71,11 @@ init(Kind, Opts=#{send_fn := _SendFun, handlers := Handlers}) ->
     init(Kind, maps:remove(handlers, Opts#{ mod_opts => WorkerOpts}));
 init(_Kind, Opts=#{send_fn := SendFun }) ->
     WorkerOpts = maps:get(mod_opts, Opts, #{}),
+    case maps:get(stream_handler, Opts, undefined) of
+        undefined -> ok;
+        {StreamHandler, StreamHandlerState} ->
+            StreamHandler ! {stream_muxer, StreamHandlerState, self()}
+    end,
     {ok, #state{
             max_received_workers=maps:get(max_received_streams, Opts, ?DEFAULT_MAX_RECEIVED_STREAMS),
             worker_opts=WorkerOpts#{send_fn => SendFun,

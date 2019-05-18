@@ -39,13 +39,14 @@ init({Sup, IP, Port, #{cache_dir := CacheDir}}) ->
     Filename = string:replace(string:slice(libp2p_transport_tcp:to_multiaddr({IP, Port}), 1) ++ ".cache",
                               "/", "_", all),
     CacheFile = filename:join([CacheDir, lists:flatten(Filename)]),
+    ok = filelib:ensure_dir(CacheFile),
     {ok, CacheName} = dets:open_file(make_ref(), [{file, CacheFile}]),
     ReusedPort = reuseport0(CacheName, IP, Port),
     ListenOptions = listen_options(IP),
     case gen_tcp:listen(ReusedPort, ListenOptions) of
         {ok, Socket} ->
             ListenAddrs = listen_addresses(Socket),
-            dets:insert(CacheName, {{listen_addrs, ip_address_type(IP)}, ListenAddrs}),
+            dets:insert(CacheName, {{listen_addrs, libp2p_transport_tcp:ip_addr_type(IP)}, ListenAddrs}),
             dets:close(CacheName),
             % acceptor could close the socket if there is a problem
             MRef = monitor(port, Socket),
@@ -88,7 +89,7 @@ terminate(_, {Socket, MRef}) ->
 
 -spec listen_options(inet:ip_address()) -> [gen_tcp:listen_option()].
 listen_options(IP) ->
-    InetOpts = case ip_address_type(IP) of
+    InetOpts = case libp2p_transport_tcp:ip_addr_type(IP) of
                    inet6 -> [inet6, {ipv6_v6only, true}];
                    _ -> [inet]
                end,
@@ -146,16 +147,10 @@ filter_ipv6(Addr) ->
     erlang:size(Addr) == 8
         andalso erlang:element(1, Addr) == 16#fe80.
 
-ip_address_type(IP) ->
-    case size(IP) of
-        4 -> inet;
-        8 -> inet6
-    end.
-
 -spec reuseport0(dets:tab_name(), inet:ip_address(), inet:port_number()) -> inet:port_number().
 reuseport0(CacheName, IP, 0) when IP == {0,0,0,0} orelse
                                   IP == {0,0,0,0,0,0,0,0} ->
-    case dets:lookup(CacheName, {listen_addrs, ip_address_type(IP)}) of
+    case dets:lookup(CacheName, {listen_addrs, libp2p_transport_tcp:ip_addr_type(IP)}) of
         [] -> 0;
         [{_, ListenAddrs} | _] ->
             Ports = [P ||  {_, P} <- ListenAddrs],
@@ -167,7 +162,7 @@ reuseport0(CacheName, IP, 0) when IP == {0,0,0,0} orelse
             end
     end;
 reuseport0(CacheName, IP, 0) ->
-    case dets:lookup(CacheName, {listen_addrs, ip_address_type(IP)}) of
+    case dets:lookup(CacheName, {listen_addrs, libp2p_transport_tcp:ip_addr_type(IP)}) of
         [] -> 0;
         [{_, ListenAddrs} | _] ->
             lists:foldl(

@@ -24,13 +24,22 @@ init([TID, SigFun]) ->
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_p2p),
     libp2p_swarm:add_transport_handler(TID, libp2p_transport_relay),
     % Register the default connection handler
-    libp2p_swarm:add_connection_handler(TID, "yamux/1.0.0", {{libp2p_yamux_session, start_server},
-                                                             {libp2p_yamux_session, start_client}}),
-    libp2p_swarm:add_connection_handler(TID, libp2p_proxy:version(), {{libp2p_proxy_session, start_server},
-                                                                      undefined}), %% no client side registration
+    StreamHandlerFun = fun() ->
+                               libp2p_config:lookup_stream_handlers(TID)
+                       end,
+    libp2p_swarm:add_connection_handler(TID, {libp2p_stream_mplex:protocol_id(),
+                                              {libp2p_stream_mplex, #{ handler_fn => StreamHandlerFun}}}),
+    %% libp2p_swarm:add_connection_handler(TID, libp2p_proxy:version(), {{libp2p_proxy_session, start_server},
+    %% %%                                                                   undefined}), %% no client side registra
+    %% tion
     % Register default stream handlers
-    libp2p_swarm:add_stream_handler(TID, "identify/1.0.0",
-                                    {libp2p_stream_identify, server, []}),
+    PeerFun = fun() ->
+                      {ok, Peer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID),
+                                                       libp2p_swarm:pubkey_bin(TID)),
+                      Peer
+              end,
+    libp2p_swarm:add_stream_handler(TID, {libp2p_stream_identify:protocol_id(),
+                                          {libp2p_stream_identify, #{peer_fn => PeerFun}}}),
 
     {ok, #state{tid=TID, sig_fun=SigFun}}.
 

@@ -82,7 +82,7 @@ libp2p_swarm:add_stream_handler(
 ### Node A
 
 ```
-{ok, _} = libp2p_relay:dial_framed_stream(ASwarm, "/ip4/172.20.0.3/tcp/6603/", []).
+{ok, _} = libp2p_relay:dial(ASwarm, "/ip4/172.20.0.3/tcp/6603/", #{}).
 ["/ip4/172.20.0.2/tcp/6602", "/ip4/172.20.0.3/tcp/6603/p2p-circuit/ip4/172.20.0.2/tcp/6602"] = libp2p_swarm:listen_addrs(ASwarm).
 
 ```

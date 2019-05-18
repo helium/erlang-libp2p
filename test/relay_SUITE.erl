@@ -96,7 +96,7 @@ basic(_Config) ->
         ,[]
     ),
     % NAT fails so A dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, RelayAddress, []),
+    {ok, _} = libp2p_relay:dial(ServerSwarm, RelayAddress, #{}),
 
     % Wait for a relay address to be provided
     ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ServerSwarm) end),
@@ -226,7 +226,7 @@ dead_peer(_Config) ->
         ,[]
     ),
     % NAT fails so A dials R to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, RelayAddress, []),
+    {ok, _} = libp2p_relay:dial(ServerSwarm, RelayAddress, #{}),
     % Wait for a relay address to be provided
     ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ServerSwarm) end),
 

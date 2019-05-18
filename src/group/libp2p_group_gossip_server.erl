@@ -41,7 +41,6 @@
 %% worker that comes in to ask.
 -define(DEFAULT_PEER_CACHE_TIMEOUT, 10 * 1000).
 -define(GROUP_ID, "gossip").
--define(GROUP_PATH, "gossip/1.0.0").
 
 %% API
 %%
@@ -136,7 +135,7 @@ handle_cast({send, Key, Data}, State=#state{}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
     %% Catch errors encoding the given arguments to avoid a bad key or
     %% value taking down the gossip server
-    case (catch libp2p_gossip_stream:encode(Key, Data)) of
+    case (catch libp2p_stream_gossip:encode(Key, Data)) of
         {'EXIT', Error} ->
             lager:warning("Error encoding gossip data ~p", [Error]);
         Msg ->
@@ -179,8 +178,9 @@ handle_cast(Msg, State) ->
 handle_info({start_workers, PeerCount, SeedCount}, State=#state{tid=TID}) ->
     PeerBookWorkers = [start_worker(peerbook, State) || _ <- lists:seq(1, PeerCount)],
     SeedWorkers = [start_worker(seed, State) || _ <- lists:seq(1, SeedCount)],
-    libp2p_swarm:add_stream_handler(TID, ?GROUP_PATH,
-                                    {libp2p_gossip_stream, server, [?MODULE, self()]}),
+    libp2p_swarm:add_stream_handler(TID, {libp2p_stream_gossip:protocol_id(),
+                                          {libp2p_stream_gossip, #{ handler_mod => ?MODULE,
+                                                                    handler_state =>self()}}}),
     {noreply, State#state{workers=SeedWorkers ++ PeerBookWorkers}};
 handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=DropTimer,
                                        workers=Workers}) ->
@@ -230,7 +230,7 @@ handle_info(Msg, State) ->
 
 
 terminate(_Reason, #state{tid=TID}) ->
-    libp2p_swarm:remove_stream_handler(TID, ?GROUP_PATH).
+    libp2p_swarm:remove_stream_handler(TID, libp2p_stream_gossip:protocol_id()).
 
 
 
@@ -272,7 +272,9 @@ assign_target(WorkerPid, TargetAddrs, State=#state{workers=Workers}) ->
         0 -> State;
         _ ->
             SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
-            ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
+            ClientSpec = {libp2p_stream_gossip:protocol_id(),
+                          {libp2p_stram_gossip_stream, #{ handler_mod => ?MODULE,
+                                                          handler_state => self()}}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             case lookup_worker(WorkerPid, #worker.pid, State) of
                 Worker=#worker{} ->

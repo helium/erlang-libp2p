@@ -9,13 +9,13 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,version/0
-    ,add_stream_handler/1
-    ,dial_framed_stream/3
-    ,p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1
-    ,reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1
-    ,reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
+    init/1,
+    protocol_id/0,
+    add_stream_handler/1,
+    dial/3,
+    p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1,
+    reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1,
+    reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
 ]).
 
 -ifdef(TEST).
@@ -37,9 +37,9 @@ init(Swarm) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec version() -> string().
-version() ->
-    ?RELAY_VERSION.
+-spec protocol_id() -> binary().
+protocol_id() ->
+    <<?RELAY_VERSION>>.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -47,29 +47,16 @@ version() ->
 %%--------------------------------------------------------------------
 -spec add_stream_handler(ets:tab()) -> ok.
 add_stream_handler(TID) ->
-    libp2p_swarm:add_stream_handler(
-        TID
-        ,?RELAY_VERSION
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay, self(), TID]}
-    ).
+    libp2p_swarm:add_stream_handler(TID, {protocol_id(), {libp2p_stream_relay, #{swarm => TID}}}).
 
 %%--------------------------------------------------------------------
 %% @doc
 %% Dial relay stream
 %% @end
 %%--------------------------------------------------------------------
--spec dial_framed_stream(pid(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
-dial_framed_stream(Swarm, Address, Args) ->
-    Args1 = [
-        {swarm, Swarm}
-    ],
-    libp2p_swarm:dial_framed_stream(
-        Swarm
-        ,Address
-        ,?RELAY_VERSION
-        ,libp2p_stream_relay
-        ,Args ++ Args1
-    ).
+-spec dial(Swarm::pid(), MAddr::string(), Opts::map()) -> {ok, pid()} | {error, any()} | ignore.
+dial(Swarm, Address, Opts) ->
+    libp2p_swarm:dial(Swarm, Address, {protocol_id(), {libp2p_stream_relay, Opts#{swarm => Swarm}}}).
 
 %%--------------------------------------------------------------------
 %% @doc

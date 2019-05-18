@@ -4,13 +4,12 @@
          opts/1, name/1, pubkey_bin/1, p2p_address/1, keys/1,
          network_id/2, network_id/1,
          store_peerbook/2, peerbook/1, peerbook_pid/1, cache/1, sessions/1,
-         dial/3, dial/5, connect/2, connect/4,
-         dial_framed_stream/5, dial_framed_stream/7,
+         dial/3, dial/4, connect/2, connect/3,
          listen/2, listen_addrs/1,
          add_transport_handler/2,
-         add_connection_handler/3,
-         add_stream_handler/3, remove_stream_handler/2, stream_handlers/1,
-         register_session/2, register_listener/2,
+         add_connection_handler/2,
+         add_stream_handler/2, remove_stream_handler/2, stream_handlers/1,
+         register_session/3, register_listener/2,
          add_group/4, remove_group/2,
          gossip_group/1]).
 
@@ -21,7 +20,6 @@
 
 -type swarm_opt() :: {key, {libp2p_crypto:pubkey(), libp2p_crypto:sig_fun()}}
                    | {base_dir, string()}
-                   | {libp2p_transport_tcp, [libp2p_transport_tcp:opt()]}
                    | {libp2p_peerbook, [libp2p_peerbook:opt()]}
                    | {libp2p_yamux_stream, [libp2p_yamux_stream:opt()]}
                    | {libp2p_group_gossip, [libp2p_group_gossip:opt()]}
@@ -252,12 +250,13 @@ listen_addrs(TID) ->
 %% @private Register a session wih the swarm. This is used in
 %% start_server_session to get an accepted connection to be registered
 %% and monitored by the swarm server.
--spec register_session(pid(), pid()) -> ok.
-register_session(Sup, SessionPid) when is_pid(Sup) ->
+-spec register_session(pid(), string(), pid()) -> ok.
+register_session(Sup, MAddr, SessionPid) when is_pid(Sup) ->
     Server = libp2p_swarm_sup:server(Sup),
+    libp2p_config:insert_session(tid(Sup), MAddr, SessionPid),
     gen_server:cast(Server, {register, libp2p_config:session(), SessionPid});
-register_session(TID, SessionPid) ->
-    register_session(swarm(TID), SessionPid).
+register_session(TID, MAddr, SessionPid) ->
+    register_session(swarm(TID), MAddr, SessionPid).
 
 
 %% @private Register a session wih the swarm. This is used in `listen' a
@@ -271,85 +270,52 @@ register_listener(Sup, SessionPid) ->
 
 % Connect
 %
--spec add_connection_handler(pid() | ets:tab(), string(),
-                             {libp2p_transport:connection_handler(),
-                              libp2p_transport:connection_handler() | undefined}) -> ok.
-add_connection_handler(Sup, Key, {ServerMF, ClientMF}) when is_pid(Sup) ->
-    add_connection_handler(tid(Sup), Key, {ServerMF, ClientMF});
-add_connection_handler(TID, Key, {ServerMF, ClientMF}) ->
-    libp2p_config:insert_connection_handler(TID, {Key, ServerMF, ClientMF}),
+-spec add_connection_handler(pid() | ets:tab(), libp2p_stream_multistream:handler()) -> ok.
+add_connection_handler(Sup, Handler) when is_pid(Sup) ->
+    add_connection_handler(tid(Sup), Handler);
+add_connection_handler(TID, Handler) ->
+    libp2p_config:insert_connection_handler(TID, Handler),
     ok.
 
 -spec connect(pid(), string()) -> {ok, pid()} | {error, term()}.
 connect(Sup, Addr) ->
-    connect(Sup, Addr, [], ?CONNECT_TIMEOUT).
+    connect(Sup, Addr, #{}).
 
--spec connect(pid() | ets:tab(), string(), connect_opts(), pos_integer())
-             -> {ok, pid()} | {error, term()}.
-connect(Sup, Addr, Options, Timeout) when is_pid(Sup) ->
-    connect(tid(Sup), Addr, Options, Timeout);
-connect(TID, Addr, Options, Timeout) ->
-    libp2p_transport:connect_to(Addr, Options, Timeout, TID).
+-spec connect(pid() | ets:tab(), string(), Opts::map()) -> {ok, pid()} | {error, term()}.
+connect(Sup, Addr, Options) when is_pid(Sup) ->
+    connect(tid(Sup), Addr, Options);
+connect(TID, Addr, Options) ->
+    libp2p_transport:connect(Addr, Options#{tid => TID}).
 
 
 % Stream
 %
--spec dial(pid(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Sup, Addr, Path) when is_pid(Sup) ->
-    dial(Sup, Addr, Path, [], ?CONNECT_TIMEOUT);
-dial(TID, Addr, Path) ->
-    dial(swarm(TID), Addr, Path).
+-spec dial(pid() | ets:tab(), string(), libp2p_stream_multistream:handler()) -> {ok, pid()} | {error, term()}.
+dial(Swarm, Addr, Handler) ->
+    dial(Swarm, Addr, #{}, Handler).
 
+-spec dial(pid() | ets:tab(), string(), map(), libp2p_stream_multistream:handler()) -> {ok, pid()} | {error, term()}.
+dial(Sup, Addr, Options, Handler) when is_pid(Sup) ->
+    % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", {<<"echo">>, {stream_echo, #{}}})
+    dial(tid(tid), Addr, Options, Handler);
+dial(TID, Addr, Options, Handler) ->
+    libp2p_transport:dial(Addr, Handler, Options#{ tid => TID}).
 
--spec dial(pid() | ets:tab(), string(), string(), connect_opts(), pos_integer())
-          -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Sup, Addr, Path, Options, Timeout) when is_pid(Sup) ->
-    % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
-    case connect(Sup, Addr, Options, Timeout) of
-        {error, Error} -> {error, Error};
-        {ok, SessionPid} -> libp2p_session:dial(Path, SessionPid)
-    end;
-dial(TID, Addr, Path, Options, Timeout) ->
-    dial(swarm(TID), Addr, Path, Options, Timeout).
-
-
-%% @doc Dial a remote swarm, negotiate a path and start a framed
-%% stream client with the given Module as the handler.
--spec dial_framed_stream(pid() | ets:tab(), Addr::string(), Path::string(),
-                         Module::atom(), Args::[any()])
-                        -> {ok, pid()} | {error, term()}.
-dial_framed_stream(Sup, Addr, Path, Module, Args) when is_pid(Sup) ->
-    dial_framed_stream(Sup, Addr, Path, [], ?CONNECT_TIMEOUT, Module, Args);
-dial_framed_stream(TID, Addr, Path, Module, Args) ->
-    dial_framed_stream(swarm(TID), Addr, Path, Module, Args).
-
--spec dial_framed_stream(pid() | ets:tab(), Addr::string(), Path::string(), connect_opts(),
-                         Timeout::pos_integer(), Module::atom(), Args::[any()])
-                        -> {ok, pid()} | {error, term()}.
-dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) when is_pid(Sup) ->
-    % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
-    case connect(Sup, Addr, Options, Timeout) of
-        {error, Error} -> {error, Error};
-        {ok, SessionPid} -> libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args)
-    end;
-dial_framed_stream(TID, Addr, Path, Options, Timeout, Module, Args) ->
-    dial_framed_stream(swarm(TID), Addr, Path, Options, Timeout, Module, Args).
-
--spec add_stream_handler(pid() | ets:tab(), string(), libp2p_session:stream_handler()) -> ok.
-add_stream_handler(Sup, Key, HandlerDef) when is_pid(Sup) ->
-    add_stream_handler(tid(Sup), Key, HandlerDef);
-add_stream_handler(TID, Key, HandlerDef) ->
-    libp2p_config:insert_stream_handler(TID, {Key, HandlerDef}),
+-spec add_stream_handler(pid() | ets:tab(), libp2p_stream_multistream:handler()) -> ok.
+add_stream_handler(Sup, Handler) when is_pid(Sup) ->
+    add_stream_handler(tid(Sup), Handler);
+add_stream_handler(TID, Handler) ->
+    libp2p_config:insert_stream_handler(TID, Handler),
     ok.
 
--spec remove_stream_handler(pid() | ets:tab(), string()) -> ok.
+-spec remove_stream_handler(pid() | ets:tab(), libp2p_stream_multistream:prefix()) -> ok.
 remove_stream_handler(Sup, Key) when is_pid(Sup) ->
     remove_stream_handler(tid(Sup), Key);
 remove_stream_handler(TID, Key) ->
     libp2p_config:remove_stream_handler(TID, Key),
     ok.
 
--spec stream_handlers(pid() | ets:tab()) -> [{string(), libp2p_session:stream_handler()}].
+-spec stream_handlers(pid() | ets:tab()) -> libp2p_stream_multistream:handlers().
 stream_handlers(Sup) when is_pid(Sup) ->
     stream_handlers(tid(Sup));
 stream_handlers(TID) ->
