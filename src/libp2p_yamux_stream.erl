@@ -50,7 +50,7 @@
 -define(WAITER_DATA(S), S#state.recv_state#recv_state.waiter_data).
 -define(RECEIVABLE_SIZE(S), (byte_size(?WINDOW_DATA(S)) + byte_size(?WAITER_DATA(S)))).
 -define(REMOTE_CLOSED(S), ?CLOSE_STATE(S) == pending).
--define(DEFAULT_IDLE_TIMEOUT, 15000).
+-define(DEFAULT_IDLE_TIMEOUT, 60000).
 
 % gen_statem functions
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
