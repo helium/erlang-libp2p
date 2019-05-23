@@ -24,6 +24,7 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
+    lager:debug("match_addr: ~p", [Addr]),
     match_protocols(multiaddr:protocols(Addr)).
 
 -spec sort_addrs([string()]) -> [string()].
