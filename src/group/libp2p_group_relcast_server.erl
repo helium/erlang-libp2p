@@ -316,7 +316,8 @@ handle_info(force_close, State=#state{}) ->
     {noreply, State#state{close_state=closing}};
 handle_info(inbound_tick, State = #state{store=Store}) ->
     case relcast:process_inbound(Store) of
-        {ok, Store1} ->
+        {ok, Acks, Store1} ->
+            dispatch_acks(Acks, false, State),
             ok;
         {stop, Timeout, Store1} ->
             erlang:send_after(Timeout, self(), force_close),
@@ -330,7 +331,7 @@ handle_info(Msg, State) ->
 
 
 terminate(_, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
-    relcast:stop(normal, Store),
+    relcast:stop(lite, Store),
     rm_rf(StoreDir);
 terminate(Reason, #state{store=Store}) ->
     relcast:stop(Reason, Store).
