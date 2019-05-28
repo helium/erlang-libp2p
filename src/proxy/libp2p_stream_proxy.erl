@@ -79,7 +79,6 @@ handle_data(client, Bin, State) ->
     handle_client_data(Bin, State).
 
 % STEP 2
-
 handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
     {ok, {PAddress, SAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),
     Req = libp2p_proxy_req:create(SAddress),
@@ -157,6 +156,7 @@ handle_server_data({overload, Overload}, _Env, #state{swarm=Swarm}=State) ->
     P2PCircuit = libp2p_relay:p2p_circuit(R, A),
     TID = libp2p_swarm:tid(Swarm),
     true = libp2p_config:remove_listener(TID, P2PCircuit),
+    _ = libp2p_relay_server:connection_lost(Swarm),
     {stop, normal, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
