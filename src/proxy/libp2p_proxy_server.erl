@@ -33,14 +33,16 @@
     swarm :: pid() | undefined,
     data = maps:new() :: map(),
     limit :: integer(),
-    size = 0 :: integer()
+    size = 0 :: integer(),
+    spliced = maps:new() :: map()
 }).
 
 -record(pstate, {
     id :: binary() | undefined,
     server_stream :: pid() | undefined,
     client_stream :: pid() | undefined,
-    connections = [] :: [{{pid(), reference()}, libp2p_connection:connection()}]
+    connections = [] :: [{{pid(), reference()}, libp2p_connection:connection()}],
+    timeout :: reference() | undefined
 }).
 
 %% ------------------------------------------------------------------
@@ -89,16 +91,19 @@ init([TID, Limit]=Args) ->
     Swarm = libp2p_swarm:swarm(TID),
     {ok, #state{tid=TID, swarm=Swarm, limit=Limit}}.
 
-handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data, 
+handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data,
                                                                     limit=Limit,
-                                                                    size=Size}=State) when Size =< Limit ->
+                                                                    size=Size}=State) when Size < Limit ->
     PState = #pstate{
-        id=ID
-        ,server_stream=ServerStream
+        id=ID,
+        server_stream=ServerStream,
+        % Timer is created just in case to decrease size if this is not cancelled in time
+        timeout=erlang:send_after(timer:seconds(60), self(), {timeout, ID})
     },
     Data1 = maps:put(ID, PState, Data),
     self() ! {post_init, ID, SAddress},
-    {reply, ok, State#state{data=Data1}};
+    % We are starting to process proxy request size + 1
+    {reply, ok, State#state{data=Data1, size=Size+1}};
 handle_call({init_proxy, ID, _ServerStream, SAddress}, _From, #state{swarm=Swarm}=State) ->
     lager:warning("cannot process proxy request for ~p, ~p. Limit exceeded", [ID, SAddress]),
     erlang:spawn(
@@ -119,7 +124,7 @@ handle_call({init_proxy, ID, _ServerStream, SAddress}, _From, #state{swarm=Swarm
         end
     ),
     {reply, {error, limit_exceeded}, State};
-handle_call({connection, Connection, ID0}, From, #state{data=Data, size=Size}=State) ->
+handle_call({connection, Connection, ID0}, From, #state{data=Data, spliced=Spliced}=State) ->
     %% possibly reverse the ID if we got it from the client
     ID = get_id(ID0, Data),
     case maps:get(ID, Data, undefined) of
@@ -131,9 +136,12 @@ handle_call({connection, Connection, ID0}, From, #state{data=Data, size=Size}=St
             lager:info("got first Connection ~p", [Connection]),
             PState1 = PState#pstate{connections=[{From, Connection}]},
             {noreply, State#state{data=maps:put(ID, PState1, Data)}};
-        #pstate{connections=[{From1, Connection1}|[]]
-                ,server_stream=ServerStream
-                ,client_stream=ClientStream} ->
+        #pstate{connections=[{From1, Connection1}|[]],
+                server_stream=ServerStream,
+                client_stream=ClientStream,
+                timeout=TimerRef} ->
+            % Cancelling timer
+            _ = erlang:cancel_timer(TimerRef),
             lager:info("got second connection ~p", [Connection]),
             %% TODO what kind of multiaddr should we send back, the p2p circuit address or
             %% the underlying transport?
@@ -151,9 +159,9 @@ handle_call({connection, Connection, ID0}, From, #state{data=Data, size=Size}=St
                         {_, CN} = libp2p_connection:addr_info(Connection),
                         {SN, CN}
                 end,
-            ok = splice(From1, Connection1, From, Connection),
+            {ok, Pid} = splice(From1, Connection1, From, Connection),
             ok = proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream),
-            {noreply, State#state{data=maps:remove(ID, Data), size=Size+1}}
+            {noreply, State#state{data=maps:remove(ID, Data), spliced=maps:put(Pid, ID, Spliced)}}
     end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -163,7 +171,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data}=State) ->
+handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data, size=Size}=State) ->
     case libp2p_proxy:dial_framed_stream(Swarm, SAddress, [{id, ID}]) of
         {ok, ClientStream} ->
             lager:info("dialed A (~p)", [SAddress]),
@@ -174,13 +182,22 @@ handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data}=State) ->
             Data1 = maps:put(ID, PState1, Data),
             {noreply, State#state{data=Data1}};
         _ ->
-            {noreply, State}
+            % If we can't dial client stream we should cleanup (size-1 and remove data)
+            {noreply, State#state{data=maps:remove(ID, Data), size=Size-1}}
     end;
-handle_info({'EXIT', _Who, normal}, #state{size=Size}=State) ->
-    {noreply, State#state{size=Size-1}};
-handle_info({'EXIT', Who, Reason}, #state{size=Size}=State) ->
-    lager:warning("splice process ~p went down: ~p", [Who, Reason]),
-    {noreply, State#state{size=Size-1}};
+handle_info({timeout, ID}, #state{data=Data, size=Size}=State) ->
+    % Client / Server did not dial back in time we are cleaning up
+    lager:warning("~p timeout, did not dial back in time", [ID]),
+    {noreply, State#state{size=Size-1, data=maps:remove(ID, Data)}};
+handle_info({'EXIT', Who, Reason}, #state{size=Size, spliced=Spliced}=State) ->
+    % Exit now only cleanup if it knows about that Pid (splice process)
+    case maps:is_key(Who, Spliced) of
+        false ->
+            {noreply, State};
+        true ->
+            lager:warning("splice process ~p went down: ~p", [Who, Reason]),
+            {noreply, State#state{size=Size-1, spliced=maps:remove(Who, Spliced)}}
+    end;
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -205,7 +222,7 @@ dial_back(ID, ServerStream, ClientStream) ->
     ClientStream ! {transfer, libp2p_proxy_envelope:encode(CEnv)},
     ok.
 
--spec splice(any(), libp2p_connection:connection(), any(), libp2p_connection:connection()) -> ok.
+-spec splice(any(), libp2p_connection:connection(), any(), libp2p_connection:connection()) -> {ok, pid()}.
 splice(From1, Connection1, From2, Connection2) ->
     Pid = erlang:spawn_link(fun() ->
         receive control_given -> ok end,
@@ -223,7 +240,7 @@ splice(From1, Connection1, From2, Connection2) ->
     {ok, _} = libp2p_connection:controlling_process(Connection2, Pid),
     Pid ! control_given,
     lager:info("splice started @ ~p", [Pid]),
-    ok.
+    {ok, Pid}.
 
 -spec proxy_successful(binary(), string(), pid(), string(), pid()) -> ok.
 proxy_successful(ID, ServerMA, ServerStream, ClientMA, ClientStream) ->
