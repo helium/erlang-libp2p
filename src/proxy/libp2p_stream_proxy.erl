@@ -65,7 +65,7 @@ init(client, Conn, Args) ->
     Swarm = proplists:get_value(swarm, Args),
     case proplists:get_value(p2p_circuit, Args) of
         undefined ->
-            {ok, #state{id=ID, connection=Conn}};
+            {ok, #state{swarm=Swarm, id=ID, connection=Conn}};
         P2PCircuit ->
             TransportPid = proplists:get_value(transport, Args),
             self() ! {proxy_req_send, P2PCircuit},
@@ -84,6 +84,10 @@ handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
     Req = libp2p_proxy_req:create(SAddress),
     Env = libp2p_proxy_envelope:create(ID, Req),
     {noreply, State#state{proxy_address=PAddress}, libp2p_proxy_envelope:encode(Env)};
+handle_info(client, proxy_overloaded, #state{swarm=Swarm, id=ID}=State) ->
+    Overload = libp2p_proxy_overload:new(libp2p_swarm:pubkey_bin(Swarm)),
+    Env = libp2p_proxy_envelope:create(ID, Overload),
+    {stop, normal, State, libp2p_proxy_envelope:encode(Env)};
 handle_info(server, {'DOWN', Ref, process, _, _}, State = #state{connection_ref=Ref}) ->
     {stop, normal, State};
 handle_info(_Type, {transfer, Data}, State) ->
@@ -118,7 +122,10 @@ handle_server_data({req, Req}, Env, #state{swarm=Swarm}=State) ->
         ok ->
             {noreply, State#state{id=ID}};
         {error, Reason} ->
-            {stop, Reason, State}
+            lager:warning("failed to init proxy ~p, sending back error", [Reason]),
+            Error = libp2p_proxy_error:new(Reason),
+            ErrorEnv = libp2p_proxy_envelope:create(ID, Error),
+            {stop, normal, State, libp2p_proxy_envelope:encode(ErrorEnv)}
     end;
 handle_server_data({dial_back, DialBack}, Env, State) ->
     lager:info("server got dial back request ~p", [DialBack]),
@@ -143,6 +150,15 @@ handle_server_data({resp, Resp}, _Env, #state{swarm=Swarm, raw_connection=Connec
     %% So this process apparently can't die, at least not yet
     %% instead remember the monitor ref for later
     {noreply, State#state{connection_ref=MRef}};
+handle_server_data({overload, Overload}, _Env, #state{swarm=Swarm}=State) ->
+    PubKeyBin = libp2p_proxy_overload:pub_key_bin(Overload),
+    R = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
+    A = libp2p_swarm:p2p_address(Swarm),
+    P2PCircuit = libp2p_relay:p2p_circuit(R, A),
+    TID = libp2p_swarm:tid(Swarm),
+    true = libp2p_config:remove_listener(TID, P2PCircuit),
+    _ = libp2p_relay_server:connection_lost(Swarm),
+    {stop, normal, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
@@ -171,6 +187,11 @@ handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
     {ok, Connection1} = libp2p_connection:controlling_process(Connection, TransportPid),
     Socket = libp2p_connection:socket(Connection1),
     TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)},
+    {stop, normal, State};
+handle_client_data({error, Error}, _Env, #state{transport=TransportPid}=State) ->
+    lager:warning(" client got proxy error from server ~p", [Error]),
+    Reason = libp2p_proxy_error:reason(Error),
+    TransportPid ! {error, Reason},
     {stop, normal, State};
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
