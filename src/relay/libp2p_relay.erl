@@ -9,13 +9,13 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,version/0
-    ,add_stream_handler/1
-    ,dial_framed_stream/3
-    ,p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1
-    ,reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1
-    ,reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
+    init/1,
+    version/0,
+    add_stream_handler/1,
+    dial_framed_stream/3,
+    p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1,
+    reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1,
+    reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
 ]).
 
 -ifdef(TEST).
@@ -48,9 +48,9 @@ version() ->
 -spec add_stream_handler(ets:tab()) -> ok.
 add_stream_handler(TID) ->
     libp2p_swarm:add_stream_handler(
-        TID
-        ,?RELAY_VERSION
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay, self(), TID]}
+        TID,
+        ?RELAY_VERSION,
+        {libp2p_framed_stream, server, [libp2p_stream_relay, self(), TID]}
     ).
 
 %%--------------------------------------------------------------------
@@ -64,11 +64,11 @@ dial_framed_stream(Swarm, Address, Args) ->
         {swarm, Swarm}
     ],
     libp2p_swarm:dial_framed_stream(
-        Swarm
-        ,Address
-        ,?RELAY_VERSION
-        ,libp2p_stream_relay
-        ,Args ++ Args1
+        Swarm,
+        Address,
+        ?RELAY_VERSION,
+        libp2p_stream_relay,
+        Args ++ Args1
     ).
 
 %%--------------------------------------------------------------------
