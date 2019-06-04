@@ -72,10 +72,7 @@ connection_lost(Swarm) ->
 stop(Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
-            %% it's a permanant worker, so just stop it and let it restart
-            %% without having relay() called on it
-            gen_server:stop(Pid),
-            ok;
+            gen_server:call(Pid, stop_relay);
         {error, _}=Error ->
             Error
     end.
@@ -115,6 +112,12 @@ handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
     end;
 handle_call(init_relay, _From, State) ->
     {reply, {error, already_started}, State};
+handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) ->
+    libp2p_connection:close(Conn),
+    {reply, ok, State#state{started=false, connection=undefined}};
+handle_call(stop_relay, _From, State) ->
+    %% nothing to do as we're not running
+    {reply, ok, State};
 handle_call(_Msg, _From, State) ->
     lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
