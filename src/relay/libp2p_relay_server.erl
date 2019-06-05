@@ -112,8 +112,8 @@ handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
     end;
 handle_call(init_relay, _From, State) ->
     {reply, {error, already_started}, State};
-handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) ->
-    libp2p_connection:close(Conn),
+handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) when Conn /= undefined ->
+    libp2p_framed_stream:close(Conn),
     {reply, ok, State#state{started=false, connection=undefined}};
 handle_call(stop_relay, _From, State) ->
     %% nothing to do as we're not running

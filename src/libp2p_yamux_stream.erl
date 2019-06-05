@@ -34,7 +34,7 @@
           max_window = ?DEFAULT_MAX_WINDOW_SIZE :: non_neg_integer(),
           recv_state=#recv_state{} :: #recv_state{},
           send_state=#send_state{} :: #send_state{},
-          idle_timeout :: pos_integer(),
+          idle_timeout :: pos_integer() | infinity,
           idle_timer=make_ref() :: reference()
          }).
 
@@ -60,7 +60,7 @@
 % libp2p_connection
 -export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2,
-         session/1]).
+         session/1, set_idle_timeout/2]).
 %% libp2p_info
 -export([info/1]).
 
@@ -145,6 +145,9 @@ addr_info(Pid) ->
 
 session(Pid) ->
     statem(Pid, session).
+
+set_idle_timeout(Pid, Timeout) ->
+    gen_statem:cast(Pid, {set_idle_timeout, Timeout}).
 
 controlling_process(_Pid, _Owner) ->
     {error, unsupported}.
@@ -301,6 +304,8 @@ handle_event(info, timeout_idle, _State, Data=#state{}) ->
     catch close_send(Data),
     %% notify any waiters that this stream is going away.
     {stop, normal, notify_inert(Data)};
+handle_event(cast, {set_idle_timeout, Timeout}, _State, Data=#state{}) ->
+    {keep_state, kick_idle_timer(Data#state{idle_timeout=Timeout})};
 
 
 % Info
@@ -509,7 +514,12 @@ data_send(From, Data, Timeout, State=#state{session=Session, stream_id=StreamID,
 
 
 -spec kick_idle_timer(#state{}) -> #state{}.
-kick_idle_timer(State=#state{}) ->
-    erlang:cancel_timer(State#state.idle_timer),
-    Timer = erlang:send_after(State#state.idle_timeout, self(), timeout_idle),
+kick_idle_timer(State=#state{idle_timeout=Timeout, idle_timer=CurrentTimer}) ->
+    erlang:cancel_timer(CurrentTimer),
+    Timer = case Timeout of
+                infinity ->
+                    CurrentTimer;
+                _ ->
+                    erlang:send_after(Timeout, self(), timeout_idle)
+            end,
     State#state{idle_timer=Timer}.

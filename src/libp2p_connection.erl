@@ -14,7 +14,8 @@
          recv/1, recv/2, recv/3,
          acknowledge/2, fdset/1, socket/1, fdclr/1,
          addr_info/1, close/1, close_state/1,
-         controlling_process/2, session/1]).
+         controlling_process/2, session/1,
+         set_idle_timeout/2]).
 -export([mk_async_sender/2]).
 
 -callback acknowledge(any(), any()) -> ok.
@@ -26,6 +27,7 @@
 -callback fdclr(any()) -> ok.
 -callback addr_info(any()) -> {string(), string()}.
 -callback session(any()) -> {ok, pid()} | {error, term()}.
+-callback set_idle_timeout(any(), pos_integer() | infinity) -> ok | {error, term()}.
 -callback controlling_process(any(), pid()) ->  {ok, any()} | {error, closed | not_owner | atom()}.
 
 -define(RECV_TIMEOUT, 60000).
@@ -86,6 +88,10 @@ addr_info(#connection{module=Module, state=State}) ->
 -spec session(connection()) ->  {ok, pid()} | {error, term()}.
 session(#connection{module=Module, state=State}) ->
     Module:session(State).
+
+-spec set_idle_timeout(connection(), pos_integer() | infinity) -> ok | {error, term()}.
+set_idle_timeout(#connection{module=Module, state=State}, Timeout) ->
+    Module:set_idle_timeout(State, Timeout).
 
 -spec controlling_process(connection(), pid())-> {ok, connection()} | {error, closed | not_owner | atom()}.
 controlling_process(Conn=#connection{module=Module, state=State}, Pid) ->

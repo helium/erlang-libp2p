@@ -43,7 +43,8 @@
 %% libp2p_connection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
-         session/1, fdset/1, socket/1, fdclr/1
+         session/1, fdset/1, socket/1, fdclr/1,
+         set_idle_timeout/2
         ]).
 
 %% for tcp sockets
@@ -284,6 +285,10 @@ session(#tcp_state{session=undefined}) ->
     {error, no_session};
 session(#tcp_state{session=Session}) ->
     {ok, Session}.
+
+-spec set_idle_timeout(tcp_state(), pos_integer() | infinity) -> ok | {error, term()}.
+set_idle_timeout(#tcp_state{}, _Timeout) ->
+    {error, not_implemented}.
 
 -spec controlling_process(tcp_state(), pid())
                          ->  {ok, tcp_state()} | {error, closed | not_owner | atom()}.
