@@ -49,6 +49,7 @@ init(server, Connection, [Path, AckModule, AckState]) ->
             {stop, {error, Reason}}
     end;
 init(client, Connection, [AckRef, AckModule, AckState]) ->
+    libp2p_connection:set_idle_timeout(Connection, infinity),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
