@@ -89,12 +89,12 @@
     secure_peer :: undefined | libp2p_crypto:pubkey_bin(),
     parent :: undefined | pid(),
     exchanged = false :: boolean(),
-    swarm :: pid(),
-    args :: [any()],
-    pub_key :: binary(),
-    priv_key :: binary(),
-    rcv_key :: binary(),
-    send_key :: binary(),
+    swarm=undefined :: pid() | undefined,
+    args= [] :: [any()],
+    pub_key= <<>> :: binary(),
+    priv_key= <<>> :: binary(),
+    rcv_key= <<>> :: binary(),
+    send_key= <<>> :: binary(),
     rcv_nonce = 0 :: non_neg_integer(),
     send_nonce = 0 :: non_neg_integer()
 }).
@@ -154,7 +154,7 @@ pre_init(Kind, Module, Connection, Args, Parent) ->
     case proplists:get_value(secured, Args, false) of
         Swarm when is_pid(Swarm) ->
             #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-            {ok, _, SignFun} = libp2p_swarm:keys(Swarm),
+            {ok, _, SignFun, _} = libp2p_swarm:keys(Swarm),
             Signature = SignFun(PubKey),
             Data = <<PubKey/binary, Signature/binary>>,
             State0 = #state{

@@ -47,7 +47,7 @@ server(Connection, _Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(server, _Conn, [_, Echo, Swarm]) ->
     #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-    {ok, SwarmPubKey, SignFun} = libp2p_swarm:keys(Swarm),
+    {ok, SwarmPubKey, SignFun, _} = libp2p_swarm:keys(Swarm),
     Data = erlang:term_to_binary({key_exchange, SwarmPubKey, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
     {ok, #state{
         swarm=Swarm,
@@ -57,7 +57,7 @@ init(server, _Conn, [_, Echo, Swarm]) ->
     }, Data};
 init(client, _Conn, [Swarm, Echo]) ->
     #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-    {ok, SwarmPubKey, SignFun} = libp2p_swarm:keys(Swarm),
+    {ok, SwarmPubKey, SignFun, _} = libp2p_swarm:keys(Swarm),
     Data = erlang:term_to_binary({key_exchange, SwarmPubKey, PubKey, SignFun(erlang:term_to_binary(PubKey))}),
     {ok, #state{
         swarm=Swarm,
