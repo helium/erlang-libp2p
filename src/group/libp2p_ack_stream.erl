@@ -42,12 +42,14 @@ server(Connection, Path, _TID, Args) ->
 init(server, Connection, [Path, AckModule, AckState]) ->
     case AckModule:accept_stream(AckState, self(), Path) of
         {ok, AckRef} ->
+            libp2p_connection:set_idle_timeout(Connection, infinity),
             {ok, #state{connection=Connection,
                         ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
         {error, Reason} ->
             {stop, {error, Reason}}
     end;
 init(client, Connection, [AckRef, AckModule, AckState]) ->
+    libp2p_connection:set_idle_timeout(Connection, infinity),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
