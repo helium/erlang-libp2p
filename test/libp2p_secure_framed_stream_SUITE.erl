@@ -37,7 +37,7 @@ all() ->
 %%--------------------------------------------------------------------
 init_per_testcase(_, _Config) ->
     test_util:setup(),
-    lager:set_loglevel(lager_console_backend, info),
+    lager:set_loglevel(lager_console_backend, debug),
     _Config.
 
 %%--------------------------------------------------------------------
@@ -152,7 +152,8 @@ key_exchange(_Config) ->
             Data = crypto:strong_rand_bytes(16),
             ClientStream ! {send, Data},
             receive
-                {echo, server, Data} -> ok;
+                {echo, server, Data} ->
+                    ok;
                 _Else -> ct:fail(_Else)
             after 250 ->
                 ct:fail(timeout)
@@ -236,7 +237,7 @@ failed_stream(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
     Version = "securetest/1.0.0",
 
-    {ok, ServerSwarm} = libp2p_swarm:start(secure_server_echo_test, SwarmOpts),
+    {ok, ServerSwarm} = libp2p_swarm:start(secure_server_fail_qecho_test, SwarmOpts),
     ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ServerSwarm,
@@ -244,7 +245,7 @@ failed_stream(_Config) ->
         {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), {secured, ServerSwarm}]}
     ),
 
-    {ok, ClientSwarm} = libp2p_swarm:start(secure_client_echo_test, SwarmOpts),
+    {ok, ClientSwarm} = libp2p_swarm:start(secure_client_fail_echo_test, SwarmOpts),
     ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
 
     [ServerAddress|_] = libp2p_swarm:listen_addrs(ServerSwarm),
