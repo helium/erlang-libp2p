@@ -383,7 +383,7 @@ limit_exceeded(_Config) ->
 
     timer:sleep(2000),
 
-    {error, limit_exceeded} = libp2p_swarm :dial_framed_stream(
+    {error, _} = libp2p_swarm :dial_framed_stream(
         ClientSwarm2,
         ServerCircuitAddress,
         Version,
