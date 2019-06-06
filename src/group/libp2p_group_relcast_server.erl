@@ -169,7 +169,7 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_cast({request_target, Index, WorkerPid}, State=#state{}) ->
+handle_cast({request_target, Index, WorkerPid}, State=#state{tid=TID}) ->
     {Target, NewState} = case lookup_worker(Index, State) of
                              Worker = #worker{target=T, pid=OldPid} when WorkerPid /= OldPid ->
                                  lager:info("Worker for index ~p changed from ~p to ~p", [Index, OldPid, WorkerPid]),
@@ -178,8 +178,9 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{}) ->
                                  {T, State}
                end,
     Path = lists:flatten([?GROUP_PATH_BASE, State#state.group_id, "/",
-                          libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(State#state.tid))]),
-    ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self()]}},
+                          libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(TID))]),
+    ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self(),
+                                             {secured, libp2p_swarm:swarm(TID)}]}},
     libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),
     {noreply, NewState};
 handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
@@ -300,7 +301,8 @@ start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
     ServerPath = lists:flatten(?GROUP_PATH_BASE, GroupID),
     libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
-                                    {libp2p_ack_stream, server,[?MODULE, self()]}),
+                                    {libp2p_ack_stream, server,[?MODULE, self(),
+                                                                {secured, libp2p_swarm:swarm(TID)}]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info({start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs}, State) ->
     {ok, Relcast} = start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir),
