@@ -39,7 +39,7 @@ client(Connection, Args) ->
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
-init(server, Connection, [Path, AckModule, AckState]) ->
+init(server, Connection, [Path, AckModule, AckState | _]) ->
     case AckModule:accept_stream(AckState, self(), Path) of
         {ok, AckRef} ->
             libp2p_connection:set_idle_timeout(Connection, infinity),
@@ -48,7 +48,7 @@ init(server, Connection, [Path, AckModule, AckState]) ->
         {error, Reason} ->
             {stop, {error, Reason}}
     end;
-init(client, Connection, [AckRef, AckModule, AckState]) ->
+init(client, Connection, [AckRef, AckModule, AckState | _]) ->
     libp2p_connection:set_idle_timeout(Connection, infinity),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
