@@ -483,9 +483,10 @@ send_key(Data, #state{send_pid=SendPid}=State) ->
 
 -spec handle_resp_send(send_result_action(), binary(), non_neg_integer(), #state{}) -> #state{}.
 handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=true,
-                                                    send_nonce=Nonce}) ->
+                                                     send_nonce=Nonce, connection=Conn}) ->
     case enacl:aead_chacha20poly1305_encrypt(State#state.send_key, Nonce, <<>>, Data) of
         {error, _Reason} ->
+            libp2p_connection:close(Connc),
             lager:warning("failed to encrypt ~p : ~p", [{Nonce, Data}, _Reason]),
             State;
         EncryptedData ->
