@@ -163,9 +163,10 @@ defer_test(Config) ->
     libp2p_group_relcast:handle_input(G2, <<"defer2">>),
 
     %% Which G1 should see as a message from G2
-    Msgs2 = receive_messages([], 5),
-    ct:pal("messages 2 ~p", [Msgs2]),
-    true = lists:member({handle_msg, 2, <<"defer2">>}, Msgs2),
+    test_util:wait_until(
+      fun() ->
+              lists:member({handle_msg, 2, <<"defer2">>}, receive_messages([], 1))
+      end),
 
     true = is_map(libp2p_group_relcast:info(G1)),
     ok.

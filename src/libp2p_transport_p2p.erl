@@ -3,7 +3,15 @@
 -behavior(libp2p_transport).
 
 % libp2p_transport
--export([start_link/1, start_listener/2, connect/5, match_addr/2, sort_addrs/1, priority/0]).
+-export([
+    start_link/1,
+    start_listener/2,
+    connect/5,
+    match_addr/2,
+    sort_addrs/1,
+    priority/0,
+    p2p_addr/1
+]).
 
 
 %% libp2p_transport
