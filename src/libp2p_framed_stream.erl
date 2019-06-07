@@ -486,7 +486,7 @@ handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=tru
                                                      send_nonce=Nonce, connection=Conn}) ->
     case enacl:aead_chacha20poly1305_encrypt(State#state.send_key, Nonce, <<>>, Data) of
         {error, _Reason} ->
-            libp2p_connection:close(Connc),
+            libp2p_connection:close(Conn),
             lager:warning("failed to encrypt ~p : ~p", [{Nonce, Data}, _Reason]),
             State;
         EncryptedData ->
