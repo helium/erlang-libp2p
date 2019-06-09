@@ -42,7 +42,7 @@
     server_stream :: pid() | undefined,
     client_stream :: pid() | undefined,
     connections = [] :: [{{pid(), reference()}, libp2p_connection:connection()}],
-    timeout :: reference() | undefined
+    timeout :: reference()
 }).
 
 %% ------------------------------------------------------------------
@@ -172,23 +172,36 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data, size=Size}=State) ->
-    case libp2p_proxy:dial_framed_stream(Swarm, SAddress, [{id, ID}]) of
-        {ok, ClientStream} ->
-            lager:info("dialed A (~p)", [SAddress]),
-            PState = maps:get(ID, Data),
-            #pstate{id=ID, server_stream=ServerStream} = PState,
-            ok = dial_back(ID, ServerStream, ClientStream),
-            PState1 = PState#pstate{client_stream=ClientStream},
-            Data1 = maps:put(ID, PState1, Data),
-            {noreply, State#state{data=Data1}};
-        _ ->
-            % If we can't dial client stream we should cleanup (size-1 and remove data)
-            {noreply, State#state{data=maps:remove(ID, Data), size=Size-1}}
+    case maps:find(ID, Data) of
+        {ok, PState} ->
+            case libp2p_proxy:dial_framed_stream(Swarm, SAddress, [{id, ID}]) of
+                {ok, ClientStream} ->
+                    lager:info("dialed A (~p)", [SAddress]),
+                    #pstate{id=ID, server_stream=ServerStream} = PState,
+                    ok = dial_back(ID, ServerStream, ClientStream),
+                    PState1 = PState#pstate{client_stream=ClientStream},
+                    Data1 = maps:put(ID, PState1, Data),
+                    {noreply, State#state{data=Data1}};
+                _ ->
+                    %% cancel the timeout timer
+                    _ = erlang:cancel_timer(PState#pstate.timeout),
+                    % If we can't dial client stream we should cleanup (size-1 and remove data)
+                    {noreply, State#state{data=maps:remove(ID, Data), size=Size-1}}
+            end;
+        error ->
+            lager:warning("Got unexpected post_init for ID ~p to ~p", [ID, SAddress]),
+            {noreply, State}
     end;
 handle_info({timeout, ID}, #state{data=Data, size=Size}=State) ->
-    % Client / Server did not dial back in time we are cleaning up
-    lager:warning("~p timeout, did not dial back in time", [ID]),
-    {noreply, State#state{size=Size-1, data=maps:remove(ID, Data)}};
+    case maps:find(ID, Data) of
+        {ok, _} ->
+            % Client / Server did not dial back in time we are cleaning up
+            lager:warning("~p timeout, did not dial back in time", [ID]),
+            {noreply, State#state{size=Size-1, data=maps:remove(ID, Data)}};
+        error ->
+            lager:warning("Got unexpected timeout for ID ~p", [ID]),
+            {noreply, State}
+    end;
 handle_info({'EXIT', Who, Reason}, #state{size=Size, spliced=Spliced}=State) ->
     % Exit now only cleanup if it knows about that Pid (splice process)
     case maps:is_key(Who, Spliced) of
