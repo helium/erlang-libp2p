@@ -86,8 +86,6 @@ init(TID) ->
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID, swarm=Swarm}}.
 
-handle_call(init_relay, _From, State) ->
-    {reply, {error, already_started}, State};
 handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) when Conn /= undefined ->
     libp2p_framed_stream:close(Conn),
     {reply, ok, State#state{started=false, connection=undefined}};
@@ -122,6 +120,8 @@ handle_cast(init_relay, #state{started=false, swarm=Swarm}=State0) ->
             erlang:send_after(2500, self(), try_relay),
             {ok, next_peer(State)}
     end;
+handle_cast(init_relay, State) ->
+    {ok, State};
 handle_cast(connection_lost, State) ->
     lager:debug("relay connection lost"),
     self() ! try_relay,
