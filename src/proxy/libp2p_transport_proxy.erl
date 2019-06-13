@@ -50,37 +50,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
             lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
             {error, fail_dial_proxy};
         {ok, _} ->
-            receive
-                {error, limit_exceeded} ->
-                    lager:warning("got error limit_exceeded proxying to ~p", [PAddress]),
-                    case peer_for(Swarm, AAddress) of
-                        {error, _Reason}=Error ->
-                            lager:warning("peer_for failed ~p", [_Reason]),
-                            Error;
-                        {ok, Peer} ->
-                            ListenAddresses = lists:filter(
-                                fun(A) -> A =/= MAddr end,
-                                libp2p_peer:listen_addrs(Peer)
-                            ),
-                            lager:debug("ListenAddresses ~p", [ListenAddresses]),
-                            case ListenAddresses of
-                                [] ->
-                                    {error, limit_exceeded};
-                                [Address|_] ->
-                                    libp2p_swarm:connect(Pid, Address, Options, Timeout)
-                            end
-                    end;
-                {error, _Reason}=Error ->
-                    lager:warning("proxy failed ~p", [_Reason]),
-                    Error;
-                {proxy_negotiated, Socket, MultiAddr} ->
-                    Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
-                    lager:info("proxy successful ~p", [Conn]),
-                    libp2p_transport:start_client_session(TID, MAddr, Conn)
-            after 8000 ->
-                lager:warning("timeout_proxy_session proxying to ~p", [PAddress]),
-                {error, timeout_proxy_session}
-            end
+            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
     end.
 
 %% ------------------------------------------------------------------
@@ -92,3 +62,41 @@ peer_for(Swarm, Address) ->
     Peerbook = libp2p_swarm:peerbook(Swarm),
     PubKeyBin = libp2p_crypto:p2p_to_pubkey_bin(Address),
     libp2p_peerbook:get(Peerbook, PubKeyBin).
+
+-spec connect_rcv(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(),
+                  ets:tab(), string(), string(), pid()) -> {ok, pid()} | {error, term()}.
+connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm) ->
+    receive
+        {error, limit_exceeded} ->
+            lager:warning("got error limit_exceeded proxying to ~p", [PAddress]),
+            case peer_for(Swarm, AAddress) of
+                {error, _Reason}=Error ->
+                    lager:warning("peer_for failed ~p", [_Reason]),
+                    Error;
+                {ok, Peer} ->
+                    ListenAddresses = lists:filter(
+                        fun(A) -> A =/= MAddr end,
+                        libp2p_peer:listen_addrs(Peer)
+                    ),
+                    lager:debug("ListenAddresses ~p", [ListenAddresses]),
+                    case ListenAddresses of
+                        [] ->
+                            {error, limit_exceeded};
+                        [Address|_] ->
+                            libp2p_swarm:connect(Pid, Address, Options, Timeout)
+                    end
+            end;
+        {error, _Reason}=Error ->
+            lager:warning("proxy failed ~p", [_Reason]),
+            Error;
+        {proxy_negotiated, Socket, MultiAddr} ->
+            Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
+            lager:info("proxy successful ~p", [Conn]),
+            libp2p_transport:start_client_session(TID, MAddr, Conn);
+        _Any ->
+            lager:debug("got unknown message ~p", [_Any]),
+            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
+    after 15000 ->
+        lager:warning("timeout_proxy_session proxying to ~p", [PAddress]),
+        {error, timeout_proxy_session}
+    end.

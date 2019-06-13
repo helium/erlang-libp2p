@@ -90,33 +90,11 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
         {ok, SessionPid} ->
             Swarm = libp2p_swarm:swarm(TID),
             {ok, _} = libp2p_relay:dial_framed_stream(
-                Swarm
-                ,RAddress
-                ,[{type, {bridge_cr, MAddr}}]
+                Swarm,
+                RAddress,
+                [{type, {bridge_cr, MAddr}}]
             ),
-            receive
-                {sessions, [SessionPid2|_]=Sessions} ->
-                    lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
-                    libp2p_relay:unreg_addr_sessions(SAddress),
-                    {ok, SessionPid2};
-                {error, "server_down"}=Error ->
-                    libp2p_relay:unreg_addr_sessions(SAddress),
-                    MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
-                    PeerBook = libp2p_swarm:peerbook(Swarm),
-                    ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
-                    Error;
-                {error, _Reason}=Error ->
-                    libp2p_relay:unreg_addr_sessions(SAddress),
-                    lager:error("no relay sessions ~p", [_Reason]),
-                    Error;
-                _Error ->
-                    libp2p_relay:unreg_addr_sessions(SAddress),
-                    lager:error("no relay sessions ~p", [_Error]),
-                    {error, no_relay_session}
-            after 8000 ->
-                libp2p_relay:unreg_addr_sessions(SAddress),
-                {error, timeout_relay_session}
-            end
+            connect_rcv(Swarm, MAddr, SAddress, SessionPid)
     end.
 
 -spec match_protocols(list()) -> {ok, string()} | false.
@@ -158,4 +136,29 @@ check_peerbook(TID, MAddr) ->
             lists:member(ServerAddress, libp2p_peer:connected_peers(Peer));
         Error ->
             Error
+    end.
+
+-spec connect_rcv(pid(), string(), string(), pid()) -> {ok, pid()} | {error, term()}.
+connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
+    receive
+        {sessions, [SessionPid2|_]=Sessions} ->
+            lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
+            libp2p_relay:unreg_addr_sessions(SAddress),
+            {ok, SessionPid2};
+        {error, "server_down"}=Error ->
+            libp2p_relay:unreg_addr_sessions(SAddress),
+            MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
+            PeerBook = libp2p_swarm:peerbook(Swarm),
+            ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
+            Error;
+        {error, _Reason}=Error ->
+            libp2p_relay:unreg_addr_sessions(SAddress),
+            lager:error("no relay sessions ~p", [_Reason]),
+            Error;
+        _Any ->
+            lager:debug("got unknown message ~p", [_Any]),
+            connect_rcv(Swarm, MAddr, SAddress, SessionPid)
+    after 15000 ->
+        libp2p_relay:unreg_addr_sessions(SAddress),
+        {error, timeout_relay_session}
     end.
