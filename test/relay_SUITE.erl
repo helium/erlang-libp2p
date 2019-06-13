@@ -4,16 +4,15 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    all/0
-    ,init_per_testcase/2
-    ,end_per_testcase/2
+    all/0,
+    init_per_testcase/2,
+    end_per_testcase/2
 ]).
 
 -export([
-    basic/1
-    ,init_failed/1
-    ,init_success/1
-    ,dead_peer/1
+    basic/1,
+    init_success/1,
+    dead_peer/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -27,7 +26,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, init_failed, init_success, dead_peer].
+    [basic, init_success, dead_peer].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -65,35 +64,35 @@ basic(_Config) ->
     {ok, ServerSwarm} = libp2p_swarm:start(relay_basic_server, SwarmOpts),
     ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ServerSwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ServerSwarm]}
+        ServerSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ServerSwarm]}
     ),
 
     {ok, RelaySwarm} = libp2p_swarm:start(relay_basic_relay, SwarmOpts),
     ok = libp2p_swarm:listen(RelaySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        RelaySwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RelaySwarm]}
+        RelaySwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RelaySwarm]}
     ),
 
     {ok, ClientSwarm} = libp2p_swarm:start(relay_basic_client, SwarmOpts),
     ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ClientSwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ClientSwarm]}
+        ClientSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ClientSwarm]}
     ),
 
     [RelayAddress|_] = libp2p_swarm:listen_addrs(RelaySwarm),
     % B connect to R for PeerBook gossip
     {ok, _} = libp2p_swarm:dial_framed_stream(
-        ClientSwarm
-        ,RelayAddress
-        ,Version
-        ,libp2p_stream_relay_test
-        ,[]
+        ClientSwarm,
+        RelayAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
     ),
     % NAT fails so A dials R to create a relay
     {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, RelayAddress, []),
@@ -121,29 +120,17 @@ basic(_Config) ->
 
     % B dials A via the relay address (so dialing R realy)
     {ok, _} = libp2p_swarm:dial_framed_stream(
-        ClientSwarm
-        ,ServerCircuitAddress
-        ,Version
-        ,libp2p_stream_relay_test
-        ,[]
+        ClientSwarm,
+        ServerCircuitAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
     ),
 
     timer:sleep(2000),
     ok = libp2p_swarm:stop(ServerSwarm),
     ok = libp2p_swarm:stop(RelaySwarm),
     ok = libp2p_swarm:stop(ClientSwarm),
-
-    timer:sleep(2000),
-    ok.
-
-init_failed(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
-    {ok, Swarm} = libp2p_swarm:start(relay_init_failed, SwarmOpts),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
-
-    {error, no_peer} = libp2p_relay:init(Swarm),
-
-    ok = libp2p_swarm:stop(Swarm),
 
     timer:sleep(2000),
     ok.
@@ -155,30 +142,30 @@ init_success(_Config) ->
     {ok, ASwarm} = libp2p_swarm:start(relay_init_success_server, SwarmOpts),
     ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ASwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
+        ASwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
     ),
 
     {ok, RelaySwarm} = libp2p_swarm:start(relay_init_success_relay, SwarmOpts),
     ok = libp2p_swarm:listen(RelaySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        RelaySwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RelaySwarm]}
+        RelaySwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RelaySwarm]}
     ),
 
     [RelayAddress|_] = libp2p_swarm:listen_addrs(RelaySwarm),
     {ok, _} = libp2p_swarm:dial_framed_stream(
-        ASwarm
-        ,RelayAddress
-        ,Version
-        ,libp2p_stream_relay_test
-        ,[]
+        ASwarm,
+        RelayAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
     ),
     timer:sleep(2000),
 
-    {ok, _} = libp2p_relay:init(ASwarm),
+    ok = libp2p_relay:init(ASwarm),
     timer:sleep(2000),
 
     ok = libp2p_swarm:stop(ASwarm),
@@ -195,35 +182,35 @@ dead_peer(_Config) ->
     {ok, ServerSwarm} = libp2p_swarm:start(relay_dead_peer_server, SwarmOpts),
     ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ServerSwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ServerSwarm]}
+        ServerSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ServerSwarm]}
     ),
 
     {ok, RelaySwarm} = libp2p_swarm:start(relay_dead_peer_relay, SwarmOpts),
     ok = libp2p_swarm:listen(RelaySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        RelaySwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RelaySwarm]}
+        RelaySwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), RelaySwarm]}
     ),
 
     {ok, ClientSwarm} = libp2p_swarm:start(relay_dead_peer_client, SwarmOpts),
     ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ClientSwarm
-        ,Version
-        ,{libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ClientSwarm]}
+        ClientSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ClientSwarm]}
     ),
 
     [RelayAddress|_] = libp2p_swarm:listen_addrs(RelaySwarm),
     % B connect to R for PeerBook gossip
     {ok, _} = libp2p_swarm:dial_framed_stream(
-        ClientSwarm
-        ,RelayAddress
-        ,Version
-        ,libp2p_stream_relay_test
-        ,[]
+        ClientSwarm,
+        RelayAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
     ),
     % NAT fails so A dials R to create a relay
     {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, RelayAddress, []),
@@ -254,11 +241,11 @@ dead_peer(_Config) ->
 
     % B dials A via the relay address (so dialing R realy)
     R = libp2p_swarm:dial_framed_stream(
-        ClientSwarm
-        ,ServerCircuitAddress
-        ,Version
-        ,libp2p_stream_relay_test
-        ,[]
+        ClientSwarm,
+        ServerCircuitAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
     ),
     ?assertEqual({error, "server_down"}, R),
 
@@ -285,3 +272,4 @@ get_relay_addresses(Swarm) ->
         end
         ,SwarmAddresses
     ).
+x
