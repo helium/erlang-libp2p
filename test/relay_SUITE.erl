@@ -272,4 +272,3 @@ get_relay_addresses(Swarm) ->
         end
         ,SwarmAddresses
     ).
-x
