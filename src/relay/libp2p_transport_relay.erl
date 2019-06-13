@@ -154,10 +154,7 @@ connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
         {error, _Reason}=Error ->
             libp2p_relay:unreg_addr_sessions(SAddress),
             lager:error("no relay sessions ~p", [_Reason]),
-            Error;
-        _Any ->
-            lager:debug("got unknown message ~p", [_Any]),
-            connect_rcv(Swarm, MAddr, SAddress, SessionPid)
+            Error
     after 15000 ->
         libp2p_relay:unreg_addr_sessions(SAddress),
         {error, timeout_relay_session}

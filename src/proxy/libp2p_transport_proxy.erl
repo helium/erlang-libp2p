@@ -92,10 +92,7 @@ connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm) ->
         {proxy_negotiated, Socket, MultiAddr} ->
             Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
             lager:info("proxy successful ~p", [Conn]),
-            libp2p_transport:start_client_session(TID, MAddr, Conn);
-        _Any ->
-            lager:debug("got unknown message ~p", [_Any]),
-            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
+            libp2p_transport:start_client_session(TID, MAddr, Conn)
     after 15000 ->
         lager:warning("timeout_proxy_session proxying to ~p", [PAddress]),
         {error, timeout_proxy_session}
