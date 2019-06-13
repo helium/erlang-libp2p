@@ -36,7 +36,8 @@
     swarm :: pid() | undefined,
     sessionPid :: pid() | undefined,
     type = bridge :: bridge | client,
-    relay_addr :: string() | undefined
+    relay_addr :: string() | undefined,
+    connection :: libp2p_connection:connection()
 }).
 
 -type state() :: #state{}.
@@ -53,10 +54,10 @@ client(Connection, Args) ->
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
-init(server, _Conn, [_, _Pid, TID]=Args) ->
-    lager:debug("init relay server with ~p", [{_Conn, Args}]),
+init(server, Conn, [_, _Pid, TID]=Args) ->
+    lager:debug("init relay server with ~p", [{Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
-    {ok, #state{swarm=Swarm}};
+    {ok, #state{swarm=Swarm, connection=Conn}};
 init(client, Conn, Args) ->
     lager:debug("init relay client with ~p", [{Conn, Args}]),
     Swarm = proplists:get_value(swarm, Args),
@@ -70,7 +71,7 @@ init(client, Conn, Args) ->
             self() ! {init_bridge_cr, ServerAddress}
     end,
     {ok, SessionPid} = libp2p_connection:session(Conn),
-    {ok, #state{swarm=Swarm, sessionPid=SessionPid}}.
+    {ok, #state{swarm=Swarm, sessionPid=SessionPid, connection=Conn}}.
 
 handle_data(server, Bin, State) ->
     handle_server_data(Bin, State);
@@ -155,6 +156,7 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     LocalP2PAddress = libp2p_swarm:p2p_address(Swarm),
     Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalP2PAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
+    libp2p_connection:set_idle_timeout(State#state.connection, infinity),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
 % stream to Server and sends it a message with bridge request. If this fails an error
@@ -204,6 +206,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid
             TID = libp2p_swarm:tid(Swarm),
             lager:debug("inserting new listener ~p, ~p, ~p", [TID, Address, SessionPid]),
             true = libp2p_config:insert_listener(TID, [Address], SessionPid),
+            libp2p_connection:set_idle_timeout(State#state.connection, infinity),
             {noreply, State#state{relay_addr=Address}};
         Error ->
             % Bridge Step 3: An error is sent back to Client transfering to relay transport
