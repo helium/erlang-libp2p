@@ -50,11 +50,11 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
--spec relay(pid()) -> {ok, pid()} | {error, any()} | ignore.
+-spec relay(pid()) -> ok | {error, any()}.
 relay(Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
-            gen_server:call(Pid, init_relay);
+            gen_server:cast(Pid, init_relay);
         {error, _}=Error ->
             Error
     end.
@@ -86,7 +86,17 @@ init(TID) ->
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID, swarm=Swarm}}.
 
-handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
+handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) when Conn /= undefined ->
+    libp2p_framed_stream:close(Conn),
+    {reply, ok, State#state{started=false, connection=undefined}};
+handle_call(stop_relay, _From, State) ->
+    %% nothing to do as we're not running
+    {reply, ok, State};
+handle_call(_Msg, _From, State) ->
+    lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
+    {reply, ok, State}.
+
+handle_cast(init_relay, #state{started=false, swarm=Swarm}=State0) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
     Peers = case State0#state.peers of
                 [] ->
@@ -102,26 +112,16 @@ handle_call(init_relay, _From, #state{started=false, swarm=Swarm}=State0) ->
             end,
     State = State0#state{peers=sort_peers(Peers, SwarmAddr), address=SwarmAddr},
     case int_relay(State) of
-        {ok, _}=Resp ->
+        {ok, _} ->
             lager:debug("relay started successfuly"),
-            {reply, Resp, add_flap(State#state{started=true})};
+            {ok, add_flap(State#state{started=true})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             erlang:send_after(2500, self(), try_relay),
-            {reply, _Error, next_peer(State)}
+            {ok, next_peer(State)}
     end;
-handle_call(init_relay, _From, State) ->
-    {reply, {error, already_started}, State};
-handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) when Conn /= undefined ->
-    libp2p_framed_stream:close(Conn),
-    {reply, ok, State#state{started=false, connection=undefined}};
-handle_call(stop_relay, _From, State) ->
-    %% nothing to do as we're not running
-    {reply, ok, State};
-handle_call(_Msg, _From, State) ->
-    lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
-    {reply, ok, State}.
-
+handle_cast(init_relay, State) ->
+    {ok, State};
 handle_cast(connection_lost, State) ->
     lager:debug("relay connection lost"),
     self() ! try_relay,
