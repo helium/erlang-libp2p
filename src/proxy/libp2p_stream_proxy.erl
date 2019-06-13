@@ -237,6 +237,9 @@ dial_back(Env, #state{connection=Connection, proxy_address=PAddr, swarm=Swarm}) 
                 {error, _Reason}=Error ->
                     lager:error("failed to negotiate_handler ~p ~p ~p, ~p", [Handlers, Path, RawConnection, _Reason]),
                     Error;
+                server_switch ->
+                    lager:error("failed to negotiate_handler ~p ~p ~p, ~p", [Handlers, Path, RawConnection, server_switch]),
+                    {error, simultaneous_connection};
                 {ok, _} -> {ok, RawConnection}
             end;
         Error ->

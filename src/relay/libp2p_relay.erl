@@ -29,7 +29,7 @@
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec init(pid()) -> {ok, pid()} | {error, any()} | ignore.
+-spec init(pid()) -> ok | {error, any()}.
 init(Swarm) ->
     libp2p_relay_server:relay(Swarm).
 
