@@ -201,7 +201,7 @@ sort_peers(Peers0, SwarmAddr) ->
     Peers = lists:filter(fun(E) ->
         libp2p_peer:pubkey_bin(E) /= SwarmAddr
     end, Peers0),
-    lists:sort(fun sort_peers_fun/2, Peers).
+    lists:sort(fun sort_peers_fun/2, shuffle(Peers)).
 
 -spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
 sort_peers_fun(A, B) ->
@@ -223,6 +223,9 @@ sort_peers_fun(A, B) ->
         _ ->
             true
     end.
+
+shuffle(List) ->
+    element(2, lists:unzip(lists:sort([{rand:uniform(), E} || E <- List]))).
 
 %% merge new peers into old peers based on their address
 merge_peers(NewPeers, OldPeers) ->
