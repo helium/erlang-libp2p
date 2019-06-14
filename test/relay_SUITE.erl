@@ -166,7 +166,9 @@ init_success(_Config) ->
     timer:sleep(2000),
 
     ok = libp2p_relay:init(ASwarm),
-    timer:sleep(2000),
+
+
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(RelaySwarm),
@@ -255,7 +257,6 @@ dead_peer(_Config) ->
 
     timer:sleep(2000),
     ok.
-
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
