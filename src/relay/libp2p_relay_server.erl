@@ -114,14 +114,14 @@ handle_cast(init_relay, #state{started=false, swarm=Swarm}=State0) ->
     case int_relay(State) of
         {ok, _} ->
             lager:debug("relay started successfuly"),
-            {ok, add_flap(State#state{started=true})};
+            {noreply, add_flap(State#state{started=true})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             erlang:send_after(2500, self(), try_relay),
-            {ok, next_peer(State)}
+            {noreply, next_peer(State)}
     end;
 handle_cast(init_relay, State) ->
-    {ok, State};
+    {noreply, State};
 handle_cast(connection_lost, State) ->
     lager:debug("relay connection lost"),
     self() ! try_relay,
