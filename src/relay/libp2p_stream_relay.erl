@@ -98,7 +98,9 @@ handle_info(client, {init_bridge_cr, Address}, #state{swarm=Swarm}=State) ->
         [] ->
             lager:warning("no listen addresses for ~p, bridge failed", [Swarm]),
             {noreply, State};
-        [ListenAddress|_] ->
+        ListenAddrs ->
+            TID = libp2p_swarm:tid(Swarm),
+            [ListenAddress|_] = libp2p_transport:sort_addrs(TID, ListenAddrs),
             Bridge = libp2p_relay_bridge:create_cr(Address, ListenAddress),
             EnvBridge = libp2p_relay_envelope:create(Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
