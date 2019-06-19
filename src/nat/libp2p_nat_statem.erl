@@ -102,6 +102,8 @@ handle_event(_Type, _Content, Data) ->
 
 % TODO: calculate more accurate time using since
 -spec renew(integer()) -> ok.
+renew(0) ->
+    ok;
 renew(Time) when Time > 2000 ->
     _ = erlang:send_after(Time-2000, self(), renew),
     ok;
