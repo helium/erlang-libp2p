@@ -98,7 +98,9 @@ handle_info(client, {init_bridge_cr, Address}, #state{swarm=Swarm}=State) ->
         [] ->
             lager:warning("no listen addresses for ~p, bridge failed", [Swarm]),
             {noreply, State};
-        [ListenAddress|_] ->
+        ListenAddrs ->
+            TID = libp2p_swarm:tid(Swarm),
+            [ListenAddress|_] = libp2p_transport:sort_addrs(TID, ListenAddrs),
             Bridge = libp2p_relay_bridge:create_cr(Address, ListenAddress),
             EnvBridge = libp2p_relay_envelope:create(Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
@@ -127,7 +129,9 @@ handle_info(_Type, _Msg, State) ->
     {noreply, State}.
 
 terminate(client, _Reason, #state{type=client, swarm=Swarm, relay_addr=RelayAddress}) ->
+    Self = self(),
     erlang:spawn(fun() ->
+        lager:info("~p going down", [Self]),
         _ = libp2p_relay_server:connection_lost(Swarm),
         TID = libp2p_swarm:tid(Swarm),
         _ = libp2p_config:remove_listener(TID, RelayAddress)
@@ -219,10 +223,11 @@ handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     lager:debug("Server got a bridge request dialing Client ~s", [Client]),
     case libp2p_relay:dial_framed_stream(Swarm, Client, [{type, {bridge_sc, Bridge}}]) of
         {ok, _} ->
-            {noreply, State};
-        {error, _} ->
-            {stop, normal, State}
-    end;
+            ok;
+        {error, _Reason} ->
+            lager:warning("failed to dial back client ~p", _Reason)
+    end,
+    {noreply, State};
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.
