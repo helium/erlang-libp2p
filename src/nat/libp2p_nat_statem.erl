@@ -11,32 +11,32 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start/1
-    ,register/4
+    start/1,
+    register/4
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_statem Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,code_change/3
-    ,callback_mode/0
-    ,terminate/3
+    init/1,
+    code_change/3,
+    callback_mode/0,
+    terminate/3
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_statem callbacks Exports
 %% ------------------------------------------------------------------
 -export([
-    started/3
-    ,active/3
+    started/3,
+    active/3
 ]).
 
 -record(data, {
-    port :: integer() | undefined
-    ,lease :: integer() | undefined
-    ,since :: integer() | undefined
+    port :: integer() | undefined,
+    lease :: integer() | undefined,
+    since :: integer() | undefined
 }).
 
 -define(CACHE_KEY, nat_lease).
@@ -70,12 +70,11 @@ terminate(_Reason, _State, _Data) ->
 %% gen_statem callbacks
 %% ------------------------------------------------------------------
 
+
+started(cast, {register, Port, 0, Since}, Data) ->
+    {next_state, active, Data#data{port=Port, lease=0, since=Since}};
 started(cast, {register, Port, Lease, Since}, Data) ->
-    case Lease =:= 0 of
-        true -> ok;
-        false ->
-            ok = renew(Lease)
-    end,
+    ok = renew(Lease),
     {next_state, active, Data#data{port=Port, lease=Lease, since=Since}};
 started(Type, Content, Data) ->
     handle_event(Type, Content, Data).
