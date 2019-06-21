@@ -438,7 +438,7 @@ init_connect_retry_backoff() ->
 start_connect_retry_timer(Data=#data{connect_retry_timer=undefined}) ->
     Delay = backoff:get(Data#data.connect_retry_backoff),
     Timer = erlang:send_after(Delay, self(), connect_retry_timeout),
-    Data#data{target_timer=Timer};
+    Data#data{connect_retry_timer=Timer};
 start_connect_retry_timer(Data=#data{connect_retry_timer=CurrentTimer}) ->
     erlang:cancel_timer(CurrentTimer),
     {Delay, NewBackOff} = backoff:fail(Data#data.connect_retry_backoff),
