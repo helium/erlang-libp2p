@@ -43,10 +43,6 @@
 
 -define(CACHE_KEY, nat_external_port).
 
-% Cache = libp2p_swarm:cache(TID),
-% ok = libp2p_cache:insert(Cache, {tcp_listen_addrs, Type}, ListenAddrs)
-% libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, [])
-
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -78,8 +74,6 @@ terminate(_Reason, _State, _Data) ->
 %% ------------------------------------------------------------------
 %% gen_statem callbacks
 %% ------------------------------------------------------------------
-
-
 started(cast, {register, Port, 0, Since}, #data{tid=TID}=Data) ->
     ok = update_cache(TID, Port),
     {next_state, active, Data#data{port=Port, lease=0, since=Since}};

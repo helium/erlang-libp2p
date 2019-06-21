@@ -9,10 +9,10 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    enabled/1
-    ,maybe_spawn_discovery/3, spawn_discovery/3
-    ,add_port_mapping/2
-    ,maybe_apply_nat_map/1
+    enabled/1,
+    maybe_spawn_discovery/3, spawn_discovery/3,
+    add_port_mapping/2,
+    maybe_apply_nat_map/1
 ]).
 
 -ifdef(TEST).
@@ -167,15 +167,15 @@ add_port_mapping(Context, Port, Retry) ->
 -spec retry_matrix(integer()) -> list().
 retry_matrix(Port) ->
     [
-        {0, Port}
-        ,{60*60*24, Port}
-        ,{60*60, Port}
-        ,{0, increment_port(Port)}
-        ,{0, random_port(Port)}
-        ,{60*60*24, increment_port(Port)}
-        ,{60*60*24, random_port(Port)}
-        ,{60*60, increment_port(Port)}
-        ,{60*60, random_port(Port)}
+        {0, Port},
+        {60*60*24, Port},
+        {60*60, Port},
+        {0, increment_port(Port)},
+        {0, random_port(Port)},
+        {60*60*24, increment_port(Port)},
+        {60*60*24, random_port(Port)},
+        {60*60, increment_port(Port)},
+        {60*60, random_port(Port)}
     ].
 
 -spec retry_matrix(integer(), integer()) -> {integer(), integer()}.
