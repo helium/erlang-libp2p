@@ -30,16 +30,22 @@
 %% ------------------------------------------------------------------
 -export([
     started/3,
-    active/3
+    active/3,
+    key/0
 ]).
 
 -record(data, {
+    tid :: ets:tab(),
     port :: integer() | undefined,
     lease :: integer() | undefined,
     since :: integer() | undefined
 }).
 
--define(CACHE_KEY, nat_lease).
+-define(CACHE_KEY, nat_external_port).
+
+% Cache = libp2p_swarm:cache(TID),
+% ok = libp2p_cache:insert(Cache, {tcp_listen_addrs, Type}, ListenAddrs)
+% libp2p_cache:lookup(Cache, {tcp_listen_addrs, Type}, [])
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -50,13 +56,16 @@ start(Args) ->
 register(Pid, Port, Lease, Since) ->
     gen_server:cast(Pid, {register, Port, Lease, Since}).
 
+key() ->
+    ?CACHE_KEY.
+
 %% ------------------------------------------------------------------
 %% gen_statem Function Definitions
 %% ------------------------------------------------------------------
-init([Pid]=_Args) ->
+init([Pid, TID]=_Args) ->
     lager:info("init with ~p", [_Args]),
     true = erlang:link(Pid),
-    {ok, started, #data{}}.
+    {ok, started, #data{tid=TID}}.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -71,17 +80,20 @@ terminate(_Reason, _State, _Data) ->
 %% ------------------------------------------------------------------
 
 
-started(cast, {register, Port, 0, Since}, Data) ->
+started(cast, {register, Port, 0, Since}, #data{tid=TID}=Data) ->
+    ok = update_cache(TID, Port),
     {next_state, active, Data#data{port=Port, lease=0, since=Since}};
-started(cast, {register, Port, Lease, Since}, Data) ->
+started(cast, {register, Port, Lease, Since}, #data{tid=TID}=Data) ->
+    ok = update_cache(TID, Port),
     ok = renew(Lease),
     {next_state, active, Data#data{port=Port, lease=Lease, since=Since}};
 started(Type, Content, Data) ->
     handle_event(Type, Content, Data).
 
-active(info, renew, #data{port=Port}=Data) ->
+active(info, renew, #data{port=Port, tid=TID}=Data) ->
     case libp2p_nat:add_port_mapping(Port, false) of
-        {ok, _, ExtPort, Lease, Since} ->
+        {ok, _ExtAddr, ExtPort, Lease, Since} ->
+            ok = update_cache(TID, ExtPort),
             ok = renew(Lease),
             {keep_state, Data#data{port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason} ->
@@ -98,6 +110,11 @@ handle_event(_Type, _Content, Data) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+update_cache(TID, Port) ->
+    Cache = libp2p_swarm:cache(TID),
+    ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port).
+
 
 % TODO: calculate more accurate time using since
 -spec renew(integer()) -> ok.

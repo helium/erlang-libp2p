@@ -52,7 +52,7 @@ maybe_spawn_discovery(Pid, MultiAddrs, TID) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec spawn_discovery(pid(), [string()], ets:tab()) -> ok.
-spawn_discovery(Pid, MultiAddrs, _TID) ->
+spawn_discovery(Pid, MultiAddrs, TID) ->
     case lists:filtermap(fun discovery_filter/1, MultiAddrs) of
         [] -> ok;
         [{MultiAddr, _IP, Port}|_] ->
@@ -61,8 +61,15 @@ spawn_discovery(Pid, MultiAddrs, _TID) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            {ok, Statem} = libp2p_nat_statem:start([Pid]),
-            case add_port_mapping(Port, true) of
+            {ok, Statem} = libp2p_nat_statem:start([Pid, TID]),
+            %% Try to reuse prev port
+            Cache = libp2p_swarm:cache(TID),
+            CachedPort =
+                case libp2p_cache:lookup(Cache, libp2p_nat_statem:key()) of
+                    undefined -> Port;
+                    P -> P
+                end,
+            case add_port_mapping(CachedPort, true) of
                 {ok, ExtAddr, ExtPort, Lease, Since} ->
                     _ = libp2p_nat_statem:register(Statem, ExtPort, Lease, Since),
                     {ok, ParsedExtAddress} = inet_parse:address(ExtAddr),
