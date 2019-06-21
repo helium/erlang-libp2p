@@ -107,9 +107,9 @@ handle_cast(_Msg, State) ->
 
 handle_info(migrate, #state{dets=Dets}=State) ->
     maps:fold(
-        fun(Key, undefined) ->
+        fun(Key, undefined, _) ->
             dets:delete(Dets, Key);
-        (Key0, Key1) ->
+        (Key0, Key1, _) ->
             case dets:lookup(Dets, Key0) of
                 [] -> 
                     ok;
@@ -120,6 +120,7 @@ handle_info(migrate, #state{dets=Dets}=State) ->
             end,
             dets:delete(Dets, Key0)
         end,
+        ok,
         ?MIGRATE
     ),
     {noreply, State};
