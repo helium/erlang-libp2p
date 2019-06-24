@@ -249,7 +249,7 @@ dead_peer(_Config) ->
         libp2p_stream_relay_test,
         []
     ),
-    ?assertEqual({error, "server_down"}, R),
+    ?assertMatch({error, _}, R),
 
     timer:sleep(2000),
     ok = libp2p_swarm:stop(RelaySwarm),

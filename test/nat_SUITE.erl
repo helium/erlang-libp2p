@@ -4,14 +4,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([
-    all/0
-    ,init_per_testcase/2
-    ,end_per_testcase/2
+    all/0,
+    init_per_testcase/2,
+    end_per_testcase/2
 ]).
 
 -export([
-    basic/1
-    ,statem/1
+    basic/1,
+    statem/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -141,6 +141,8 @@ statem_rcv(MockLease, Since) ->
         {trace, _, 'receive', {'$gen_cast', {register, _port, MockLease, Since}}} ->
             statem_rcv(MockLease, Since);
         {trace, _, 'receive', {_, meck_passthrough}} ->
+            statem_rcv(MockLease, Since);
+        {trace, _, 'receive', {_, ok}} ->
             statem_rcv(MockLease, Since);
         M ->
             ct:fail(M)

@@ -146,11 +146,7 @@ basic(_Config) ->
 
 
     %% check we didn't leak any sockets here
-    ok = test_util:wait_until(fun() ->
-                                      [{_ID, Info}] = ranch:info(),
-                                      0 == proplists:get_value(active_connections, Info) andalso
-                                      0 == proplists:get_value(all_connections, Info)
-                              end),
+    ok = check_sockets(),
 
     ok = libp2p_swarm:stop(ProxySwarm),
 
@@ -286,7 +282,7 @@ limit_exceeded(_Config) ->
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
-        {libp2p_proxy, [{limit, 1}]}
+        {libp2p_proxy, [{limit, 0}]}
     ],
     Version = "proxytest/1.0.0",
 
@@ -315,9 +311,6 @@ limit_exceeded(_Config) ->
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ClientSwarm1]}
     ),
 
-    {ok, ClientSwarm2} = libp2p_swarm:start(proxy_limit_exceeded_client2, SwarmOpts),
-    ok = libp2p_swarm:listen(ClientSwarm2, "/ip4/0.0.0.0/tcp/0"),
-
     [ProxyAddress|_] = libp2p_swarm:listen_addrs(ProxySwarm),
 
     % NAT fails so Server dials Proxy to create a relay
@@ -327,10 +320,6 @@ limit_exceeded(_Config) ->
     % NAT fails so Client1 dials Proxy to create a relay
     {ok, _} = libp2p_relay:dial_framed_stream(ClientSwarm1, ProxyAddress, []),
     ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ClientSwarm1) end),
-
-    % NAT fails so Client2 dials Proxy to create a relay
-    {ok, _} = libp2p_relay:dial_framed_stream(ClientSwarm2, ProxyAddress, []),
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ClientSwarm2) end),
 
     % Testing relay address
     % Once relay is established get relay address from A's peerbook
@@ -346,67 +335,23 @@ limit_exceeded(_Config) ->
         end
     end),
 
-    %% wait for Server to get Client1's relay address gossiped to it
-    ok = test_util:wait_until(fun() ->
-        case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm2), libp2p_swarm:pubkey_bin(ServerSwarm)) of
-            {ok, PeerBookEntry} ->
-                lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
-            _ ->
-                false
-        end
-    end),
+    % Avoid trying another address
+    meck:new(libp2p_peer, [no_link, passthrough]),
+    meck:expect(libp2p_peer, listen_addrs, fun(_) -> [] end),
 
     % Client1 dials Server via the relay address
-    {ok, ClientStream1} = libp2p_swarm:dial_framed_stream(
+    {error, _} = libp2p_swarm:dial_framed_stream(
         ClientSwarm1,
         ServerCircuitAddress,
         Version,
         libp2p_stream_proxy_test,
         [{echo, self()}]
     ),
-    timer:sleep(2000),
-
-    Data = <<"some data">>,
-    ClientStream1 ! Data,
-    receive
-        {echo, Data} -> ok
-    after 5000 ->
-        ct:fail(timeout)
-    end,
-
-    %% 2 connections, each registered twice once as p2p and one as ipv4
-    ?assertEqual(6, length(libp2p_swarm:sessions(ProxySwarm))),
-
-    % Avoid trying another address
-    meck:new(libp2p_peer, [no_link, passthrough]),
-    meck:expect(libp2p_peer, listen_addrs, fun(_) -> [] end),
-
-    timer:sleep(2000),
-
-    {error, _} = libp2p_swarm :dial_framed_stream(
-        ClientSwarm2,
-        ServerCircuitAddress,
-        Version,
-        libp2p_stream_proxy_test,
-        [{echo, self()}]
-    ),
-
-
-    %% really close the socket here
-    {ok, Session} = libp2p_connection:session(libp2p_framed_stream:connection(ClientStream1)),
-    libp2p_framed_stream:close(ClientStream1),
-    libp2p_session:close(Session),
 
     ok = libp2p_swarm:stop(ServerSwarm),
     ok = libp2p_swarm:stop(ClientSwarm1),
-    ok = libp2p_swarm:stop(ClientSwarm2),
-
     %% check we didn't leak any sockets here
-    ok = test_util:wait_until(fun() ->
-                                      [{_ID, Info}] = ranch:info(),
-                                      0 == proplists:get_value(active_connections, Info) andalso
-                                      0 == proplists:get_value(all_connections, Info)
-                              end),
+    ok = check_sockets(),
 
     ok = libp2p_swarm:stop(ProxySwarm),
 
@@ -415,9 +360,26 @@ limit_exceeded(_Config) ->
     meck:unload(libp2p_peer),
     ok.
 
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+check_sockets() ->
+    test_util:wait_until(
+        fun() ->
+            lists:foldl(
+                fun({_ID, _Info}, false) ->
+                    false;
+                ({_ID, Info}, _Acc) ->
+                    0 == proplists:get_value(active_connections, Info) andalso
+                    0 == proplists:get_value(all_connections, Info)
+                end,
+                true,
+                ranch:info()
+                
+            )
+    end).
 
 -spec get_relay_addresses(pid()) -> [string()].
 get_relay_addresses(Swarm) ->
