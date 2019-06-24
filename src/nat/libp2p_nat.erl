@@ -188,8 +188,8 @@ retry_matrix(Try, Port) ->
 %%--------------------------------------------------------------------
 increment_port(Port) when Port < 65535-1 ->
     Port+1;
-increment_port(_Port) ->
-    65535.
+increment_port(Port) ->
+    Port.
 
 %%--------------------------------------------------------------------
 %% @doc
