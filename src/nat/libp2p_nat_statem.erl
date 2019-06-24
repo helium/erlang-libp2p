@@ -11,35 +11,37 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start/1
-    ,register/4
+    start/1,
+    register/4
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_statem Function Exports
 %% ------------------------------------------------------------------
 -export([
-    init/1
-    ,code_change/3
-    ,callback_mode/0
-    ,terminate/3
+    init/1,
+    code_change/3,
+    callback_mode/0,
+    terminate/3
 ]).
 
 %% ------------------------------------------------------------------
 %% gen_statem callbacks Exports
 %% ------------------------------------------------------------------
 -export([
-    started/3
-    ,active/3
+    started/3,
+    active/3,
+    key/0
 ]).
 
 -record(data, {
-    port :: integer() | undefined
-    ,lease :: integer() | undefined
-    ,since :: integer() | undefined
+    tid :: ets:tab(),
+    port :: integer() | undefined,
+    lease :: integer() | undefined,
+    since :: integer() | undefined
 }).
 
--define(CACHE_KEY, nat_lease).
+-define(CACHE_KEY, nat_external_port).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -50,13 +52,16 @@ start(Args) ->
 register(Pid, Port, Lease, Since) ->
     gen_server:cast(Pid, {register, Port, Lease, Since}).
 
+key() ->
+    ?CACHE_KEY.
+
 %% ------------------------------------------------------------------
 %% gen_statem Function Definitions
 %% ------------------------------------------------------------------
-init([Pid]=_Args) ->
+init([Pid, TID]=_Args) ->
     lager:info("init with ~p", [_Args]),
     true = erlang:link(Pid),
-    {ok, started, #data{}}.
+    {ok, started, #data{tid=TID}}.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -69,20 +74,20 @@ terminate(_Reason, _State, _Data) ->
 %% ------------------------------------------------------------------
 %% gen_statem callbacks
 %% ------------------------------------------------------------------
-
-started(cast, {register, Port, Lease, Since}, Data) ->
-    case Lease =:= 0 of
-        true -> ok;
-        false ->
-            ok = renew(Lease)
-    end,
+started(cast, {register, Port, 0, Since}, #data{tid=TID}=Data) ->
+    ok = update_cache(TID, Port),
+    {next_state, active, Data#data{port=Port, lease=0, since=Since}};
+started(cast, {register, Port, Lease, Since}, #data{tid=TID}=Data) ->
+    ok = update_cache(TID, Port),
+    ok = renew(Lease),
     {next_state, active, Data#data{port=Port, lease=Lease, since=Since}};
 started(Type, Content, Data) ->
     handle_event(Type, Content, Data).
 
-active(info, renew, #data{port=Port}=Data) ->
+active(info, renew, #data{port=Port, tid=TID}=Data) ->
     case libp2p_nat:add_port_mapping(Port, false) of
-        {ok, _, ExtPort, Lease, Since} ->
+        {ok, _ExtAddr, ExtPort, Lease, Since} ->
+            ok = update_cache(TID, ExtPort),
             ok = renew(Lease),
             {keep_state, Data#data{port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason} ->
@@ -100,8 +105,15 @@ handle_event(_Type, _Content, Data) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+update_cache(TID, Port) ->
+    Cache = libp2p_swarm:cache(TID),
+    ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port).
+
+
 % TODO: calculate more accurate time using since
 -spec renew(integer()) -> ok.
+renew(0) ->
+    ok;
 renew(Time) when Time > 2000 ->
     _ = erlang:send_after(Time-2000, self(), renew),
     ok;
