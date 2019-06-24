@@ -146,20 +146,7 @@ basic(_Config) ->
 
 
     %% check we didn't leak any sockets here
-    ok = test_util:wait_until(
-        fun() ->
-            lists:foldl(
-                fun({_ID, _Info}, false) ->
-                    false;
-                ({_ID, Info}, _Acc) ->
-                    0 == proplists:get_value(active_connections, Info) andalso
-                    0 == proplists:get_value(all_connections, Info)
-                end,
-                true,
-                ranch:info()
-                
-            )
-    end),
+    ok = check_sockets(),
 
     ok = libp2p_swarm:stop(ProxySwarm),
 
@@ -411,7 +398,21 @@ limit_exceeded(_Config) ->
     ok = libp2p_swarm:stop(ClientSwarm2),
 
     %% check we didn't leak any sockets here
-    ok = test_util:wait_until(
+    ok = check_sockets(),
+
+    ok = libp2p_swarm:stop(ProxySwarm),
+
+    timer:sleep(2000),
+    ?assert(meck:validate(libp2p_peer)),
+    meck:unload(libp2p_peer),
+    ok.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+check_sockets() ->
+    test_util:wait_until(
         fun() ->
             lists:foldl(
                 fun({_ID, _Info}, false) ->
@@ -424,18 +425,7 @@ limit_exceeded(_Config) ->
                 ranch:info()
                 
             )
-    end),
-
-    ok = libp2p_swarm:stop(ProxySwarm),
-
-    timer:sleep(2000),
-    ?assert(meck:validate(libp2p_peer)),
-    meck:unload(libp2p_peer),
-    ok.
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+    end).
 
 -spec get_relay_addresses(pid()) -> [string()].
 get_relay_addresses(Swarm) ->
