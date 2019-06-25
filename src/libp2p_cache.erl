@@ -81,7 +81,7 @@ init([TID]) ->
     DataDir = libp2p_config:base_dir(TID),
     Opts = [{file, filename:join([DataDir, SwarmName, "cache.dets"])}],
     {ok, Dets} = dets:open_file(SwarmName, Opts),
-    self() ! migrate,
+    _ = migrate(Dets),
     {ok, #state{dets=Dets}}.
 
 handle_call({insert, Key, Value}, _From, #state{dets=Dets}=State) ->
@@ -105,7 +105,22 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(migrate, #state{dets=Dets}=State) ->
+handle_info(_Msg, State) ->
+    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
+    {noreply, State}.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+terminate(_Reason, #state{dets=Name}) ->
+    ok = dets:close(Name),
+    ok.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+migrate(Dets) ->
     maps:fold(
         fun(Key, undefined, _) ->
             dets:delete(Dets, Key);
@@ -122,22 +137,7 @@ handle_info(migrate, #state{dets=Dets}=State) ->
         end,
         ok,
         ?MIGRATE
-    ),
-    {noreply, State};
-handle_info(_Msg, State) ->
-    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
-    {noreply, State}.
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
-terminate(_Reason, #state{dets=Name}) ->
-    ok = dets:close(Name),
-    ok.
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
+    ).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
