@@ -124,12 +124,12 @@ statem(_Config) ->
 
     statem_rcv(MockLease, Since),
 
-    libp2p_swarm:stop(Swarm),
-
     ?assert(meck:validate(nat)),
     meck:unload(nat),
     ?assert(meck:validate(libp2p_nat_statem)),
-    meck:unload(libp2p_nat_statem).
+    meck:unload(libp2p_nat_statem),
+
+    libp2p_swarm:stop(Swarm).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
