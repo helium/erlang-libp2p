@@ -11,7 +11,7 @@
 -export([
     enabled/1,
     maybe_spawn_discovery/3, spawn_discovery/3,
-    add_port_mapping/2,
+    add_port_mapping/1, delete_port_mapping/1,
     maybe_apply_nat_map/1
 ]).
 
@@ -69,15 +69,21 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
                     undefined -> Port;
                     P -> P
                 end,
-            case add_port_mapping(CachedPort, true) of
+            case ?MODULE:delete_port_mapping(CachedPort) of
+                ok ->
+                    ok;
+                {error, _Reason0} ->
+                    lager:warning("failed to delete port mapping ~p: ~p", [CachedPort, _Reason0])
+            end,
+            case ?MODULE:add_port_mapping(CachedPort) of
                 {ok, ExtAddr, ExtPort, Lease, Since} ->
                     _ = libp2p_nat_statem:register(Statem, ExtPort, Lease, Since),
                     {ok, ParsedExtAddress} = inet_parse:address(ExtAddr),
                     ExtMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, ExtPort}),
                     Pid ! {nat_discovered, MultiAddr, ExtMultiAddr},
                     ok;
-                {error, _Reason} ->
-                    lager:warning("unable to add nat mapping: ~p", [_Reason])
+                {error, _Reason1} ->
+                    lager:warning("unable to add nat mapping: ~p", [_Reason1])
             end
     end.
 
@@ -85,26 +91,26 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(integer(), boolean()) ->
+-spec add_port_mapping(integer()) ->
     {ok, string(), integer(), integer(), integer()} | {error, any()}.
-add_port_mapping(Port, false) ->
+add_port_mapping(Port) ->
     case nat:discover() of
         {ok, Context} ->
             MaxRetry = erlang:length(retry_matrix(Port)),
             add_port_mapping(Context, Port, MaxRetry);
         no_nat ->
             {error, no_nat}
-    end;
-add_port_mapping(Port, true) ->
+    end.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec delete_port_mapping(integer()) -> ok | {error, any()}.
+delete_port_mapping(Port) ->
     case nat:discover() of
         {ok, Context} ->
-            case nat:delete_port_mapping(Context, tcp, Port, Port) of
-                ok -> ok;
-                {error, _Reason} ->
-                    lager:warning("failed to delete port mapping ~p: ~p", [Port, _Reason])
-            end,
-            MaxRetry = erlang:length(retry_matrix(Port)),
-            add_port_mapping(Context, Port, MaxRetry);
+            nat:delete_port_mapping(Context, tcp, Port, Port);
         no_nat ->
             {error, no_nat}
     end.

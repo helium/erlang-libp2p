@@ -85,10 +85,11 @@ started(Type, Content, Data) ->
     handle_event(Type, Content, Data).
 
 active(info, renew, #data{port=Port, tid=TID}=Data) ->
-    case libp2p_nat:add_port_mapping(Port, false) of
+    case libp2p_nat:add_port_mapping(Port) of
         {ok, _ExtAddr, ExtPort, Lease, Since} ->
             ok = update_cache(TID, ExtPort),
             ok = renew(Lease),
+            ok = delete_mapping(Port),
             {keep_state, Data#data{port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason} ->
             lager:warning("failed to renew lease for port ~p: ~p", [Port, _Reason]),
@@ -105,10 +106,18 @@ handle_event(_Type, _Content, Data) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+delete_mapping(Port) ->
+    case libp2p_nat:delete_port_mapping(Port) of
+        ok ->
+            ok;
+        {error, _Reason} ->
+            lager:warning("failed to delete port mapping ~p: ~p", [Port, _Reason])
+    end.
+
+
 update_cache(TID, Port) ->
     Cache = libp2p_swarm:cache(TID),
     ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port).
-
 
 % TODO: calculate more accurate time using since
 -spec renew(integer()) -> ok.
