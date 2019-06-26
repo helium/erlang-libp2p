@@ -39,7 +39,7 @@
 %% time, we cache the addresses for a number of seconds before
 %% re-requesting, instead of fetching them every time, for every
 %% worker that comes in to ask.
--define(DEFAULT_PEER_CACHE_TIMEOUT, 10 * 1000).
+-define(DEFAULT_PEER_CACHE_TIMEOUT, 60 * 1000).
 -define(GROUP_ID, "gossip").
 -define(GROUP_PATH, "gossip/1.0.0").
 
