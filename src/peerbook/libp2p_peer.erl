@@ -16,7 +16,7 @@
 -type metadata() :: [{string(), binary()}].
 -export_type([peer/0, association/0, peer_map/0, nat_type/0]).
 
--export([from_map/2, encode/1, decode/1, encode_list/1, decode_list/1, verify/1,
+-export([from_map/2, encode/1, decode/1, decode_unsafe/1, encode_list/1, decode_list/1, verify/1,
          pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2, network_id/1, network_id_allowable/2]).
 %% associations
@@ -328,10 +328,14 @@ decode_list(Bin) ->
 %% @doc Decodes a given binary into a peer.
 -spec decode(binary()) -> peer().
 decode(Bin) ->
-    Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_signed_peer_pb),
+    Msg = decode_unsafe(Bin),
     verify(Msg),
     Msg.
 
+%% @doc Decodes a binary peer without verification, use with care.
+-spec decode_unsafe(binary()) -> peer().
+decode_unsafe(Bin) ->
+    libp2p_peer_pb:decode_msg(Bin, libp2p_signed_peer_pb).
 
 %% @doc Cryptographically verifies a given peer and it's
 %% associations. Returns true if the given peer can be verified or
