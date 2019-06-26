@@ -36,7 +36,7 @@
     since :: integer() | undefined
 }).
 
--define(CACHE_KEY, nat_external).
+-define(CACHE_KEY, nat_external_port).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -66,7 +66,7 @@ handle_info(post_init, #state{transport_tcp=Pid, tid=TID, internal_address=Multi
     CachedPort =
         case libp2p_cache:lookup(Cache, ?CACHE_KEY) of
             undefined -> Port;
-            {_, P} ->
+            P ->
                 lager:info("got port from cache ~p", [P]),
                 P
         end,
@@ -78,7 +78,7 @@ handle_info(post_init, #state{transport_tcp=Pid, tid=TID, internal_address=Multi
     case libp2p_nat:add_port_mapping(CachedPort) of
         {ok, ExtAddr, ExtPort, Lease, Since} ->
             lager:info("added port mapping ~p", [{ExtAddr, ExtPort, Lease, Since}]),
-            ok = update_cache(TID, {ExtAddr, ExtPort}),
+            ok = update_cache(TID, ExtPort),
             ok = nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort),
             case Lease =/= 0 of
                 true -> ok = renew(Lease);
@@ -92,7 +92,7 @@ handle_info(renew, #state{transport_tcp=Pid, address=Address, port=Port, tid=TID
     case libp2p_nat:add_port_mapping(Port) of
         {ok, ExtAddr, ExtPort, Lease, Since} ->
             lager:info("renewed lease for ~p:~p (~p) for ~p seconds", [ExtAddr, ExtPort, Port, Lease]),
-            ok = update_cache(TID, {ExtAddr, ExtPort}),
+            ok = update_cache(TID, ExtPort),
             ok = renew(Lease),
             case Port =/= ExtPort of
                 false -> ok;
@@ -164,10 +164,10 @@ delete_mapping(Port) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec update_cache(ets:tab(), {string(), non_neg_integer()}) -> ok.
-update_cache(TID, AddressPort) ->
+-spec update_cache(ets:tab(), non_neg_integer()) -> ok.
+update_cache(TID, Port) ->
     Cache = libp2p_swarm:cache(TID),
-    ok = libp2p_cache:insert(Cache, ?CACHE_KEY, AddressPort).
+    ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port).
 
 %%--------------------------------------------------------------------
 %% @doc

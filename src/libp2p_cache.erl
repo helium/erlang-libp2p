@@ -34,8 +34,7 @@
 }).
 
 -define(MIGRATE, #{
-    tcp_listen_addrs => tcp_local_listen_addrs,
-    nat_external_port => undefined
+    tcp_listen_addrs => tcp_local_listen_addrs
 }).
 
 %% ------------------------------------------------------------------
