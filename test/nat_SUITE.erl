@@ -11,7 +11,7 @@
 
 -export([
     basic/1,
-    statem/1
+    server/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -25,7 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, statem].
+    [basic, server].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -91,9 +91,9 @@ basic(_Config) ->
     ok = dbg:stop(),
     libp2p_swarm:stop(Swarm).
 
-statem(_Config) ->
+server(_Config) ->
     Self = self(),
-    MockLease = 3000,
+    MockLease = 3,
     Since = 0,
 
     meck:new(nat, [no_link, passthrough]),
@@ -112,41 +112,40 @@ statem(_Config) ->
         ok
     end),
 
-    meck:new(libp2p_nat_statem, [no_link, passthrough]),
-    meck:expect(libp2p_nat_statem, start, fun(Args) ->
-        {ok, Pid} = gen_statem:start(libp2p_nat_statem, Args, []),
+    meck:new(libp2p_nat_server, [no_link, passthrough]),
+    meck:expect(libp2p_nat_server, start, fun(Args) ->
+        {ok, Pid} = gen_server:start(libp2p_nat_server, Args, []),
         erlang:trace(Pid, true, [{tracer, Self}, 'receive']),
         {ok, Pid}
     end),
 
-    {ok, Swarm} = libp2p_swarm:start(nat_statem),
+    {ok, Swarm} = libp2p_swarm:start(nat_server),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
-    statem_rcv(MockLease, Since),
+    server_rcv(MockLease, Since),
 
     ?assert(meck:validate(nat)),
     meck:unload(nat),
-    ?assert(meck:validate(libp2p_nat_statem)),
-    meck:unload(libp2p_nat_statem),
+    ?assert(meck:validate(libp2p_nat_server)),
+    meck:unload(libp2p_nat_server),
 
     libp2p_swarm:stop(Swarm).
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-statem_rcv(MockLease, Since) ->
+server_rcv(MockLease, Since) ->
     receive
         {trace, _, 'receive', renew} ->
             ok;
-        {trace, _, 'receive', {'$gen_cast', {register, _port, MockLease, Since}}} ->
-            statem_rcv(MockLease, Since);
-        {trace, _, 'receive', {_, meck_passthrough}} ->
-            statem_rcv(MockLease, Since);
-        {trace, _, 'receive', {_, ok}} ->
-            statem_rcv(MockLease, Since);
+        {trace, _, 'receive', post_init} ->
+            server_rcv(MockLease, Since);
+        {trace, _, 'receive', _} ->
+            server_rcv(MockLease, Since);
         M ->
             ct:fail(M)
-    after 4000 -> ct:fail(timeout)
+    after 4000 ->
+        ct:fail(timeout)
     end.
 
 -spec handle_discovery(list(), any()) -> ok.

@@ -61,30 +61,7 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            {ok, Statem} = libp2p_nat_statem:start([Pid, TID]),
-            %% Try to reuse prev port
-            Cache = libp2p_swarm:cache(TID),
-            CachedPort =
-                case libp2p_cache:lookup(Cache, libp2p_nat_statem:key()) of
-                    undefined -> Port;
-                    P -> P
-                end,
-            case ?MODULE:delete_port_mapping(CachedPort) of
-                ok ->
-                    ok;
-                {error, _Reason0} ->
-                    lager:warning("failed to delete port mapping ~p: ~p", [CachedPort, _Reason0])
-            end,
-            case ?MODULE:add_port_mapping(CachedPort) of
-                {ok, ExtAddr, ExtPort, Lease, Since} ->
-                    _ = libp2p_nat_statem:register(Statem, ExtPort, Lease, Since),
-                    {ok, ParsedExtAddress} = inet_parse:address(ExtAddr),
-                    ExtMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, ExtPort}),
-                    Pid ! {nat_discovered, MultiAddr, ExtMultiAddr},
-                    ok;
-                {error, _Reason1} ->
-                    lager:warning("unable to add nat mapping: ~p", [_Reason1])
-            end
+            {ok, _Server} = libp2p_nat_server:start([Pid, TID, MultiAddr, Port])
     end.
 
 %%--------------------------------------------------------------------
