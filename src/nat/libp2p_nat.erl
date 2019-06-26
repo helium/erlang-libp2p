@@ -61,7 +61,8 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            {ok, _Server} = libp2p_nat_server:start([Pid, TID, MultiAddr, Port])
+            {ok, _Server} = libp2p_nat_server:start([Pid, TID, MultiAddr, Port]),
+            ok
     end.
 
 %%--------------------------------------------------------------------
