@@ -11,6 +11,8 @@
     connect/5
 ]).
 
+-define(PROXIES, proxies).
+
 %% ------------------------------------------------------------------
 %% libp2p_transport
 %% ------------------------------------------------------------------
@@ -38,19 +40,30 @@ priority() -> 99.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     {ok, {PAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     lager:info("init proxy with ~p", [[PAddress, AAddress]]),
-    Swarm = libp2p_swarm:swarm(TID),
-    ID = crypto:strong_rand_bytes(16),
-    Args = [
-        {p2p_circuit, MAddr},
-        {transport, self()},
-        {id, ID}
-    ],
-    case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
-        {error, Reason} ->
-            lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
-            {error, fail_dial_proxy};
-        {ok, _} ->
-            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
+    case erlang:get(?PROXIES) of
+        undefined ->
+            _ = erlang:put(?PROXIES, [AAddress]);
+        Proxies ->
+            case lists:member(PAddress, Proxies) of
+                true ->
+                    {error, proxy_loop};
+                false ->
+                    _ = erlang:put(?PROXIES, [AAddress|Proxies]),
+                    Swarm = libp2p_swarm:swarm(TID),
+                    ID = crypto:strong_rand_bytes(16),
+                    Args = [
+                        {p2p_circuit, MAddr},
+                        {transport, self()},
+                        {id, ID}
+                    ],
+                    case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
+                        {error, Reason} ->
+                            lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
+                            {error, fail_dial_proxy};
+                        {ok, _} ->
+                            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
+                    end
+            end
     end.
 
 %% ------------------------------------------------------------------
