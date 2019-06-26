@@ -414,11 +414,12 @@ fetch_peer(ID, Handle=#peerbook{stale_time=StaleTime}) ->
 
 fold_peers(Fun, Acc0, #peerbook{tid=TID, store=Store, stale_time=StaleTime}) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
+    NetworkID = libp2p_swarm:network_id(TID),
     fold(Iterator, rocksdb:iterator_move(Iterator, first),
          fun(Key, Bin, Acc) ->
-                 Peer = libp2p_peer:decode(Bin),
+                 Peer = libp2p_peer:decode_lite(Bin),
                  case libp2p_peer:is_stale(Peer, StaleTime)
-                      orelse not libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) of
+                     orelse not libp2p_peer:network_id_allowable(Peer, NetworkID) of
                      true -> Acc;
                      false -> Fun(Key, Peer, Acc)
                  end
