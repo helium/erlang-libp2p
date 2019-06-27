@@ -11,7 +11,7 @@
 -export([
     enabled/1,
     maybe_spawn_discovery/3, spawn_discovery/3,
-    add_port_mapping/1, delete_port_mapping/1,
+    add_port_mapping/2, delete_port_mapping/2,
     maybe_apply_nat_map/1
 ]).
 
@@ -69,13 +69,13 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(integer()) ->
+-spec add_port_mapping(integer(), integer()) ->
     {ok, string(), integer(), integer(), integer()} | {error, any()}.
-add_port_mapping(Port) ->
+add_port_mapping(InternalPort, ExternalPort) ->
     case nat:discover() of
         {ok, Context} ->
-            MaxRetry = erlang:length(retry_matrix(Port)),
-            add_port_mapping(Context, Port, MaxRetry);
+            MaxRetry = erlang:length(retry_matrix(ExternalPort)),
+            add_port_mapping(Context, InternalPort, ExternalPort, MaxRetry);
         no_nat ->
             {error, no_nat}
     end.
@@ -84,11 +84,11 @@ add_port_mapping(Port) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec delete_port_mapping(integer()) -> ok | {error, any()}.
-delete_port_mapping(Port) ->
+-spec delete_port_mapping(integer(), integer()) -> ok | {error, any()}.
+delete_port_mapping(InternalPort, ExternalPort) ->
     case nat:discover() of
         {ok, Context} ->
-            nat:delete_port_mapping(Context, tcp, Port, Port);
+            nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort);
         no_nat ->
             {error, no_nat}
     end.
@@ -129,19 +129,19 @@ discovery_filter(MultiAddr) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec add_port_mapping(nat:nat_ctx(), integer(), integer()) ->
+-spec add_port_mapping(nat:nat_ctx(), integer(), integer(), integer()) ->
     {ok, string(), integer(), integer(), integer()} | {error, any()}.
-add_port_mapping(_Context, _Port, 0) ->
+add_port_mapping(_Context, _InternalPort, _ExternalPort, 0) ->
     {error, too_many_retries};
-add_port_mapping(Context, Port, Retry) ->
-    {Lease0, ExtPort} = retry_matrix(Retry, Port),
-    case nat:add_port_mapping(Context, tcp, Port, ExtPort, Lease0) of
-        {ok, Since, Port, ExtPort1, Lease1} ->
+add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
+    {Lease0, ExternalPort1} = retry_matrix(Retry, ExternalPort0),
+    case nat:add_port_mapping(Context, tcp, InternalPort, ExternalPort1, Lease0) of
+        {ok, Since, InternalPort, ExternalPort2, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
-            {ok, ExternalAddress, ExtPort1, Lease1, Since};
+            {ok, ExternalAddress, ExternalPort2, Lease1, Since};
         {error, Reason} ->
-            lager:warning("failed to add port mapping for ~p: ~p", [{ExtPort, Lease0}, Reason]),
-            add_port_mapping(Context, Port, Retry-1)
+            lager:warning("failed to add port mapping for ~p: ~p", [{ExternalPort1, Lease0}, Reason]),
+            add_port_mapping(Context, InternalPort, ExternalPort0, Retry-1)
     end.
 
 %%--------------------------------------------------------------------

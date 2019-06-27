@@ -27,11 +27,12 @@
 ]).
 
 -record(state, {
+    tid :: ets:tab(),
     transport_tcp :: pid(),
     internal_address :: string(),
-    tid :: ets:tab(),
-    address :: string() | undefined,
-    port :: integer() | undefined,
+    internal_port :: integer() | undefined,
+    external_address :: string() | undefined,
+    external_port :: integer() | undefined,
     lease :: integer() | undefined,
     since :: integer() | undefined
 }).
@@ -47,11 +48,11 @@ start(Args) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Pid, TID, MultiAddr, Port]=_Args) ->
+init([Pid, TID, MultiAddr, InternalPort]=_Args) ->
     lager:info("init with ~p", [_Args]),
     true = erlang:link(Pid),
     self() ! post_init,
-    {ok, #state{transport_tcp=Pid, tid=TID, internal_address=MultiAddr, port=Port}}.
+    {ok, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=InternalPort}}.
 
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
@@ -61,21 +62,21 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(post_init, #state{transport_tcp=Pid, tid=TID, internal_address=MultiAddr, port=Port}=State) ->
+handle_info(post_init, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=IntPort}=State) ->
     Cache = libp2p_swarm:cache(TID),
-    CachedPort =
+    CachedExtPort =
         case libp2p_cache:lookup(Cache, ?CACHE_KEY) of
-            undefined -> Port;
+            undefined -> IntPort;
             P ->
                 lager:info("got port from cache ~p", [P]),
                 P
         end,
-    lager:info("using port ~p", [CachedPort]),
-    case libp2p_nat:delete_port_mapping(CachedPort) of
-        {error, _Reason0} -> lager:warning("failed to delete port mapping ~p: ~p", [CachedPort, _Reason0]);
+    lager:info("using int port ~p ext port ~p ", [IntPort, CachedExtPort]),
+    case libp2p_nat:delete_port_mapping(IntPort, CachedExtPort) of
+        {error, _Reason0} -> lager:warning("failed to delete port mapping ~p: ~p", [{IntPort, CachedExtPort}, _Reason0]);
         ok -> ok
     end,
-    case libp2p_nat:add_port_mapping(CachedPort) of
+    case libp2p_nat:add_port_mapping(IntPort, CachedExtPort) of
         {ok, ExtAddr, ExtPort, Lease, Since} ->
             lager:info("added port mapping ~p", [{ExtAddr, ExtPort, Lease, Since}]),
             ok = update_cache(TID, ExtPort),
@@ -84,32 +85,33 @@ handle_info(post_init, #state{transport_tcp=Pid, tid=TID, internal_address=Multi
                 true -> ok = renew(Lease);
                 false -> ok
             end,
-            {noreply, State#state{address=ExtAddr, port=ExtPort, lease=Lease, since=Since}};
+            {noreply, State#state{external_address=ExtAddr, external_port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason1} ->
             {stop, init_port_mapping_failed}
     end;
-handle_info(renew, #state{transport_tcp=Pid, address=Address, port=Port, tid=TID, internal_address=MultiAddr}=State) ->
-    case libp2p_nat:add_port_mapping(Port) of
-        {ok, ExtAddr, ExtPort, Lease, Since} ->
-            lager:info("renewed lease for ~p:~p (~p) for ~p seconds", [ExtAddr, ExtPort, Port, Lease]),
-            ok = update_cache(TID, ExtPort),
+handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=IntPort,
+                          external_address=ExtAddress0, external_port=ExtPort0}=State) ->
+    case libp2p_nat:add_port_mapping(IntPort, ExtPort0) of
+        {ok, ExtAddress1, ExtPort1, Lease, Since} ->
+            lager:info("renewed lease for ~p:~p (~p) for ~p seconds", [ExtAddress1, ExtPort1, IntPort, Lease]),
+            ok = update_cache(TID, ExtPort1),
             ok = renew(Lease),
-            case Port =/= ExtPort of
+            case ExtPort0 =/= ExtPort1 of
                 false -> ok;
                 true ->
-                    lager:info("deleting old port mapping for ~p", [Port]),
-                    ok = delete_mapping(Port)
+                    lager:info("deleting old port mapping for ~p", [{IntPort, ExtPort0}]),
+                    ok = delete_mapping(IntPort, ExtPort0)
             end,
-            case Port =/= ExtPort orelse Address =/= ExtAddr of
+            case ExtPort0 =/= ExtPort1 orelse ExtAddress0 =/= ExtAddress1 of
                 false -> ok;
                 true ->
-                    lager:info("address or port change ~p ~p", [{Address, ExtAddr}, {Port, ExtPort}]),
-                    ok = remove_multi_addr(TID, Address, Port),
-                    ok = nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort)
+                    lager:info("address or port change ~p ~p", [{ExtAddress0, ExtAddress1}, {ExtPort0, ExtPort1}]),
+                    ok = remove_multi_addr(TID, ExtAddress0, ExtPort0),
+                    ok = nat_discovered(Pid, MultiAddr, ExtAddress1, ExtPort1)
             end,
-            {noreply, State#state{address=ExtAddr, port=ExtPort, lease=Lease, since=Since}};
+            {noreply, State#state{external_address=ExtAddress1, external_port=ExtPort1, lease=Lease, since=Since}};
         {error, _Reason} ->
-            lager:warning("failed to renew lease for port ~p: ~p", [Port, _Reason]),
+            lager:warning("failed to renew lease for port ~p: ~p", [{IntPort, ExtPort0}, _Reason]),
             {stop, renew_failed}
     end;
 handle_info(_Msg, State) ->
@@ -151,13 +153,13 @@ nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec delete_mapping(non_neg_integer()) -> ok.
-delete_mapping(Port) ->
-    case libp2p_nat:delete_port_mapping(Port) of
+-spec delete_mapping(integer(), integer()) -> ok.
+delete_mapping(IntPort, ExtPort) ->
+    case libp2p_nat:delete_port_mapping(IntPort, ExtPort) of
         ok ->
             ok;
         {error, _Reason} ->
-            lager:warning("failed to delete port mapping ~p: ~p", [Port, _Reason])
+            lager:warning("failed to delete port mapping ~p: ~p", [{IntPort, ExtPort}, _Reason])
     end.
 
 %%--------------------------------------------------------------------
