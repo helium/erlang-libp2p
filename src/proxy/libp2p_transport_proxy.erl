@@ -11,6 +11,8 @@
     connect/5
 ]).
 
+-define(PROXIES, proxies).
+
 %% ------------------------------------------------------------------
 %% libp2p_transport
 %% ------------------------------------------------------------------
@@ -33,11 +35,32 @@ sort_addrs(Addrs) ->
 -spec priority() -> integer().
 priority() -> 99.
 
--spec connect(pid(), string(), libp2p_swarm:connect_opts()
-              ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
+-spec connect(pid(), string(), libp2p_swarm:connect_opts(),
+              pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     {ok, {PAddress, AAddress}} = libp2p_relay:p2p_circuit(MAddr),
     lager:info("init proxy with ~p", [[PAddress, AAddress]]),
+    case erlang:get(?PROXIES) of
+        undefined ->
+            _ = erlang:put(?PROXIES, [AAddress]),
+            connect_to(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress);
+        Proxies ->
+            case lists:member(PAddress, Proxies) of
+                true ->
+                    {error, proxy_loop};
+                false ->
+                    _ = erlang:put(?PROXIES, [AAddress|Proxies]),
+                    connect_to(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress)
+            end
+    end.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+-spec connect_to(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(),
+                 ets:tab(), string(), string()) -> {ok, pid()} | {error, term()}.
+connect_to(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress) ->
     Swarm = libp2p_swarm:swarm(TID),
     ID = crypto:strong_rand_bytes(16),
     Args = [
@@ -52,10 +75,6 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         {ok, _} ->
             connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
     end.
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
 
 -spec peer_for(pid(), string()) -> {ok, libp2p_peer:peer()} | {error, any()}.
 peer_for(Swarm, Address) ->
