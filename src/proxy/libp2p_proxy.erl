@@ -44,9 +44,9 @@ version() ->
 -spec add_stream_handler(ets:tab()) -> ok.
 add_stream_handler(TID) ->
     libp2p_swarm:add_stream_handler(
-        TID
-        ,?PROXY_VERSION
-        ,{libp2p_framed_stream, server, [libp2p_stream_proxy, self(), TID]}
+        TID,
+        ?PROXY_VERSION,
+        {libp2p_framed_stream, server, [libp2p_stream_proxy, self(), TID]}
     ).
 
 %%--------------------------------------------------------------------
@@ -57,11 +57,11 @@ add_stream_handler(TID) ->
 -spec dial_framed_stream(pid(), string(), list()) -> {ok, pid()} | {error, any()} | ignore.
 dial_framed_stream(Swarm, Address, Args) ->
     libp2p_swarm:dial_framed_stream(
-        Swarm
-        ,Address
-        ,?PROXY_VERSION
-        ,libp2p_stream_proxy
-        ,[{swarm, Swarm}|Args]
+        Swarm,
+        Address,
+        ?PROXY_VERSION,
+        libp2p_stream_proxy,
+        [{swarm, Swarm}|Args]
     ).
 
 %% ------------------------------------------------------------------
