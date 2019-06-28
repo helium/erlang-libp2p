@@ -138,7 +138,15 @@ add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
     case nat:add_port_mapping(Context, tcp, InternalPort, ExternalPort1, Lease0) of
         {ok, Since, InternalPort, ExternalPort2, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
-            {ok, ExternalAddress, ExternalPort2, Lease1, Since};
+            {ok, ParsedAddress} = inet:parse_address(ExternalAddress),
+            case libp2p_transport_tcp:rfc1918(ParsedAddress) of
+                false ->
+                    {ok, ExternalAddress, ExternalPort2, Lease1, Since};
+                _ ->
+                    nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort2),
+                    lager:warning("Double NAT detected"),
+                    {error, double_nat}
+            end;
         {error, Reason} ->
             lager:warning("failed to add port mapping for ~p: ~p", [{ExternalPort1, Lease0}, Reason]),
             add_port_mapping(Context, InternalPort, ExternalPort0, Retry-1)
