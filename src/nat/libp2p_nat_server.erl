@@ -87,7 +87,8 @@ handle_info(post_init, #state{tid=TID, transport_tcp=Pid, internal_address=Multi
             end,
             {noreply, State#state{external_address=ExtAddr, external_port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason1} ->
-            {stop, init_port_mapping_failed}
+            lager:error("failed to add port (~p) mapping ~p", [{IntPort, CachedExtPort}, _Reason1]),
+            {noreply, State}
     end;
 handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=IntPort,
                           external_address=ExtAddress0, external_port=ExtPort0}=State) ->
