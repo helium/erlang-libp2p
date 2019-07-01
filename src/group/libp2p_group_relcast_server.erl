@@ -134,12 +134,13 @@ handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
                   %({_, Elements}) ->
                        %length(Elements)
                %end,
-    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{index=Index, in_flight=InFlight, last_ack=LastAck, ready=Ready, connects=Connections, last_take=LastTake}, Acc) ->
+    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{target=Target, index=Index, in_flight=InFlight, last_ack=LastAck, ready=Ready, connects=Connections, last_take=LastTake}, Acc) ->
                                       %InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
                                       %OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
                                       maps:put(Index,
                                                AddWorkerInfo(WorkerInfo,
                                                              #{ index => Index,
+                                                                address => Target,
                                                                 in_flight => InFlight,
                                                                 last_ack => LastAck,
                                                                 connects => Connections,
