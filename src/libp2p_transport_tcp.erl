@@ -386,72 +386,14 @@ handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
     {_LocalAddr, PeerAddr} = libp2p_session:addr_info(Session),
     lager:notice("session identification failed for ~p: ~p", [PeerAddr, Error]),
     {noreply, State};
-handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) ->
-    try libp2p_session:addr_info(Session) of
-        {LocalAddr, _PeerAddr} ->
-            RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
-            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
-            ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
-            case lists:member(LocalAddr, ListenAddrs) of
-                true ->
-                    ObservedAddr = libp2p_identify:observed_addr(Identify),
-                    {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
-                false ->
-                    %% check if our listen addrs have changed
-                    %% find all the listen addrs owned by this transport
-                    MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
-                    NewListenAddrsWithPid = case MyListenAddrs of
-                                                [] ->
-                                                    %% engage desperation mode, we had no listen addresses before, but maybe we have some now because someone plugged in a cable or configured wifi
-                                                    [ {tcp_listen_addrs(S), Pid} || {Pid, Addr, S} <- libp2p_config:listen_sockets(TID), match_addr(Addr, TID) /= false ];
-                                                _ ->
-                                                    %% find the distinct list of listen addrs for each listen socket
-                                                    lists:foldl(fun(LA, Acc) ->
-                                                                        case libp2p_config:lookup_listener(TID, LA) of
-                                                                            {ok, Pid} ->
-                                                                                case lists:keymember(Pid, 2, Acc) of
-                                                                                    true ->
-                                                                                        Acc;
-                                                                                    false ->
-                                                                                        case libp2p_config:lookup_listen_socket(TID, Pid) of
-                                                                                            {ok, {_ListenAddr, S}} ->
-                                                                                                [{tcp_listen_addrs(S), Pid} | Acc];
-                                                                                            false ->
-                                                                                                Acc
-                                                                                        end
-                                                                                end;
-                                                                            false ->
-                                                                                Acc
-                                                                        end
-                                                                end, [], MyListenAddrs)
-                                            end,
-                    %% don't use lists flatten here as it flattens too much
-                    NewListenAddrs = lists:foldl(fun(E, A) -> E ++ A end, [], (element(1, lists:unzip(NewListenAddrsWithPid)))),
-                    case lists:member(LocalAddr, NewListenAddrs) orelse (ListenAddrs == [] andalso NewListenAddrs /= []) of
-                        true ->
-                            %% they have changed, or we never had any; add any new ones and remove any old ones
-                            ObservedAddr = libp2p_identify:observed_addr(Identify),
-                            %% find listen addresses for this transport
-                            MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
-                            RemovedListenAddrs = MyListenAddrs -- NewListenAddrs,
-                            lager:debug("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
-                            [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
-                            %% we can simply re-add all of the addresses again, overrides are fine
-                            [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
-                            PB = libp2p_swarm:peerbook(TID),
-                            libp2p_peerbook:changed_listener(PB),
-                            {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
-                        false ->
-                            lager:debug("identify response with local address ~p that is not a listen addr socket ~p, ignoring",
-                                        [LocalAddr, NewListenAddrs]),
-                            %% this is likely a discovery session we dialed with unique_port
-                            %% we can't trust this for the purposes of the observed address
-                            {noreply, State}
-                    end
-            end
+handle_info({handle_identify, Session, {ok, Identify}}, State) ->
+    try do_identify(Session, Identify, State) of
+        Result ->
+            Result
     catch
-        _:_ ->
+        What:Why:Stack ->
             %% connection probably died
+            lager:notice("handle identify failed ~p ~p ~p", [What, Why, Stack]),
             {noreply, State}
     end;
 handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns=StunTxns}) ->
@@ -876,6 +818,69 @@ mask_address(Addr={_, _, _, _}, Maskbits) ->
     B = list_to_binary(tuple_to_list(Addr)),
     <<Subnet:Maskbits, _Host/bitstring>> = B,
     Subnet.
+
+do_identify(Session, Identify, State=#state{tid=TID}) ->
+    {LocalAddr, _PeerAddr} = libp2p_session:addr_info(Session),
+    RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
+    {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
+    ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
+    case lists:member(LocalAddr, ListenAddrs) of
+        true ->
+            ObservedAddr = libp2p_identify:observed_addr(Identify),
+            {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
+        false ->
+            %% check if our listen addrs have changed
+            %% find all the listen addrs owned by this transport
+            MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
+            NewListenAddrsWithPid = case MyListenAddrs of
+                                        [] ->
+                                            %% engage desperation mode, we had no listen addresses before, but maybe we have some now because someone plugged in a cable or configured wifi
+                                            [ {tcp_listen_addrs(S), Pid} || {Pid, Addr, S} <- libp2p_config:listen_sockets(TID), match_addr(Addr, TID) /= false ];
+                                        _ ->
+                                            %% find the distinct list of listen addrs for each listen socket
+                                            lists:foldl(fun(LA, Acc) ->
+                                                                case libp2p_config:lookup_listener(TID, LA) of
+                                                                    {ok, Pid} ->
+                                                                        case lists:keymember(Pid, 2, Acc) of
+                                                                            true ->
+                                                                                Acc;
+                                                                            false ->
+                                                                                case libp2p_config:lookup_listen_socket(TID, Pid) of
+                                                                                    {ok, {_ListenAddr, S}} ->
+                                                                                        [{tcp_listen_addrs(S), Pid} | Acc];
+                                                                                    false ->
+                                                                                        Acc
+                                                                                end
+                                                                        end;
+                                                                    false ->
+                                                                        Acc
+                                                                end
+                                                        end, [], MyListenAddrs)
+                                    end,
+            %% don't use lists flatten here as it flattens too much
+            NewListenAddrs = lists:foldl(fun(E, A) -> E ++ A end, [], (element(1, lists:unzip(NewListenAddrsWithPid)))),
+            case lists:member(LocalAddr, NewListenAddrs) orelse (ListenAddrs == [] andalso NewListenAddrs /= []) of
+                true ->
+                    %% they have changed, or we never had any; add any new ones and remove any old ones
+                    ObservedAddr = libp2p_identify:observed_addr(Identify),
+                    %% find listen addresses for this transport
+                    MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
+                    RemovedListenAddrs = MyListenAddrs -- NewListenAddrs,
+                    lager:debug("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
+                    [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
+                    %% we can simply re-add all of the addresses again, overrides are fine
+                    [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
+                    PB = libp2p_swarm:peerbook(TID),
+                    libp2p_peerbook:changed_listener(PB),
+                    {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
+                false ->
+                    lager:debug("identify response with local address ~p that is not a listen addr socket ~p, ignoring",
+                                [LocalAddr, NewListenAddrs]),
+                    %% this is likely a discovery session we dialed with unique_port
+                    %% we can't trust this for the purposes of the observed address
+                    {noreply, State}
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
