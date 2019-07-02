@@ -72,7 +72,7 @@ connection_lost(Swarm) ->
 stop(Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
-            gen_server:call(Pid, stop_relay);
+            gen_server:cast(Pid, stop_relay);
         {error, _}=Error ->
             Error
     end.
@@ -86,16 +86,16 @@ init(TID) ->
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID, swarm=Swarm}}.
 
-handle_call(stop_relay, _From, #state{started=true, connection=Conn} = State) when Conn /= undefined ->
-    libp2p_framed_stream:close(Conn),
-    {reply, ok, State#state{started=false, connection=undefined}};
-handle_call(stop_relay, _From, State) ->
-    %% nothing to do as we're not running
-    {reply, ok, State};
 handle_call(_Msg, _From, State) ->
     lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+handle_cast(stop_relay,  #state{started=true, connection=Conn} = State) when Conn /= undefined ->
+    libp2p_framed_stream:close(Conn),
+    {noreply, State#state{started=false, connection=undefined}};
+handle_cast(stop_relay, State) ->
+    %% nothing to do as we're not running
+    {noreply, State};
 handle_cast(init_relay, #state{started=false, swarm=Swarm}=State0) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
     Peers = case State0#state.peers of
