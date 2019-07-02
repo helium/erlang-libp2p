@@ -67,7 +67,7 @@ init([TID]=_Args) ->
     true = libp2p_config:insert_nat(TID, self()),
     {ok, #state{tid=TID}}.
 
-handle_call({register, TransportPid, MultiAddr, IntPort}, _From, #state{tid=TID}=State) ->
+handle_call({register, TransportPid, MultiAddr, IntPort}, _From, #state{tid=TID, transport_tcp=undefined}=State) ->
     CachedExtPort = get_port_from_cache(TID, IntPort),
     ok = delete_mapping(IntPort, CachedExtPort),
     lager:info("using int port ~p ext port ~p ", [IntPort, CachedExtPort]),
@@ -77,6 +77,7 @@ handle_call({register, TransportPid, MultiAddr, IntPort}, _From, #state{tid=TID}
             ok = nat_discovered(TransportPid, MultiAddr, ExtAddr, ExtPort),
             ok = renew(Lease),
             lager:info("added port mapping ~p", [{ExtAddr, ExtPort, Lease, Since}]),
+            _Ref = erlang:monitor(process, TransportPid),
             {reply, ok, State#state{transport_tcp=TransportPid, internal_address=MultiAddr, internal_port=IntPort,
                                     external_address=ExtAddr, external_port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason1} ->
@@ -91,6 +92,9 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(renew, #state{transport_tcp=undefined}=State) ->
+    lager:debug("got old renew ignoring"),
+    {noreply, State};
 handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, internal_port=IntPort,
                           external_address=ExtAddr0, external_port=ExtPort0}=State) ->
     case libp2p_nat:add_port_mapping(IntPort, ExtPort0) of
@@ -116,6 +120,11 @@ handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, 
             lager:warning("failed to renew lease for port ~p: ~p", [{IntPort, ExtPort0}, _Reason]),
             {stop, renew_failed}
     end;
+handle_info({'DOWN', _Ref, process, TransportPid, Reason}, #state{internal_port=IntPort, external_port=ExtPort}=State) ->
+    lager:warning("tcp transport ~p went down: ~p cleaning up", [TransportPid, Reason]),
+    ok = delete_mapping(IntPort, ExtPort),
+    {noreply, State#state{transport_tcp=undefined, internal_address=undefined, internal_port=undefined,
+                          external_address=undefined, external_port=undefined, lease=undefined, since=undefined}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
