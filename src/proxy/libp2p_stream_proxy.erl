@@ -176,6 +176,7 @@ handle_client_data({dial_back, DialBack}, Env, State) ->
         {ok, Connection} ->
             {noreply, State#state{raw_connection=Connection}};
         {error, Reason} when Reason == timeout orelse
+                             Reason == etimedout orelse
                              Reason == tcp_closed ->
             {stop, normal, State};
         {error, Reason} ->
