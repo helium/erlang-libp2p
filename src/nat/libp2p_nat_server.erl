@@ -11,7 +11,8 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start/1
+    start_link/1,
+    register/4
 ]).
 
 %% ------------------------------------------------------------------
@@ -28,8 +29,8 @@
 
 -record(state, {
     tid :: ets:tab(),
-    transport_tcp :: pid(),
-    internal_address :: string(),
+    transport_tcp :: pid() | undefined,
+    internal_address :: string() | undefined,
     internal_port :: integer() | undefined,
     external_address :: string() | undefined,
     external_port :: integer() | undefined,
@@ -42,18 +43,46 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start(Args) ->
-    gen_server:start(?MODULE, Args, []).
+start_link(Args) ->
+    gen_server:start_link(?MODULE, Args, []).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+register(TID, TransportPid, MultiAddr, IntPort) ->
+    case libp2p_config:lookup_nat(TID) of
+        false ->
+            {error, no_nat_server};
+        {ok, Pid} ->
+            gen_server:call(Pid, {register, TransportPid, MultiAddr, IntPort})
+    end.
+    
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init([Pid, TID, MultiAddr, InternalPort]=_Args) ->
-    lager:info("init with ~p", [_Args]),
-    true = erlang:link(Pid),
-    self() ! post_init,
-    {ok, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=InternalPort}}.
+init([TID]=_Args) ->
+    lager:info("~p init with ~p", [?MODULE, _Args]),
+    true = libp2p_config:insert_nat(TID, self()),
+    {ok, #state{tid=TID}}.
 
+handle_call({register, TransportPid, MultiAddr, IntPort}, _From, #state{tid=TID}=State) ->
+    CachedExtPort = get_port_from_cache(TID, IntPort),
+    ok = delete_mapping(IntPort, CachedExtPort),
+    lager:info("using int port ~p ext port ~p ", [IntPort, CachedExtPort]),
+    case libp2p_nat:add_port_mapping(IntPort, CachedExtPort) of
+        {ok, ExtAddr, ExtPort, Lease, Since} ->
+            ok = update_cache(TID, ExtPort),
+            ok = nat_discovered(TransportPid, MultiAddr, ExtAddr, ExtPort),
+            ok = renew(Lease),
+            lager:info("added port mapping ~p", [{ExtAddr, ExtPort, Lease, Since}]),
+            {reply, ok, State#state{transport_tcp=TransportPid, internal_address=MultiAddr, internal_port=IntPort,
+                                    external_address=ExtAddr, external_port=ExtPort, lease=Lease, since=Since}};
+        {error, _Reason1} ->
+            lager:error("failed to add port (~p) mapping ~p", [{IntPort, CachedExtPort}, _Reason1]),
+            {reply, {error, _Reason1}, State}
+    end;
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
@@ -62,39 +91,11 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info(post_init, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=IntPort}=State) ->
-    Cache = libp2p_swarm:cache(TID),
-    CachedExtPort =
-        case libp2p_cache:lookup(Cache, ?CACHE_KEY) of
-            undefined -> IntPort;
-            P ->
-                lager:info("got port from cache ~p", [P]),
-                P
-        end,
-    lager:info("using int port ~p ext port ~p ", [IntPort, CachedExtPort]),
-    case libp2p_nat:delete_port_mapping(IntPort, CachedExtPort) of
-        {error, _Reason0} -> lager:warning("failed to delete port mapping ~p: ~p", [{IntPort, CachedExtPort}, _Reason0]);
-        ok -> ok
-    end,
-    case libp2p_nat:add_port_mapping(IntPort, CachedExtPort) of
-        {ok, ExtAddr, ExtPort, Lease, Since} ->
-            lager:info("added port mapping ~p", [{ExtAddr, ExtPort, Lease, Since}]),
-            ok = update_cache(TID, ExtPort),
-            ok = nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort),
-            case Lease =/= 0 of
-                true -> ok = renew(Lease);
-                false -> ok
-            end,
-            {noreply, State#state{external_address=ExtAddr, external_port=ExtPort, lease=Lease, since=Since}};
-        {error, _Reason1} ->
-            lager:error("failed to add port (~p) mapping ~p", [{IntPort, CachedExtPort}, _Reason1]),
-            {noreply, State}
-    end;
-handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr, internal_port=IntPort,
-                          external_address=ExtAddress0, external_port=ExtPort0}=State) ->
+handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, internal_port=IntPort,
+                          external_address=ExtAddr0, external_port=ExtPort0}=State) ->
     case libp2p_nat:add_port_mapping(IntPort, ExtPort0) of
-        {ok, ExtAddress1, ExtPort1, Lease, Since} ->
-            lager:info("renewed lease for ~p:~p (~p) for ~p seconds", [ExtAddress1, ExtPort1, IntPort, Lease]),
+        {ok, ExtAddr1, ExtPort1, Lease, Since} ->
+            lager:info("renewed lease for ~p:~p (~p) for ~p seconds", [ExtAddr1, ExtPort1, IntPort, Lease]),
             ok = update_cache(TID, ExtPort1),
             ok = renew(Lease),
             case ExtPort0 =/= ExtPort1 of
@@ -103,14 +104,14 @@ handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=MultiAddr
                     lager:info("deleting old port mapping for ~p", [{IntPort, ExtPort0}]),
                     ok = delete_mapping(IntPort, ExtPort0)
             end,
-            case ExtPort0 =/= ExtPort1 orelse ExtAddress0 =/= ExtAddress1 of
+            case ExtPort0 =/= ExtPort1 orelse ExtAddr0 =/= ExtAddr1 of
                 false -> ok;
                 true ->
-                    lager:info("address or port change ~p ~p", [{ExtAddress0, ExtAddress1}, {ExtPort0, ExtPort1}]),
-                    ok = remove_multi_addr(TID, ExtAddress0, ExtPort0),
-                    ok = nat_discovered(Pid, MultiAddr, ExtAddress1, ExtPort1)
+                    lager:info("address or port change ~p ~p", [{ExtAddr0, ExtAddr1}, {ExtPort0, ExtPort1}]),
+                    ok = remove_multi_addr(TID, ExtAddr0, ExtPort0),
+                    ok = nat_discovered(Pid, IntAddr, ExtAddr1, ExtPort1)
             end,
-            {noreply, State#state{external_address=ExtAddress1, external_port=ExtPort1, lease=Lease, since=Since}};
+            {noreply, State#state{external_address=ExtAddr1, external_port=ExtPort1, lease=Lease, since=Since}};
         {error, _Reason} ->
             lager:warning("failed to renew lease for port ~p: ~p", [{IntPort, ExtPort0}, _Reason]),
             {stop, renew_failed}
@@ -124,9 +125,24 @@ code_change(_OldVsn, State, _Extra) ->
 
 terminate(_Reason, _State) ->
     ok.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec get_port_from_cache(ets:tab(), non_neg_integer()) -> non_neg_integer().
+get_port_from_cache(TID, IntPort) ->
+    Cache = libp2p_swarm:cache(TID),
+    case libp2p_cache:lookup(Cache, ?CACHE_KEY) of
+        undefined -> IntPort;
+        P ->
+            lager:info("got port from cache ~p", [P]),
+            P
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -145,8 +161,8 @@ remove_multi_addr(TID, Address, Port) ->
 %%--------------------------------------------------------------------
 -spec nat_discovered(pid(), string(), string(), non_neg_integer()) -> ok.
 nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort) ->
-    {ok, ParsedExtAddress} = inet_parse:address(ExtAddr),
-    ExtMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddress, ExtPort}),
+    {ok, ParsedExtAddr} = inet_parse:address(ExtAddr),
+    ExtMultiAddr = libp2p_transport_tcp:to_multiaddr({ParsedExtAddr, ExtPort}),
     Pid ! {nat_discovered, MultiAddr, ExtMultiAddr},
     ok.
 
@@ -179,10 +195,9 @@ update_cache(TID, Port) ->
 %%--------------------------------------------------------------------
 -spec renew(integer()) -> ok.
 renew(0) ->
-    ok;
-renew(Time) when Time > 2000 ->
-    _ = erlang:send_after(timer:seconds(Time)-2000, self(), renew),
-    ok;
-renew(Time) ->
-    _ = erlang:send_after(timer:seconds(Time), self(), renew),
-    ok.
+    lager:info("not renewing lease is infinit");
+renew(Time0) ->
+    % Try to renew before so we don't have down time
+    Time1 = timer:seconds(Time0)-500,
+    _ = erlang:send_after(Time1, self(), renew),
+    lager:info("not renewing lease is infinit ~pms", [Time1]).

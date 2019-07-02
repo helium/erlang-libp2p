@@ -61,8 +61,12 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            {ok, _Server} = libp2p_nat_server:start([Pid, TID, MultiAddr, Port]),
-            ok
+            case libp2p_nat_server:register(TID, Pid, MultiAddr, Port) of
+                ok ->
+                    lager:info("successfully registered nat");
+                {error, _Reason} ->
+                    lager:error("failed to register nat ~p", [_Reason])
+            end
     end.
 
 %%--------------------------------------------------------------------
