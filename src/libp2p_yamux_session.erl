@@ -193,6 +193,9 @@ handle_info(timeout_idle, State=#state{}) ->
             {noreply, State#state{idle_timer=init_idle_timer(State#state.idle_timeout)}}
     end;
 
+handle_info({stop, {goaway, Code}}, State=#state{}) ->
+    lager:debug("got goaway with code ~p, stopping", [Code]),
+    {stop, normal, State};
 handle_info({stop, Reason}, State=#state{}) ->
     {stop, Reason, State};
 

@@ -419,39 +419,43 @@ verify_exchange(<<OtherSidePK:32/binary, Signature/binary>>, State=#state{kind=K
                                                                           secure_peer=SecurePeer,
                                                                           exchanged=false
                                                                          }) ->
-    {ok, Session} = libp2p_connection:session(State#state.connection),
-    libp2p_session:identify(Session, self(), ?MODULE),
-    receive
-        {handle_identify, ?MODULE, {ok, Identify}} ->
-            PKBin = libp2p_identify:pubkey_bin(Identify),
-            SwarmPK = libp2p_crypto:bin_to_pubkey(PKBin),
-            case SecurePeer == undefined orelse SecurePeer == PKBin of
-                false ->
-                    {error, incorrect_peer};
-                true ->
-                    case libp2p_crypto:verify(OtherSidePK, Signature, SwarmPK) of
+    case libp2p_connection:session(State#state.connection) of
+        {ok, Session} ->
+            libp2p_session:identify(Session, self(), ?MODULE),
+            receive
+                {handle_identify, ?MODULE, {ok, Identify}} ->
+                    PKBin = libp2p_identify:pubkey_bin(Identify),
+                    SwarmPK = libp2p_crypto:bin_to_pubkey(PKBin),
+                    case SecurePeer == undefined orelse SecurePeer == PKBin of
                         false ->
-                            {error, failed_verify};
+                            {error, incorrect_peer};
                         true ->
-                            {RcvKey, SendKey} = rcv_and_send_keys(Kind,
-                                                                  State#state.pub_key,
-                                                                  State#state.priv_key,
-                                                                  OtherSidePK),
-                            case init_module(Kind,
-                                             State#state.module,
-                                             State#state.connection,
-                                             State#state.args,
-                                             State#state.send_pid) of
-                                {error, _}=Error ->
-                                    Error;
-                                {ok, State1} ->
-                                    {ok, State1#state{secured=true, exchanged=true,
-                                                      rcv_key=RcvKey, send_key=SendKey}}
+                            case libp2p_crypto:verify(OtherSidePK, Signature, SwarmPK) of
+                                false ->
+                                    {error, failed_verify};
+                                true ->
+                                    {RcvKey, SendKey} = rcv_and_send_keys(Kind,
+                                                                          State#state.pub_key,
+                                                                          State#state.priv_key,
+                                                                          OtherSidePK),
+                                    case init_module(Kind,
+                                                     State#state.module,
+                                                     State#state.connection,
+                                                     State#state.args,
+                                                     State#state.send_pid) of
+                                        {error, _}=Error ->
+                                            Error;
+                                        {ok, State1} ->
+                                            {ok, State1#state{secured=true, exchanged=true,
+                                                              rcv_key=RcvKey, send_key=SendKey}}
+                                    end
                             end
                     end
-            end
-        after 10000 ->
-            {error, failed_identify_timeout}
+            after 10000 ->
+                    {error, failed_identify_timeout}
+            end;
+        {error, closed} ->
+            {error, dead_session}
     end;
 verify_exchange(_Data, #state{secured=true, exchanged=false}) ->
     {error, {failed_verify, bad_data}}.
