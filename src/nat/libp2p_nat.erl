@@ -76,12 +76,19 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
 -spec add_port_mapping(integer(), integer()) ->
     {ok, string(), integer(), integer(), integer()} | {error, any()}.
 add_port_mapping(InternalPort, ExternalPort) ->
-    case nat:discover() of
-        {ok, Context} ->
-            MaxRetry = erlang:length(retry_matrix(ExternalPort)),
-            add_port_mapping(Context, InternalPort, ExternalPort, MaxRetry);
-        no_nat ->
-            {error, no_nat}
+    try
+        case nat:discover() of
+            {ok, Context} ->
+                MaxRetry = erlang:length(retry_matrix(ExternalPort)),
+                add_port_mapping(Context, InternalPort, ExternalPort, MaxRetry);
+            no_nat ->
+                {error, no_nat}
+        end
+    of
+        Result -> Result
+    catch Type:Excep ->
+        lager:error("failed to add port mapping ~p ~p", [Type, Excep]),
+        {error, {Type, Excep}}
     end.
 
 %%--------------------------------------------------------------------
