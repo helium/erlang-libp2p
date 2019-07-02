@@ -92,7 +92,7 @@ basic(_Config) ->
     libp2p_swarm:stop(Swarm).
 
 server(_Config) ->
-    Self = self(),
+    
     MockLease = 3,
     Since = 0,
 
@@ -112,23 +112,19 @@ server(_Config) ->
         ok
     end),
 
-    meck:new(libp2p_nat_server, [no_link, passthrough]),
-    meck:expect(libp2p_nat_server, start, fun(Args) ->
-        {ok, Pid} = gen_server:start(libp2p_nat_server, Args, []),
-        erlang:trace(Pid, true, [{tracer, Self}, 'receive']),
-        {ok, Pid}
-    end),
+    {ok, Swarm} = libp2p_swarm:start(nat_server_test),
+    
+    {ok, NatServer} = libp2p_config:lookup_nat(libp2p_swarm:tid(Swarm)),
+    Self = self(),
+    ?assertEqual(true, erlang:is_process_alive(NatServer)),
+    erlang:trace(NatServer, true, [{tracer, Self}, 'receive']),
 
-    {ok, Swarm} = libp2p_swarm:start(nat_server),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
     server_rcv(MockLease, Since),
 
     ?assert(meck:validate(nat)),
     meck:unload(nat),
-    ?assert(meck:validate(libp2p_nat_server)),
-    meck:unload(libp2p_nat_server),
-
     libp2p_swarm:stop(Swarm).
 
 %% ------------------------------------------------------------------
@@ -136,11 +132,18 @@ server(_Config) ->
 %% ------------------------------------------------------------------
 server_rcv(MockLease, Since) ->
     receive
+        {trace, _, 'receive', {'$gen_call', {_Pid , _Ref}, {register, _, _, _}}} ->
+            server_rcv(MockLease, Since);
         {trace, _, 'receive', renew} ->
             ok;
-        {trace, _, 'receive', post_init} ->
+        {trace, _, 'receive', {_Ref, {meck_exec, _Fun}}} ->
             server_rcv(MockLease, Since);
-        {trace, _, 'receive', _} ->
+        {trace, _, 'receive', {_Ref, ok}} ->
+            server_rcv(MockLease, Since);
+        {trace, _, 'receive', {_Ref, undefined}} ->
+            server_rcv(MockLease, Since);
+        {trace, _, 'receive', _M} ->
+            ct:pal("MARKER ~p", [_M]),
             server_rcv(MockLease, Since);
         M ->
             ct:fail(M)

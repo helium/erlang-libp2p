@@ -12,7 +12,8 @@
          lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
          insert_group/3, lookup_group/2, remove_group/2,
          insert_relay/2, lookup_relay/1, remove_relay/1,
-         insert_proxy/2, lookup_proxy/1, remove_proxy/1]).
+         insert_proxy/2, lookup_proxy/1, remove_proxy/1,
+         insert_nat/2, lookup_nat/1, remove_nat/1]).
 
 -define(CONNECTION_HANDLER, connection_handler).
 -define(STREAM_HANDLER, stream_handler).
@@ -23,6 +24,7 @@
 -define(GROUP, group).
 -define(RELAY, relay).
 -define(PROXY, proxy).
+-define(NAT, nat).
 
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
@@ -316,3 +318,20 @@ lookup_proxy(TID) ->
 -spec remove_proxy(ets:tab()) -> true.
 remove_proxy(TID) ->
     remove_pid(TID, ?PROXY, "pid").
+
+
+%%
+%% Nat
+%%
+
+-spec insert_nat(ets:tab(), pid()) -> true.
+insert_nat(TID, Pid) ->
+    insert_pid(TID, ?NAT, "pid", Pid).
+
+-spec lookup_nat(ets:tab()) -> {ok, pid()} | false.
+lookup_nat(TID) ->
+    lookup_pid(TID, ?NAT, "pid").
+
+-spec remove_nat(ets:tab()) -> true.
+remove_nat(TID) ->
+    remove_pid(TID, ?NAT, "pid").

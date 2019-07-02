@@ -61,8 +61,12 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
             %% here, for weird multihomed machines, but natupnp_v1 and
             %% natpmp don't support issuing a particular request from
             %% a particular interface yet
-            {ok, _Server} = libp2p_nat_server:start([Pid, TID, MultiAddr, Port]),
-            ok
+            case libp2p_nat_server:register(TID, Pid, MultiAddr, Port) of
+                ok ->
+                    lager:info("successfully registered nat");
+                {error, _Reason} ->
+                    lager:error("failed to register nat ~p", [_Reason])
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -72,12 +76,19 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
 -spec add_port_mapping(integer(), integer()) ->
     {ok, string(), integer(), integer(), integer()} | {error, any()}.
 add_port_mapping(InternalPort, ExternalPort) ->
-    case nat:discover() of
-        {ok, Context} ->
-            MaxRetry = erlang:length(retry_matrix(ExternalPort)),
-            add_port_mapping(Context, InternalPort, ExternalPort, MaxRetry);
-        no_nat ->
-            {error, no_nat}
+    try
+        case nat:discover() of
+            {ok, Context} ->
+                MaxRetry = erlang:length(retry_matrix(ExternalPort)),
+                add_port_mapping(Context, InternalPort, ExternalPort, MaxRetry);
+            no_nat ->
+                {error, no_nat}
+        end
+    of
+        Result -> Result
+    catch Type:Excep ->
+        lager:error("failed to add port mapping ~p ~p", [Type, Excep]),
+        {error, {Type, Excep}}
     end.
 
 %%--------------------------------------------------------------------
