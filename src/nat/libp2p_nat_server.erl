@@ -34,7 +34,7 @@
     internal_port :: integer() | undefined,
     external_address :: string() | undefined,
     external_port :: integer() | undefined,
-    lease :: integer() | undefined,
+    lease :: integer() | infinity | undefined,
     since :: integer() | undefined
 }).
 
@@ -202,7 +202,9 @@ update_cache(TID, Port) ->
 %% TODO: calculate more accurate time using since
 %% @end
 %%--------------------------------------------------------------------
--spec renew(integer()) -> ok.
+-spec renew(integer() | infinity) -> ok.
+renew(infinity) ->
+    lager:info("not renewing lease is infinite");
 renew(0) ->
     lager:info("not renewing lease is infinite");
 renew(Time0) ->
