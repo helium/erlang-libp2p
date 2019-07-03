@@ -74,7 +74,7 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_port_mapping(integer(), integer()) ->
-    {ok, string(), integer(), integer(), integer()} | {error, any()}.
+    {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
 add_port_mapping(InternalPort, ExternalPort) ->
     try
         case nat:discover() of
@@ -141,7 +141,7 @@ discovery_filter(MultiAddr) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec add_port_mapping(nat:nat_ctx(), integer(), integer(), integer()) ->
-    {ok, string(), integer(), integer(), integer()} | {error, any()}.
+    {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
 add_port_mapping(_Context, _InternalPort, _ExternalPort, 0) ->
     {error, too_many_retries};
 add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
