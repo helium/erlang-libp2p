@@ -30,7 +30,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [port0, addr0, already, bad_addr, port0_reuse, restart_transport].
+    [port0, addr0, already, bad_addr, port0_reuse, restart_transport, sort_addresses].
 
 %%--------------------------------------------------------------------
 %% @public
