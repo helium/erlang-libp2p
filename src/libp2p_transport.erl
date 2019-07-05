@@ -58,7 +58,7 @@ for_addr(TID, Addr) ->
 
 %%--------------------------------------------------------------------
 %% @doc
-%% Addresses are sorted by priority randing from 1 to 5 (1 highest and 5 lowest priority)
+%% Addresses are sorted by priority ranking from 1 to 5 (1 highest and 5 lowest priority)
 %% 1 = NON rfc1918 IP (public IPs), 2 = P2P circuit address (relay), 3 = P2P address,
 %% 4 = rfc1918 IPs (private/local IPs), 5 = Proxy transport
 %% @end
