@@ -44,9 +44,9 @@ for_addr(TID, Addr) ->
                     Priority = Transport:priority(),
                     [{Priority, Matched, {Transport, Pid}}|Acc]
             end
-        end
-        ,[]
-        ,libp2p_config:lookup_transports(TID)
+        end,
+        [],
+        libp2p_config:lookup_transports(TID)
     ),
 
     case lists:sort(Matches) of
@@ -75,9 +75,9 @@ sort_addrs(TID, Addrs) ->
     lists:foldl(
         fun(Elements, Acc) ->
             Acc ++ [E || E <- Elements, not lists:member(E, Acc)]
-        end
-        ,[]
-        ,SortedAddrLists
+        end,
+        [],
+        SortedAddrLists
     ).
 
 
