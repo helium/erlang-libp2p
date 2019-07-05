@@ -97,17 +97,11 @@ handle_info(renew, #state{transport_tcp=undefined}=State) ->
     {noreply, State};
 handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, internal_port=IntPort,
                           external_address=ExtAddr0, external_port=ExtPort0}=State) ->
-    case libp2p_nat:add_port_mapping(IntPort, ExtPort0) of
+    case libp2p_nat:renew_port_mapping(IntPort, ExtPort0) of
         {ok, ExtAddr1, ExtPort1, Lease, Since} ->
             lager:info("renewed lease for ~p:~p (~p) for ~p seconds", [ExtAddr1, ExtPort1, IntPort, Lease]),
             ok = update_cache(TID, ExtPort1),
             ok = renew(Lease),
-            case ExtPort0 =/= ExtPort1 of
-                false -> ok;
-                true ->
-                    lager:info("deleting old port mapping for ~p", [{IntPort, ExtPort0}]),
-                    ok = delete_mapping(IntPort, ExtPort0)
-            end,
             case ExtPort0 =/= ExtPort1 orelse ExtAddr0 =/= ExtAddr1 of
                 false -> ok;
                 true ->
@@ -117,6 +111,7 @@ handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, 
             end,
             {noreply, State#state{external_address=ExtAddr1, external_port=ExtPort1, lease=Lease, since=Since}};
         {error, _Reason} ->
+            ok = remove_multi_addr(TID, ExtAddr0, ExtPort0),
             lager:warning("failed to renew lease for port ~p: ~p", [{IntPort, ExtPort0}, _Reason]),
             {stop, renew_failed}
     end;
