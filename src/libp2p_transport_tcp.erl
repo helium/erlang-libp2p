@@ -35,7 +35,7 @@
 
 %% libp2p_transport
 -export([start_listener/2, new_connection/1, new_connection/2,
-         connect/5, match_addr/2, sort_addrs/1, priority/0]).
+         connect/5, match_addr/2, sort_addrs/1]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -97,12 +97,12 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
 match_addr(Addr, _TID) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(Addr)).
 
--spec sort_addrs([string()]) -> [string()].
+-spec sort_addrs([string()]) -> [{integer(), string()}].
 sort_addrs(Addrs) ->
     AddressesForDefaultRoutes = [ A || {ok, A} <- [catch inet_parse:address(inet_ext:get_internal_address(Addr)) || {_Interface, Addr} <- inet_ext:gateways(), Addr /= [], Addr /= undefined]],
     sort_addrs(Addrs, AddressesForDefaultRoutes).
 
--spec sort_addrs([string()], [inet:ip_address()]) -> [string()].
+-spec sort_addrs([string()], [inet:ip_address()]) -> [{integer(), string()}].
 sort_addrs(Addrs, AddressesForDefaultRoutes) ->
     AddrIPs = lists:filtermap(fun(A) ->
         case tcp_addr(A) of
@@ -111,8 +111,8 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
         end
     end, Addrs),
     SortedAddrIps = lists:sort(fun({_, AIP}, {_, BIP}) ->
-        AIP_1918 = not (false == rfc1918(AIP)),
-        BIP_1918 = not (false == rfc1918(BIP)),
+        AIP_1918 = not (false == ?MODULE:rfc1918(AIP)),
+        BIP_1918 = not (false == ?MODULE:rfc1918(BIP)),
         case AIP_1918 == BIP_1918 of
             %% Same kind of IP address to a straight compare
             true ->
@@ -126,14 +126,19 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
                         X
                 end;
             %% Different, A <= B if B is a 1918 addr but A is not
-            false -> BIP_1918 andalso not AIP_1918
+            false ->
+                BIP_1918 andalso not AIP_1918
         end
     end, AddrIPs),
-    {SortedAddrs, _} = lists:unzip(SortedAddrIps),
-    SortedAddrs.
-
--spec priority() -> integer().
-priority() -> 2.
+    lists:map(
+        fun({Addr, IP}) ->
+            case ?MODULE:rfc1918(IP) of
+                false -> {1, Addr};
+                _ -> {4, Addr}
+            end
+        end,
+        SortedAddrIps
+    ).
 
 match_protocols([A={_, _}, B={"tcp", _} | _]) ->
     {ok, multiaddr:to_string([A, B])};
@@ -903,28 +908,28 @@ rfc1918_test() ->
 
 sort_addr_test() ->
     Addrs = [
-        "/ip4/10.0.0.0/tcp/22"
-        ,"/ip4/207.148.0.20/tcp/100"
-        ,"/ip4/10.0.0.1/tcp/19"
-        ,"/ip4/192.168.1.16/tcp/18"
-        ,"/ip4/207.148.0.21/tcp/101"
+        "/ip4/10.0.0.0/tcp/22",
+        "/ip4/207.148.0.20/tcp/100",
+        "/ip4/10.0.0.1/tcp/19",
+        "/ip4/192.168.1.16/tcp/18",
+        "/ip4/207.148.0.21/tcp/101"
     ],
     ?assertEqual(
-        ["/ip4/207.148.0.20/tcp/100"
-         ,"/ip4/207.148.0.21/tcp/101"
-         ,"/ip4/10.0.0.0/tcp/22"
-         ,"/ip4/10.0.0.1/tcp/19"
-         ,"/ip4/192.168.1.16/tcp/18"]
-        ,sort_addrs(Addrs, [])
+        [{1, "/ip4/207.148.0.20/tcp/100"},
+         {1, "/ip4/207.148.0.21/tcp/101"},
+         {4, "/ip4/10.0.0.0/tcp/22"},
+         {4, "/ip4/10.0.0.1/tcp/19"},
+         {4, "/ip4/192.168.1.16/tcp/18"}],
+        sort_addrs(Addrs, [])
     ),
     %% check that 'default route' addresses sort first, within their class
     ?assertEqual(
-        ["/ip4/207.148.0.20/tcp/100"
-         ,"/ip4/207.148.0.21/tcp/101"
-         ,"/ip4/192.168.1.16/tcp/18"
-         ,"/ip4/10.0.0.0/tcp/22"
-         ,"/ip4/10.0.0.1/tcp/19"]
-        ,sort_addrs(Addrs, [{192, 168, 1, 16}])
+        [{1, "/ip4/207.148.0.20/tcp/100"},
+         {1, "/ip4/207.148.0.21/tcp/101"},
+         {4, "/ip4/192.168.1.16/tcp/18"},
+         {4, "/ip4/10.0.0.0/tcp/22"},
+         {4, "/ip4/10.0.0.1/tcp/19"}],
+        sort_addrs(Addrs, [{192, 168, 1, 16}])
     ),
     ok.
 

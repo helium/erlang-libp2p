@@ -9,7 +9,6 @@
     connect/5,
     match_addr/2,
     sort_addrs/1,
-    priority/0,
     p2p_addr/1
 ]).
 
@@ -34,12 +33,9 @@ connect(_Pid, MAddr, Options, Timeout, TID) ->
 match_addr(Addr, _TID) when is_list(Addr) ->
     match_protocols(multiaddr:protocols(Addr)).
 
--spec sort_addrs([string()]) -> [string()].
+-spec sort_addrs([string()]) -> [{integer(), string()}].
 sort_addrs(Addrs) ->
-    Addrs.
-
--spec priority() -> integer().
-priority() -> 2.
+    [{3, A} || A <- Addrs].
 
 match_protocols([A={"p2p", _}]) ->
     {ok, multiaddr:to_string([A])};
