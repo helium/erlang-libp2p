@@ -12,6 +12,7 @@
     enabled/1,
     maybe_spawn_discovery/3, spawn_discovery/3,
     add_port_mapping/2, delete_port_mapping/2,
+    renew_port_mapping/2,
     maybe_apply_nat_map/1
 ]).
 
@@ -100,6 +101,23 @@ delete_port_mapping(InternalPort, ExternalPort) ->
     case nat:discover() of
         {ok, Context} ->
             nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort);
+        no_nat ->
+            {error, no_nat}
+    end.
+
+-spec renew_port_mapping(integer(), integer()) ->
+    {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
+renew_port_mapping(InternalPort, ExternalPort) ->
+    case nat:discover() of
+        {ok, {natpmp, _}=_Context} ->
+            %% A renewal packet is formatted identically to an
+            %% initial mapping request packet, except that for renewals the client
+            %% sets the Suggested External Port field to the port the gateway
+            %% actually assigned, rather than the port the client originally wanted.
+            add_port_mapping(InternalPort, ExternalPort);
+        {ok, Context} ->
+            nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort),
+            add_port_mapping(InternalPort, ExternalPort);
         no_nat ->
             {error, no_nat}
     end.
