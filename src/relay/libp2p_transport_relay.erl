@@ -3,12 +3,11 @@
 -behavior(libp2p_transport).
 
 -export([
-    start_link/1
-    ,start_listener/2
-    ,match_addr/2
-    ,sort_addrs/1
-    ,priority/0
-    ,connect/5
+    start_link/1,
+    start_listener/2,
+    match_addr/2,
+    sort_addrs/1,
+    connect/5
 ]).
 
 %% ------------------------------------------------------------------
@@ -38,12 +37,9 @@ match_addr(Addr, TID) when is_list(Addr) ->
        false -> false
    end.
 
--spec sort_addrs([string()]) -> [string()].
+-spec sort_addrs([string()]) -> [{integer(), string()}].
 sort_addrs(Addrs) ->
-    Addrs.
-
--spec priority() -> integer().
-priority() -> 1.
+    [{2, A} || A <- Addrs].
 
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.

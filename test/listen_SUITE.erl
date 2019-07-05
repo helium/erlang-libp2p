@@ -1,18 +1,22 @@
 -module(listen_SUITE).
 
+-include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
+
 -export([
-    all/0
-    ,init_per_testcase/2
-    ,end_per_testcase/2
+    all/0,
+    init_per_testcase/2,
+    end_per_testcase/2
 ]).
 
 -export([
-    port0/1
-    ,addr0/1
-    ,already/1
-    ,bad_addr/1
-    ,port0_reuse/1
-    ,restart_transport/1
+    port0/1,
+    addr0/1,
+    already/1,
+    bad_addr/1,
+    port0_reuse/1,
+    restart_transport/1,
+    sort_addresses/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -188,6 +192,32 @@ restart_transport(Config) ->
     {ok, Pid2} = libp2p_config:lookup_transport(libp2p_swarm:tid(Swarm), libp2p_transport_tcp),
     false = (Pid == Pid2),
 
+    ok.
+
+sort_addresses(Config) ->
+    Swarm = proplists:get_value(swarm, Config),
+    TID = libp2p_swarm:tid(Swarm),
+    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
+    Addresses = [
+        "/ip4/10.0.0.2/tcp/51006",
+        "/ip4/172.16.0.2/tcp/51006",
+        "/ip4/192.168.0.2/tcp/51006",
+        "/ip4/8.8.8.8/tcp/51006",
+        "/ip4/4.4.4.4/tcp/51006",
+        "/p2p/114FX56Ua6joFNmHAugjKR1wfopRyYEzbtgn6bodvSHXdKSwZPg/p2p-circuit/p2p/112kQbfzXkyxTSTxUpztvPLMJLB2koLro9LJesumSGpdNUBhWzBN",
+        "/p2p/112kQbfzXkyxTSTxUpztvPLMJLB2koLro9LJesumSGpdNUBhWzBN"
+    ],
+    Sorted = libp2p_transport:sort_addrs(TID, Addresses),
+    Expected = [
+        "/ip4/4.4.4.4/tcp/51006",
+        "/ip4/8.8.8.8/tcp/51006",
+        "/p2p/114FX56Ua6joFNmHAugjKR1wfopRyYEzbtgn6bodvSHXdKSwZPg/p2p-circuit/p2p/112kQbfzXkyxTSTxUpztvPLMJLB2koLro9LJesumSGpdNUBhWzBN",
+        "/p2p/112kQbfzXkyxTSTxUpztvPLMJLB2koLro9LJesumSGpdNUBhWzBN",
+        "/ip4/10.0.0.2/tcp/51006",
+        "/ip4/172.16.0.2/tcp/51006",
+        "/ip4/192.168.0.2/tcp/51006"
+    ],
+    ?assertEqual(Expected, Sorted),
     ok.
 
 
