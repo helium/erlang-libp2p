@@ -6,7 +6,7 @@
 -callback start_listener(pid(), string()) -> {ok, [string()], pid()} | {error, term()} | {error, term()}.
 -callback connect(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 -callback match_addr(string(), ets:tab()) -> {ok, string()} | false.
--callback sort_addrs([string()]) -> [string()].
+-callback sort_addrs([string()]) -> [{integer(), string()}].
 
 
 -export_type([connection_handler/0]).
@@ -41,21 +41,29 @@ for_addr(TID, Addr) ->
                 false ->
                     Acc;
                 {ok, Matched} ->
-                    Priority = Transport:priority(),
-                    [{Priority, Matched, {Transport, Pid}}|Acc]
+                    [{Matched, {Transport, Pid}}|Acc]
             end
-        end
-        ,[]
-        ,libp2p_config:lookup_transports(TID)
+        end,
+        [],
+        libp2p_config:lookup_transports(TID)
     ),
-
-    case lists:sort(Matches) of
+    case Matches of
         [] ->
             {error, {unsupported_address, Addr}};
-        [{_, Matched, {Transport, Pid}}|_] ->
-            {ok, Matched, {Transport, Pid}}
+        [{Matched, {Transport, Pid}}] ->
+            {ok, Matched, {Transport, Pid}};
+        [{_Matched, {_Transport, _Pid}}|_] ->
+            {error, {multiple_match_address, Addr}}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Addresses are sorted by priority ranking from 1 to 5 (1 highest and 5 lowest priority)
+%% 1 = NON rfc1918 IP (public IPs), 2 = P2P circuit address (relay), 3 = P2P address,
+%% 4 = rfc1918 IPs (private/local IPs), 5 = Proxy transport
+%% @end
+%%--------------------------------------------------------------------
+-spec sort_addrs(ets:tab(), [string()]) -> [string()].
 sort_addrs(TID, Addrs) ->
     TransportAddrsFun = fun(Transport) ->
         Matched = lists:filter(fun(Addr) ->
@@ -66,19 +74,15 @@ sort_addrs(TID, Addrs) ->
         end, Addrs),
         Transport:sort_addrs(Matched)
     end,
-    Transports = [{T:priority(), TransportAddrsFun(T)} || {T, _} <- libp2p_config:lookup_transports(TID)],
+    Transports = lists:foldl(
+        fun({Transport, _}, Acc) ->
+            TransportAddrsFun(Transport) ++ Acc
+        end,
+        [],
+        libp2p_config:lookup_transports(TID)
+    ),
     {_, SortedAddrLists} = lists:unzip(lists:keysort(1, Transports)),
-    %% can't use lists flatten here because it flattens too much, we
-    %% only want one level of flattening additionally only allow the
-    %% highest priority (the first one) address to appear, since
-    %% several transports may match an address
-    lists:foldl(
-        fun(Elements, Acc) ->
-            Acc ++ [E || E <- Elements, not lists:member(E, Acc)]
-        end
-        ,[]
-        ,SortedAddrLists
-    ).
+    SortedAddrLists.
 
 
 %% @doc Connect through a transport service. This is a convenience
