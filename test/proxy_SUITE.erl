@@ -91,19 +91,18 @@ basic(_Config) ->
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
     ct:pal("CSwarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
 
-    [ProxyAddress|_] = libp2p_swarm:listen_addrs(BSwarm),
+    [BAddress|_] = libp2p_swarm:listen_addrs(BSwarm),
 
     {ok, _} = libp2p_swarm:dial_framed_stream(
         CSwarm,
-        ProxyAddress,
+        BAddress,
         Version,
         libp2p_stream_relay_test,
         []
     ),
-    % B connect to C for PeerBook gossip
     {ok, _} = libp2p_swarm:dial_framed_stream(
         ASwarm,
-        ProxyAddress,
+        BAddress,
         Version,
         libp2p_stream_relay_test,
         []
@@ -144,10 +143,16 @@ basic(_Config) ->
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
 
-    % B dials A via the relay address (so dialing R realy)
+    {ok, {RC, _}} = libp2p_relay:p2p_circuit(CCircuitAddress),
+    AP2P = libp2p_swarm:p2p_address(ASwarm),
+    CP2P = libp2p_swarm:p2p_address(CSwarm),
+    {DialerSwarm, DialingAddr} = case RC of
+        AP2P -> {CSwarm, ACircuitAddress};
+        CP2P -> {ASwarm, CCircuitAddress}
+    end,
     {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
-        CSwarm,
-        ACircuitAddress,
+        DialerSwarm,
+        DialingAddr,
         Version,
         libp2p_stream_proxy_test,
         [{echo, self()}]
