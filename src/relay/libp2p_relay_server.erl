@@ -107,7 +107,7 @@ handle_cast(stop_relay, State) ->
     {noreply, State};
 handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     Swarm = libp2p_swarm:swarm(TID),
-    SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
+    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     Peers = case State0#state.peers of
                 [] ->
                     Peerbook = libp2p_swarm:peerbook(Swarm),
@@ -115,12 +115,12 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
                     lager:debug("joined peerbook ~p notifications", [Peerbook]),
                     Peers0 = libp2p_peerbook:values(Peerbook),
                     lists:filter(fun(E) ->
-                        libp2p_peer:pubkey_bin(E) /= SwarmAddr
+                        libp2p_peer:pubkey_bin(E) /= SwarmPubKeyBin
                     end, Peers0);
                 _ ->
                     State0#state.peers
             end,
-    State = State0#state{peers=sort_peers(Peers, SwarmAddr)},
+    State = State0#state{peers=sort_peers(Peers, SwarmPubKeyBin)},
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
@@ -139,12 +139,12 @@ handle_cast(_Msg, State) ->
 
 handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
     Swarm = libp2p_swarm:swarm(TID),
-    SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), SwarmAddr), peer_index=1}};
+    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), SwarmPubKeyBin), peer_index=1}};
 handle_info({new_peers, NewPeers}, #state{tid=TID}=State) ->
     Swarm = libp2p_swarm:swarm(TID),
-    SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), SwarmAddr)}};
+    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), SwarmPubKeyBin)}};
 handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
         {ok, Pid} ->
@@ -208,9 +208,9 @@ init_relay(#state{tid=TID}=State) ->
     libp2p_relay:dial_framed_stream(Swarm, Address, []).
 
 -spec sort_peers([libp2p_peer:peer()], libp2p_crypto:pubkey_bin()) -> [libp2p_peer:peer()].
-sort_peers(Peers0, SwarmAddr) ->
+sort_peers(Peers0, SwarmPubKeyBin) ->
     Peers = lists:filter(fun(E) ->
-        libp2p_peer:pubkey_bin(E) /= SwarmAddr
+        libp2p_peer:pubkey_bin(E) /= SwarmPubKeyBin
     end, Peers0),
     lists:sort(fun sort_peers_fun/2, shuffle(Peers)).
 
