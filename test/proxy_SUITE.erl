@@ -118,6 +118,16 @@ basic(_Config) ->
         100,
         250
     ),
+    
+    BP2P = libp2p_swarm:p2p_address(BSwarm),
+    meck:new(libp2p_relay, [no_link, passthrough]),
+    meck:expect(libp2p_relay, dial_framed_stream,
+        fun(S, _A, []) ->
+            meck:passthrough([S, BP2P, []]);
+        (S, A, O) ->
+            meck:passthrough([S, A, O])
+        end
+    ),
 
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
@@ -143,16 +153,9 @@ basic(_Config) ->
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
 
-    {ok, {RC, _}} = libp2p_relay:p2p_circuit(CCircuitAddress),
-    AP2P = libp2p_swarm:p2p_address(ASwarm),
-    CP2P = libp2p_swarm:p2p_address(CSwarm),
-    {DialerSwarm, DialingAddr} = case RC of
-        AP2P -> {CSwarm, ACircuitAddress};
-        CP2P -> {ASwarm, CCircuitAddress}
-    end,
     {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
-        DialerSwarm,
-        DialingAddr,
+        ASwarm,
+        CCircuitAddress,
         Version,
         libp2p_stream_proxy_test,
         [{echo, self()}]
@@ -182,6 +185,8 @@ basic(_Config) ->
     %% check we didn't leak any sockets here
     ok = check_sockets(),
     timer:sleep(2000),
+    ?assert(meck:validate(libp2p_relay)),
+    meck:unload(libp2p_relay),
     ok.
 
 %%--------------------------------------------------------------------
@@ -255,6 +260,16 @@ limit_exceeded(_Config) ->
         250
     ),
 
+    BP2P = libp2p_swarm:p2p_address(BSwarm),
+    meck:new(libp2p_relay, [no_link, passthrough]),
+    meck:expect(libp2p_relay, dial_framed_stream,
+        fun(S, _A, []) ->
+            meck:passthrough([S, BP2P, []]);
+        (S, A, O) ->
+            meck:passthrough([S, A, O])
+        end
+    ),
+
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
@@ -299,6 +314,8 @@ limit_exceeded(_Config) ->
     timer:sleep(2000),
     ?assert(meck:validate(libp2p_peer)),
     meck:unload(libp2p_peer),
+    ?assert(meck:validate(libp2p_relay)),
+    meck:unload(libp2p_relay),
     ok.
 
 
