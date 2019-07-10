@@ -106,7 +106,6 @@ basic(_Config) ->
         libp2p_stream_relay_test,
         []
     ),
-    % timer:sleep(2000),
 
     ok = test_util:wait_until(
         fun() ->
@@ -162,6 +161,7 @@ basic(_Config) ->
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(BSwarm),
     ok = libp2p_swarm:stop(CSwarm),
+    timer:sleep(2000),
     ok.
 
 %% ------------------------------------------------------------------
