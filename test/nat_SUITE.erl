@@ -11,8 +11,7 @@
 
 -export([
     basic/1,
-    server/1,
-    renew/1
+    server/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -26,7 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, server, renew].
+    [basic, server].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -127,45 +126,6 @@ server(_Config) ->
     ?assert(meck:validate(nat)),
     meck:unload(nat),
     libp2p_swarm:stop(Swarm).
-
-%%--------------------------------------------------------------------
-%% @public
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
-renew(_Config) ->
-    EXT_PORT = 6666,
-
-    meck:new(libp2p_nat, [no_link, passthrough]),
-    meck:expect(libp2p_nat, add_port_mapping, fun(_IntPort, _ExtPort) ->
-        {ok, "11.0.0.2", EXT_PORT, 10, 2000} 
-    end),
-    meck:expect(libp2p_nat, renew_port_mapping, fun(_IntPort, _ExtPort) ->
-        {ok, "11.0.0.2", EXT_PORT+1, 100, 2000} 
-    end),
-    meck:expect(libp2p_nat, delete_port_mapping, fun(_IntPort, _ExtPort) ->
-        ok
-    end),
-
-    {ok, Swarm} = libp2p_swarm:start(nat_renew),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
-
-    ok = test_util:wait_until(fun() ->
-        lists:member("/ip4/11.0.0.2/tcp/6666", libp2p_swarm:listen_addrs(Swarm))
-    end),
-
-    ok = test_util:wait_until(fun() ->
-        lists:member("/ip4/11.0.0.2/tcp/6667", libp2p_swarm:listen_addrs(Swarm)) andalso
-        not lists:member("/ip4/11.0.0.2/tcp/6666", libp2p_swarm:listen_addrs(Swarm))
-    end, 12, 1000),
-
-
-    libp2p_swarm:stop(Swarm),
-    ?assert(meck:validate(libp2p_nat)),
-    meck:unload(libp2p_nat),
-    ok.
-
-
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions

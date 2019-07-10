@@ -29,8 +29,7 @@
                    | {libp2p_proxy, [libp2p_proxy:opt()]}.
 
 -type connect_opt() :: {unique_session, boolean()}
-                     | {unique_port, boolean()}
-                     | no_relay | {no_relay, boolean()}.
+                     | {unique_port, boolean()}.
 
 -define(CONNECT_TIMEOUT, 5000).
 

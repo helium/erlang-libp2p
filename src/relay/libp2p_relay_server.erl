@@ -14,7 +14,7 @@
     start_link/1,
     relay/1,
     stop/1,
-    negotiated/2
+    connection_lost/1
 ]).
 
 %% ------------------------------------------------------------------
@@ -34,9 +34,10 @@
     peers = [] :: [libp2p_peer:peer()],
     peer_index = 1,
     flap_count = 0,
-    address :: string() | undefined,
-    stream :: pid() | undefined,
-    retrying :: reference() | undefined
+    swarm :: pid() | undefined,
+    address :: libp2p_crypto:pubkey_bin() | undefined,
+    started = false :: boolean(),
+    connection :: pid() | undefined
 }).
 
 -type state() :: #state{}.
@@ -58,6 +59,15 @@ relay(Swarm) ->
             Error
     end.
 
+-spec connection_lost(pid()) -> ok.
+connection_lost(Swarm) ->
+    case get_relay_server(Swarm) of
+        {ok, Pid} ->
+            gen_server:cast(Pid, connection_lost);
+        {error, _}=Error ->
+            Error
+    end.
+
 -spec stop(pid()) -> ok | {error, any()}.
 stop(Swarm) ->
     case get_relay_server(Swarm) of
@@ -67,47 +77,27 @@ stop(Swarm) ->
             Error
     end.
 
--spec negotiated(pid(), string()) -> ok | {error, any()}.
-negotiated(Swarm, Address) ->
-    case get_relay_server(Swarm) of
-        {ok, Pid} ->
-            gen_server:call(Pid, {negotiated, Address, self()});
-        {error, _}=Error ->
-            Error
-    end.
-
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(TID) ->
-    lager:info("~p init with ~p", [?MODULE, TID]),
+    lager:debug("~p init with ~p", [?MODULE, TID]),
+    Swarm = libp2p_swarm:swarm(TID),
     true = libp2p_config:insert_relay(TID, self()),
-    {ok, #state{tid=TID}}.
+    {ok, #state{tid=TID, swarm=Swarm}}.
 
-handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
-    true = libp2p_config:insert_listener(TID, [Address], Pid),
-    lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, Pid]),
-    {reply, ok, State#state{address=Address}};
-handle_call({negotiated, _Address, _Pid}, _From, #state{stream=undefined}=State) ->
-    lager:error("cannot insert ~p listener unknown stream (~p)", [_Address, _Pid]),
-    {reply, {error, unknown_pid}, State};
-handle_call({negotiated, _Address, Pid1}, _From, #state{stream=Pid2}=State) ->
-    lager:error("cannot insert ~p listener wrong stream ~p (~p)", [_Address, Pid1, Pid2]),
-    {reply, {error, wrong_pid}, State};
 handle_call(_Msg, _From, State) ->
-    lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
+    lager:debug("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast(stop_relay, #state{stream=Pid, address=Address}=State) when is_pid(Pid) ->
-    lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
-    catch libp2p_framed_stream:close(Pid),
-    {noreply, State#state{stream=undefined, address=undefined}};
+handle_cast(stop_relay,  #state{started=true, connection=Conn} = State) when Conn /= undefined ->
+    libp2p_framed_stream:close(Conn),
+    {noreply, State#state{started=false, connection=undefined}};
 handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
-handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+handle_cast(init_relay, #state{started=false, swarm=Swarm}=State0) ->
+    SwarmAddr = libp2p_swarm:pubkey_bin(Swarm),
     Peers = case State0#state.peers of
                 [] ->
                     Peerbook = libp2p_swarm:peerbook(Swarm),
@@ -115,73 +105,73 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
                     lager:debug("joined peerbook ~p notifications", [Peerbook]),
                     Peers0 = libp2p_peerbook:values(Peerbook),
                     lists:filter(fun(E) ->
-                        libp2p_peer:pubkey_bin(E) /= SwarmPubKeyBin
-                    end, Peers0);
+                                         libp2p_peer:pubkey_bin(E) /= SwarmAddr
+                                 end, Peers0);
                 _ ->
                     State0#state.peers
             end,
-    State = State0#state{peers=sort_peers(Peers, SwarmPubKeyBin)},
-    case init_relay(State) of
-        {ok, Pid} ->
-            _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfuly with ~p", [Pid]),
-            {noreply, add_flap(State#state{stream=Pid, address=undefined, retrying=undefined})};
+    State = State0#state{peers=sort_peers(Peers, SwarmAddr), address=SwarmAddr},
+    case int_relay(State) of
+        {ok, _} ->
+            lager:debug("relay started successfuly"),
+            {noreply, add_flap(State#state{started=true})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
-            {noreply, next_peer(retry(State))}
+            erlang:send_after(2500, self(), try_relay),
+            {noreply, next_peer(State)}
     end;
-handle_cast(init_relay,  #state{stream=Pid}=State) when is_pid(Pid) ->
-    lager:info("requested to init relay but we already have one @ ~p", [Pid]),
+handle_cast(init_relay, State) ->
     {noreply, State};
+handle_cast(connection_lost, State) ->
+    lager:debug("relay connection lost"),
+    self() ! try_relay,
+    {noreply, State#state{started=false, connection=undefined}};
 handle_cast(_Msg, State) ->
-    lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
+    lager:debug("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), SwarmPubKeyBin), peer_index=1}};
-handle_info({new_peers, NewPeers}, #state{tid=TID}=State) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), SwarmPubKeyBin)}};
-handle_info(retry, #state{stream=undefined}=State) ->
-    case init_relay(State) of
-        {ok, Pid} ->
-            _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfuly with ~p", [Pid]),
-            {noreply, add_flap(State#state{stream=Pid, address=undefined, retrying=undefined})};
+handle_info({new_peers, NewPeers}, #state{started=true}=State) ->
+    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), State#state.address), peer_index=1}};
+handle_info({new_peers, NewPeers}, #state{started=false}=State) ->
+    self() ! try_relay,
+    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, State#state.peers), State#state.address)}};
+handle_info(try_relay, State = #state{started=false}) ->
+    case int_relay(State) of
+        {ok, Connection} ->
+            lager:debug("relay started successfuly"),
+            {noreply, add_flap(State#state{started=true, connection=Connection})};
+        {error, no_peer} ->
+            lager:warning("could not initiate relay no peer found"),
+            {noreply, State};
+        {error, no_address} ->
+            lager:warning("could not initiate relay, swarm has no listen address"),
+            {noreply, State};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
-            {noreply, next_peer(retry(State))}
+            % TODO: exponential back off here?
+            erlang:send_after(2500, self(), try_relay),
+            {noreply, next_peer(State)}
     end;
-handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{tid=TID, stream=Pid, address=Address}=State) ->
-    _ = libp2p_config:remove_listener(TID, Address),
-    {noreply, retry(State#state{stream=undefined, address=undefined})};
 handle_info(_Msg, State) ->
-    lager:warning("rcvd unknown info msg: ~p", [_Msg]),
+    lager:debug("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{tid=TID, stream=Pid}) when is_pid(Pid) ->
-    catch libp2p_framed_stream:close(Pid),
+terminate(_Reason, #state{tid=TID, connection=Connection}=_State) ->
+    case Connection of
+        undefined -> ok;
+        Pid ->
+            %% stop any active relay connection so that the listen address is removed from the peerbook
+            catch libp2p_framed_stream:close(Pid)
+    end,
     true = libp2p_config:remove_relay(TID),
-    ok;
-terminate(_Reason, _State) ->
     ok.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
-retry(#state{retrying=undefined}=State) ->
-    TimeRef = erlang:send_after(2500, self(), retry),
-    State#state{retrying=TimeRef};
-retry(State) ->
-    State.
-
 -spec get_relay_server(pid()) -> {ok, pid()} | {error, any()}.
 get_relay_server(Swarm) ->
     try libp2p_swarm:tid(Swarm) of
@@ -196,21 +186,20 @@ get_relay_server(Swarm) ->
             {error, swarm_down}
     end.
 
--spec init_relay(state()) -> {ok, pid()} | {error, any()} | ignore.
-init_relay(#state{peers=[]}) ->
+-spec int_relay(state()) -> {ok, pid()} | {error, any()} | ignore.
+int_relay(#state{peers=[]}) ->
     {error, no_peer};
-init_relay(#state{tid=TID}=State) ->
-    Swarm = libp2p_swarm:swarm(TID),
+int_relay(State=#state{swarm=Swarm}) ->
     lager:debug("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     Peer = lists:nth(State#state.peer_index, State#state.peers),
     Address = libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
-    lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
+    lager:debug("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
     libp2p_relay:dial_framed_stream(Swarm, Address, []).
 
 -spec sort_peers([libp2p_peer:peer()], libp2p_crypto:pubkey_bin()) -> [libp2p_peer:peer()].
-sort_peers(Peers0, SwarmPubKeyBin) ->
+sort_peers(Peers0, SwarmAddr) ->
     Peers = lists:filter(fun(E) ->
-        libp2p_peer:pubkey_bin(E) /= SwarmPubKeyBin
+        libp2p_peer:pubkey_bin(E) /= SwarmAddr
     end, Peers0),
     lists:sort(fun sort_peers_fun/2, shuffle(Peers)).
 

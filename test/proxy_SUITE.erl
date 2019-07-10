@@ -11,6 +11,7 @@
 
 -export([
     basic/1,
+    two_proxy/1,
     limit_exceeded/1
 ]).
 
@@ -25,7 +26,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic, limit_exceeded].
+    [basic, two_proxy, limit_exceeded].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -62,103 +63,65 @@ basic(_Config) ->
                 ],
     Version = "proxytest/1.0.0",
 
-    {ok, ASwarm} = libp2p_swarm:start(proxy_basic_server, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
+    {ok, ServerSwarm} = libp2p_swarm:start(proxy_basic_server, SwarmOpts),
+    ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ASwarm,
-        Version,
-        {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ASwarm]}
+        ServerSwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ServerSwarm]}
     ),
 
     Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
-    {ok, BSwarm} = libp2p_swarm:start(proxy_basic_proxy, Opts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
+    {ok, ProxySwarm} = libp2p_swarm:start(proxy_basic_proxy, Opts),
+    ok = libp2p_swarm:listen(ProxySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        BSwarm,
-        Version,
-        {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), BSwarm]}
+        ProxySwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ProxySwarm]}
     ),
 
-    {ok, CSwarm} = libp2p_swarm:start(proxy_basic_client, SwarmOpts),
-    ok = libp2p_swarm:listen(CSwarm, "/ip4/0.0.0.0/tcp/0"),
+    {ok, ClientSwarm} = libp2p_swarm:start(proxy_basic_client, SwarmOpts),
+    ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        CSwarm,
-        Version,
-        {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), CSwarm]}
-    ),
-    
-    ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
-    ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
-    ct:pal("CSwarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
-
-    [BAddress|_] = libp2p_swarm:listen_addrs(BSwarm),
-
-    {ok, _} = libp2p_swarm:dial_framed_stream(
-        CSwarm,
-        BAddress,
-        Version,
-        libp2p_stream_relay_test,
-        []
-    ),
-    {ok, _} = libp2p_swarm:dial_framed_stream(
-        ASwarm,
-        BAddress,
-        Version,
-        libp2p_stream_relay_test,
-        []
+        ClientSwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ClientSwarm]}
     ),
 
-    ok = test_util:wait_until(
-        fun() ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(CSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
-                {ok, _} -> true;
-                _ -> false
-            end
-        end,
-        100,
-        250
-    ),
-    
-    BP2P = libp2p_swarm:p2p_address(BSwarm),
-    meck:new(libp2p_relay, [no_link, passthrough]),
-    meck:expect(libp2p_relay, dial_framed_stream,
-        fun(S, _A, []) ->
-            meck:passthrough([S, BP2P, []]);
-        (S, A, O) ->
-            meck:passthrough([S, A, O])
-        end
-    ),
+    [ProxyAddress|_] = libp2p_swarm:listen_addrs(ProxySwarm),
 
-    % NAT fails so init relay on A manually
-    ok = libp2p_relay:init(ASwarm),
+    % NAT fails so A dials R to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, ProxyAddress, []),
+    % Waiting for connection
+    timer:sleep(2000),
+
+    % NAT fails so B dials R to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(ClientSwarm, ProxyAddress, []),
+    % Waiting for connection
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ServerSwarm) end),
 
-    % NAT fails so init relay on C manually
-    ok = libp2p_relay:init(CSwarm),
-    % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end),
+    % Testing relay address
+    % Once relay is established get relay address from A's peerbook
+    [ServerCircuitAddress] = get_relay_addresses(ServerSwarm),
 
-
-    [CCircuitAddress] = get_relay_addresses(CSwarm),
-    [ACircuitAddress] = get_relay_addresses(ASwarm),
+    %% wait for B to get A's relay address gossiped to it
     ok = test_util:wait_until(fun() ->
-        case libp2p_peerbook:get(libp2p_swarm:peerbook(ASwarm), libp2p_swarm:pubkey_bin(CSwarm)) of
+        case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm), libp2p_swarm:pubkey_bin(ServerSwarm)) of
             {ok, PeerBookEntry} ->
-                lists:member(CCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+                lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
             _ ->
                 false
         end
     end),
-    ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
-    ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
 
+    % B dials A via the relay address (so dialing R realy)
     {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
-        ASwarm,
-        CCircuitAddress,
-        Version,
-        libp2p_stream_proxy_test,
-        [{echo, self()}]
+        ClientSwarm
+        ,ServerCircuitAddress
+        ,Version
+        ,libp2p_stream_proxy_test
+        ,[{echo, self()}]
     ),
     timer:sleep(2000),
 
@@ -171,22 +134,143 @@ basic(_Config) ->
     end,
 
     %% 2 connections, each registered twice once as p2p and one as ipv4
-    4 = length(libp2p_swarm:sessions(BSwarm)),
+    4 = length(libp2p_swarm:sessions(ProxySwarm)),
 
     %% really close the socket here
     {ok, Session} = libp2p_connection:session(libp2p_framed_stream:connection(ClientStream)),
     libp2p_framed_stream:close(ClientStream),
     libp2p_session:close(Session),
 
-    ok = libp2p_swarm:stop(CSwarm),
-    ok = libp2p_swarm:stop(ASwarm),
-    ok = libp2p_swarm:stop(BSwarm),
+    ok = libp2p_swarm:stop(ServerSwarm),
+    ok = libp2p_swarm:stop(ClientSwarm),
+
 
     %% check we didn't leak any sockets here
     ok = check_sockets(),
+
+    ok = libp2p_swarm:stop(ProxySwarm),
+
     timer:sleep(2000),
-    ?assert(meck:validate(libp2p_relay)),
-    meck:unload(libp2p_relay),
+    ok.
+
+two_proxy(_Config) ->
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    Version = "proxytest/1.0.0",
+
+    {ok, ServerSwarm} = libp2p_swarm:start(proxy_two_server, SwarmOpts),
+    ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        ServerSwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ServerSwarm]}
+    ),
+
+    Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
+    {ok, ProxySwarm} = libp2p_swarm:start(proxy_two_proxy, Opts),
+    ok = libp2p_swarm:listen(ProxySwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        ProxySwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ProxySwarm]}
+    ),
+
+    {ok, Client1Swarm} = libp2p_swarm:start(proxy_two_client_1, SwarmOpts),
+    ok = libp2p_swarm:listen(Client1Swarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        Client1Swarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), Client1Swarm]}
+    ),
+
+    {ok, Client2Swarm} = libp2p_swarm:start(proxy_two_client_2, SwarmOpts),
+    ok = libp2p_swarm:listen(Client2Swarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        Client2Swarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), Client2Swarm]}
+    ),
+
+    [ProxyAddress|_] = libp2p_swarm:listen_addrs(ProxySwarm),
+
+    % NAT fails so A dials R to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, ProxyAddress, []),
+
+    % NAT fails so B dials R to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(Client1Swarm, ProxyAddress, []),
+
+    % NAT fails so C dials R to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(Client2Swarm, ProxyAddress, []),
+
+    % Waiting for connection
+    timer:sleep(2000),
+
+    % Wait for a relay address to be provided
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ServerSwarm) end),
+
+    % Testing relay address
+    % Once relay is established get relay address from A's peerbook
+    [ServerCircuitAddress] = get_relay_addresses(ServerSwarm),
+
+    %% wait for B to get A's relay address gossiped to it
+    ok = test_util:wait_until(fun() ->
+        case libp2p_peerbook:get(libp2p_swarm:peerbook(Client1Swarm), libp2p_swarm:pubkey_bin(ServerSwarm)) of
+            {ok, PeerBookEntry} ->
+                lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+            _ ->
+                false
+        end
+    end),
+
+    %% wait for C to get A's relay address gossiped to it
+    ok = test_util:wait_until(fun() ->
+        case libp2p_peerbook:get(libp2p_swarm:peerbook(Client2Swarm), libp2p_swarm:pubkey_bin(ServerSwarm)) of
+            {ok, PeerBookEntry} ->
+                lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+            _ ->
+                false
+        end
+    end),
+
+    % B dials A via the relay address (so dialing R realy)
+    {ok, ClientStream1} = libp2p_swarm:dial_framed_stream(
+        Client1Swarm
+        ,ServerCircuitAddress
+        ,Version
+        ,libp2p_stream_proxy_test
+        ,[{echo, self()}]
+    ),
+    % C dials A via the relay address (so dialing R realy)
+    {ok, ClientStream2} = libp2p_swarm:dial_framed_stream(
+        Client2Swarm
+        ,ServerCircuitAddress
+        ,Version
+        ,libp2p_stream_proxy_test
+        ,[{echo, self()}]
+    ),
+    timer:sleep(2000),
+
+    Data = <<"some data">>,
+    ClientStream1 ! Data,
+    receive
+        {echo, Data} -> ok
+    after 5000 ->
+        ct:fail(timeout_client1)
+    end,
+
+    Data2 = <<"some other data">>,
+    ClientStream2 ! Data2,
+    receive
+        {echo, Data2} -> ok
+    after 5000 ->
+        ct:fail(timeout_client2)
+    end,
+
+    ok = libp2p_swarm:stop(ServerSwarm),
+    ok = libp2p_swarm:stop(ProxySwarm),
+    ok = libp2p_swarm:stop(Client1Swarm),
+    ok = libp2p_swarm:stop(Client2Swarm),
+
+    timer:sleep(2000),
     ok.
 
 %%--------------------------------------------------------------------
@@ -202,120 +286,78 @@ limit_exceeded(_Config) ->
     ],
     Version = "proxytest/1.0.0",
 
-    {ok, ASwarm} = libp2p_swarm:start(proxy_limit_exceeded_server, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
+    {ok, ServerSwarm} = libp2p_swarm:start(proxy_limit_exceeded_server, SwarmOpts),
+    ok = libp2p_swarm:listen(ServerSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        ASwarm,
-        Version,
-        {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ASwarm]}
+        ServerSwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ServerSwarm]}
     ),
 
     Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
-    {ok, BSwarm} = libp2p_swarm:start(proxy_limit_exceeded_proxy, Opts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
+    {ok, ProxySwarm} = libp2p_swarm:start(proxy_limit_exceeded_proxy, Opts),
+    ok = libp2p_swarm:listen(ProxySwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        BSwarm,
-        Version,
-        {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), BSwarm]}
+        ProxySwarm
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ProxySwarm]}
     ),
 
-    {ok, CSwarm} = libp2p_swarm:start(proxy_limit_exceeded_client, SwarmOpts),
-    ok = libp2p_swarm:listen(CSwarm, "/ip4/0.0.0.0/tcp/0"),
+    {ok, ClientSwarm1} = libp2p_swarm:start(proxy_limit_exceeded_client1, SwarmOpts),
+    ok = libp2p_swarm:listen(ClientSwarm1, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
-        CSwarm,
-        Version,
-        {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), CSwarm]}
-    ),
-    
-    ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
-    ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
-    ct:pal("CSwarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
-
-    [ProxyAddress|_] = libp2p_swarm:listen_addrs(BSwarm),
-
-    {ok, _} = libp2p_swarm:dial_framed_stream(
-        CSwarm,
-        ProxyAddress,
-        Version,
-        libp2p_stream_relay_test,
-        []
-    ),
-    % B connect to C for PeerBook gossip
-    {ok, _} = libp2p_swarm:dial_framed_stream(
-        ASwarm,
-        ProxyAddress,
-        Version,
-        libp2p_stream_relay_test,
-        []
+        ClientSwarm1
+        ,Version
+        ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), ClientSwarm1]}
     ),
 
-    ok = test_util:wait_until(
-        fun() ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(CSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
-                {ok, _} -> true;
-                _ -> false
-            end
-        end,
-        100,
-        250
-    ),
+    [ProxyAddress|_] = libp2p_swarm:listen_addrs(ProxySwarm),
 
-    BP2P = libp2p_swarm:p2p_address(BSwarm),
-    meck:new(libp2p_relay, [no_link, passthrough]),
-    meck:expect(libp2p_relay, dial_framed_stream,
-        fun(S, _A, []) ->
-            meck:passthrough([S, BP2P, []]);
-        (S, A, O) ->
-            meck:passthrough([S, A, O])
-        end
-    ),
+    % NAT fails so Server dials Proxy to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(ServerSwarm, ProxyAddress, []),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ServerSwarm) end),
 
-    % NAT fails so init relay on A manually
-    ok = libp2p_relay:init(ASwarm),
-    % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    % NAT fails so Client1 dials Proxy to create a relay
+    {ok, _} = libp2p_relay:dial_framed_stream(ClientSwarm1, ProxyAddress, []),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ClientSwarm1) end),
 
-    % NAT fails so init relay on C manually
-    ok = libp2p_relay:init(CSwarm),
-    % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end),
+    % Testing relay address
+    % Once relay is established get relay address from A's peerbook
+    [ServerCircuitAddress] = get_relay_addresses(ServerSwarm),
 
-
-    [CCircuitAddress] = get_relay_addresses(CSwarm),
-    [ACircuitAddress] = get_relay_addresses(ASwarm),
+    %% wait for Server to get Client1's relay address gossiped to it
     ok = test_util:wait_until(fun() ->
-        case libp2p_peerbook:get(libp2p_swarm:peerbook(ASwarm), libp2p_swarm:pubkey_bin(CSwarm)) of
+        case libp2p_peerbook:get(libp2p_swarm:peerbook(ClientSwarm1), libp2p_swarm:pubkey_bin(ServerSwarm)) of
             {ok, PeerBookEntry} ->
-                lists:member(CCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+                lists:member(ServerCircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
             _ ->
                 false
         end
     end),
-    ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
-    ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
+
     % Avoid trying another address
     meck:new(libp2p_peer, [no_link, passthrough]),
     meck:expect(libp2p_peer, listen_addrs, fun(_) -> [] end),
 
     % Client1 dials Server via the relay address
     {error, _} = libp2p_swarm:dial_framed_stream(
-        CSwarm,
-        ACircuitAddress,
+        ClientSwarm1,
+        ServerCircuitAddress,
         Version,
         libp2p_stream_proxy_test,
         [{echo, self()}]
     ),
 
-    ok = libp2p_swarm:stop(ASwarm),
-    ok = libp2p_swarm:stop(CSwarm),
-    ok = libp2p_swarm:stop(BSwarm),
+    ok = libp2p_swarm:stop(ServerSwarm),
+    ok = libp2p_swarm:stop(ClientSwarm1),
     %% check we didn't leak any sockets here
     ok = check_sockets(),
+
+    ok = libp2p_swarm:stop(ProxySwarm),
+
     timer:sleep(2000),
     ?assert(meck:validate(libp2p_peer)),
     meck:unload(libp2p_peer),
-    ?assert(meck:validate(libp2p_relay)),
-    meck:unload(libp2p_relay),
     ok.
 
 
@@ -330,17 +372,14 @@ check_sockets() ->
                 fun({_ID, _Info}, false) ->
                     false;
                 ({_ID, Info}, _Acc) ->
-                    ct:pal("Info ~p", [Info]),
                     0 == proplists:get_value(active_connections, Info) andalso
                     0 == proplists:get_value(all_connections, Info)
                 end,
                 true,
                 ranch:info()
+                
             )
-        end,
-        100,
-        250
-    ).
+    end).
 
 -spec get_relay_addresses(pid()) -> [string()].
 get_relay_addresses(Swarm) ->
