@@ -34,7 +34,6 @@
 
 -record(state, {
     swarm :: pid() | undefined,
-    sessionPid :: pid() | undefined,
     type = bridge :: bridge | client,
     relay_addr :: string() | undefined,
     connection :: libp2p_connection:connection()
@@ -70,8 +69,7 @@ init(client, Conn, Args) ->
             {ok, {_Self, ServerAddress}} = libp2p_relay:p2p_circuit(CircuitAddress),
             self() ! {init_bridge_cr, ServerAddress}
     end,
-    {ok, SessionPid} = libp2p_connection:session(Conn),
-    {ok, #state{swarm=Swarm, sessionPid=SessionPid, connection=Conn}}.
+    {ok, #state{swarm=Swarm, connection=Conn}}.
 
 handle_data(server, Bin, State) ->
     handle_server_data(Bin, State);
@@ -128,15 +126,6 @@ handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unknown info message ~p", [_Type, _Msg]),
     {noreply, State}.
 
-terminate(client, _Reason, #state{type=client, swarm=Swarm, relay_addr=RelayAddress}) ->
-    Self = self(),
-    erlang:spawn(fun() ->
-        lager:info("~p going down", [Self]),
-        _ = libp2p_relay_server:connection_lost(Swarm),
-        TID = libp2p_swarm:tid(Swarm),
-        _ = libp2p_config:remove_listener(TID, RelayAddress)
-    end),
-    ok;
 terminate(_Type, _Reason, _State) ->
     ok.
 
@@ -200,16 +189,14 @@ handle_client_data(Bin, State) ->
 
 -spec handle_client_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) ->
     libp2p_framed_stream:handle_data_result().
-handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm, sessionPid=SessionPid}=State) ->
+handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_resp:address(Resp),
     case libp2p_relay_resp:error(Resp) of
         undefined ->
             % Relay Step 3: Client A receives a relay response from server R
             % with p2p-circuit address and inserts it as a new listener to get
             % broadcasted by peerbook
-            TID = libp2p_swarm:tid(Swarm),
-            lager:debug("inserting new listener ~p, ~p, ~p", [TID, Address, SessionPid]),
-            true = libp2p_config:insert_listener(TID, [Address], SessionPid),
+            ok = libp2p_relay_server:negotiated(Swarm, Address),
             libp2p_connection:set_idle_timeout(State#state.connection, infinity),
             {noreply, State#state{relay_addr=Address}};
         Error ->

@@ -119,7 +119,7 @@ init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
     {TxnID, TargetAddr} = string:take(Info, "/", true),
     lager:debug("got verify request for ~p", [TargetAddr]),
     ReplyPath = reply_path(TxnID),
-    case libp2p_swarm:dial(TID, TargetAddr, ReplyPath, [], 5000) of
+    case libp2p_swarm:dial(TID, TargetAddr, ReplyPath, [no_relay], 5000) of
         {error, eaddrnotavail} ->
             %% this is a local failure
             {stop, normal};
