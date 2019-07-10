@@ -172,13 +172,10 @@ basic(_Config) ->
 
     ok = libp2p_swarm:stop(CSwarm),
     ok = libp2p_swarm:stop(ASwarm),
-
+    ok = libp2p_swarm:stop(BSwarm),
 
     %% check we didn't leak any sockets here
     ok = check_sockets(),
-
-    ok = libp2p_swarm:stop(BSwarm),
-
     timer:sleep(2000),
     ok.
 
@@ -291,11 +288,9 @@ limit_exceeded(_Config) ->
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(CSwarm),
+    ok = libp2p_swarm:stop(BSwarm),
     %% check we didn't leak any sockets here
     ok = check_sockets(),
-
-    ok = libp2p_swarm:stop(BSwarm),
-
     timer:sleep(2000),
     ?assert(meck:validate(libp2p_peer)),
     meck:unload(libp2p_peer),
@@ -313,14 +308,17 @@ check_sockets() ->
                 fun({_ID, _Info}, false) ->
                     false;
                 ({_ID, Info}, _Acc) ->
+                    ct:pal("Info ~p", [Info]),
                     0 == proplists:get_value(active_connections, Info) andalso
                     0 == proplists:get_value(all_connections, Info)
                 end,
                 true,
                 ranch:info()
-                
             )
-    end).
+        end,
+        100,
+        250
+    ).
 
 -spec get_relay_addresses(pid()) -> [string()].
 get_relay_addresses(Swarm) ->
