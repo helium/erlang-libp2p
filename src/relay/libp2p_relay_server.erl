@@ -14,7 +14,7 @@
     start_link/1,
     relay/1,
     stop/1,
-    negociated/2
+    negotiated/2
 ]).
 
 %% ------------------------------------------------------------------
@@ -67,11 +67,11 @@ stop(Swarm) ->
             Error
     end.
 
--spec negociated(pid(), string()) -> ok | {error, any()}.
-negociated(Swarm, Address) ->
+-spec negotiated(pid(), string()) -> ok | {error, any()}.
+negotiated(Swarm, Address) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
-            gen_server:call(Pid, {negociated, Address, self()});
+            gen_server:call(Pid, {negotiated, Address, self()});
         {error, _}=Error ->
             Error
     end.
@@ -84,14 +84,14 @@ init(TID) ->
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID}}.
 
-handle_call({negociated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
+handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
     true = libp2p_config:insert_listener(TID, [Address], Pid),
     lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, Pid]),
     {reply, ok, State#state{address=Address}};
-handle_call({negociated, _Address, _Pid}, _From, #state{stream=undefined}=State) ->
+handle_call({negotiated, _Address, _Pid}, _From, #state{stream=undefined}=State) ->
     lager:error("cannot insert ~p listener unknown stream (~p)", [_Address, _Pid]),
     {reply, {error, unknown_pid}, State};
-handle_call({negociated, _Address, Pid1}, _From, #state{stream=Pid2}=State) ->
+handle_call({negotiated, _Address, Pid1}, _From, #state{stream=Pid2}=State) ->
     lager:error("cannot insert ~p listener wrong stream ~p (~p)", [_Address, Pid1, Pid2]),
     {reply, {error, wrong_pid}, State};
 handle_call(_Msg, _From, State) ->
