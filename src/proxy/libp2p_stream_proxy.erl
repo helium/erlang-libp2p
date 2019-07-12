@@ -155,8 +155,10 @@ handle_server_data({overload, Overload}, _Env, #state{swarm=Swarm}=State) ->
     R = libp2p_crypto:pubkey_bin_to_p2p(PubKeyBin),
     A = libp2p_swarm:p2p_address(Swarm),
     P2PCircuit = libp2p_relay:p2p_circuit(R, A),
-    lager:info("proxy server was overloaded going down ~p", [P2PCircuit]),
-    {stop, normal, State};
+    lager:info("proxy server was overloaded removing address ~p", [P2PCircuit]),
+    TID = libp2p_swarm:tid(Swarm),
+    true = libp2p_config:remove_listener(TID, P2PCircuit),
+    {noreply, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
