@@ -36,7 +36,7 @@
     flap_count = 0,
     address :: string() | undefined,
     stream :: pid() | undefined,
-    retrying :: reference() | undefined
+    retrying = make_ref() :: reference()
 }).
 
 -type state() :: #state{}.
@@ -125,7 +125,7 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
             lager:info("relay started successfuly with ~p", [Pid]),
-            {noreply, add_flap(State#state{stream=Pid, address=undefined, retrying=undefined})};
+            {noreply, add_flap(State#state{stream=Pid, address=undefined})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             {noreply, next_peer(retry(State))}
@@ -150,12 +150,13 @@ handle_info(retry, #state{stream=undefined}=State) ->
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
             lager:info("relay started successfuly with ~p", [Pid]),
-            {noreply, add_flap(State#state{stream=Pid, address=undefined, retrying=undefined})};
+            {noreply, add_flap(State#state{stream=Pid, address=undefined})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             {noreply, next_peer(retry(State))}
     end;
-handle_info({'DOWN', _Ref, process, Pid, _Reason}, #state{tid=TID, stream=Pid, address=Address}=State) ->
+handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{tid=TID, stream=Pid, address=Address}=State) ->
+    lager:info("Relay session with address ~p closed with reason ~p", [Address, Reason]),
     _ = libp2p_config:remove_listener(TID, Address),
     {noreply, retry(State#state{stream=undefined, address=undefined})};
 handle_info(_Msg, State) ->
@@ -176,11 +177,10 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-retry(#state{retrying=undefined}=State) ->
+retry(#state{retrying=OldTimer}=State) ->
+    erlang:cancel_timer(OldTimer),
     TimeRef = erlang:send_after(2500, self(), retry),
-    State#state{retrying=TimeRef};
-retry(State) ->
-    State.
+    State#state{retrying=TimeRef}.
 
 -spec get_relay_server(pid()) -> {ok, pid()} | {error, any()}.
 get_relay_server(Swarm) ->
