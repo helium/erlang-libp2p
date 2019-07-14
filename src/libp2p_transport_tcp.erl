@@ -578,11 +578,7 @@ listen_on(Addr, TID) ->
 connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
     case tcp_addr(Addr) of
         {IP, Port, Type, AddrOpts} ->
-            UniqueSession = proplists:get_value(unique_session, UserOptions, false),
-            UniquePort = proplists:get_value(unique_port, UserOptions, false),
-            ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs,
-                                      UniqueSession, UniquePort),
+            Options = [Type | UserOptions ++ AddrOpts ++ common_options()],
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
                     case libp2p_transport:start_client_session(TID, Addr, new_connection(Socket)) of
@@ -595,31 +591,6 @@ connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
                     {error, Error}
             end;
         {error, Reason} -> {error, Reason}
-    end.
-
-
-connect_options(Type, Opts, _, _, UniqueSession, _UniquePort) when UniqueSession == true ->
-    [Type | Opts];
-connect_options(Type, Opts, _, _, false, _UniquePort) when Type /= inet ->
-    [Type | Opts];
-connect_options(Type, Opts, _, _, false, UniquePort) when UniquePort == true ->
-    [Type, {reuseaddr, true} | Opts];
-connect_options(Type, Opts, Addr, ListenAddrs, false, false) ->
-    MAddr = multiaddr:new(Addr),
-    [Type, {reuseaddr, true}, reuseport(), {port, find_matching_listen_port(MAddr, ListenAddrs)} | Opts].
-
-find_matching_listen_port(_Addr, []) ->
-    0;
-find_matching_listen_port(Addr, [H|ListenAddrs]) ->
-    ListenAddr = multiaddr:new(H),
-    ConnectProtocols = [ element(1, T) || T <- multiaddr:protocols(Addr)],
-    ListenProtocols = [ element(1, T) || T <- multiaddr:protocols(ListenAddr)],
-    case ConnectProtocols == ListenProtocols of
-        true ->
-            {_, Port, _, _} = tcp_addr(ListenAddr),
-            Port;
-        false ->
-            find_matching_listen_port(Addr, ListenAddrs)
     end.
 
 reuseport() ->
