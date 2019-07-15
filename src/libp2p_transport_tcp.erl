@@ -591,6 +591,8 @@ connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
                             {ok, SessionPid};
                         {error, Reason} -> {error, Reason}
                     end;
+                {error, eaddrnotavail} when UniquePort == false ->
+                    connect_to(Addr, [unique_port | UserOptions], Timeout, TID, TCPPid);
                 {error, Error} ->
                     {error, Error}
             end;
