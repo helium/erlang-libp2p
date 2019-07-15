@@ -60,7 +60,7 @@ dial_self(Config) ->
         ,[{echo, self()}]
     ),
     timer:sleep(100),
-    {error, dialing_self} = libp2p_swarm:dial_framed_stream(
+    {error, [{Address, dialing_self}]} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,libp2p_swarm:p2p_address(Swarm)
         ,Version
