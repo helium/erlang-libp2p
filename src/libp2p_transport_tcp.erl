@@ -592,7 +592,11 @@ connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
                         {error, Reason} -> {error, Reason}
                     end;
                 {error, eaddrnotavail} when UniquePort == false ->
-                    connect_to(Addr, [unique_port | UserOptions], Timeout, TID, TCPPid);
+                    %% This will only happen if we are doing reuse port and it fails
+                    %% because there's already a socket with the same SrcIP, SrcPort, DestIP, DestPort
+                    %% combination (it may be in a timeout/close state). This will at least allow us to
+                    %% connect while that ages out.
+                    connect_to(Addr, [{unique_port, true} | UserOptions], Timeout, TID, TCPPid);
                 {error, Error} ->
                     {error, Error}
             end;
