@@ -59,7 +59,7 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
                             {ok, SessionPid};
                         {error, not_found} ->
                             SortedListenAddrs = libp2p_transport:sort_addrs(TID, ListenAddrs),
-                            case connect_to_listen_addr(SortedListenAddrs, UserOptions, Timeout, TID) of
+                            case connect_to_listen_addr(SortedListenAddrs, UserOptions, Timeout, TID, []) of
                                 {ok, SessionPid}->
                                     libp2p_config:insert_session(TID, MAddr, SessionPid),
                                     {ok, SessionPid};
@@ -72,17 +72,18 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
         {error, Reason} -> {error, Reason}
     end.
 
--spec connect_to_listen_addr([string()], libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
+-spec connect_to_listen_addr([string()], libp2p_swarm:connect_opts(), pos_integer(), ets:tab(), [{string(), term()}])
                             -> {ok, pid()} | {error, term()}.
-connect_to_listen_addr([], _UserOptions, _Timeout, _TID) ->
+connect_to_listen_addr([], _UserOptions, _Timeout, _TID, _Acc) ->
     {error, no_listen_addr};
-connect_to_listen_addr([ListenAddr | Tail], UserOptions, Timeout, TID) ->
+connect_to_listen_addr([ListenAddr | Tail], UserOptions, Timeout, TID, Acc) ->
     case libp2p_transport:connect_to(ListenAddr, UserOptions, Timeout, TID) of
         {ok, SessionPid} -> {ok, SessionPid};
         {error, Error} ->
             case Tail of
-                [] -> {error, Error};
-                Remaining -> connect_to_listen_addr(Remaining, UserOptions, Timeout, TID)
+                [] -> {error, lists:reverse([{ListenAddr, Error}|Acc])};
+                Remaining -> connect_to_listen_addr(Remaining, UserOptions, Timeout, TID,
+                                                    [{ListenAddr, Error}|Acc])
             end
     end.
 
