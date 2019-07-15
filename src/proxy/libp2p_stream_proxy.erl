@@ -158,7 +158,7 @@ handle_server_data({overload, Overload}, _Env, #state{swarm=Swarm}=State) ->
     lager:info("proxy server was overloaded removing address ~p", [P2PCircuit]),
     TID = libp2p_swarm:tid(Swarm),
     true = libp2p_config:remove_listener(TID, P2PCircuit),
-    {noreply, State};
+    {stop, normal, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
