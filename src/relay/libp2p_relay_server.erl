@@ -113,10 +113,7 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
                     Peerbook = libp2p_swarm:peerbook(Swarm),
                     ok = libp2p_peerbook:join_notify(Peerbook, self()),
                     lager:debug("joined peerbook ~p notifications", [Peerbook]),
-                    Peers0 = libp2p_peerbook:values(Peerbook),
-                    lists:filter(fun(E) ->
-                        libp2p_peer:pubkey_bin(E) /= SwarmPubKeyBin
-                    end, Peers0);
+                    libp2p_peerbook:values(Peerbook);
                 _ ->
                     State0#state.peers
             end,
@@ -209,10 +206,11 @@ init_relay(#state{tid=TID}=State) ->
 
 -spec sort_peers([libp2p_peer:peer()], libp2p_crypto:pubkey_bin()) -> [libp2p_peer:peer()].
 sort_peers(Peers0, SwarmPubKeyBin) ->
-    Peers = lists:filter(fun(E) ->
-        libp2p_peer:pubkey_bin(E) /= SwarmPubKeyBin
+    Peers1 = lists:filter(fun(Peer) ->
+        libp2p_peer:pubkey_bin(Peer) /= SwarmPubKeyBin andalso
+        libp2p_peer:has_public_ip(Peer)
     end, Peers0),
-    lists:sort(fun sort_peers_fun/2, shuffle(Peers)).
+    lists:sort(fun sort_peers_fun/2, shuffle(Peers1)).
 
 -spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
 sort_peers_fun(A, B) ->
@@ -240,8 +238,8 @@ shuffle(List) ->
 
 %% merge new peers into old peers based on their address
 merge_peers(NewPeers, OldPeers) ->
-    maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]),
-                           maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]))).
+    maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]),
+                           maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]))).
 
 -spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->

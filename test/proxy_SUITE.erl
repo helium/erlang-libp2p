@@ -86,6 +86,13 @@ basic(_Config) ->
         Version,
         {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), CSwarm]}
     ),
+
+    % Relay needs a public ip now, not just a circuit address
+    meck:new(libp2p_transport_tcp, [no_link, passthrough]),
+    meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
+    meck:new(libp2p_peer, [no_link, passthrough]),
+    meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
+
     
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
@@ -187,6 +194,10 @@ basic(_Config) ->
     timer:sleep(2000),
     ?assert(meck:validate(libp2p_relay)),
     meck:unload(libp2p_relay),
+    ?assert(meck:validate(libp2p_transport_tcp)),
+    meck:unload(libp2p_transport_tcp),
+    ?assert(meck:validate(libp2p_peer)),
+    meck:unload(libp2p_peer),
     ok.
 
 %%--------------------------------------------------------------------
@@ -226,6 +237,12 @@ limit_exceeded(_Config) ->
         Version,
         {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), CSwarm]}
     ),
+
+   % Relay needs a public ip now, not just a circuit address
+    meck:new(libp2p_transport_tcp, [no_link, passthrough]),
+    meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
+    meck:new(libp2p_peer, [no_link, passthrough]),
+    meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
     
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
@@ -294,7 +311,6 @@ limit_exceeded(_Config) ->
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
     % Avoid trying another address
-    meck:new(libp2p_peer, [no_link, passthrough]),
     meck:expect(libp2p_peer, listen_addrs, fun(_) -> [] end),
 
     % Client1 dials Server via the relay address
@@ -312,10 +328,12 @@ limit_exceeded(_Config) ->
     %% check we didn't leak any sockets here
     ok = check_sockets(),
     timer:sleep(2000),
-    ?assert(meck:validate(libp2p_peer)),
-    meck:unload(libp2p_peer),
     ?assert(meck:validate(libp2p_relay)),
     meck:unload(libp2p_relay),
+    ?assert(meck:validate(libp2p_transport_tcp)),
+    meck:unload(libp2p_transport_tcp),
+    ?assert(meck:validate(libp2p_peer)),
+    meck:unload(libp2p_peer),
     ok.
 
 

@@ -35,7 +35,7 @@
 
 %% libp2p_transport
 -export([start_listener/2, new_connection/1, new_connection/2,
-         connect/5, match_addr/2, sort_addrs/1]).
+         connect/5, match_addr/1, match_addr/2, sort_addrs/1]).
 
 %% gen_server
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -48,7 +48,7 @@
         ]).
 
 %% for tcp sockets
--export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1]).
+-export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1, is_public/1]).
 
 -record(tcp_state,
         {
@@ -92,6 +92,11 @@ start_listener(Pid, Addr) ->
              -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->
     connect_to(MAddr, Options, Timeout, TID, Pid).
+
+
+-spec match_addr(string()) -> {ok, string()} | false.
+match_addr(Addr) when is_list(Addr) ->
+    match_protocols(multiaddr:protocols(Addr)).
 
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, _TID) when is_list(Addr) ->
@@ -327,6 +332,22 @@ rfc1918(IP={172, _, _, _}) ->
     end;
 rfc1918(_) ->
     false.
+
+-spec is_public(string()) -> boolean(). 
+is_public(Address) ->
+    case ?MODULE:match_addr(Address) of
+        false -> false;
+        {ok, _} ->
+            case ?MODULE:tcp_addr(Address) of
+                {IP, _, _, _} ->
+                    case ?MODULE:rfc1918(IP) of
+                        false -> true;
+                        _ -> false
+                    end;
+                _ ->
+                    false
+            end
+    end.
 
 %% gen_server
 %%
