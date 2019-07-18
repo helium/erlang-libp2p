@@ -87,8 +87,7 @@ handle_call({accept_stream, Session, StreamPid}, From, State=#state{}) ->
     libp2p_session:identify(Session, self(), {From, StreamPid}),
     {noreply, State};
 handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
-    {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
-    {reply, Addrs, State};
+    {reply, connections(Kind, State), State};
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -255,14 +254,14 @@ schedule_drop_timer(DropTimeOut) ->
 
 
 -spec connections(libp2p_group_gossip:connection_kind() | all, #state{})
-                 -> [{MAddr::string(), Pid::pid()}].
+                 -> [{MAddr::string(), atom(), Pid::pid()}].
 connections(Kind, #state{workers=Workers}) ->
     lists:foldl(fun(#worker{target=undefined}, Acc) ->
                         Acc;
-                    (#worker{pid=Pid, target=MAddr}, Acc) when Kind == all ->
-                        [{MAddr, Pid} | Acc];
+                    (#worker{kind = WorkerKind, pid=Pid, target=MAddr}, Acc) when Kind == all ->
+                        [{MAddr, WorkerKind, Pid} | Acc];
                     (#worker{kind=WorkerKind, pid=Pid, target=MAddr}, Acc) when WorkerKind == Kind ->
-                        [{MAddr, Pid} | Acc];
+                        [{MAddr, WorkerKind, Pid} | Acc];
                    (_, Acc) ->
                         Acc
                 end, [], Workers).
