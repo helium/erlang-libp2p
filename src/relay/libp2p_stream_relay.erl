@@ -212,7 +212,7 @@ handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
         {ok, _} ->
             ok;
         {error, _Reason} ->
-            lager:warning("failed to dial back client ~p", _Reason)
+            lager:warning("failed to dial back client ~p", [_Reason])
     end,
     {noreply, State};
 handle_client_data(_Data, _Env, State) ->
