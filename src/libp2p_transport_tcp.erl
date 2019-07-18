@@ -48,7 +48,7 @@
         ]).
 
 %% for tcp sockets
--export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1]).
+-export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1, is_public/1]).
 
 -record(tcp_state,
         {
@@ -327,6 +327,17 @@ rfc1918(IP={172, _, _, _}) ->
     end;
 rfc1918(_) ->
     false.
+
+-spec is_public(string()) -> boolean(). 
+is_public(Address) ->
+    case ?MODULE:tcp_addr(Address) of
+        {IP, _, _, _} ->
+            case ?MODULE:rfc1918(IP) of
+                false -> true;
+                _ -> false
+            end;
+        _ -> false
+    end.
 
 %% gen_server
 %%
