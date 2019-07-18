@@ -112,10 +112,10 @@ has_p2p_circuit(Addresses) ->
         fun(_, true) ->
             true;
         (Address, _) ->
-            libp2p_relay:is_p2p_circuit(Address)
-        end
-        ,false
-        ,Addresses
+            not libp2p_transport_tcp:is_public(Address)
+        end,
+        false,
+        Addresses
     ).
 
 %% returns true or false if the peerbook says this route is possible

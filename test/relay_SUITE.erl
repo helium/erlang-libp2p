@@ -85,6 +85,10 @@ basic(_Config) ->
         {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), CSwarm]}
     ),
 
+    % Relay needs a public ip now, not just a circuit address
+    meck:new(libp2p_transport_tcp, [no_link, passthrough]),
+    meck:expect(libp2p_transport_tcp, is_public, fun(_) -> true end),
+
     ct:pal("A swarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("B swarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
     ct:pal("C swarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
@@ -161,6 +165,8 @@ basic(_Config) ->
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(BSwarm),
     ok = libp2p_swarm:stop(CSwarm),
+    ?assert(meck:validate(libp2p_transport_tcp)),
+    meck:unload(libp2p_transport_tcp),
     timer:sleep(2000),
     ok.
 
