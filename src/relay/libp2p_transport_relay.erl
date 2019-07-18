@@ -62,10 +62,10 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
                     ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
                     {error, not_in_peerbook};
                 true ->
-                    case has_p2p_circuit(ListenAddresses) of
-                        false ->
-                            connect_to(Pid, MAddr, Options, Timeout, TID);
+                    case has_public_address(ListenAddresses) of
                         true ->
+                            connect_to(Pid, MAddr, Options, Timeout, TID);
+                        false ->
                             libp2p_transport_proxy:connect(Pid, MAddr, [no_relay|Options], Timeout, TID)
                     end
             end
@@ -106,17 +106,9 @@ match_protocols([{_, _}=Head | Tail], Acc) ->
     match_protocols(Tail, [Head|Acc]).
 
 
--spec has_p2p_circuit(list()) -> boolean().
-has_p2p_circuit(Addresses) ->
-    lists:foldl(
-        fun(_, true) ->
-            true;
-        (Address, _) ->
-            not libp2p_transport_tcp:is_public(Address)
-        end,
-        false,
-        Addresses
-    ).
+-spec has_public_address(list()) -> boolean().
+has_public_address(Addresses) ->
+    lists:any(fun libp2p_transport_tcp:is_public/1, Addresses).
 
 %% returns true or false if the peerbook says this route is possible
 %% returns an error if the peerbook doesn't contain the relay's entry

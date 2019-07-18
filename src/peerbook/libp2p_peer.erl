@@ -256,15 +256,7 @@ network_id_allowable(Peer, MyNetworkID) ->
 -spec has_public_ip(peer()) -> boolean().
 has_public_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
-    case 
-        lists:filter(
-            fun libp2p_transport_tcp:is_public/1,
-            ListenAddresses
-        )
-    of
-        [] -> false;
-        _ -> true
-    end.
+    lists:any(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
 
 %% @doc Returns whether a given peer is stale relative to a given
 %% stale delta time in milliseconds.
