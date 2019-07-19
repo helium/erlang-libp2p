@@ -269,7 +269,17 @@ connections(Kind, #state{workers=Workers}) ->
 
 assign_target(WorkerPid, TargetAddrs, State=#state{workers=Workers}) ->
     case length(TargetAddrs) of
-        0 -> State;
+        0 ->
+            case lookup_worker(WorkerPid, #worker.pid, State) of
+                #worker{kind=seed, target=SelectedAddr} when SelectedAddr /= undefined ->
+                    %% don't give up on the seed nodes in case we're entirely offline
+                    %% we need at least one connection to bootstrap the swarm
+                    ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
+                    libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec});
+                _ ->
+                    ok
+            end,
+            State;
         _ ->
             SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
             ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
