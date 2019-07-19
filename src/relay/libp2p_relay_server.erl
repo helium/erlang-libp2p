@@ -67,7 +67,7 @@ stop(Swarm) ->
             Error
     end.
 
--spec stop(pid(), string()) -> ok | {error, any()}.
+-spec stop(string(), pid()) -> ok | {error, any()}.
 stop(Address, Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
