@@ -904,6 +904,7 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
                     [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
                     PB = libp2p_swarm:peerbook(TID),
                     libp2p_peerbook:changed_listener(PB),
+                    libp2p_nat:maybe_spawn_discovery(self(), NewListenAddrs, TID),
                     {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State)};
                 false ->
                     lager:debug("identify response with local address ~p that is not a listen addr socket ~p, ignoring",
