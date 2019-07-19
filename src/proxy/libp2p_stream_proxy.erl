@@ -187,9 +187,14 @@ handle_client_data({dial_back, DialBack}, Env, State) ->
 handle_client_data({resp, Resp}, _Env, #state{transport=TransportPid,
                                               raw_connection=Connection}=State) ->
     lager:info("client got proxy resp ~p", [Resp]),
-    {ok, Connection1} = libp2p_connection:controlling_process(Connection, TransportPid),
-    Socket = libp2p_connection:socket(Connection1),
-    TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)},
+    case libp2p_connection:controlling_process(Connection, TransportPid) of
+        {error, Reason}=Error ->
+            lager:error("Not negotiating proxy, controlling_process error: ~p", [Error]),
+            TransportPid ! {error, Reason};
+        {ok, Connection1} ->
+            Socket = libp2p_connection:socket(Connection1),
+            TransportPid ! {proxy_negotiated, Socket, libp2p_proxy_resp:multiaddr(Resp)}
+    end,
     {stop, normal, State};
 handle_client_data({error, Error}, _Env, #state{transport=TransportPid}=State) ->
     lager:warning(" client got proxy error from server ~p", [Error]),
