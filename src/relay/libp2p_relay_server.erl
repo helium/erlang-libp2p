@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     relay/1,
-    stop/1,
+    stop/1, stop/2,
     negotiated/2
 ]).
 
@@ -67,6 +67,15 @@ stop(Swarm) ->
             Error
     end.
 
+-spec stop(string(), pid()) -> ok | {error, any()}.
+stop(Address, Swarm) ->
+    case get_relay_server(Swarm) of
+        {ok, Pid} ->
+            gen_server:cast(Pid, {stop_relay, Address});
+        {error, _}=Error ->
+            Error
+    end.
+
 -spec negotiated(pid(), string()) -> ok | {error, any()}.
 negotiated(Swarm, Address) ->
     case get_relay_server(Swarm) of
@@ -103,6 +112,13 @@ handle_cast(stop_relay, #state{stream=Pid, address=Address}=State) when is_pid(P
     catch libp2p_framed_stream:close(Pid),
     {noreply, State#state{stream=undefined, address=undefined}};
 handle_cast(stop_relay, State) ->
+    %% nothing to do as we're not running
+    {noreply, State};
+handle_cast({stop_relay, Address}, #state{stream=Pid, address=Address}=State) when is_pid(Pid) ->
+    lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
+    catch libp2p_framed_stream:close(Pid),
+    {noreply, State#state{stream=undefined, address=undefined}};
+handle_cast({stop_relay, _OtherAddress}, State) ->
     %% nothing to do as we're not running
     {noreply, State};
 handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
