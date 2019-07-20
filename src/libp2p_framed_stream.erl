@@ -331,7 +331,7 @@ send(Pid, Data) ->
     send(Pid, Data, ?SEND_TIMEOUT).
 
 send(Pid, Data, Timeout) ->
-    call(Pid, {send, Data, Timeout}, infinity).
+    call(Pid, {send, Data, Timeout}, Timeout * 2).
 
 addr_info(Pid) ->
     call(Pid, addr_info).
