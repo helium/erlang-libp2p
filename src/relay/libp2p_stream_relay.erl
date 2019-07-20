@@ -39,6 +39,8 @@
     connection :: libp2p_connection:connection()
 }).
 
+-define(RELAY_TIMEOUT, timer:minutes(30)).
+
 -type state() :: #state{}.
 
 %% ------------------------------------------------------------------
@@ -149,7 +151,7 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     LocalP2PAddress = libp2p_swarm:p2p_address(Swarm),
     Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalP2PAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
-    libp2p_connection:set_idle_timeout(State#state.connection, infinity),
+    libp2p_connection:set_idle_timeout(State#state.connection, ?RELAY_TIMEOUT),
     {noreply, State, libp2p_relay_envelope:encode(EnvResp)};
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
 % stream to Server and sends it a message with bridge request. If this fails an error
@@ -197,7 +199,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm}=State) ->
             % with p2p-circuit address and inserts it as a new listener to get
             % broadcasted by peerbook
             ok = libp2p_relay_server:negotiated(Swarm, Address),
-            libp2p_connection:set_idle_timeout(State#state.connection, infinity),
+            libp2p_connection:set_idle_timeout(State#state.connection, ?RELAY_TIMEOUT),
             {noreply, State#state{relay_addr=Address}};
         Error ->
             % Bridge Step 3: An error is sent back to Client transfering to relay transport
