@@ -116,7 +116,7 @@ renew_port_mapping(InternalPort, ExternalPort) ->
             %% actually assigned, rather than the port the client originally wanted.
             add_port_mapping(InternalPort, ExternalPort);
         {ok, Context} ->
-            nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort),
+            %nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort),
             add_port_mapping(InternalPort, ExternalPort);
         no_nat ->
             {error, no_nat}
