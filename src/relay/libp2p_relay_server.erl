@@ -107,15 +107,17 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
-handle_cast(stop_relay, #state{stream=Pid, address=Address}=State) when is_pid(Pid) ->
+handle_cast(stop_relay, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
     lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
+    _ = libp2p_config:remove_listener(TID, Address),
     catch libp2p_framed_stream:close(Pid),
     {noreply, State#state{stream=undefined, address=undefined}};
 handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
-handle_cast({stop_relay, Address}, #state{stream=Pid, address=Address}=State) when is_pid(Pid) ->
+handle_cast({stop_relay, Address}, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
     lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
+    _ = libp2p_config:remove_listener(TID, Address),
     catch libp2p_framed_stream:close(Pid),
     {noreply, State#state{stream=undefined, address=undefined}};
 handle_cast({stop_relay, _OtherAddress}, State) ->
