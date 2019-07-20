@@ -23,6 +23,8 @@
           ack_ref :: any()
         }).
 
+-define(ACK_STREAM_TIMEOUT, timer:minutes(30)).
+
 %% API
 %%
 
@@ -42,14 +44,14 @@ server(Connection, Path, _TID, Args) ->
 init(server, Connection, [Path, AckModule, AckState | _]) ->
     case AckModule:accept_stream(AckState, self(), Path) of
         {ok, AckRef} ->
-            libp2p_connection:set_idle_timeout(Connection, infinity),
+            libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
             {ok, #state{connection=Connection,
                         ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
         {error, Reason} ->
             {stop, {error, Reason}}
     end;
 init(client, Connection, [AckRef, AckModule, AckState | _]) ->
-    libp2p_connection:set_idle_timeout(Connection, infinity),
+    libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
