@@ -23,7 +23,13 @@ open(Pid) ->
 
 -spec close(pid()) -> ok.
 close(Pid) ->
-    close(Pid, normal, infinity).
+    try close(Pid, normal, 5000) of
+        Res -> Res
+    catch
+        exit:timeout ->
+            %% pid is hung, just kill it
+            exit(Pid, kill)
+    end.
 
 -spec close(pid(), term(), non_neg_integer() | infinity) -> ok.
 close(Pid, Reason, Timeout) ->
