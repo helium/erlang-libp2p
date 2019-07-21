@@ -115,7 +115,7 @@ renew_port_mapping(InternalPort, ExternalPort) ->
             %% sets the Suggested External Port field to the port the gateway
             %% actually assigned, rather than the port the client originally wanted.
             add_port_mapping(InternalPort, ExternalPort);
-        {ok, Context} ->
+        {ok, _Context} ->
             %nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort),
             add_port_mapping(InternalPort, ExternalPort);
         no_nat ->
