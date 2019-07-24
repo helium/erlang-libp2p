@@ -248,7 +248,8 @@ handle_client_data({ping, Pong}, _Env, #state{ping_seq=Seq}=State) ->
             erlang:cancel_timer(State#state.ping_timeout_timer),
             Ref = erlang:send_after(?RELAY_PING_INTERVAL, self(), send_ping),
             {noreply, State#state{ping_seq=Seq+1, ping_timer=Ref}};
-        _ ->
+        OtherSeq ->
+            lager:warning("Relay ping sequence invariant violated: expected ~p got ~p", [Seq, OtherSeq]),
             {stop, normal, State}
     end;
 handle_client_data(_Data, _Env, State) ->
