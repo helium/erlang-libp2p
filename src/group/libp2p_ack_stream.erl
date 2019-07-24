@@ -23,7 +23,7 @@
           ack_ref :: any()
         }).
 
--define(ACK_STREAM_TIMEOUT, timer:minutes(30)).
+-define(ACK_STREAM_TIMEOUT, timer:minutes(5)).
 
 %% API
 %%
