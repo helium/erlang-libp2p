@@ -50,7 +50,8 @@ encode(#libp2p_relay_envelope_pb{}=Env) ->
              | libp2p_relay_resp:relay_resp()
              | libp2p_relay_bridge:relay_bridge_cr()
              | libp2p_relay_bridge:relay_bridge_rs()
-             | libp2p_relay_bridge:relay_bridge_sc()) -> relay_envelope().
+             | libp2p_relay_bridge:relay_bridge_sc()
+             | libp2p_relay_bridge:relay_ping()) -> relay_envelope().
 create(#libp2p_relay_req_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={req, Data}
@@ -70,6 +71,10 @@ create(#libp2p_relay_bridge_rs_pb{}=Data) ->
 create(#libp2p_relay_bridge_sc_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={bridge_sc, Data}
+    };
+create(#libp2p_relay_ping_pb{}=Data) ->
+    #libp2p_relay_envelope_pb{
+        data={ping, Data}
     }.
 
 

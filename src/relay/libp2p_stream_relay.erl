@@ -36,10 +36,22 @@
     swarm :: pid() | undefined,
     type = bridge :: bridge | client,
     relay_addr :: string() | undefined,
-    connection :: libp2p_connection:connection()
+    connection :: libp2p_connection:connection(),
+    ping_timer = make_ref() :: reference(),
+    ping_timeout_timer = make_ref() :: reference(),
+    ping_seq = 1 :: pos_integer()
 }).
 
--define(RELAY_TIMEOUT, timer:minutes(30)).
+-ifdef(TEST).
+-define(RELAY_TIMEOUT, timer:seconds(5)).
+-define(RELAY_PING_INTERVAL, timer:seconds(4)).
+-define(RELAY_PING_TIMEOUT, timer:seconds(1)).
+-else.
+-define(RELAY_TIMEOUT, timer:minutes(5)).
+-define(RELAY_PING_INTERVAL, timer:minutes(4)).
+-define(RELAY_PING_TIMEOUT, timer:minutes(1)).
+-endif.
+
 
 -type state() :: #state{}.
 
@@ -62,6 +74,7 @@ init(server, Conn, [_, _Pid, TID]=Args) ->
 init(client, Conn, Args) ->
     lager:debug("init relay client with ~p", [{Conn, Args}]),
     Swarm = proplists:get_value(swarm, Args),
+    Ref = erlang:send_after(?RELAY_PING_INTERVAL, self(), send_ping),
     case proplists:get_value(type, Args, undefined) of
         undefined ->
             self() ! init_relay;
@@ -71,7 +84,7 @@ init(client, Conn, Args) ->
             {ok, {_Self, ServerAddress}} = libp2p_relay:p2p_circuit(CircuitAddress),
             self() ! {init_bridge_cr, ServerAddress}
     end,
-    {ok, #state{swarm=Swarm, connection=Conn}}.
+    {ok, #state{swarm=Swarm, connection=Conn, ping_timer = Ref, ping_seq=1}}.
 
 handle_data(server, Bin, State) ->
     handle_server_data(Bin, State);
@@ -105,6 +118,14 @@ handle_info(client, {init_bridge_cr, Address}, #state{swarm=Swarm}=State) ->
             EnvBridge = libp2p_relay_envelope:create(Bridge),
             {noreply, State, libp2p_relay_envelope:encode(EnvBridge)}
     end;
+handle_info(client, ping_timeout, State) ->
+    {stop, normal, State};
+handle_info(client, send_ping, State = #state{ping_seq=Seq}) ->
+    erlang:cancel_timer(State#state.ping_timer),
+    Ping = libp2p_relay_ping:create_ping(Seq),
+    Env = libp2p_relay_envelope:create(Ping),
+    Ref = erlang:send_after(?RELAY_PING_TIMEOUT, self(), ping_timeout),
+    {noreply, State#state{ping_timeout_timer=Ref}, libp2p_relay_envelope:encode(Env)};
 % Bridge Step 3: The relay server R (stream to Server) receives a bridge request
 % and transfers it to Server.
 handle_info(server, {bridge_cr, BridgeCR}, State) ->
@@ -178,6 +199,10 @@ handle_server_data({bridge_sc, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     SessionPids = [Pid || {_, Pid} <- libp2p_swarm:sessions(Swarm)],
     catch libp2p_relay:reg_addr_sessions(Server) ! {sessions, SessionPids},
     {noreply, State};
+handle_server_data({ping, Ping}, _Env, State) ->
+    Pong = libp2p_relay_ping:create_pong(Ping),
+    Env = libp2p_relay_envelope:create(Pong),
+    {noreply, State, libp2p_relay_envelope:encode(Env)};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),
     {noreply, State}.
@@ -217,6 +242,16 @@ handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
             lager:warning("failed to dial back client ~p", [_Reason])
     end,
     {noreply, State};
+handle_client_data({ping, Pong}, _Env, #state{ping_seq=Seq}=State) ->
+    case libp2p_relay_ping:seq(Pong) of
+        Seq ->
+            erlang:cancel_timer(State#state.ping_timeout_timer),
+            Ref = erlang:send_after(?RELAY_PING_INTERVAL, self(), send_ping),
+            {noreply, State#state{ping_seq=Seq+1, ping_timer=Ref}};
+        OtherSeq ->
+            lager:warning("Relay ping sequence invariant violated: expected ~p got ~p", [Seq, OtherSeq]),
+            {stop, normal, State}
+    end;
 handle_client_data(_Data, _Env, State) ->
     lager:warning("client unknown envelope ~p", [_Env]),
     {noreply, State}.
