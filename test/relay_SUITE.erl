@@ -162,6 +162,32 @@ basic(_Config) ->
         []
     ),
 
+    CSessions = libp2p_swarm:sessions(CSwarm),
+    CSessionWithA = proplists:get_value(libp2p_swarm:p2p_address(ASwarm), CSessions),
+    ct:pal("Session ~p", [CSessionWithA]),
+    CStreams = libp2p_session:streams(CSessionWithA),
+    %% wedge all the streams between A and C
+    [ sys:suspend(S) || {_, _, S} <- CStreams ],
+
+    timer:sleep(5000),
+
+    % wait for Client to remove its relay address
+    ok = test_util:wait_until(
+        fun() ->
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
+                {ok, PeerBookEntry} ->
+                    not lists:member(ACircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
+                _ ->
+                    false
+            end
+        end,
+        100,
+        250
+    ),
+
+
+    [ sys:resume(S) || {_, _, S} <- CStreams ],
+
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(BSwarm),
     ok = libp2p_swarm:stop(CSwarm),
