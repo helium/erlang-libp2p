@@ -159,7 +159,6 @@ terminate(_Type, _Reason, _State) ->
 -spec handle_server_data(binary(), state()) -> libp2p_framed_stream:handle_data_result().
 handle_server_data(Bin, State) ->
     Env = libp2p_relay_envelope:decode(Bin),
-    lager:notice("server got ~p", [Env]),
     Data = libp2p_relay_envelope:data(Env),
     handle_server_data(Data, Env, State).
 
@@ -210,7 +209,6 @@ handle_server_data(_Data, _Env, State) ->
 -spec handle_client_data(binary(), state()) -> libp2p_framed_stream:handle_data_result().
 handle_client_data(Bin, State) ->
     Env = libp2p_relay_envelope:decode(Bin),
-    lager:notice("client got ~p", [Env]),
     Data = libp2p_relay_envelope:data(Env),
     handle_client_data(Data, Env, State).
 
