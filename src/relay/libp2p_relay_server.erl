@@ -44,6 +44,7 @@
 
 -define(FLAP_LIMIT, 3).
 -define(BANLIST_TIMEOUT, timer:minutes(5)).
+-define(MAX_RELAY_DURATION, timer:minutes(30)).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -73,7 +74,7 @@ stop(Swarm) ->
 stop(Address, Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
-            gen_server:cast(Pid, {stop_relay, Address});
+            Pid ! {stop_relay, Address};
         {error, _}=Error ->
             Error
     end.
@@ -98,6 +99,9 @@ init(TID) ->
 handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
     true = libp2p_config:insert_listener(TID, [Address], Pid),
     lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, Pid]),
+    %% to ensure we don't get black-hole routed by a naughty relay, schedule a max-age we keep this relay around
+    %% before trying to obtain a new one
+    erlang:send_after(?MAX_RELAY_DURATION, self(), {stop_relay, Address}),
     {reply, ok, State#state{address=Address}};
 handle_call({negotiated, _Address, _Pid}, _From, #state{stream=undefined}=State) ->
     lager:error("cannot insert ~p listener unknown stream (~p)", [_Address, _Pid]),
@@ -118,15 +122,6 @@ handle_cast(stop_relay, #state{stream=Pid, address=Address, tid=TID}=State) when
 handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
-handle_cast({stop_relay, Address}, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
-    lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
-    _ = libp2p_config:remove_listener(TID, Address),
-    catch libp2p_framed_stream:close(Pid),
-    %% we likely disconnected from this  relay specifically because of overload
-    {noreply, banlist(Address, State#state{stream=undefined, address=undefined})};
-handle_cast({stop_relay, _OtherAddress}, State) ->
-    %% nothing to do as we're not running
-    {noreply, State};
 handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
@@ -143,7 +138,7 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfuly with ~p", [Pid]),
+            lager:info("relay started successfully with ~p", [Pid]),
             {noreply, add_flap(State#state{stream=Pid, address=undefined})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
@@ -168,7 +163,7 @@ handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfuly with ~p", [Pid]),
+            lager:info("relay started successfully with ~p", [Pid]),
             {noreply, add_flap(State#state{stream=Pid, address=undefined})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
@@ -179,8 +174,18 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{tid=TID, stream=Pid, ad
     _ = libp2p_config:remove_listener(TID, Address),
     %% add it to the banlist so we temporarily avoid trying to connect to it again
     {noreply, banlist(Address, retry(State#state{stream=undefined, address=undefined}))};
-handle_info({unbanlist, PeerAddr}, State=#state{banlist=banlist}) ->
-    {noreply, State#state{banlist=lists:delete(PeerAddr, banlist)}};
+handle_info({stop_relay, Address}, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
+    lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
+    _ = libp2p_config:remove_listener(TID, Address),
+    catch libp2p_framed_stream:close(Pid),
+    %% we likely disconnected from this relay specifically because of overload or max duration
+    %% so avoid immediately re-connecting to it
+    {noreply, banlist(Address, State#state{stream=undefined, address=undefined})};
+handle_info({stop_relay, _OtherAddress}, State) ->
+    %% nothing to do as we're not running
+    {noreply, State};
+handle_info({unbanlist, PeerAddr}, State=#state{banlist=Banlist}) ->
+    {noreply, State#state{banlist=lists:delete(PeerAddr, Banlist)}};
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
@@ -284,14 +289,14 @@ add_flap(State = #state{flap_count=Flaps}) ->
             State#state{flap_count=Flaps+1}
     end.
 
-banlist(Address, State=#state{banlist=banlist}) ->
+banlist(Address, State=#state{banlist=Banlist}) ->
     {ok, {RAddress, _SAddress}} = libp2p_relay:p2p_circuit(Address),
     PeerAddr = libp2p_crypto:p2p_to_pubkey_bin(RAddress),
-    case lists:member(PeerAddr, banlist) of
+    case lists:member(PeerAddr, Banlist) of
         true ->
             State;
         false ->
             erlang:send_after(?BANLIST_TIMEOUT, self(), {unbanlist, PeerAddr}),
             %% restrict the length of the banlist to 1/3 of all the available peers
-            State#state{banlist=lists:sublist([PeerAddr|banlist], length(State#state.peers)/3)}
+            State#state{banlist=lists:sublist([PeerAddr|Banlist], length(State#state.peers) div 3)}
     end.
