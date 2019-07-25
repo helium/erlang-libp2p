@@ -45,6 +45,8 @@
     timeout :: reference()
 }).
 
+-define(SPLICE_TIMEOUT, timer:seconds(30)).
+
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -243,7 +245,7 @@ splice(From1, Connection1, From2, Connection2) ->
         {ok, FD1} = inet:getfd(Socket1),
         Socket2 = libp2p_connection:socket(Connection2),
         {ok, FD2} = inet:getfd(Socket2),
-        splicer:splice(FD1, FD2),
+        splicer:splice(FD1, FD2, ?SPLICE_TIMEOUT),
         gen_server:reply(From1, ok),
         gen_server:reply(From2, ok),
         catch libp2p_connection:close(Connection1),
