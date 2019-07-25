@@ -15,7 +15,7 @@
 -define(LIMIT, 10).
 -define(PROXY_VERSION, "proxy/1.0.0").
 
--type opt() :: {address, string()} | {port, integer()}.
+-type opt() :: {address, string()} | {port, integer()} | {limit, non_neg_integer()}.
 -export_type([opt/0]).
 
 %%--------------------------------------------------------------------
