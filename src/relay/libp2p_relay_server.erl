@@ -13,7 +13,7 @@
 -export([
     start_link/1,
     relay/1,
-    stop/1, stop/2,
+    stop/1, replace/2,
     negotiated/2
 ]).
 
@@ -70,11 +70,11 @@ stop(Swarm) ->
             Error
     end.
 
--spec stop(string(), pid()) -> ok | {error, any()}.
-stop(Address, Swarm) ->
+-spec replace(string(), pid()) -> ok | {error, any()}.
+replace(Address, Swarm) ->
     case get_relay_server(Swarm) of
         {ok, Pid} ->
-            Pid ! {stop_relay, Address};
+            Pid ! {replace_relay, Address};
         {error, _}=Error ->
             Error
     end.
@@ -101,7 +101,7 @@ handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State
     lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, Pid]),
     %% to ensure we don't get black-hole routed by a naughty relay, schedule a max-age we keep this relay around
     %% before trying to obtain a new one
-    erlang:send_after(?MAX_RELAY_DURATION, self(), {stop_relay, Address}),
+    erlang:send_after(?MAX_RELAY_DURATION, self(), {replace_relay, Address}),
     {reply, ok, State#state{address=Address}};
 handle_call({negotiated, _Address, _Pid}, _From, #state{stream=undefined}=State) ->
     lager:error("cannot insert ~p listener unknown stream (~p)", [_Address, _Pid]),
@@ -173,15 +173,15 @@ handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{tid=TID, stream=Pid, ad
     lager:info("Relay session with address ~p closed with reason ~p", [Address, Reason]),
     _ = libp2p_config:remove_listener(TID, Address),
     %% add it to the banlist so we temporarily avoid trying to connect to it again
-    {noreply, banlist(Address, retry(State#state{stream=undefined, address=undefined}))};
-handle_info({stop_relay, Address}, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
-    lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
+    {noreply, retry(banlist(Address, State#state{stream=undefined, address=undefined}))};
+handle_info({replace_relay, Address}, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
+    lager:warning("relay was asked to be replaced ~p ~p", [Pid, Address]),
     _ = libp2p_config:remove_listener(TID, Address),
     catch libp2p_framed_stream:close(Pid),
     %% we likely disconnected from this relay specifically because of overload or max duration
     %% so avoid immediately re-connecting to it
-    {noreply, banlist(Address, State#state{stream=undefined, address=undefined})};
-handle_info({stop_relay, _OtherAddress}, State) ->
+    {noreply, retry(banlist(Address, State#state{stream=undefined, address=undefined}))};
+handle_info({replace_relay, _OtherAddress}, State) ->
     %% nothing to do as we're not running
     {noreply, State};
 handle_info({unbanlist, PeerAddr}, State=#state{banlist=Banlist}) ->
