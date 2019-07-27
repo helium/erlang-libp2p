@@ -269,8 +269,9 @@ shuffle(List) ->
 
 %% merge new peers into old peers based on their address
 merge_peers(NewPeers, OldPeers) ->
-    maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]),
-                           maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]))).
+    Peers = maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]),
+                                   maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]))),
+    lists:filter(fun(P) -> not libp2p_peer:is_stale(P, 0) end, Peers).
 
 -spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
