@@ -289,7 +289,7 @@ terminate(_Reason, _State) ->
 %%
 
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> libp2p_peer:peer().
-mk_this_peer(CurrentPeer, State=#state{tid=TID, peerbook=#peerbook{stale_time=StaleTIme}}) ->
+mk_this_peer(CurrentPeer, State=#state{tid=TID, peerbook=#peerbook{stale_time=StaleTime}}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     NetworkID = libp2p_swarm:network_id(TID),
@@ -307,7 +307,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID, peerbook=#peerbook{stale_time=St
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
-                            timestamp => erlang:system_time(millisecond) + StaleTIme},
+                            timestamp => erlang:system_time(millisecond) + StaleTime},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
