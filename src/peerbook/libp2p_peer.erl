@@ -8,7 +8,8 @@
                        connected => [binary()],
                        nat_type => nat_type(),
                        network_id => binary(),
-                       associations => association_map()
+                       associations => association_map(),
+                       timestamp => non_neg_integer()
                      }.
 -type peer() :: #libp2p_signed_peer_pb{}.
 -type association() :: #libp2p_association_pb{}.
