@@ -1,7 +1,7 @@
 -module(libp2p_peerbook).
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
--export([keys/1, values/1, put/2,get/2, is_key/2, remove/2,
+-export([keys/1, values/1, put/2,get/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
@@ -118,6 +118,10 @@ remove(#peerbook{tid=TID}=Handle, ID) ->
          true -> {error, no_delete};
          false -> delete_peer(ID, Handle)
      end.
+
+-spec stale_time(peerbook()) -> pos_integer().
+stale_time(#peerbook{stale_time=StaleTime}) ->
+    StaleTime.
 
 -spec blacklist_listen_addr(peerbook(), libp2p_crypto:pubkey_bin(), ListenAddr::string())
                            -> ok | {error, not_found}.
@@ -289,7 +293,7 @@ terminate(_Reason, _State) ->
 %%
 
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> libp2p_peer:peer().
-mk_this_peer(CurrentPeer, State=#state{tid=TID, peerbook=#peerbook{stale_time=StaleTime}}) ->
+mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     NetworkID = libp2p_swarm:network_id(TID),
@@ -306,8 +310,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID, peerbook=#peerbook{stale_time=St
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
-                            associations => Associations,
-                            timestamp => erlang:system_time(millisecond) + StaleTime},
+                            associations => Associations},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
