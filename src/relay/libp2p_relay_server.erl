@@ -38,7 +38,7 @@
     stream :: pid() | undefined,
     retrying = make_ref() :: reference(),
     banlist = [] :: list(),
-    peerbook = libp2p_peerbook:peerbook()
+    peerbook :: libp2p_peerbook:peerbook() | undefined
 }).
 
 -type state() :: #state{}.
@@ -95,9 +95,7 @@ negotiated(Swarm, Address) ->
 init(TID) ->
     lager:info("~p init with ~p", [?MODULE, TID]),
     true = libp2p_config:insert_relay(TID, self()),
-    Swarm = libp2p_swarm:swarm(TID),
-    Peerbook = libp2p_swarm:peerbook(Swarm),
-    {ok, #state{tid=TID, peerbook=Peerbook}}.
+    {ok, #state{tid=TID}}.
 
 handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
     true = libp2p_config:insert_listener(TID, [Address], Pid),
@@ -125,9 +123,10 @@ handle_cast(stop_relay, #state{stream=Pid, address=Address, tid=TID}=State) when
 handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
-handle_cast(init_relay, #state{tid=TID, stream=undefined, peerbook=Peerbook}=State0) ->
+handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    Peerbook = libp2p_swarm:peerbook(Swarm),
     Peers = case State0#state.peers of
                 [] ->
                     ok = libp2p_peerbook:join_notify(Peerbook, self()),
@@ -136,7 +135,7 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined, peerbook=Peerbook}=Sta
                 _ ->
                     State0#state.peers
             end,
-    State = State0#state{peers=sort_peers(Peers, SwarmPubKeyBin, State0)},
+    State = State0#state{peers=sort_peers(Peers, SwarmPubKeyBin, State0), peerbook=Peerbook},
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
