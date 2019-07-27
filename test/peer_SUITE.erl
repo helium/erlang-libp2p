@@ -4,14 +4,13 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([all/0]).
--export([coding_test/1, metadata_test/1, blacklist_test/1, association_test/1, stale_test/1]).
+-export([coding_test/1, metadata_test/1, blacklist_test/1, association_test/1]).
 
 all() ->
     [coding_test,
      metadata_test,
      blacklist_test,
-     association_test,
-     stale_test
+     association_test
     ].
 
 coding_test(_) ->
@@ -157,18 +156,3 @@ association_test(_) ->
     ?assertError(invalid_association_signature, libp2p_peer:verify(InvalidPeer)),
 
     ok.
-
-stale_test(_) ->
-    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
-
-    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
-                listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
-                connected => [],
-                nat_type => static,
-                timestamp => erlang:system_time(millisecond) + 100},
-    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
-    ?assertNot(libp2p_peer:is_stale(Peer, 0)),
-    timer:sleep(110),
-    ?assert(libp2p_peer:is_stale(Peer, 0)),
-    ?assertNot(libp2p_peer:is_stale(Peer, 500)).
