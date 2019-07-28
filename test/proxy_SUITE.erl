@@ -277,6 +277,7 @@ limit_exceeded(_Config) ->
         250
     ),
 
+    % Force B to be the relay
     BP2P = libp2p_swarm:p2p_address(BSwarm),
     meck:new(libp2p_relay, [no_link, passthrough]),
     meck:expect(libp2p_relay, dial_framed_stream,

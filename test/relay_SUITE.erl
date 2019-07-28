@@ -122,6 +122,17 @@ basic(_Config) ->
         250
     ),
 
+    % Force B to be the relay
+    BP2P = libp2p_swarm:p2p_address(BSwarm),
+    meck:new(libp2p_relay, [no_link, passthrough]),
+    meck:expect(libp2p_relay, dial_framed_stream,
+        fun(S, _A, []) ->
+            meck:passthrough([S, BP2P, []]);
+        (S, A, O) ->
+            meck:passthrough([S, A, O])
+        end
+    ),
+
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
@@ -129,14 +140,13 @@ basic(_Config) ->
 
     
     % Testing relay address
-    % Once relay is established get relay address from Server's peerbook
     [ACircuitAddress] = get_relay_addresses(ASwarm),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
 
-    % wait for Client to get Server's relay address gossiped to it
+    % wait for C to get A's relay address gossiped to it
     ok = test_util:wait_until(
         fun() ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(CSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
                 {ok, PeerBookEntry} ->
                     lists:member(ACircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
                 _ ->
@@ -147,34 +157,19 @@ basic(_Config) ->
         250
     ),
 
-    {ok, {R, _}} = libp2p_relay:p2p_circuit(ACircuitAddress),
-    BP2P = libp2p_swarm:p2p_address(BSwarm),
-    CP2P = libp2p_swarm:p2p_address(CSwarm),
-    DialerSwarm = case R of
-        BP2P -> CSwarm;
-        CP2P -> BSwarm
-    end,
     {ok, _} = libp2p_swarm:dial_framed_stream(
-        DialerSwarm,
+        CSwarm,
         ACircuitAddress,
         Version,
         libp2p_stream_relay_test,
         []
     ),
 
-    CSessions = libp2p_swarm:sessions(CSwarm),
-    CSessionWithA = proplists:get_value(libp2p_swarm:p2p_address(ASwarm), CSessions),
-    ct:pal("Session ~p", [CSessionWithA]),
-    CStreams = libp2p_session:streams(CSessionWithA),
-    %% wedge all the streams between A and C
-    [ sys:suspend(S) || {_, _, S} <- CStreams ],
-
-    timer:sleep(5000),
-
-    % wait for Client to remove its relay address
+    ok = libp2p_swarm:stop(BSwarm),
+    % wait for A to remove its relay address in C
     ok = test_util:wait_until(
         fun() ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(CSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
                 {ok, PeerBookEntry} ->
                     not lists:member(ACircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
                 _ ->
@@ -185,15 +180,12 @@ basic(_Config) ->
         250
     ),
 
-
-    [ sys:resume(S) || {_, _, S} <- CStreams ],
-
     ok = libp2p_swarm:stop(ASwarm),
-    ok = libp2p_swarm:stop(BSwarm),
     ok = libp2p_swarm:stop(CSwarm),
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
-    timer:sleep(2000),
+    ?assert(meck:validate(libp2p_relay)),
+    meck:unload(libp2p_relay),
     ok.
 
 %% ------------------------------------------------------------------
