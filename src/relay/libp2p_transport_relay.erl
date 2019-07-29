@@ -52,8 +52,9 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         false ->
             case check_peerbook(TID, MAddr) of
                 {error, _Reason} ->
+                    lager:error("failed to fetch beer book for ~p ~p", [{TID, MAddr}, _Reason]),
                     %% don't blacklist here, the peerbook update might be coming
-                    {error, not_in_peerbook};
+                    {error, error_fetching_peerbook};
                 false ->
                     %% blacklist the relay address, it is stale
                     {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
