@@ -80,7 +80,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
 connect_to(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
     true = libp2p_relay:reg_addr_sessions(SAddress, self()),
-    lager:info("init relay with ~p", [[MAddr, RAddress, SAddress]]),
+    lager:info("init relay tranport with ~p", [[MAddr, RAddress, SAddress]]),
     case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
         {error, _Reason}=Error ->
             Error;
