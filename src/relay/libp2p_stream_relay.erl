@@ -122,7 +122,7 @@ handle_info(client, ping_timeout, State) ->
     {stop, normal, State};
 handle_info(client, send_ping, State = #state{ping_seq=Seq, swarm=Swarm, relay_addr=RelayAddress}) ->
     erlang:cancel_timer(State#state.ping_timer),
-    {ok, RelayServer, _} = libp2p_relay:p2p_circuit(RelayAddress),
+    {ok, {RelayServer, _}} = libp2p_relay:p2p_circuit(RelayAddress),
     PeerBook = libp2p_swarm:peerbook(Swarm),
     RelayServerPubKeyBin = libp2p_crypto:p2p_to_pubkey_bin(RelayServer),
     case libp2p_peerbook:get(PeerBook, RelayServerPubKeyBin) of
