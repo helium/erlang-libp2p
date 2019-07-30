@@ -52,8 +52,9 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         false ->
             case check_peerbook(TID, MAddr) of
                 {error, _Reason} ->
+                    lager:error("failed to fetch beer book for ~p ~p", [{TID, MAddr}, _Reason]),
                     %% don't blacklist here, the peerbook update might be coming
-                    {error, not_in_peerbook};
+                    {error, error_fetching_peerbook};
                 false ->
                     %% blacklist the relay address, it is stale
                     {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
@@ -78,8 +79,8 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
                  ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect_to(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    true = libp2p_relay:reg_addr_sessions(SAddress, self()),
-    lager:info("init relay with ~p", [[MAddr, RAddress, SAddress]]),
+    lager:info("init relay tranport with ~p", [[MAddr, RAddress, SAddress]]),
+    true = libp2p_config:insert_relay_sessions(TID, SAddress, self()),
     case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
         {error, _Reason}=Error ->
             Error;
@@ -131,19 +132,19 @@ connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
     receive
         {sessions, [SessionPid2|_]=Sessions} ->
             lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
-            libp2p_relay:unreg_addr_sessions(SAddress),
+            true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             {ok, SessionPid2};
         {error, "server_down"}=Error ->
-            libp2p_relay:unreg_addr_sessions(SAddress),
+            true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
             PeerBook = libp2p_swarm:peerbook(Swarm),
             ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
             Error;
         {error, _Reason}=Error ->
-            libp2p_relay:unreg_addr_sessions(SAddress),
+            true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             lager:error("no relay sessions ~p", [_Reason]),
             Error
     after 15000 ->
-        libp2p_relay:unreg_addr_sessions(SAddress),
+        true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
         {error, timeout_relay_session}
     end.
