@@ -15,7 +15,8 @@
     dial_framed_stream/3,
     p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1,
     reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1,
-    reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
+    reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1,
+    is_valid_peer/2
 ]).
 
 -ifdef(TEST).
@@ -135,6 +136,20 @@ reg_addr_stream(Address, Pid) ->
 -spec unreg_addr_stream(string()) -> true.
 unreg_addr_stream(Address) ->
     erlang:unregister(?MODULE:reg_addr_stream(Address)).
+
+-spec is_valid_peer(pid(), libp2p_crypto:pubkey_bin()) -> {error, any()} | boolean().
+is_valid_peer(Swarm, PubKeyBin) ->
+    PeerBook = libp2p_swarm:peerbook(Swarm),
+    case libp2p_peerbook:get(PeerBook, PubKeyBin) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Peer} ->
+            StaleTime = libp2p_peerbook:stale_time(PeerBook),
+            ConnectedPeers = libp2p_peer:connected_peers(Peer),
+            not libp2p_peer:is_stale(Peer, StaleTime) andalso
+            libp2p_peer:has_public_ip(Peer) andalso
+            lists:member(libp2p_swarm:pubkey_bin(Swarm), ConnectedPeers)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
