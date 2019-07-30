@@ -158,8 +158,6 @@ basic(_Config) ->
         250
     ),
 
-    lager:notice("MARKER"),
-
     {ok, _} = libp2p_swarm:dial_framed_stream(
         CSwarm,
         ACircuitAddress,
