@@ -197,7 +197,7 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
 % stream to Server and sends it a message with bridge request. If this fails an error
 % response will be sent back to B
-handle_server_data({bridge_cr, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
+handle_server_data({bridge_cr, Bridge}, _Env, State) ->
     Server = libp2p_relay_bridge:server(Bridge),
     lager:debug("R got a relay request passing to Server's relay stream ~s", [Server]),
     try libp2p_relay:reg_addr_stream(Server) ! {bridge_cr, Bridge} of
@@ -205,7 +205,7 @@ handle_server_data({bridge_cr, Bridge}, _Env, #state{swarm=_Swarm}=State) ->
             {noreply, State}
     catch
         What:Why ->
-            lager:error("fail to pass request Server seems down ~p/~p", [What, Why]),
+            lager:error("fail to pass request ~p Server seems down ~p/~p", [Bridge, What, Why]),
             RespError = libp2p_relay_resp:create(Server, "server_down"),
             Env = libp2p_relay_envelope:create(RespError),
             {noreply, State, libp2p_relay_envelope:encode(Env)}
