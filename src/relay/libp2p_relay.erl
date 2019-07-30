@@ -14,8 +14,7 @@
     add_stream_handler/1,
     dial_framed_stream/3,
     p2p_circuit/1, p2p_circuit/2, is_p2p_circuit/1,
-    reg_addr_sessions/1 ,reg_addr_sessions/2, unreg_addr_sessions/1,
-    reg_addr_stream/1, reg_addr_stream/2, unreg_addr_stream/1
+    is_valid_peer/2
 ]).
 
 -ifdef(TEST).
@@ -104,37 +103,19 @@ is_p2p_circuit(Address) ->
         _ -> true
     end.
 
--spec reg_addr_sessions(string()) -> atom().
-reg_addr_sessions(Address) ->
-    erlang:list_to_atom(Address ++ "/sessions").
-
--spec reg_addr_sessions(string(), pid()) -> true.
-reg_addr_sessions(Address, Pid) ->
-    erlang:register(?MODULE:reg_addr_sessions(Address), Pid).
-
--spec unreg_addr_sessions(string()) -> true.
-unreg_addr_sessions(Address) ->
-    erlang:unregister(?MODULE:reg_addr_sessions(Address)).
-
--spec reg_addr_stream(string()) -> atom().
-reg_addr_stream(Address) ->
-    erlang:list_to_atom(Address ++ "/stream").
-
--spec reg_addr_stream(string(), pid()) -> true.
-reg_addr_stream(Address, Pid) ->
-    RegName = ?MODULE:reg_addr_stream(Address),
-    case erlang:whereis(RegName) of
-        undefined ->
-            ok;
-        RegPid ->
-            RegPid ! stop,
-            _ = ?MODULE:unreg_addr_stream(Address)
-    end,
-    erlang:register(RegName, Pid).
-
--spec unreg_addr_stream(string()) -> true.
-unreg_addr_stream(Address) ->
-    erlang:unregister(?MODULE:reg_addr_stream(Address)).
+-spec is_valid_peer(pid(), libp2p_crypto:pubkey_bin()) -> {error, any()} | boolean().
+is_valid_peer(Swarm, PubKeyBin) ->
+    PeerBook = libp2p_swarm:peerbook(Swarm),
+    case libp2p_peerbook:get(PeerBook, PubKeyBin) of
+        {error, _Reason}=Error ->
+            Error;
+        {ok, Peer} ->
+            StaleTime = libp2p_peerbook:stale_time(PeerBook),
+            ConnectedPeers = libp2p_peer:connected_peers(Peer),
+            not libp2p_peer:is_stale(Peer, StaleTime) andalso
+            libp2p_peer:has_public_ip(Peer) andalso
+            lists:member(libp2p_swarm:pubkey_bin(Swarm), ConnectedPeers)
+    end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
@@ -160,49 +141,6 @@ is_p2p_circuit_test() ->
     ?assert(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601/p2p-circuit/ip4/192.168.1.61/tcp/6600")),
     ?assertNot(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601")),
     ?assertNot(is_p2p_circuit("/ip4/192.168.1.61/tcp/6601p2p-circuit/ip4/192.168.1.61/tcp/6600")),
-    ok.
-
-reg_addr_sessions_1_test() ->
-    ?assertEqual(
-        '/ip4/192.168.1.61/tcp/6601/sessions'
-        ,reg_addr_sessions("/ip4/192.168.1.61/tcp/6601")
-    ),
-    ok.
-
-reg_addr_sessions_2_test() ->
-    ?assertEqual(
-        true
-        ,reg_addr_sessions("/ip4/192.168.1.61/tcp/6601", self())
-    ),
-    reg_addr_sessions("/ip4/192.168.1.61/tcp/6601") ! test,
-    receive M -> ?assertEqual(M, test) end,
-    ?assertEqual(
-        true
-        ,unreg_addr_sessions("/ip4/192.168.1.61/tcp/6601")
-    ),
-    ok.
-
-reg_addr_stream_1_test() ->
-    ?assertEqual(
-        '/ip4/192.168.1.61/tcp/6601/stream'
-        ,reg_addr_stream("/ip4/192.168.1.61/tcp/6601")
-    ),
-    ok.
-
-reg_addr_stream_2_test() ->
-    ?assertEqual(
-        true
-        ,reg_addr_stream("/ip4/192.168.1.61/tcp/6601", self())
-    ),
-    reg_addr_stream("/ip4/192.168.1.61/tcp/6601") ! test,
-    receive M -> ?assertEqual(M, test) end,
-    erlang:spawn(fun() ->
-        ?assertEqual(
-            true
-            ,reg_addr_stream("/ip4/192.168.1.61/tcp/6601", self())
-        )
-    end),
-    receive M1 -> ?assertEqual(M1, stop) end,
     ok.
 
 -endif.
