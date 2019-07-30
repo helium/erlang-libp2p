@@ -184,7 +184,7 @@ handle_server_data(Bin, State) ->
 -spec handle_server_data(any(), libp2p_relay_envelope:relay_envelope() ,state()) -> libp2p_framed_stream:handle_data_result().
 handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_req:address(Req),
-    true = libp2p_relay:reg_addr_stream(Address, self()),
+    true = libp2p_config:insert_relay_stream(libp2p_swarm:tid(Swarm), Address, self()),
     LocalP2PAddress = libp2p_swarm:p2p_address(Swarm),
     Resp = libp2p_relay_resp:create(libp2p_relay:p2p_circuit(LocalP2PAddress, Address)),
     EnvResp = libp2p_relay_envelope:create(Resp),
@@ -193,15 +193,15 @@ handle_server_data({req, Req}, _Env, #state{swarm=Swarm}=State) ->
 % Bridge Step 2: The relay server R receives a bridge request, finds it's relay
 % stream to Server and sends it a message with bridge request. If this fails an error
 % response will be sent back to B
-handle_server_data({bridge_cr, Bridge}, _Env, State) ->
+handle_server_data({bridge_cr, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     Server = libp2p_relay_bridge:server(Bridge),
     lager:debug("R got a relay request passing to Server's relay stream ~s", [Server]),
-    try libp2p_relay:reg_addr_stream(Server) ! {bridge_cr, Bridge} of
-        _ ->
-            {noreply, State}
-    catch
-        What:Why ->
-            lager:error("fail to pass request ~p Server seems down ~p/~p", [Bridge, What, Why]),
+    case libp2p_config:lookup_relay_stream(libp2p_swarm:tid(Swarm), Server) of
+        {ok, Pid} ->
+            Pid ! {bridge_cr, Bridge},
+            {noreply, State};
+        false ->
+            lager:error("fail to pass request ~p Server not found", [Bridge]),
             RespError = libp2p_relay_resp:create(Server, "server_down"),
             Env = libp2p_relay_envelope:create(RespError),
             {noreply, State, libp2p_relay_envelope:encode(Env)}
@@ -213,7 +213,10 @@ handle_server_data({bridge_sc, Bridge}, _Env,#state{swarm=Swarm}=State) ->
     Server = libp2p_relay_bridge:server(Bridge),
     lager:debug("Client (~s) got Server (~s) dialing back", [Client, Server]),
     SessionPids = [Pid || {_, Pid} <- libp2p_swarm:sessions(Swarm)],
-    catch libp2p_relay:reg_addr_sessions(Server) ! {sessions, SessionPids},
+    case libp2p_config:lookup_relay_sessions(libp2p_swarm:tid(Swarm), Server) of
+        false -> ok;
+        {ok, Pid} -> Pid ! {sessions, SessionPids}
+    end,
     {noreply, State};
 handle_server_data({ping, Ping}, _Env, State) ->
     Pong = libp2p_relay_ping:create_pong(Ping),
@@ -243,8 +246,10 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm}=State) ->
             {noreply, State#state{relay_addr=Address}};
         Error ->
             % Bridge Step 3: An error is sent back to Client transfering to relay transport
-            catch libp2p_relay:reg_addr_sessions(Address) ! {error, Error},
-            {noreply, State}
+            case libp2p_config:lookup_relay_sessions(libp2p_swarm:tid(Swarm), Address) of
+                false -> ok;
+                {ok, Pid} -> Pid ! {error, Error}
+            end
     end;
 % Bridge Step 4: Server got a bridge req, dialing Client
 handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->

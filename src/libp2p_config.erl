@@ -12,6 +12,8 @@
          lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
          insert_group/3, lookup_group/2, remove_group/2,
          insert_relay/2, lookup_relay/1, remove_relay/1,
+         insert_relay_stream/3, lookup_relay_stream/2, remove_relay_stream/2,
+         insert_relay_sessions/3, lookup_relay_sessions/2, remove_relay_sessions/2,
          insert_proxy/2, lookup_proxy/1, remove_proxy/1,
          insert_nat/2, lookup_nat/1, remove_nat/1]).
 
@@ -23,6 +25,8 @@
 -define(LISTEN_SOCKET, listen_socket).
 -define(GROUP, group).
 -define(RELAY, relay).
+-define(RELAY_STREAM, relay_stream).
+-define(RELAY_SESSIONS, relay_sessions).
 -define(PROXY, proxy).
 -define(NAT, nat).
 
@@ -302,6 +306,30 @@ lookup_relay(TID) ->
 -spec remove_relay(ets:tab()) -> true.
 remove_relay(TID) ->
     remove_pid(TID, ?RELAY, "pid").
+
+-spec insert_relay_stream(ets:tab(), string(), pid()) -> true.
+insert_relay_stream(TID, Address, Pid) ->
+    insert_pid(TID, ?RELAY_STREAM, Address, Pid).
+
+-spec lookup_relay_stream(ets:tab(), string()) -> {ok, pid()} | false.
+lookup_relay_stream(TID, Address) ->
+    lookup_pid(TID, ?RELAY_STREAM, Address).
+
+-spec remove_relay_stream(ets:tab(), string()) -> true.
+remove_relay_stream(TID, Address) ->
+    remove_pid(TID, ?RELAY_STREAM, Address).
+
+-spec insert_relay_sessions(ets:tab(), string(), pid()) -> true.
+insert_relay_sessions(TID, Address, Pid) ->
+    insert_pid(TID, ?RELAY_SESSIONS, Address, Pid).
+
+-spec lookup_relay_sessions(ets:tab(), string()) -> {ok, pid()} | false.
+lookup_relay_sessions(TID, Address) ->
+    lookup_pid(TID, ?RELAY_SESSIONS, Address).
+
+-spec remove_relay_sessions(ets:tab(), string()) -> true.
+remove_relay_sessions(TID, Address) ->
+    remove_pid(TID, ?RELAY_SESSIONS, Address).
 
 %%
 %% Proxy
