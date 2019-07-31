@@ -130,10 +130,10 @@ check_peerbook(TID, MAddr) ->
 -spec connect_rcv(pid(), string(), string(), pid()) -> {ok, pid()} | {error, term()}.
 connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
     receive
-        {sessions, [SessionPid2|_]=Sessions} ->
-            lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
+        {session, Session} ->
+            lager:info("using session: ~p instead of ~p", [Session, SessionPid]),
             true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
-            {ok, SessionPid2};
+            {ok, Session};
         {error, "server_down"}=Error ->
             true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
