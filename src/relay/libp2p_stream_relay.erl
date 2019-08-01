@@ -208,14 +208,18 @@ handle_server_data({bridge_cr, Bridge}, _Env, #state{swarm=Swarm}=State) ->
     end;
 % Bridge Step 6: Client got dialed back from Server, that session (Server->Client) will be sent back to
 % libp2p_transport_relay:connect to be used instead of the Client->Relay session
-handle_server_data({bridge_sc, Bridge}, _Env,#state{swarm=Swarm}=State) ->
+handle_server_data({bridge_sc, Bridge}, _Env,#state{swarm=Swarm, connection=Conn}=State) ->
     Client = libp2p_relay_bridge:client(Bridge),
     Server = libp2p_relay_bridge:server(Bridge),
     lager:debug("Client (~s) got Server (~s) dialing back", [Client, Server]),
-    SessionPids = [Pid || {_, Pid} <- libp2p_swarm:sessions(Swarm)],
     case libp2p_config:lookup_relay_sessions(libp2p_swarm:tid(Swarm), Server) of
-        false -> ok;
-        {ok, Pid} -> Pid ! {sessions, SessionPids}
+        false ->
+            ok;
+        {ok, Pid} ->
+            case libp2p_connection:session(Conn) of
+                {error, _}=Error -> Pid ! Error;
+                {ok, Session} -> Pid ! {session, Session}
+            end
     end,
     {noreply, State};
 handle_server_data({ping, Ping}, _Env, State) ->

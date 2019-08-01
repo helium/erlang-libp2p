@@ -86,12 +86,13 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
             Error;
         {ok, SessionPid} ->
             Swarm = libp2p_swarm:swarm(TID),
-            {ok, _} = libp2p_relay:dial_framed_stream(
+            {ok, Stream} = libp2p_relay:dial_framed_stream(
                 Swarm,
                 RAddress,
                 [{type, {bridge_cr, MAddr}}]
             ),
-            connect_rcv(Swarm, MAddr, SAddress, SessionPid)
+            erlang:monitor(process, Stream),
+            connect_rcv(Swarm, MAddr, SAddress, SessionPid, Stream)
     end.
 
 -spec match_protocols(list()) -> {ok, string()} | false.
@@ -127,13 +128,13 @@ check_peerbook(TID, MAddr) ->
             Error
     end.
 
--spec connect_rcv(pid(), string(), string(), pid()) -> {ok, pid()} | {error, term()}.
-connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
+-spec connect_rcv(pid(), string(), string(), pid(), pid()) -> {ok, pid()} | {error, term()}.
+connect_rcv(Swarm, MAddr, SAddress, SessionPid, Stream) ->
     receive
-        {sessions, [SessionPid2|_]=Sessions} ->
-            lager:info("using sessions: ~p instead of ~p", [Sessions, SessionPid]),
+        {session, Session} ->
+            lager:info("using session: ~p instead of ~p", [Session, SessionPid]),
             true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
-            {ok, SessionPid2};
+            {ok, Session};
         {error, "server_down"}=Error ->
             true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
@@ -143,7 +144,10 @@ connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
         {error, _Reason}=Error ->
             true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             lager:error("no relay sessions ~p", [_Reason]),
-            Error
+            Error;
+        {'DOWN', _Ref, process, Stream, _Reason} ->
+            lager:error("stream ~p went down ~p", [Stream, _Reason]),
+            {error, stream_down}
     after 15000 ->
         true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
         {error, timeout_relay_session}
