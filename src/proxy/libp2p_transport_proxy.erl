@@ -68,8 +68,9 @@ connect_to(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress) ->
         {error, Reason} ->
             lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
             {error, fail_dial_proxy};
-        {ok, _} ->
-            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm)
+        {ok, Stream} ->
+            erlang:monitor(process, Stream),
+            connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Stream, Swarm)
     end.
 
 -spec peer_for(pid(), string()) -> {ok, libp2p_peer:peer()} | {error, any()}.
@@ -79,8 +80,8 @@ peer_for(Swarm, Address) ->
     libp2p_peerbook:get(Peerbook, PubKeyBin).
 
 -spec connect_rcv(pid(), string(), libp2p_swarm:connect_opts(), pos_integer(),
-                  ets:tab(), string(), string(), pid()) -> {ok, pid()} | {error, term()}.
-connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm) ->
+                  ets:tab(), string(), string(), pid(), pid()) -> {ok, pid()} | {error, term()}.
+connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Stream, Swarm) ->
     receive
         {error, limit_exceeded} ->
             lager:warning("got error limit_exceeded proxying to ~p", [PAddress]),
@@ -107,7 +108,10 @@ connect_rcv(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress, Swarm) ->
         {proxy_negotiated, Socket, MultiAddr} ->
             Conn = libp2p_transport_tcp:new_connection(Socket, MultiAddr),
             lager:info("proxy successful ~p", [Conn]),
-            libp2p_transport:start_client_session(TID, MAddr, Conn)
+            libp2p_transport:start_client_session(TID, MAddr, Conn);
+        {'DOWN', _Ref, process, Stream, _Reason} ->
+            lager:error("stream ~p went down ~p", [Stream, _Reason]),
+            {error, stream_down}
     after 15000 ->
         lager:warning("timeout_proxy_session proxying to ~p", [PAddress]),
         {error, timeout_proxy_session}
