@@ -86,11 +86,12 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
             Error;
         {ok, SessionPid} ->
             Swarm = libp2p_swarm:swarm(TID),
-            {ok, _} = libp2p_relay:dial_framed_stream(
+            {ok, Stream} = libp2p_relay:dial_framed_stream(
                 Swarm,
                 RAddress,
                 [{type, {bridge_cr, MAddr}}]
             ),
+            erlang:monitor(process, Stream),
             connect_rcv(Swarm, MAddr, SAddress, SessionPid)
     end.
 
@@ -143,7 +144,10 @@ connect_rcv(Swarm, MAddr, SAddress, SessionPid) ->
         {error, _Reason}=Error ->
             true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
             lager:error("no relay sessions ~p", [_Reason]),
-            Error
+            Error;
+        {'DOWN', _Ref, process, _Stream, _Reason} ->
+            lager:error("stream ~p went down ~p", [_Stream, _Reason]),
+            {error, stream_down}
     after 15000 ->
         true = libp2p_config:remove_relay_sessions(libp2p_swarm:tid(Swarm), SAddress),
         {error, timeout_relay_session}
