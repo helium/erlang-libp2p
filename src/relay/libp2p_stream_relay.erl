@@ -217,7 +217,7 @@ handle_server_data({bridge_sc, Bridge}, _Env,#state{swarm=Swarm, connection=Conn
             ok;
         {ok, Pid} ->
             case libp2p_connection:session(Conn) of
-                {error, _} -> ok;
+                {error, _}=Error -> Pid ! Error;
                 {ok, Session} -> Pid ! {session, Session}
             end
     end,
