@@ -249,16 +249,15 @@ splice(From1, Connection1, From2, Connection2) ->
                         {ok, FD1} = inet:getfd(Socket1),
                         Socket2 = libp2p_connection:socket(Connection2),
                         {ok, FD2} = inet:getfd(Socket2),
-                        splicer:splice(FD1, FD2, ?SPLICE_TIMEOUT),
-                        (catch libp2p_connection:close(Connection1)),
-                        (catch libp2p_connection:close(Connection2))
+                        splicer:splice(FD1, FD2, ?SPLICE_TIMEOUT)
                     catch _:E ->
                             lager:warning("splice worker exited with ~p", [E]),
                             ok
-                    after
-                        gen_server:reply(From1, ok),
-                        gen_server:reply(From2, ok)
-                    end
+                    end,
+                    (catch libp2p_connection:close(Connection1)),
+                    (catch libp2p_connection:close(Connection2)),
+                    gen_server:reply(From1, ok),
+                    gen_server:reply(From2, ok)
             end),
     {ok, _} = libp2p_connection:controlling_process(Connection1, Pid),
     {ok, _} = libp2p_connection:controlling_process(Connection2, Pid),
