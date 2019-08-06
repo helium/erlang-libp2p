@@ -210,7 +210,12 @@ handle_info({'EXIT', Who, Reason}, #state{size=Size, spliced=Spliced}=State) ->
         false ->
             {noreply, State};
         true ->
-            lager:warning("splice process ~p went down: ~p", [Who, Reason]),
+            case Reason of
+                normal ->
+                    ok;
+                _ ->
+                    lager:warning("splice process ~p went down: ~p", [Who, Reason])
+            end,
             {noreply, State#state{size=Size-1, spliced=maps:remove(Who, Spliced)}}
     end;
 handle_info(_Msg, State) ->
@@ -218,8 +223,8 @@ handle_info(_Msg, State) ->
     {noreply, State}.
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}. 
- 
+    {ok, State}.
+
 terminate(_Reason, _State) ->
     ok.
 
