@@ -56,7 +56,7 @@ start(Name, Opts)  ->
 %% @doc Stops the given swarm.
 -spec stop(pid()) -> ok.
 stop(Sup) ->
-    ets:insert(tid(Sup), {shutown, true}),
+    ets:insert(tid(Sup), {shutdown, true}),
     Ref = erlang:monitor(process, Sup),
     exit(Sup, shutdown),
     receive

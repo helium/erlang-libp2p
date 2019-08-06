@@ -239,18 +239,27 @@ dial_back(ID, ServerStream, ClientStream) ->
 
 -spec splice(any(), libp2p_connection:connection(), any(), libp2p_connection:connection()) -> {ok, pid()}.
 splice(From1, Connection1, From2, Connection2) ->
-    Pid = erlang:spawn_link(fun() ->
-        receive control_given -> ok end,
-        Socket1 = libp2p_connection:socket(Connection1),
-        {ok, FD1} = inet:getfd(Socket1),
-        Socket2 = libp2p_connection:socket(Connection2),
-        {ok, FD2} = inet:getfd(Socket2),
-        splicer:splice(FD1, FD2, ?SPLICE_TIMEOUT),
-        gen_server:reply(From1, ok),
-        gen_server:reply(From2, ok),
-        catch libp2p_connection:close(Connection1),
-        catch libp2p_connection:close(Connection2)
-    end),
+    Pid = erlang:spawn_link(
+            fun() ->
+                    try
+                        receive control_given -> ok
+                        after 10000 -> throw(control_transfer_timeout)
+                        end,
+                        Socket1 = libp2p_connection:socket(Connection1),
+                        {ok, FD1} = inet:getfd(Socket1),
+                        Socket2 = libp2p_connection:socket(Connection2),
+                        {ok, FD2} = inet:getfd(Socket2),
+                        splicer:splice(FD1, FD2, ?SPLICE_TIMEOUT),
+                        (catch libp2p_connection:close(Connection1)),
+                        (catch libp2p_connection:close(Connection2))
+                    catch _:E ->
+                            lager:warning("splice worker exited with ~p", [E]),
+                            ok
+                    after
+                        gen_server:reply(From1, ok),
+                        gen_server:reply(From2, ok)
+                    end
+            end),
     {ok, _} = libp2p_connection:controlling_process(Connection1, Pid),
     {ok, _} = libp2p_connection:controlling_process(Connection2, Pid),
     Pid ! control_given,
