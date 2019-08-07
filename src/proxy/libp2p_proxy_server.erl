@@ -196,9 +196,14 @@ handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data, size=Size}
     end;
 handle_info({timeout, ID}, #state{data=Data, size=Size}=State) ->
     case maps:find(ID, Data) of
-        {ok, _} ->
+        {ok, PState} ->
             % Client / Server did not dial back in time we are cleaning up
             lager:warning("~p timeout, did not dial back in time", [ID]),
+            lists:foreach(fun({From, Connection}) ->
+                                  (catch libp2p_connection:close(Connection)),
+                                  gen_server:reply(From, ok)
+                          end,
+                          PState#pstate.connections),
             {noreply, State#state{size=Size-1, data=maps:remove(ID, Data)}};
         error ->
             lager:warning("Got unexpected timeout for ID ~p", [ID]),
