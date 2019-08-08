@@ -8,7 +8,8 @@
                        connected => [binary()],
                        nat_type => nat_type(),
                        network_id => binary(),
-                       associations => association_map()
+                       associations => association_map(),
+                       signed_metadata => #{binary() => binary()}
                      }.
 -type peer() :: #libp2p_signed_peer_pb{}.
 -type association() :: #libp2p_association_pb{}.
@@ -24,12 +25,16 @@
          is_association/3, association_pubkey_bin/1, association_signature/1,
          mk_association/3, association_verify/2,
          association_encode/1, association_decode/2]).
+%% signed metadata
+-export([signed_metadata/1, signed_metadata_get/3]).
 %% metadata (unsigned!)
 -export([metadata/1, metadata_set/2, metadata_put/3, metadata_get/3]).
 %% blacklist (unsigned!)
 -export([blacklist/1, is_blacklisted/2,
          blacklist_set/2, blacklist_add/2,
          cleared_listen_addrs/1]).
+
+-define(MAX_PEER_SIZE, 50*1024). %% 50kb
 
 -spec from_map(peer_map(), fun((binary()) -> binary())) -> peer().
 from_map(Map, SigFun) ->
@@ -48,7 +53,8 @@ from_map(Map, SigFun) ->
                            nat_type=maps:get(nat_type, Map),
                            network_id=maps:get(network_id, Map, <<>>),
                            timestamp=Timestamp,
-                           associations=Assocs
+                           associations=Assocs,
+                           signed_metadata=maps:to_list(maps:get(signed_metadata, Map, #{}))
                           },
     sign_peer(Peer, SigFun).
 
@@ -78,6 +84,18 @@ nat_type(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{nat_type=NatType}}) ->
 -spec timestamp(peer()) -> integer().
 timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
     Timestamp.
+
+%% @doc Gets the signed metadata of the given peer
+-spec signed_metadata(peer()) -> map().
+signed_metadata(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{signed_metadata=undefined}}) ->
+    #{};
+signed_metadata(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{signed_metadata=MD}}) ->
+    maps:from_list(MD).
+
+%% @doc Gets a key from the signed metadata of the given peer
+-spec signed_metadata_get(peer(), any(), any()) -> any().
+signed_metadata_get(Peer, Key, Default) ->
+    maps:get(Key, signed_metadata(Peer), Default).
 
 %% @doc Gets the metadata map from the given peer. The metadata for a
 %% peer is `NOT' part of the signed peer since it can be read and
@@ -333,6 +351,8 @@ decode_list(Bin) ->
 
 %% @doc Decodes a given binary into a peer.
 -spec decode(binary()) -> peer().
+decode(Bin) when byte_size(Bin) > ?MAX_PEER_SIZE ->
+    error(peer_too_large);
 decode(Bin) ->
     Msg = decode_unsafe(Bin),
     verify(Msg),
