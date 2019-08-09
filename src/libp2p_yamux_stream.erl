@@ -206,7 +206,7 @@ handle_event(cast, {init, Flags}, connecting, Data=#state{session=Session, strea
             Handlers = libp2p_config:lookup_stream_handlers(TID),
             lager:debug("Starting stream server negotation for ~p: ~p", [StreamID, Handlers]),
             Connection = new_connection(self()),
-            try libp2p_session:addr_info(Session) of
+            try libp2p_session:addr_info(Data#state.tid, Session) of
                 AddrInfo ->
                     {ok, Pid} = libp2p_multistream_server:start_link(StreamID, Connection, Handlers, TID),
                     {next_state, established, Data#state{handler=Pid, addr_info=AddrInfo}}
@@ -233,7 +233,7 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
     % Client side received an ACK. We have an established connection.
-    try libp2p_session:addr_info(Data#state.session) of
+    try libp2p_session:addr_info(Data#state.tid, Data#state.session) of
         AddrInfo ->
             {next_state, established, Data#state{addr_info=AddrInfo}}
     catch
@@ -316,7 +316,7 @@ handle_event(info, {'EXIT', Pid, Reason}, _State, Data=#state{handler=Pid}) ->
     lager:warning("Multistream server ~p exited with reason ~p", [Pid, Reason]),
     {stop, normal, Data};
 handle_event({call, From}, addr_info, _State, Data=#state{addr_info=undefined, session=Session}) ->
-    AddrInfo = libp2p_session:addr_info(Session),
+    AddrInfo = libp2p_session:addr_info(Data#state.tid, Session),
     {keep_state, Data#state{addr_info=AddrInfo}, {reply, From, AddrInfo}};
 handle_event({call, From}, addr_info, _State, #state{addr_info=AddrInfo}) ->
     {keep_state_and_data, {reply, From, AddrInfo}};

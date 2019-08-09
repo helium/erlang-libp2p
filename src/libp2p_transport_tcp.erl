@@ -333,7 +333,7 @@ rfc1918(IP={172, _, _, _}) ->
 rfc1918(_) ->
     false.
 
--spec is_public(string()) -> boolean(). 
+-spec is_public(string()) -> boolean().
 is_public(Address) ->
     case ?MODULE:match_addr(Address) of
         false -> false;
@@ -409,7 +409,7 @@ handle_cast(Msg, State) ->
 %%  Discover/Stun
 %%
 handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
-    {_LocalAddr, PeerAddr} = libp2p_session:addr_info(Session),
+    {_LocalAddr, PeerAddr} = libp2p_session:addr_info(State#state.tid, Session),
     lager:notice("session identification failed for ~p: ~p", [PeerAddr, Error]),
     {noreply, State};
 handle_info({handle_identify, Session, {ok, Identify}}, State) ->
@@ -852,7 +852,7 @@ mask_address(Addr={_, _, _, _}, Maskbits) ->
     Subnet.
 
 do_identify(Session, Identify, State=#state{tid=TID}) ->
-    {LocalAddr, _PeerAddr} = libp2p_session:addr_info(Session),
+    {LocalAddr, _PeerAddr} = libp2p_session:addr_info(State#state.tid, Session),
     RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
     ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
