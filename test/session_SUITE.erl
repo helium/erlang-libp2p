@@ -76,6 +76,7 @@ open_close_test(Config) ->
     {error, closed} = libp2p_connection:send(Conn1, <<"hello">>),
 
     ok = libp2p_session:close(Session1),
+    {"noproc", "noproc"} = libp2p_session:addr_info(libp2p_swarm:tid(S1), Session1),
 
     ok.
 
