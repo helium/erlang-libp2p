@@ -220,8 +220,8 @@ start_server_session(Ref, TID, Connection) ->
     Handlers = [{Key, Handler} ||
                    {Key, {Handler, _}} <- libp2p_config:lookup_connection_handlers(TID)],
     {ok, SessionPid} = libp2p_multistream_server:start_link(Ref, Connection, Handlers, TID),
-    libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
     AddrInfo = libp2p_connection:addr_info(Connection),
     libp2p_config:insert_session_addr_info(TID, SessionPid, AddrInfo),
+    libp2p_config:insert_session(TID, RemoteAddr, SessionPid),
     libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
     {ok, SessionPid}.

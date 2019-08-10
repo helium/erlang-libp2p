@@ -272,8 +272,8 @@ insert_addr_info(TID, Kind, Pid, AddrInfo) ->
 
 -spec lookup_addr_info(ets:tab(), atom(), pid()) -> {ok, {string(), string()}} | false.
 lookup_addr_info(TID, Kind, Pid) ->
-    case ets:lookup(TID, {{?ADDR_INFO, Kind, '$1'}, Pid}) of
-        [AddrInfo]  -> {ok, AddrInfo};
+    case ets:match(TID, {{?ADDR_INFO, Kind, '$1'}, Pid}) of
+        [[AddrInfo]]  -> {ok, AddrInfo};
         [] -> false
     end.
 

@@ -32,9 +32,14 @@ server(Connection, Path, TID, []) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path, TID]).
 
 init(client, Connection, [_TID, Handler]) ->
-    {ok, Session} = libp2p_connection:session(Connection),
-    Timer = erlang:send_after(?TIMEOUT, self(), identify_timeout),
-    {ok, #state{handler=Handler, session=Session, timeout=Timer}};
+    case libp2p_connection:session(Connection) of
+        {ok, Session} ->
+            Timer = erlang:send_after(?TIMEOUT, self(), identify_timeout),
+            {ok, #state{handler=Handler, session=Session, timeout=Timer}};
+        {error, Error} ->
+            lager:debug("Identify failed to get session: ~p", [Error]),
+            {stop, normal}
+    end;
 init(server, Connection, [Path, TID]) ->
     "/" ++ Str = Path,
     Challenge = base58:base58_to_binary(Str),
