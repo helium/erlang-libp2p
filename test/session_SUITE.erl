@@ -57,7 +57,7 @@ open_close_test(Config) ->
 
     {ok, Conn1} = libp2p_session:open(Session1),
     Conn1Pid = ConnPid(Conn1),
-    true = libp2p_connection:addr_info(Conn1) == libp2p_session:addr_info(Session1),
+    true = libp2p_connection:addr_info(Conn1) == libp2p_session:addr_info(libp2p_swarm:tid(S1), Session1),
     ok = test_util:wait_until(fun() ->
                                       lists:any(fun(P) -> ConnPid(P) == Conn1Pid end,
                                                 libp2p_session:streams(Session1))
@@ -76,6 +76,7 @@ open_close_test(Config) ->
     {error, closed} = libp2p_connection:send(Conn1, <<"hello">>),
 
     ok = libp2p_session:close(Session1),
+    {"noproc", "noproc"} = libp2p_session:addr_info(libp2p_swarm:tid(S1), Session1),
 
     ok.
 

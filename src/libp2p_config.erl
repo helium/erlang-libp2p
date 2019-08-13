@@ -5,6 +5,7 @@
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3,
          session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2,
          lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1,
+         insert_session_addr_info/3, lookup_session_addr_info/2,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
          listen_socket/0, lookup_listen_socket/2, lookup_listen_socket_by_addr/2, insert_listen_socket/4, remove_listen_socket/2, listen_sockets/1,
@@ -29,6 +30,7 @@
 -define(RELAY_SESSIONS, relay_sessions).
 -define(PROXY, proxy).
 -define(NAT, nat).
+-define(ADDR_INFO, addr_info).
 
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
@@ -247,6 +249,35 @@ lookup_session_addrs(TID, Pid) ->
 -spec lookup_session_addrs(ets:tab()) -> [string()].
 lookup_session_addrs(TID) ->
     lookup_addrs(TID, ?SESSION).
+
+-spec lookup_session_addr_info(ets:tab(), pid()) -> {ok, {string(), string()}} | false.
+lookup_session_addr_info(TID, Pid) ->
+    lookup_addr_info(TID, ?SESSION, Pid).
+
+-spec insert_session_addr_info(ets:tab(), pid(), {string(), string()}) -> true.
+insert_session_addr_info(TID, Pid, AddrInfo) ->
+    insert_addr_info(TID, ?SESSION, Pid, AddrInfo).
+
+
+%%
+%% Addr Info
+%%
+
+-spec insert_addr_info(ets:tab(), atom(), pid(), {string(), string()}) -> true.
+insert_addr_info(TID, Kind, Pid, AddrInfo) ->
+    %% Insert in the form that remove_pid understands to ensure that
+    %% addr info gets removed for removed pids regardless of what kind
+    %% of addr_info it is
+    ets:insert(TID, {{?ADDR_INFO, Kind, AddrInfo}, Pid}).
+
+-spec lookup_addr_info(ets:tab(), atom(), pid()) -> {ok, {string(), string()}} | false.
+lookup_addr_info(TID, Kind, Pid) ->
+    case ets:match(TID, {{?ADDR_INFO, Kind, '$1'}, Pid}) of
+        [[AddrInfo]]  -> {ok, AddrInfo};
+        [] -> false
+    end.
+
+
 %%
 %% Connections
 %%

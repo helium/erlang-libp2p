@@ -45,7 +45,7 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
-    {_, PeerAddr} = libp2p_session:addr_info(Session),
+    {_, PeerAddr} = libp2p_session:addr_info(State#state.tid, Session),
     lager:warning("ignoring session after failed identify ~p: ~p", [PeerAddr, Error]),
     {noreply, State};
 handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) ->
