@@ -188,11 +188,20 @@ handle_gossip_data(Data, Handle) ->
     ?MODULE:put(Handle, DecodedList).
 
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
-init_gossip_data(_Handle) ->
-    %Peers = fetch_peers(Handle),
-    %{send, libp2p_peer:encode_list(Peers)}.
-    %% Don't send the entire peer book here, just let updates gossip across
-    ok.
+init_gossip_data(Handle) ->
+    EligiblePeers = fold_peers(fun(_, Peer, Acc) ->
+                                       case libp2p_peer:is_dialable(Peer) of
+                                           true -> [Peer | Acc];
+                                           false -> Acc
+                                       end
+                               end, [], Handle),
+    case EligiblePeers of
+        [] ->
+            ok;
+        _ ->
+            SelectedPeer = lists:nth(rand:uniform(length(EligiblePeers)), EligiblePeers),
+            {send, libp2p_peer:encode_list([SelectedPeer])}
+    end.
 
 
 %%
