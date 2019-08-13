@@ -274,7 +274,7 @@ network_id_allowable(Peer, MyNetworkID) ->
     orelse MyNetworkID == undefined.
 
 %% @doc Returns whether the peer is listening on a public, externally
-%% visiable IP address.
+%% visible IP address.
 -spec has_public_ip(peer()) -> boolean().
 has_public_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
