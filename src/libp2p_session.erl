@@ -6,7 +6,7 @@
 
 -export_type([stream_handler/0]).
 
--export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/1, identify/3]).
+-export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/2, identify/3]).
 
 -export([dial/2, dial_framed_stream/4]).
 
@@ -47,9 +47,12 @@ goaway(Pid) ->
 streams(Pid) ->
     gen_server:call(Pid, streams).
 
--spec addr_info(pid()) -> {string(), string()}.
-addr_info(Pid) ->
-    gen_server:call(Pid, addr_info).
+-spec addr_info(ets:tab(), pid()) -> {string(), string()}.
+addr_info(TID, Pid) ->
+    case libp2p_config:lookup_session_addr_info(TID, Pid) of
+        {ok, AddrInfo} -> AddrInfo;
+        false -> {"noproc", "noproc"}
+    end.
 
 -spec identify(pid(), Handler::pid(), HandlerData::any()) -> ok.
 identify(Pid, Handler, HandlerData) ->
