@@ -189,7 +189,7 @@ handle_gossip_data(Data, Handle) ->
 
 is_eligible_gossip_peer(Peer) ->
     libp2p_peer:is_dialable(Peer)
-        andalso libp2p_peer:connected_peers(Peer) >= 5.
+        andalso length(libp2p_peer:connected_peers(Peer)) >= 5.
 
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
 init_gossip_data(Handle) ->
