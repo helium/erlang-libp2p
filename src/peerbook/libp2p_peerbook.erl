@@ -305,12 +305,22 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
         _ ->
             Associations = libp2p_peer:associations(CurrentPeer)
     end,
+    MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
+                                        fun() -> #{} end),
+    %% if the metadata fun crashes, simply return an empty map
+    MetaData = try MetaDataFun() of
+                   Result ->
+                       Result
+               catch
+                   _:_ -> #{}
+               end,
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
-                            associations => Associations},
+                            associations => Associations,
+                            signed_metadata => MetaData},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
