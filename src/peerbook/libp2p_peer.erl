@@ -280,7 +280,7 @@ has_public_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
     lists:any(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
 
-%%@doc Returns whether the peer is dialable. A peer is dialable if it
+%% @doc Returns whether the peer is dialable. A peer is dialable if it
 %%has a public IP address or it is reachable via a relay address.
 is_dialable(Peer) ->
     ListenAddrs = ?MODULE:listen_addrs(Peer),
