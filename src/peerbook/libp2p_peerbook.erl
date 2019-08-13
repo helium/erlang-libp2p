@@ -188,7 +188,7 @@ handle_gossip_data(Data, Handle) ->
     ?MODULE:put(Handle, DecodedList).
 
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
-init_gossip_data(Handle) ->
+init_gossip_data(_Handle) ->
     %Peers = fetch_peers(Handle),
     %{send, libp2p_peer:encode_list(Peers)}.
     %% Don't send the entire peer book here, just let updates gossip across
