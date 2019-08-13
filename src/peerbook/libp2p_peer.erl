@@ -372,9 +372,7 @@ decode_unsafe(Bin) ->
 -spec verify(peer()) -> true.
 verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs, signed_metadata=MD}, signature=Signature}) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
-    ct:pal("Verify: Peer ~p", [Peer]),
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
-    ct:pal("Verify: EncodedPeer ~p", [EncodedPeer]),
     PubKey = libp2p_crypto:bin_to_pubkey(pubkey_bin(Msg)),
     case libp2p_crypto:verify(EncodedPeer, Signature, PubKey) of
         true ->
@@ -394,9 +392,7 @@ verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs
 -spec sign_peer(#libp2p_peer_pb{}, libp2p_crypto:sig_fun()) -> peer().
 sign_peer(Peer0 = #libp2p_peer_pb{signed_metadata=MD}, SigFun) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
-    ct:pal("Sign: Peer ~p", [Peer]),
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
-    ct:pal("Sign: EncodedPeer ~p", [EncodedPeer]),
     Signature = SigFun(EncodedPeer),
     #libp2p_signed_peer_pb{peer=Peer, signature=Signature}.
 
