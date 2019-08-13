@@ -54,7 +54,7 @@ from_map(Map, SigFun) ->
                            network_id=maps:get(network_id, Map, <<>>),
                            timestamp=Timestamp,
                            associations=Assocs,
-                           signed_metadata=maps:to_list(maps:get(signed_metadata, Map, #{}))
+                           signed_metadata=encode_map(maps:get(signed_metadata, Map, #{}))
                           },
     sign_peer(Peer, SigFun).
 
@@ -90,7 +90,9 @@ timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
 signed_metadata(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{signed_metadata=undefined}}) ->
     #{};
 signed_metadata(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{signed_metadata=MD}}) ->
-    maps:from_list(MD).
+    lists:foldl(fun({K, #libp2p_metadata_value_pb{value = {_Type, V}}}, Acc) ->
+                     maps:put(list_to_binary(K), V, Acc)
+             end, #{}, MD).
 
 %% @doc Gets a key from the signed metadata of the given peer
 -spec signed_metadata_get(peer(), any(), any()) -> any().
@@ -368,8 +370,11 @@ decode_unsafe(Bin) ->
 %% throws an error if the peer or one of it's associations can't be
 %% verified
 -spec verify(peer()) -> true.
-verify(Msg=#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{associations=Assocs}, signature=Signature}) ->
+verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs, signed_metadata=MD}, signature=Signature}) ->
+    Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
+    ct:pal("Verify: Peer ~p", [Peer]),
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
+    ct:pal("Verify: EncodedPeer ~p", [EncodedPeer]),
     PubKey = libp2p_crypto:bin_to_pubkey(pubkey_bin(Msg)),
     case libp2p_crypto:verify(EncodedPeer, Signature, PubKey) of
         true ->
@@ -387,7 +392,28 @@ verify(Msg=#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{associations=Assocs}
 %%
 
 -spec sign_peer(#libp2p_peer_pb{}, libp2p_crypto:sig_fun()) -> peer().
-sign_peer(Peer, SigFun) ->
+sign_peer(Peer0 = #libp2p_peer_pb{signed_metadata=MD}, SigFun) ->
+    Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
+    ct:pal("Sign: Peer ~p", [Peer]),
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
+    ct:pal("Sign: EncodedPeer ~p", [EncodedPeer]),
     Signature = SigFun(EncodedPeer),
     #libp2p_signed_peer_pb{peer=Peer, signature=Signature}.
+
+encode_map(Map) ->
+    lists:sort(maps:fold(fun(K, V, Acc) when is_binary(K), is_integer(V) ->
+                                 [{binary_to_list(K), #libp2p_metadata_value_pb{value = {int, V}}}|Acc];
+                            (K, V, Acc) when is_binary(K), is_float(V) ->
+                                 [{binary_to_list(K), #libp2p_metadata_value_pb{value = {flt, V}}}|Acc];
+                            (K, V, Acc) when is_binary(K), is_binary(V) ->
+                                 [{binary_to_list(K), #libp2p_metadata_value_pb{value = {bin, V}}}|Acc];
+                            (K, V, Acc) when is_binary(K), (V == true orelse V == false) ->
+                                 [{binary_to_list(K), #libp2p_metadata_value_pb{value = {boolean, V}}}|Acc];
+                            (K, V, Acc) when is_binary(K) ->
+                                 lager:warning("invalid metadata value ~p for key ~p, must be integer, float or binary", [V, K]),
+                                 Acc;
+                            (K, V, Acc) ->
+                                 lager:warning("invalid metadata key ~p with value ~p, keys must be binaries", [K, V]),
+                                 Acc
+                         end, [], Map)).
+

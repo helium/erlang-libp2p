@@ -309,7 +309,8 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                                         fun() -> #{} end),
     %% if the metadata fun crashes, simply return an empty map
     MetaData = try MetaDataFun() of
-                   Result -> Result
+                   Result ->
+                       Result
                catch
                    _:_ -> #{}
                end,

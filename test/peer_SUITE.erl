@@ -166,9 +166,17 @@ signed_metadata_test(_) ->
                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                 connected => [],
                 nat_type => static,
-                signed_metadata => #{<<"hello">> => <<"world">>}},
+                signed_metadata => #{<<"hello">> => <<"world">>, <<"number">> => 1, <<"floaty">> => 0.42}},
     Peer = libp2p_peer:from_map(PeerMap, SigFun1),
     ?assertEqual(<<"world">>, libp2p_peer:signed_metadata_get(Peer, <<"hello">>, <<"dlrow">>)),
+    ?assertEqual(1, libp2p_peer:signed_metadata_get(Peer, <<"number">>, 1)),
+    ?assertEqual(0.42, libp2p_peer:signed_metadata_get(Peer, <<"floaty">>, 0.42)),
     ?assertEqual(<<"dlrow">>, libp2p_peer:signed_metadata_get(Peer, <<"goodbye">>, <<"dlrow">>)),
+
+    DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer)),
+    ?assertEqual(<<"world">>, libp2p_peer:signed_metadata_get(DecodedPeer, <<"hello">>, <<"dlrow">>)),
+    ?assertEqual(1, libp2p_peer:signed_metadata_get(DecodedPeer, <<"number">>, 1)),
+    ?assertEqual(0.42, libp2p_peer:signed_metadata_get(DecodedPeer, <<"floaty">>, 0.42)),
+    ?assertEqual(<<"dlrow">>, libp2p_peer:signed_metadata_get(DecodedPeer, <<"goodbye">>, <<"dlrow">>)),
     ok.
 
