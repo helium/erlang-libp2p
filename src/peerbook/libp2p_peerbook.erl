@@ -190,7 +190,12 @@ handle_gossip_data(Data, Handle) ->
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
 init_gossip_data(Handle) ->
     EligiblePeers = fold_peers(fun(_, Peer, Acc) ->
-                                       case libp2p_peer:is_dialable(Peer) of
+                                       %% A peer is eligilble for
+                                       %% gossiping if it is dialable
+                                       %% and has a minimum number of
+                                       %% outbound connections.
+                                       case libp2p_peer:is_dialable(Peer)
+                                           andalso libp2p_peer:connected_peers(Peer) >= 5 of
                                            true -> [Peer | Acc];
                                            false -> Acc
                                        end
@@ -199,6 +204,7 @@ init_gossip_data(Handle) ->
         [] ->
             ok;
         _ ->
+            %% Pick a random peer from the set of eligilble peers
             SelectedPeer = lists:nth(rand:uniform(length(EligiblePeers)), EligiblePeers),
             {send, libp2p_peer:encode_list([SelectedPeer])}
     end.
