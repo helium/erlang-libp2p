@@ -4,13 +4,14 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([all/0]).
--export([coding_test/1, metadata_test/1, blacklist_test/1, association_test/1]).
+-export([coding_test/1, metadata_test/1, blacklist_test/1, association_test/1, signed_metadata_test/1]).
 
 all() ->
     [coding_test,
      metadata_test,
      blacklist_test,
-     association_test
+     association_test,
+     signed_metadata_test
     ].
 
 coding_test(_) ->
@@ -75,7 +76,7 @@ metadata_test(_) ->
     MPeer = libp2p_peer:metadata_put(Peer, "exclude", term_to_binary(Excludes)),
 
     ?assertEqual(Excludes, binary_to_term(libp2p_peer:metadata_get(MPeer, "exclude", <<>>))),
-    %% metadat does not affect similarity. Changing this behavior will
+    %% metadata does not affect similarity. Changing this behavior will
     %% BREAK peer gossiping so be very careful.
     ?assert(libp2p_peer:is_similar(MPeer, Peer)),
 
@@ -156,3 +157,26 @@ association_test(_) ->
     ?assertError(invalid_association_signature, libp2p_peer:verify(InvalidPeer)),
 
     ok.
+
+signed_metadata_test(_) ->
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
+
+    PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
+                listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                connected => [],
+                nat_type => static,
+                signed_metadata => #{<<"hello">> => <<"world">>, <<"number">> => 1, <<"floaty">> => 0.42}},
+    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
+    ?assertEqual(<<"world">>, libp2p_peer:signed_metadata_get(Peer, <<"hello">>, <<"dlrow">>)),
+    ?assertEqual(1, libp2p_peer:signed_metadata_get(Peer, <<"number">>, 1)),
+    ?assertEqual(0.42, libp2p_peer:signed_metadata_get(Peer, <<"floaty">>, 0.42)),
+    ?assertEqual(<<"dlrow">>, libp2p_peer:signed_metadata_get(Peer, <<"goodbye">>, <<"dlrow">>)),
+
+    DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer)),
+    ?assertEqual(<<"world">>, libp2p_peer:signed_metadata_get(DecodedPeer, <<"hello">>, <<"dlrow">>)),
+    ?assertEqual(1, libp2p_peer:signed_metadata_get(DecodedPeer, <<"number">>, 1)),
+    ?assertEqual(0.42, libp2p_peer:signed_metadata_get(DecodedPeer, <<"floaty">>, 0.42)),
+    ?assertEqual(<<"dlrow">>, libp2p_peer:signed_metadata_get(DecodedPeer, <<"goodbye">>, <<"dlrow">>)),
+    ok.
+

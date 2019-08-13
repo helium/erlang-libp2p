@@ -16,6 +16,16 @@ message peer {
     int64 timestamp = 5;
     map<string, association_list> associations = 6;
     bytes network_id = 7;
+    map<string, metadata_value> signed_metadata = 8;
+}
+
+message metadata_value {
+    oneof value {
+        int64 int = 1;
+        double flt = 2;
+        bytes bin = 3;
+        bool boolean = 4;
+    }
 }
 
 message association_list {
