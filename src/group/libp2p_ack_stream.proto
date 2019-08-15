@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-message ack_frame {
-    repeated uint32 seqs = 1;
-    repeated bytes messages = 2;
-    bool reset = 3;
-}

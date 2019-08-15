@@ -1,6 +1,0 @@
-syntax = "proto3";
-
-message gossip_frame {
-    string key = 1;
-    bytes data = 2;
-}

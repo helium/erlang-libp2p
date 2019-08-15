@@ -1,0 +1,124 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module libp2p_yamux_session</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module libp2p_yamux_session</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+<p><b>Behaviours:</b> <a href="gen_server.html"><tt>gen_server</tt></a>.</p>
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-flags">flags()</a></h3>
+<p><tt>flags() = non_neg_integer()</tt></p>
+<p> 0 | (bit combo of ?SYN | ?ACK | ?FIN | ?RST)</p>
+
+<h3 class="typedecl"><a name="type-header">header()</a></h3>
+<p><tt>header() = #header{type = non_neg_integer(), flags = <a href="#type-flags">flags()</a>, stream_id = <a href="#type-stream_id">stream_id()</a>, length = non_neg_integer()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-stream_id">stream_id()</a></h3>
+<p><tt>stream_id() = non_neg_integer()</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#header_data-3">header_data/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#header_length-1">header_length/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#header_update-3">header_update/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send_data-3">send_data/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send_data-4">send_data/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send_header-2">send_header/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send_header-3">send_header/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#start_client-3">start_client/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#start_server-4">start_server/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="handle_call-3">handle_call/3</a></h3>
+<div class="spec">
+<p><tt>handle_call(Msg, From, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="handle_cast-2">handle_cast/2</a></h3>
+<div class="spec">
+<p><tt>handle_cast(Msg, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="handle_info-2">handle_info/2</a></h3>
+<div class="spec">
+<p><tt>handle_info(Msg, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="header_data-3">header_data/3</a></h3>
+<div class="spec">
+<p><tt>header_data(StreamID::<a href="#type-stream_id">stream_id()</a>, Flags::<a href="#type-flags">flags()</a>, Length::non_neg_integer()) -&gt; <a href="#type-header">header()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="header_length-1">header_length/1</a></h3>
+<div class="spec">
+<p><tt>header_length(Header::<a href="#type-header">header()</a>) -&gt; non_neg_integer()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="header_update-3">header_update/3</a></h3>
+<div class="spec">
+<p><tt>header_update(Flags::<a href="#type-flags">flags()</a>, StreamID::<a href="#type-stream_id">stream_id()</a>, Length::non_neg_integer()) -&gt; <a href="#type-header">header()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="init-1">init/1</a></h3>
+<div class="spec">
+<p><tt>init(X1) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="send_data-3">send_data/3</a></h3>
+<div class="spec">
+<p><tt>send_data(Pid::pid(), Header::<a href="#type-header">header()</a>, Data::binary()) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="send_data-4">send_data/4</a></h3>
+<div class="spec">
+<p><tt>send_data(Pid::pid(), Header::<a href="#type-header">header()</a>, Data::binary(), Timeout::non_neg_integer()) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="send_header-2">send_header/2</a></h3>
+<div class="spec">
+<p><tt>send_header(Pid::pid(), Header::<a href="#type-header">header()</a>) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="send_header-3">send_header/3</a></h3>
+<div class="spec">
+<p><tt>send_header(Pid::pid(), Header::<a href="#type-header">header()</a>, Timeout::non_neg_integer()) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="start_client-3">start_client/3</a></h3>
+<div class="spec">
+<p><tt>start_client(Connection::<a href="libp2p_connection.html#type-connection">libp2p_connection:connection()</a>, Path::string(), TID::<a href="ets.html#type-tab">ets:tab()</a>) -&gt; {ok, pid()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="start_server-4">start_server/4</a></h3>
+<div class="spec">
+<p><tt>start_server(Connection::<a href="libp2p_connection.html#type-connection">libp2p_connection:connection()</a>, Path::string(), TID::<a href="ets.html#type-tab">ets:tab()</a>, X4::[]) -&gt; no_return()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="terminate-2">terminate/2</a></h3>
+<div class="spec">
+<p><tt>terminate(Reason, State) -&gt; any()</tt></p>
+</div>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

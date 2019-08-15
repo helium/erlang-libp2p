@@ -1,0 +1,339 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module libp2p_peer</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module libp2p_peer</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-association">association()</a></h3>
+<p><tt>association() = #libp2p_association_pb{}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-association_map">association_map()</a></h3>
+<p><tt>association_map() = [{Type::string(), [<a href="#type-association">association()</a>]}]</tt></p>
+
+
+<h3 class="typedecl"><a name="type-metadata">metadata()</a></h3>
+<p><tt>metadata() = [{string(), binary()}]</tt></p>
+
+
+<h3 class="typedecl"><a name="type-nat_type">nat_type()</a></h3>
+<p><tt>nat_type() = <a href="libp2p_peer_pb.html#type-nat_type">libp2p_peer_pb:nat_type()</a></tt></p>
+
+
+<h3 class="typedecl"><a name="type-peer">peer()</a></h3>
+<p><tt>peer() = #libp2p_signed_peer_pb{}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-peer_map">peer_map()</a></h3>
+<p><tt>peer_map() = #{pubkey =&gt; <a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>, listen_addrs =&gt; [string()], connected =&gt; [binary()], nat_type =&gt; <a href="#type-nat_type">nat_type()</a>, network_id =&gt; binary(), associations =&gt; <a href="#type-association_map">association_map()</a>}</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#association_decode-2">association_decode/2</a></td><td>Decodes the given binary to an association and verifies it
+  against the given peer key.</td></tr>
+<tr><td valign="top"><a href="#association_encode-1">association_encode/1</a></td><td>Encodes the given association to it's binary form.</td></tr>
+<tr><td valign="top"><a href="#association_pubkey_bin-1">association_pubkey_bin/1</a></td><td>Gets the address for the given association.</td></tr>
+<tr><td valign="top"><a href="#association_pubkey_bins-1">association_pubkey_bins/1</a></td><td>Returns a list of association keys.</td></tr>
+<tr><td valign="top"><a href="#association_signature-1">association_signature/1</a></td><td>Gets the signature for the given association.</td></tr>
+<tr><td valign="top"><a href="#association_verify-2">association_verify/2</a></td><td>Returns true if the association can be verified against the
+  given peer key.</td></tr>
+<tr><td valign="top"><a href="#associations-1">associations/1</a></td><td>Get the associations for this peer.</td></tr>
+<tr><td valign="top"><a href="#associations_get-2">associations_get/2</a></td><td>Gets the associations of the given <code>AssocType</code> for the given peer.</td></tr>
+<tr><td valign="top"><a href="#associations_put-4">associations_put/4</a></td><td>Adds or replaces a given assocation for the given type to the
+  peer.</td></tr>
+<tr><td valign="top"><a href="#associations_set-4">associations_set/4</a></td><td>Replaces all associations for a given association type in the
+  given peer.</td></tr>
+<tr><td valign="top"><a href="#blacklist-1">blacklist/1</a></td><td>Gets the blacklist for this peer.</td></tr>
+<tr><td valign="top"><a href="#blacklist_add-2">blacklist_add/2</a></td><td>Add a given listen address to the blacklist for the given
+  peer.</td></tr>
+<tr><td valign="top"><a href="#blacklist_set-2">blacklist_set/2</a></td><td>Sets the blacklist for a given peer.</td></tr>
+<tr><td valign="top"><a href="#cleared_listen_addrs-1">cleared_listen_addrs/1</a></td><td>Returns the listen addrs for this peer filtered using the
+  blacklist for the peer, if one is present.</td></tr>
+<tr><td valign="top"><a href="#connected_peers-1">connected_peers/1</a></td><td>Gets the list of peer crypto addresses that the given peer was last
+  known to be connected to.</td></tr>
+<tr><td valign="top"><a href="#decode-1">decode/1</a></td><td>Decodes a given binary into a peer.</td></tr>
+<tr><td valign="top"><a href="#decode_list-1">decode_list/1</a></td><td>Decodes a given binary into a list of peers.</td></tr>
+<tr><td valign="top"><a href="#decode_unsafe-1">decode_unsafe/1</a></td><td>Decodes a binary peer without verification, use with care.</td></tr>
+<tr><td valign="top"><a href="#encode-1">encode/1</a></td><td>Encodes the given peer into its binary form.</td></tr>
+<tr><td valign="top"><a href="#encode_list-1">encode_list/1</a></td><td>Encodes a given list of peer into a binary form.</td></tr>
+<tr><td valign="top"><a href="#from_map-2">from_map/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#has_public_ip-1">has_public_ip/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#is_association-3">is_association/3</a></td><td>Checks whether a given peer has an association stored with the
+  given assocation type and key.</td></tr>
+<tr><td valign="top"><a href="#is_blacklisted-2">is_blacklisted/2</a></td><td>Returns whether a given listen address is blacklisted.</td></tr>
+<tr><td valign="top"><a href="#is_similar-2">is_similar/2</a></td><td>Returns whether a given <code>Target</code> is mostly equal to an <code>Other</code>
+  peer.</td></tr>
+<tr><td valign="top"><a href="#is_stale-2">is_stale/2</a></td><td>Returns whether a given peer is stale relative to a given
+  stale delta time in milliseconds.</td></tr>
+<tr><td valign="top"><a href="#listen_addrs-1">listen_addrs/1</a></td><td>Gets the list of peer multiaddrs that the given peer is
+  listening on.</td></tr>
+<tr><td valign="top"><a href="#metadata-1">metadata/1</a></td><td>Gets the metadata map from the given peer.</td></tr>
+<tr><td valign="top"><a href="#metadata_get-3">metadata_get/3</a></td><td>Gets the value for a stored <code>Key</code> in metadata.</td></tr>
+<tr><td valign="top"><a href="#metadata_put-3">metadata_put/3</a></td><td>Updates the metadata for a given peer with the given key/value
+  pair.</td></tr>
+<tr><td valign="top"><a href="#metadata_set-2">metadata_set/2</a></td><td>Replaces the full metadata for a given peer.</td></tr>
+<tr><td valign="top"><a href="#mk_association-3">mk_association/3</a></td><td>Make an association for a given peer key.</td></tr>
+<tr><td valign="top"><a href="#nat_type-1">nat_type/1</a></td><td>Gets the NAT type of the given peer.</td></tr>
+<tr><td valign="top"><a href="#network_id-1">network_id/1</a></td><td>Returns the declared network id for the peer, if any.</td></tr>
+<tr><td valign="top"><a href="#network_id_allowable-2">network_id_allowable/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#pubkey_bin-1">pubkey_bin/1</a></td><td>Gets the public key for the given peer.</td></tr>
+<tr><td valign="top"><a href="#supersedes-2">supersedes/2</a></td><td>Returns whether a given <code>Target</code> is more recent than <code>Other</code></td></tr>
+<tr><td valign="top"><a href="#timestamp-1">timestamp/1</a></td><td>Gets the timestamp of the given peer.</td></tr>
+<tr><td valign="top"><a href="#verify-1">verify/1</a></td><td>Cryptographically verifies a given peer and it's
+  associations.</td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="association_decode-2">association_decode/2</a></h3>
+<div class="spec">
+<p><tt>association_decode(Bin::binary(), PeerPubKeyBin::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; <a href="#type-association">association()</a></tt><br></p>
+</div><p>Decodes the given binary to an association and verifies it
+  against the given peer key.</p>
+
+<h3 class="function"><a name="association_encode-1">association_encode/1</a></h3>
+<div class="spec">
+<p><tt>association_encode(Msg::<a href="#type-association">association()</a>) -&gt; binary()</tt><br></p>
+</div><p>Encodes the given association to it's binary form</p>
+
+<h3 class="function"><a name="association_pubkey_bin-1">association_pubkey_bin/1</a></h3>
+<div class="spec">
+<p><tt>association_pubkey_bin(Libp2p_association_pb::<a href="#type-association">association()</a>) -&gt; <a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a></tt><br></p>
+</div><p>Gets the address for the given association</p>
+
+<h3 class="function"><a name="association_pubkey_bins-1">association_pubkey_bins/1</a></h3>
+<div class="spec">
+<p><tt>association_pubkey_bins(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; [{AssocType::string(), [AssocPubKeyBin::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>]}]</tt><br></p>
+</div><p>Returns a list of association keys. This can be used, for example, to
+  compare to peer assocation records with eachother (like in is_similar/2)</p>
+
+<h3 class="function"><a name="association_signature-1">association_signature/1</a></h3>
+<div class="spec">
+<p><tt>association_signature(Libp2p_association_pb::<a href="#type-association">association()</a>) -&gt; binary()</tt><br></p>
+</div><p>Gets the signature for the given association</p>
+
+<h3 class="function"><a name="association_verify-2">association_verify/2</a></h3>
+<div class="spec">
+<p><tt>association_verify(Assoc::<a href="#type-association">association()</a>, PeerPubKeyBin::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; true</tt><br></p>
+</div><p>Returns true if the association can be verified against the
+  given peer key. This has to be the same peer key that was
+  used to construct the signature in the assocation and should be the
+  key of the peer record containing the given association.</p>
+
+<h3 class="function"><a name="associations-1">associations/1</a></h3>
+<div class="spec">
+<p><tt>associations(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; <a href="#type-association_map">association_map()</a></tt><br></p>
+</div><p>Get the associations for this peer. This returns a keyed list
+  with the association type as the key and a list of assocations as
+  the value for that type.</p>
+
+<h3 class="function"><a name="associations_get-2">associations_get/2</a></h3>
+<div class="spec">
+<p><tt>associations_get(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>, AssocType::string()) -&gt; [<a href="#type-association">association()</a>]</tt><br></p>
+</div><p>Gets the associations of the given <code>AssocType</code> for the given peer.</p>
+
+<h3 class="function"><a name="associations_put-4">associations_put/4</a></h3>
+<div class="spec">
+<p><tt>associations_put(Peer::<a href="#type-peer">peer()</a>, AssocType::string(), Assoc::<a href="#type-association">association()</a>, PeerSigFun::<a href="libp2p_crypto.html#type-sig_fun">libp2p_crypto:sig_fun()</a>) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Adds or replaces a given assocation for the given type to the
+  peer. The returned peer is signed with the provided signing
+  function.</p>
+
+<h3 class="function"><a name="associations_set-4">associations_set/4</a></h3>
+<div class="spec">
+<p><tt>associations_set(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>, AssocType::string(), NewAssocs::[<a href="#type-association">association()</a>], PeerSigFun::<a href="libp2p_crypto.html#type-sig_fun">libp2p_crypto:sig_fun()</a>) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Replaces all associations for a given association type in the
+  given peer.</p>
+
+<h3 class="function"><a name="blacklist-1">blacklist/1</a></h3>
+<div class="spec">
+<p><tt>blacklist(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; [string()]</tt><br></p>
+</div><p>Gets the blacklist for this peer. This is a metadata based
+  feature that enables listen addresses to be blacklisted so they
+  will not be connected to until that address is removed from the
+  blacklist.</p>
+
+<h3 class="function"><a name="blacklist_add-2">blacklist_add/2</a></h3>
+<div class="spec">
+<p><tt>blacklist_add(Peer, ListenAddr) -&gt; any()</tt></p>
+</div><p>Add a given listen address to the blacklist for the given
+  peer.</p>
+
+<h3 class="function"><a name="blacklist_set-2">blacklist_set/2</a></h3>
+<div class="spec">
+<p><tt>blacklist_set(Peer::<a href="#type-peer">peer()</a>, BlackList::[string()]) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Sets the blacklist for a given peer. Note that currently no
+  validation is done against the existing listen addresses stored in
+  the peer. Blacklisting an address that the peer is not listening to
+  will have no effect anyway.</p>
+
+<h3 class="function"><a name="cleared_listen_addrs-1">cleared_listen_addrs/1</a></h3>
+<div class="spec">
+<p><tt>cleared_listen_addrs(Peer::<a href="#type-peer">peer()</a>) -&gt; [string()]</tt><br></p>
+</div><p>Returns the listen addrs for this peer filtered using the
+  blacklist for the peer, if one is present. This is just a
+  convenience function to clear the listen adddresses for a peer
+  with the blacklist stored in metadata.</p>
+
+<h3 class="function"><a name="connected_peers-1">connected_peers/1</a></h3>
+<div class="spec">
+<p><tt>connected_peers(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; [<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>]</tt><br></p>
+</div><p>Gets the list of peer crypto addresses that the given peer was last
+  known to be connected to.</p>
+
+<h3 class="function"><a name="decode-1">decode/1</a></h3>
+<div class="spec">
+<p><tt>decode(Bin::binary()) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Decodes a given binary into a peer.</p>
+
+<h3 class="function"><a name="decode_list-1">decode_list/1</a></h3>
+<div class="spec">
+<p><tt>decode_list(Bin::binary()) -&gt; [<a href="#type-peer">peer()</a>]</tt><br></p>
+</div><p>Decodes a given binary into a list of peers.</p>
+
+<h3 class="function"><a name="decode_unsafe-1">decode_unsafe/1</a></h3>
+<div class="spec">
+<p><tt>decode_unsafe(Bin::binary()) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Decodes a binary peer without verification, use with care.</p>
+
+<h3 class="function"><a name="encode-1">encode/1</a></h3>
+<div class="spec">
+<p><tt>encode(Msg::<a href="#type-peer">peer()</a>) -&gt; binary()</tt><br></p>
+</div><p>Encodes the given peer into its binary form.</p>
+
+<h3 class="function"><a name="encode_list-1">encode_list/1</a></h3>
+<div class="spec">
+<p><tt>encode_list(List::[<a href="#type-peer">peer()</a>]) -&gt; binary()</tt><br></p>
+</div><p>Encodes a given list of peer into a binary form. Since
+  encoding lists is primarily used for gossipping peers around, this
+  strips metadata from the peers as part of encoding.</p>
+
+<h3 class="function"><a name="from_map-2">from_map/2</a></h3>
+<div class="spec">
+<p><tt>from_map(Map::<a href="#type-peer_map">peer_map()</a>, SigFun::fun((binary()) -&gt; binary())) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="has_public_ip-1">has_public_ip/1</a></h3>
+<div class="spec">
+<p><tt>has_public_ip(Peer::<a href="#type-peer">peer()</a>) -&gt; boolean()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="is_association-3">is_association/3</a></h3>
+<div class="spec">
+<p><tt>is_association(Peer::<a href="#type-peer">peer()</a>, AssocType::string(), AssocPubKeyBin::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; boolean()</tt><br></p>
+</div><p>Checks whether a given peer has an association stored with the
+  given assocation type and key</p>
+
+<h3 class="function"><a name="is_blacklisted-2">is_blacklisted/2</a></h3>
+<div class="spec">
+<p><tt>is_blacklisted(Peer::<a href="#type-peer">peer()</a>, ListenAddr::string()) -&gt; boolean()</tt><br></p>
+</div><p>Returns whether a given listen address is blacklisted. Note
+  that a blacklisted address may not actually appear in the
+  listen_addrs for this peer.</p>
+
+<h3 class="function"><a name="is_similar-2">is_similar/2</a></h3>
+<div class="spec">
+<p><tt>is_similar(Target::<a href="#type-peer">peer()</a>, Other::<a href="#type-peer">peer()</a>) -&gt; boolean()</tt><br></p>
+</div><p>Returns whether a given <code>Target</code> is mostly equal to an <code>Other</code>
+  peer. Similarity means equality for all fields, except for the
+  timestamp of the peers.</p>
+
+<h3 class="function"><a name="is_stale-2">is_stale/2</a></h3>
+<div class="spec">
+<p><tt>is_stale(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>, StaleMS::integer()) -&gt; boolean()</tt><br></p>
+</div><p>Returns whether a given peer is stale relative to a given
+  stale delta time in milliseconds.</p>
+
+<h3 class="function"><a name="listen_addrs-1">listen_addrs/1</a></h3>
+<div class="spec">
+<p><tt>listen_addrs(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; [string()]</tt><br></p>
+</div><p>Gets the list of peer multiaddrs that the given peer is
+  listening on.</p>
+
+<h3 class="function"><a name="metadata-1">metadata/1</a></h3>
+<div class="spec">
+<p><tt>metadata(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; <a href="#type-metadata">metadata()</a></tt><br></p>
+</div><p>Gets the metadata map from the given peer. The metadata for a
+  peer is <code>NOT</code> part of the signed peer since it can be read and
+  updated by anyone to annotate the given peer with extra information</p>
+
+<h3 class="function"><a name="metadata_get-3">metadata_get/3</a></h3>
+<div class="spec">
+<p><tt>metadata_get(Peer::<a href="#type-peer">peer()</a>, Key::string(), Default::binary()) -&gt; binary()</tt><br></p>
+</div><p>Gets the value for a stored <code>Key</code> in metadata. If not found,
+  the <code>Default</code> is returned.</p>
+
+<h3 class="function"><a name="metadata_put-3">metadata_put/3</a></h3>
+<div class="spec">
+<p><tt>metadata_put(Peer::<a href="#type-peer">peer()</a>, Key::string(), Value::binary()) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Updates the metadata for a given peer with the given key/value
+  pair. The <code>Key</code> is expected to be a string, while <code>Value</code> is
+  expected to be a binary.</p>
+
+<h3 class="function"><a name="metadata_set-2">metadata_set/2</a></h3>
+<div class="spec">
+<p><tt>metadata_set(Peer::<a href="#type-peer">peer()</a>, Metadata::<a href="#type-metadata">metadata()</a>) -&gt; <a href="#type-peer">peer()</a></tt><br></p>
+</div><p>Replaces the full metadata for a given peer</p>
+
+<h3 class="function"><a name="mk_association-3">mk_association/3</a></h3>
+<div class="spec">
+<p><tt>mk_association(AssocPubKeyBin::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>, PeerPubKeyBin::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>, AssocSigFun::<a href="libp2p_crypto.html#type-sig_fun">libp2p_crypto:sig_fun()</a>) -&gt; <a href="#type-association">association()</a></tt><br></p>
+</div><p>Make an association for a given peer key. The returned
+  association contains the given assocation key and the given
+  peer key signed with the passed in association provided
+  signature function.</p>
+
+<h3 class="function"><a name="nat_type-1">nat_type/1</a></h3>
+<div class="spec">
+<p><tt>nat_type(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; <a href="#type-nat_type">nat_type()</a></tt><br></p>
+</div><p>Gets the NAT type of the given peer.</p>
+
+<h3 class="function"><a name="network_id-1">network_id/1</a></h3>
+<div class="spec">
+<p><tt>network_id(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; binary() | undefined</tt><br></p>
+</div><p>Returns the declared network id for the peer, if any</p>
+
+<h3 class="function"><a name="network_id_allowable-2">network_id_allowable/2</a></h3>
+<div class="spec">
+<p><tt>network_id_allowable(Peer, MyNetworkID) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="pubkey_bin-1">pubkey_bin/1</a></h3>
+<div class="spec">
+<p><tt>pubkey_bin(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; <a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a></tt><br></p>
+</div><p>Gets the public key for the given peer.</p>
+
+<h3 class="function"><a name="supersedes-2">supersedes/2</a></h3>
+<div class="spec">
+<p><tt>supersedes(Target::<a href="#type-peer">peer()</a>, Other::<a href="#type-peer">peer()</a>) -&gt; boolean()</tt><br></p>
+</div><p>Returns whether a given <code>Target</code> is more recent than <code>Other</code></p>
+
+<h3 class="function"><a name="timestamp-1">timestamp/1</a></h3>
+<div class="spec">
+<p><tt>timestamp(Libp2p_signed_peer_pb::<a href="#type-peer">peer()</a>) -&gt; integer()</tt><br></p>
+</div><p>Gets the timestamp of the given peer.</p>
+
+<h3 class="function"><a name="verify-1">verify/1</a></h3>
+<div class="spec">
+<p><tt>verify(Msg::<a href="#type-peer">peer()</a>) -&gt; true</tt><br></p>
+</div><p>Cryptographically verifies a given peer and it's
+  associations. Returns true if the given peer can be verified or
+  throws an error if the peer or one of it's associations can't be
+  verified</p>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

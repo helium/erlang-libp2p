@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module libp2p_connection</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module libp2p_connection</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+<p><b>This module defines the <tt>libp2p_connection</tt> behaviour.</b><br> Required callback functions: <tt>acknowledge/2</tt>, <tt>send/3</tt>, <tt>recv/3</tt>, <tt>close/1</tt>, <tt>close_state/1</tt>, <tt>fdset/1</tt>, <tt>fdclr/1</tt>, <tt>addr_info/1</tt>, <tt>session/1</tt>, <tt>set_idle_timeout/2</tt>, <tt>controlling_process/2</tt>.</p>
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-close_state">close_state()</a></h3>
+<p><tt>close_state() = open | closed | pending</tt></p>
+
+
+<h3 class="typedecl"><a name="type-connection">connection()</a></h3>
+<p><tt>connection() = #connection{module = module(), state = any()}</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#acknowledge-2">acknowledge/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#addr_info-1">addr_info/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#close-1">close/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#close_state-1">close_state/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#controlling_process-2">controlling_process/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#fdclr-1">fdclr/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#fdset-1">fdset/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#mk_async_sender-2">mk_async_sender/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#new-2">new/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#recv-1">recv/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#recv-2">recv/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#recv-3">recv/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send-2">send/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send-3">send/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#session-1">session/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#set_idle_timeout-2">set_idle_timeout/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#socket-1">socket/1</a></td><td></td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="acknowledge-2">acknowledge/2</a></h3>
+<div class="spec">
+<p><tt>acknowledge(Connection::<a href="#type-connection">connection()</a>, Ref::any()) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="addr_info-1">addr_info/1</a></h3>
+<div class="spec">
+<p><tt>addr_info(Connection::<a href="#type-connection">connection()</a>) -&gt; {string(), string()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="close-1">close/1</a></h3>
+<div class="spec">
+<p><tt>close(Connection::<a href="#type-connection">connection()</a>) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="close_state-1">close_state/1</a></h3>
+<div class="spec">
+<p><tt>close_state(Connection::<a href="#type-connection">connection()</a>) -&gt; <a href="#type-close_state">close_state()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="controlling_process-2">controlling_process/2</a></h3>
+<div class="spec">
+<p><tt>controlling_process(Conn::<a href="#type-connection">connection()</a>, Pid::pid()) -&gt; {ok, <a href="#type-connection">connection()</a>} | {error, closed | not_owner | atom()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="fdclr-1">fdclr/1</a></h3>
+<div class="spec">
+<p><tt>fdclr(Connection::<a href="#type-connection">connection()</a>) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="fdset-1">fdset/1</a></h3>
+<div class="spec">
+<p><tt>fdset(Connection::<a href="#type-connection">connection()</a>) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="mk_async_sender-2">mk_async_sender/2</a></h3>
+<div class="spec">
+<p><tt>mk_async_sender(Handler::pid(), Connection::<a href="libp2p_connection.html#type-connection">libp2p_connection:connection()</a>) -&gt; function()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="new-2">new/2</a></h3>
+<div class="spec">
+<p><tt>new(Module::atom(), State::any()) -&gt; <a href="#type-connection">connection()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="recv-1">recv/1</a></h3>
+<div class="spec">
+<p><tt>recv(Conn::<a href="#type-connection">connection()</a>) -&gt; {ok, binary()} | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="recv-2">recv/2</a></h3>
+<div class="spec">
+<p><tt>recv(Conn::<a href="#type-connection">connection()</a>, Length::non_neg_integer()) -&gt; {ok, binary()} | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="recv-3">recv/3</a></h3>
+<div class="spec">
+<p><tt>recv(Connection::<a href="#type-connection">connection()</a>, Length::non_neg_integer(), Timeout::non_neg_integer()) -&gt; {ok, binary()} | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="send-2">send/2</a></h3>
+<div class="spec">
+<p><tt>send(Connection::<a href="#type-connection">connection()</a>, Data::iodata()) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="send-3">send/3</a></h3>
+<div class="spec">
+<p><tt>send(Connection::<a href="#type-connection">connection()</a>, Data::iodata(), Timeout::non_neg_integer() | infinity) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="session-1">session/1</a></h3>
+<div class="spec">
+<p><tt>session(Connection::<a href="#type-connection">connection()</a>) -&gt; {ok, pid()} | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="set_idle_timeout-2">set_idle_timeout/2</a></h3>
+<div class="spec">
+<p><tt>set_idle_timeout(Connection::<a href="#type-connection">connection()</a>, Timeout::pos_integer() | infinity) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="socket-1">socket/1</a></h3>
+<div class="spec">
+<p><tt>socket(Connection::<a href="#type-connection">connection()</a>) -&gt; any()</tt><br></p>
+</div>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

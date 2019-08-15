@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module libp2p_peerbook</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module libp2p_peerbook</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-opt">opt()</a></h3>
+<p><tt>opt() = {stale_time, pos_integer()} | {peer_time, pos_integer()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-peerbook">peerbook()</a></h3>
+<p><tt>peerbook() = #peerbook{tid = <a href="ets.html#type-tab">ets:tab()</a>, store = <a href="/Users/pdefebvre/Projects/erlang-libp2p/_build/default/lib/rocksdb/doc/rocksdb.html#type-db_handle">rocksdb:db_handle()</a>, stale_time = pos_integer()}</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#add_association-3">add_association/3</a></td><td>Adds an association under the given type to for the swarm this  
+peerbook is part of.</td></tr>
+<tr><td valign="top"><a href="#blacklist_listen_addr-3">blacklist_listen_addr/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#changed_listener-1">changed_listener/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#get-2">get/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_call-3">handle_call/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_cast-2">handle_cast/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_gossip_data-2">handle_gossip_data/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_info-2">handle_info/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init_gossip_data-1">init_gossip_data/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#is_key-2">is_key/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#join_notify-2">join_notify/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#keys-1">keys/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#lookup_association-3">lookup_association/3</a></td><td>Look up all the peers that have a given association type
+  <code>AssocTyp</code> and address <code>AssocAddress</code> in their associations.</td></tr>
+<tr><td valign="top"><a href="#put-2">put/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#register_session-3">register_session/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#remove-2">remove/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#stale_time-1">stale_time/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#start_link-2">start_link/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#terminate-2">terminate/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#unregister_session-2">unregister_session/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#update_nat_type-2">update_nat_type/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#values-1">values/1</a></td><td></td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="add_association-3">add_association/3</a></h3>
+<div class="spec">
+<p><tt>add_association(Peerbook::<a href="#type-peerbook">peerbook()</a>, AssocType::string(), Assoc::<a href="libp2p_peer.html#type-association">libp2p_peer:association()</a>) -&gt; ok</tt><br></p>
+</div><p><p>Adds an association under the given type to for the swarm this  
+peerbook is part of. Note that the association _must_ have its  
+signature be valid for the address of the swarm this peerbook is  
+part of.</p>
+ 
+  <p>Associations are gossiped with the peer record for the swarm.</p>
+ 
+  Note that the given association will replace an existing
+  association with the given type and address of the association.</p>
+
+<h3 class="function"><a name="blacklist_listen_addr-3">blacklist_listen_addr/3</a></h3>
+<div class="spec">
+<p><tt>blacklist_listen_addr(Handle::<a href="#type-peerbook">peerbook()</a>, ID::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>, ListenAddr::string()) -&gt; ok | {error, not_found}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="changed_listener-1">changed_listener/1</a></h3>
+<div class="spec">
+<p><tt>changed_listener(Peerbook) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="get-2">get/2</a></h3>
+<div class="spec">
+<p><tt>get(Peerbook::<a href="#type-peerbook">peerbook()</a>, ID::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; {ok, <a href="libp2p_peer.html#type-peer">libp2p_peer:peer()</a>} | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="handle_call-3">handle_call/3</a></h3>
+<div class="spec">
+<p><tt>handle_call(Msg, From, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="handle_cast-2">handle_cast/2</a></h3>
+<div class="spec">
+<p><tt>handle_cast(Msg, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="handle_gossip_data-2">handle_gossip_data/2</a></h3>
+<div class="spec">
+<p><tt>handle_gossip_data(Data::binary(), Handle::<a href="#type-peerbook">peerbook()</a>) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="handle_info-2">handle_info/2</a></h3>
+<div class="spec">
+<p><tt>handle_info(Msg, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="init-1">init/1</a></h3>
+<div class="spec">
+<p><tt>init(X1) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="init_gossip_data-1">init_gossip_data/1</a></h3>
+<div class="spec">
+<p><tt>init_gossip_data(Handle::<a href="#type-peerbook">peerbook()</a>) -&gt; <a href="libp2p_group_gossip_handler.html#type-init_result">libp2p_group_gossip_handler:init_result()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="is_key-2">is_key/2</a></h3>
+<div class="spec">
+<p><tt>is_key(Handle::<a href="#type-peerbook">peerbook()</a>, ID::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; boolean()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="join_notify-2">join_notify/2</a></h3>
+<div class="spec">
+<p><tt>join_notify(Peerbook::<a href="#type-peerbook">peerbook()</a>, Joiner::pid()) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="keys-1">keys/1</a></h3>
+<div class="spec">
+<p><tt>keys(Handle::<a href="#type-peerbook">peerbook()</a>) -&gt; [<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>]</tt><br></p>
+</div>
+
+<h3 class="function"><a name="lookup_association-3">lookup_association/3</a></h3>
+<div class="spec">
+<p><tt>lookup_association(Handle::<a href="#type-peerbook">peerbook()</a>, AssocType::string(), AssocAddress::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; [<a href="libp2p_peer.html#type-peer">libp2p_peer:peer()</a>]</tt><br></p>
+</div><p>Look up all the peers that have a given association type
+  <code>AssocTyp</code> and address <code>AssocAddress</code> in their associations.</p>
+
+<h3 class="function"><a name="put-2">put/2</a></h3>
+<div class="spec">
+<p><tt>put(Peerbook::<a href="#type-peerbook">peerbook()</a>, PeerList::[<a href="libp2p_peer.html#type-peer">libp2p_peer:peer()</a>]) -&gt; ok | {error, term()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="register_session-3">register_session/3</a></h3>
+<div class="spec">
+<p><tt>register_session(Peerbook::<a href="#type-peerbook">peerbook()</a>, SessionPid::pid(), Identify::<a href="libp2p_identify.html#type-identify">libp2p_identify:identify()</a>) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="remove-2">remove/2</a></h3>
+<div class="spec">
+<p><tt>remove(Peerbook::<a href="#type-peerbook">peerbook()</a>, ID::<a href="libp2p_crypto.html#type-pubkey_bin">libp2p_crypto:pubkey_bin()</a>) -&gt; ok | {error, no_delete}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="stale_time-1">stale_time/1</a></h3>
+<div class="spec">
+<p><tt>stale_time(Peerbook::<a href="#type-peerbook">peerbook()</a>) -&gt; pos_integer()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="start_link-2">start_link/2</a></h3>
+<div class="spec">
+<p><tt>start_link(TID, SigFun) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="terminate-2">terminate/2</a></h3>
+<div class="spec">
+<p><tt>terminate(Reason, State) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="unregister_session-2">unregister_session/2</a></h3>
+<div class="spec">
+<p><tt>unregister_session(Peerbook::<a href="#type-peerbook">peerbook()</a>, SessionPid::pid()) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="update_nat_type-2">update_nat_type/2</a></h3>
+<div class="spec">
+<p><tt>update_nat_type(Peerbook::<a href="#type-peerbook">peerbook()</a>, NatType::<a href="libp2p_peer.html#type-nat_type">libp2p_peer:nat_type()</a>) -&gt; ok</tt><br></p>
+</div>
+
+<h3 class="function"><a name="values-1">values/1</a></h3>
+<div class="spec">
+<p><tt>values(Handle::<a href="#type-peerbook">peerbook()</a>) -&gt; [<a href="libp2p_peer.html#type-peer">libp2p_peer:peer()</a>]</tt><br></p>
+</div>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

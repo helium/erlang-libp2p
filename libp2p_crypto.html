@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module libp2p_crypto</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module libp2p_crypto</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-ecdh_fun">ecdh_fun()</a></h3>
+<p><tt>ecdh_fun() = fun((<a href="#type-pubkey">pubkey()</a>) -&gt; binary())</tt></p>
+
+
+<h3 class="typedecl"><a name="type-enacl_privkey">enacl_privkey()</a></h3>
+<p><tt>enacl_privkey() = &lt;&lt;_:256&gt;&gt;</tt></p>
+
+
+<h3 class="typedecl"><a name="type-enacl_pubkey">enacl_pubkey()</a></h3>
+<p><tt>enacl_pubkey() = &lt;&lt;_:256&gt;&gt;</tt></p>
+
+
+<h3 class="typedecl"><a name="type-key_map">key_map()</a></h3>
+<p><tt>key_map() = #{secret =&gt; <a href="#type-privkey">privkey()</a>, public =&gt; <a href="#type-pubkey">pubkey()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-key_type">key_type()</a></h3>
+<p><tt>key_type() = ecc_compact | ed25519</tt></p>
+
+
+<h3 class="typedecl"><a name="type-privkey">privkey()</a></h3>
+<p><tt>privkey() = {ecc_compact, <a href="ecc_compact.html#type-private_key">ecc_compact:private_key()</a>} | {ed25519, <a href="#type-enacl_privkey">enacl_privkey()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-pubkey">pubkey()</a></h3>
+<p><tt>pubkey() = {ecc_compact, <a href="ecc_compact.html#type-public_key">ecc_compact:public_key()</a>} | {ed25519, <a href="#type-enacl_pubkey">enacl_pubkey()</a>}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-pubkey_bin">pubkey_bin()</a></h3>
+<p><tt>pubkey_bin() = &lt;&lt;_:8, _:_*8&gt;&gt;</tt></p>
+
+
+<h3 class="typedecl"><a name="type-sig_fun">sig_fun()</a></h3>
+<p><tt>sig_fun() = fun((binary()) -&gt; binary())</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#b58_to_bin-1">b58_to_bin/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#b58_to_pubkey-1">b58_to_pubkey/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#b58_to_version_bin-1">b58_to_version_bin/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#bin_to_b58-1">bin_to_b58/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#bin_to_b58-2">bin_to_b58/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#bin_to_pubkey-1">bin_to_pubkey/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#generate_keys-1">generate_keys/1</a></td><td>Generate keys suitable for a swarm.</td></tr>
+<tr><td valign="top"><a href="#keys_from_bin-1">keys_from_bin/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#keys_to_bin-1">keys_to_bin/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#load_keys-1">load_keys/1</a></td><td>Load the private key from a pem encoded given filename.</td></tr>
+<tr><td valign="top"><a href="#mk_ecdh_fun-1">mk_ecdh_fun/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#mk_sig_fun-1">mk_sig_fun/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#p2p_to_pubkey_bin-1">p2p_to_pubkey_bin/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#pubkey_bin_to_p2p-1">pubkey_bin_to_p2p/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#pubkey_to_b58-1">pubkey_to_b58/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#pubkey_to_bin-1">pubkey_to_bin/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#save_keys-2">save_keys/2</a></td><td>Store the given keys in a file.</td></tr>
+<tr><td valign="top"><a href="#verify-3">verify/3</a></td><td>Verifies a digital signature, using sha256.</td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="b58_to_bin-1">b58_to_bin/1</a></h3>
+<div class="spec">
+<p><tt>b58_to_bin(Str::string()) -&gt; binary()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="b58_to_pubkey-1">b58_to_pubkey/1</a></h3>
+<div class="spec">
+<p><tt>b58_to_pubkey(Str::string()) -&gt; <a href="#type-pubkey">pubkey()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="b58_to_version_bin-1">b58_to_version_bin/1</a></h3>
+<div class="spec">
+<p><tt>b58_to_version_bin(Str::string()) -&gt; {Version::non_neg_integer(), binary()}</tt><br></p>
+</div>
+
+<h3 class="function"><a name="bin_to_b58-1">bin_to_b58/1</a></h3>
+<div class="spec">
+<p><tt>bin_to_b58(Bin::binary()) -&gt; string()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="bin_to_b58-2">bin_to_b58/2</a></h3>
+<div class="spec">
+<p><tt>bin_to_b58(Version::non_neg_integer(), Bin::binary()) -&gt; string()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="bin_to_pubkey-1">bin_to_pubkey/1</a></h3>
+<div class="spec">
+<p><tt>bin_to_pubkey(X1::<a href="#type-pubkey_bin">pubkey_bin()</a>) -&gt; <a href="#type-pubkey">pubkey()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="generate_keys-1">generate_keys/1</a></h3>
+<div class="spec">
+<p><tt>generate_keys(X1::<a href="#type-key_type">key_type()</a>) -&gt; <a href="#type-key_map">key_map()</a></tt><br></p>
+</div><p>Generate keys suitable for a swarm.  The returned private and
+  public key has the attribute that the public key is a compressable
+  public key.</p>
+
+<h3 class="function"><a name="keys_from_bin-1">keys_from_bin/1</a></h3>
+<div class="spec">
+<p><tt>keys_from_bin(X1::binary()) -&gt; <a href="#type-key_map">key_map()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="keys_to_bin-1">keys_to_bin/1</a></h3>
+<div class="spec">
+<p><tt>keys_to_bin(X1::<a href="#type-key_map">key_map()</a>) -&gt; binary()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="load_keys-1">load_keys/1</a></h3>
+<div class="spec">
+<p><tt>load_keys(FileName::string()) -&gt; {ok, <a href="#type-key_map">key_map()</a>} | {error, term()}</tt><br></p>
+</div><p>Load the private key from a pem encoded given filename.
+  Returns the private and extracted public key stored in the file or
+  an error if any occorred.</p>
+
+<h3 class="function"><a name="mk_ecdh_fun-1">mk_ecdh_fun/1</a></h3>
+<div class="spec">
+<p><tt>mk_ecdh_fun(X1::<a href="#type-privkey">privkey()</a>) -&gt; <a href="#type-ecdh_fun">ecdh_fun()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="mk_sig_fun-1">mk_sig_fun/1</a></h3>
+<div class="spec">
+<p><tt>mk_sig_fun(X1::<a href="#type-privkey">privkey()</a>) -&gt; <a href="#type-sig_fun">sig_fun()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="p2p_to_pubkey_bin-1">p2p_to_pubkey_bin/1</a></h3>
+<div class="spec">
+<p><tt>p2p_to_pubkey_bin(Str::string()) -&gt; <a href="#type-pubkey_bin">pubkey_bin()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="pubkey_bin_to_p2p-1">pubkey_bin_to_p2p/1</a></h3>
+<div class="spec">
+<p><tt>pubkey_bin_to_p2p(PubKey::<a href="#type-pubkey_bin">pubkey_bin()</a>) -&gt; string()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="pubkey_to_b58-1">pubkey_to_b58/1</a></h3>
+<div class="spec">
+<p><tt>pubkey_to_b58(PubKey::<a href="#type-pubkey">pubkey()</a>) -&gt; string()</tt><br></p>
+</div>
+
+<h3 class="function"><a name="pubkey_to_bin-1">pubkey_to_bin/1</a></h3>
+<div class="spec">
+<p><tt>pubkey_to_bin(X1::<a href="#type-pubkey">pubkey()</a>) -&gt; <a href="#type-pubkey_bin">pubkey_bin()</a></tt><br></p>
+</div>
+
+<h3 class="function"><a name="save_keys-2">save_keys/2</a></h3>
+<div class="spec">
+<p><tt>save_keys(KeysMap::<a href="#type-key_map">key_map()</a>, FileName::string()) -&gt; ok | {error, term()}</tt><br></p>
+</div><p>Store the given keys in a file.  See @see key_folder/1 for a
+  utility function that returns a name and location for the keys that
+  are relative to the swarm data folder.</p>
+
+<h3 class="function"><a name="verify-3">verify/3</a></h3>
+<div class="spec">
+<p><tt>verify(Bin::binary(), Signature::binary(), X3::<a href="#type-pubkey">pubkey()</a>) -&gt; boolean()</tt><br></p>
+</div><p>Verifies a digital signature, using sha256.</p>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>

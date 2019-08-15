@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Module libp2p_yamux_stream</title>
+<link rel="stylesheet" type="text/css" href="stylesheet.css" title="EDoc">
+</head>
+<body bgcolor="white">
+<div class="navbar"><a name="#navbar_top"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<hr>
+
+<h1>Module libp2p_yamux_stream</h1>
+<ul class="index"><li><a href="#types">Data Types</a></li><li><a href="#index">Function Index</a></li><li><a href="#functions">Function Details</a></li></ul>
+
+
+<h2><a name="types">Data Types</a></h2>
+
+<h3 class="typedecl"><a name="type-opt">opt()</a></h3>
+<p><tt>opt() = {max_window, pos_integer()}</tt></p>
+
+
+<h3 class="typedecl"><a name="type-stream">stream()</a></h3>
+<p><tt>stream() = reference()</tt></p>
+
+
+<h2><a name="index">Function Index</a></h2>
+<table width="100%" border="1" cellspacing="0" cellpadding="2" summary="function index"><tr><td valign="top"><a href="#acknowledge-2">acknowledge/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#addr_info-1">addr_info/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#callback_mode-0">callback_mode/0</a></td><td></td></tr>
+<tr><td valign="top"><a href="#close-1">close/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#close_state-1">close_state/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#controlling_process-2">controlling_process/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#fdclr-1">fdclr/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#fdset-1">fdset/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#handle_event-4">handle_event/4</a></td><td></td></tr>
+<tr><td valign="top"><a href="#info-1">info/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#init-1">init/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#new_connection-1">new_connection/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#open_stream-3">open_stream/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#receive_data-2">receive_data/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#receive_stream-3">receive_stream/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#recv-3">recv/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#send-3">send/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#session-1">session/1</a></td><td></td></tr>
+<tr><td valign="top"><a href="#set_idle_timeout-2">set_idle_timeout/2</a></td><td></td></tr>
+<tr><td valign="top"><a href="#terminate-3">terminate/3</a></td><td></td></tr>
+<tr><td valign="top"><a href="#update_window-3">update_window/3</a></td><td></td></tr>
+</table>
+
+<h2><a name="functions">Function Details</a></h2>
+
+<h3 class="function"><a name="acknowledge-2">acknowledge/2</a></h3>
+<div class="spec">
+<p><tt>acknowledge(X1, X2) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="addr_info-1">addr_info/1</a></h3>
+<div class="spec">
+<p><tt>addr_info(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="callback_mode-0">callback_mode/0</a></h3>
+<div class="spec">
+<p><tt>callback_mode() -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="close-1">close/1</a></h3>
+<div class="spec">
+<p><tt>close(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="close_state-1">close_state/1</a></h3>
+<div class="spec">
+<p><tt>close_state(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="controlling_process-2">controlling_process/2</a></h3>
+<div class="spec">
+<p><tt>controlling_process(Pid, Owner) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="fdclr-1">fdclr/1</a></h3>
+<div class="spec">
+<p><tt>fdclr(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="fdset-1">fdset/1</a></h3>
+<div class="spec">
+<p><tt>fdset(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="handle_event-4">handle_event/4</a></h3>
+<div class="spec">
+<p><tt>handle_event(EventType, Event, State, Data) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="info-1">info/1</a></h3>
+<div class="spec">
+<p><tt>info(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="init-1">init/1</a></h3>
+<div class="spec">
+<p><tt>init(X1) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="new_connection-1">new_connection/1</a></h3>
+<div class="spec">
+<p><tt>new_connection(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="open_stream-3">open_stream/3</a></h3>
+<div class="spec">
+<p><tt>open_stream(Session, TID, StreamID) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="receive_data-2">receive_data/2</a></h3>
+<div class="spec">
+<p><tt>receive_data(Ref, Data) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="receive_stream-3">receive_stream/3</a></h3>
+<div class="spec">
+<p><tt>receive_stream(Session, TID, StreamID) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="recv-3">recv/3</a></h3>
+<div class="spec">
+<p><tt>recv(Pid, Size, Timeout) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="send-3">send/3</a></h3>
+<div class="spec">
+<p><tt>send(Pid, Data, Timeout) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="session-1">session/1</a></h3>
+<div class="spec">
+<p><tt>session(Pid) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="set_idle_timeout-2">set_idle_timeout/2</a></h3>
+<div class="spec">
+<p><tt>set_idle_timeout(Pid, Timeout) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="terminate-3">terminate/3</a></h3>
+<div class="spec">
+<p><tt>terminate(Reason, State, Data) -&gt; any()</tt></p>
+</div>
+
+<h3 class="function"><a name="update_window-3">update_window/3</a></h3>
+<div class="spec">
+<p><tt>update_window(Ref, Flags, Header) -&gt; any()</tt></p>
+</div>
+<hr>
+
+<div class="navbar"><a name="#navbar_bottom"></a><table width="100%" border="0" cellspacing="0" cellpadding="2" summary="navigation bar"><tr><td><a href="overview-summary.html" target="overviewFrame">Overview</a></td><td><a href="http://www.erlang.org/"><img src="erlang.png" align="right" border="0" alt="erlang logo"></a></td></tr></table></div>
+<p><i>Generated by EDoc</i></p>
+</body>
+</html>
