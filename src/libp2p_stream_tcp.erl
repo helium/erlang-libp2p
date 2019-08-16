@@ -43,13 +43,27 @@
 command(Pid, Cmd) ->
     libp2p_stream_transport:command(Pid, Cmd).
 
+-spec addr_info(pid() | inet:socket()) ->
+                       {ok, {LocalAddr::string(), RemoteAddr::string()}} | {error, term()}.
 addr_info(Pid) when is_pid(Pid) ->
-    command(Pid, stream_addr_info);
+    case is_process_alive(Pid) of
+        true ->
+            command(Pid, stream_addr_info);
+        _ -> {error, closed}
+    end;
 addr_info(Sock) ->
-    {ok, LocalAddr} = inet:sockname(Sock),
-    {ok, RemoteAddr} = inet:peername(Sock),
-    {libp2p_transport_tcp:to_multiaddr(LocalAddr), libp2p_transport_tcp:to_multiaddr(RemoteAddr)}.
-
+    case inet:sockname(Sock) of
+        {ok, LocalAddr} ->
+            case inet:peername(Sock) of
+                {ok, RemoteAddr} ->
+                    {libp2p_transport_tcp:to_multiaddr(LocalAddr),
+                     libp2p_transport_tcp:to_multiaddr(RemoteAddr)};
+                {error, Error} ->
+                    {error, Error}
+            end;
+        {error, Error} ->
+            {error, Error}
+    end.
 
 %% acceptor callbacks
 %%
