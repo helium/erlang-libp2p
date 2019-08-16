@@ -245,7 +245,7 @@ supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}}
            #libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=OtherTimestamp}}) ->
     ThisTimestamp > OtherTimestamp.
 
-%% @doc Returns whether a given `Target` is mostly equal to an `Other`
+%% @doc Returns whether a given `Target' is mostly equal to an `Other'
 %% peer. Similarity means equality for all fields, except for the
 %% timestamp of the peers.
 -spec is_similar(Target::peer(), Other::peer()) -> boolean().
