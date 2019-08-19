@@ -5,7 +5,7 @@
 -export_type([opt/0]).
 
 -export([start_link/3, handle_input/2, send/2,
-         info/1, queues/1, handle_command/2]).
+         status/1, info/1, queues/1, handle_command/2]).
 
 -spec start_link(ets:tab(), GroupID::string(), Args::[any()])
                 -> {ok, pid()} | {error, term()}.
@@ -31,6 +31,11 @@ send(GroupPid, Data) ->
 info(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
     gen_server:call(Server, info).
+
+-spec status(pid()) -> atom().
+status(GroupPid) ->
+    Server = libp2p_group_relcast_sup:server(GroupPid),
+    gen_server:call(Server, status).
 
 %% @doc Get the messages queued in the relcast server.
 -spec queues(pid()) -> relcast:status().
