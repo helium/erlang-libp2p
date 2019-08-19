@@ -5,7 +5,13 @@
 -behavior(libp2p_info).
 
 %% API
--export([start_link/4, handle_input/2, send_ack/4, info/1, handle_command/2]).
+-export([
+         start_link/4,
+         status/1,
+         handle_input/2,
+         send_ack/4,
+         info/1,
+         handle_command/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_ack_stream
@@ -28,7 +34,7 @@
          group_id :: string(),
          self_index :: pos_integer(),
          workers=[] :: [#worker{}],
-         store :: undefined | relcast:relcast_state(),
+         store = not_started :: not_started | cannot_start | relcast:relcast_state(),
          store_dir :: file:filename(),
          pending = #{} :: #{pos_integer() => {pos_integer(), binary()}},
          close_state=undefined :: undefined | closing
@@ -39,6 +45,13 @@
 -define(GROUP_PATH_BASE, "relcast/").
 
 %% API
+status(Pid) ->
+    try
+        gen_server:call(Pid, status, 10000)
+    catch _:_ ->
+            {error, group_down}
+    end.
+
 handle_input(Pid, Msg) ->
     gen_server:cast(Pid, {handle_input, Msg}).
 
@@ -94,6 +107,17 @@ init([TID, GroupID, Args, Sup]) ->
             {stop, {error, {not_found, SelfAddr}}}
     end.
 
+handle_call(status, _From, State = #state{store=Store}) ->
+    Reply =
+        case Store of
+            not_started ->
+                not_started;
+            cannot_start ->
+                cannot_start;
+            _ ->
+                started
+        end,
+    {reply, Reply, State};
 handle_call(dump_queues, _From, State = #state{store=Store}) ->
     {reply, relcast:status(Store), State};
 handle_call({peek, ActorID}, _From, State = #state{store=Store}) ->
@@ -295,9 +319,8 @@ handle_cast(Msg, State) ->
 
 -dialyzer({nowarn_function, [start_relcast/6]}).
 start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
-    {ok, Relcast} = relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
-                                  HandlerArgs, [{data_dir, Store}|RelcastArgs]),
-    {ok, Relcast}.
+    relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
+                  HandlerArgs, [{data_dir, Store}|RelcastArgs]).
 
 handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
     ServerPath = lists:flatten(?GROUP_PATH_BASE, GroupID),
@@ -306,10 +329,15 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) -
                                                                 {secured, libp2p_swarm:swarm(TID)}]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info({start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs}, State) ->
-    {ok, Relcast} = start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir),
-    self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
-    erlang:send_after(1500, self(), inbound_tick),
-    {noreply, State#state{store=Relcast}};
+    case start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir) of
+        {ok, Relcast} ->
+            self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
+            erlang:send_after(1500, self(), inbound_tick),
+            {noreply, State#state{store=Relcast}};
+        {error, {invalid_or_no_existing_store, _Msg}} ->
+            lager:info("unable to start relcast: ~p", [_Msg]),
+            {noreply, State#state{store=cannot_start}}
+    end;
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
     %% down the group by exiting the supervisor.
