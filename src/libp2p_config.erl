@@ -12,7 +12,7 @@
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
          insert_group/3, lookup_group/2, remove_group/2,
-         insert_relay/2, lookup_relay/1, remove_relay/1,
+         insert_relay_client/2, lookup_relay_client/1, remove_relay_client/1,
          insert_relay_stream/3, lookup_relay_stream/2, remove_relay_stream/2,
          insert_relay_sessions/3, lookup_relay_sessions/2, remove_relay_sessions/2,
          insert_proxy/2, lookup_proxy/1, remove_proxy/1,
@@ -326,16 +326,16 @@ remove_group(TID, GroupID) ->
 %% Relay
 %%
 
--spec insert_relay(ets:tab(), pid()) -> true.
-insert_relay(TID, Pid) ->
+-spec insert_relay_client(ets:tab(), pid()) -> true.
+insert_relay_client(TID, Pid) ->
     insert_pid(TID, ?RELAY, "pid", Pid).
 
--spec lookup_relay(ets:tab()) -> {ok, pid()} | false.
-lookup_relay(TID) ->
+-spec lookup_relay_client(ets:tab()) -> {ok, pid()} | false.
+lookup_relay_client(TID) ->
     lookup_pid(TID, ?RELAY, "pid").
 
--spec remove_relay(ets:tab()) -> true.
-remove_relay(TID) ->
+-spec remove_relay_client(ets:tab()) -> true.
+remove_relay_client(TID) ->
     remove_pid(TID, ?RELAY, "pid").
 
 -spec insert_relay_stream(ets:tab(), string(), pid()) -> true.

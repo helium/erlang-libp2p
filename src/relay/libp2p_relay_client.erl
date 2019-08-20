@@ -1,6 +1,6 @@
 %%%-------------------------------------------------------------------
 %% @doc
-%% == Libp2p Relay Server ==
+%% == Libp2p Relay Client ==
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_relay_client).
@@ -55,7 +55,7 @@ start_link(Args) ->
 
 -spec relay(pid()) -> ok | {error, any()}.
 relay(Swarm) ->
-    case get_relay_server(Swarm) of
+    case get_relay_client(Swarm) of
         {ok, Pid} ->
             gen_server:cast(Pid, init_relay);
         {error, _}=Error ->
@@ -64,7 +64,7 @@ relay(Swarm) ->
 
 -spec stop(pid()) -> ok | {error, any()}.
 stop(Swarm) ->
-    case get_relay_server(Swarm) of
+    case get_relay_client(Swarm) of
         {ok, Pid} ->
             gen_server:cast(Pid, stop_relay);
         {error, _}=Error ->
@@ -73,7 +73,7 @@ stop(Swarm) ->
 
 -spec replace(string(), pid()) -> ok | {error, any()}.
 replace(Address, Swarm) ->
-    case get_relay_server(Swarm) of
+    case get_relay_client(Swarm) of
         {ok, Pid} ->
             Pid ! {replace_relay, Address};
         {error, _}=Error ->
@@ -82,7 +82,7 @@ replace(Address, Swarm) ->
 
 -spec negotiated(pid(), string()) -> ok | {error, any()}.
 negotiated(Swarm, Address) ->
-    case get_relay_server(Swarm) of
+    case get_relay_client(Swarm) of
         {ok, Pid} ->
             gen_server:call(Pid, {negotiated, Address, self()});
         {error, _}=Error ->
@@ -94,7 +94,7 @@ negotiated(Swarm, Address) ->
 %% ------------------------------------------------------------------
 init(TID) ->
     lager:info("~p init with ~p", [?MODULE, TID]),
-    true = libp2p_config:insert_relay(TID, self()),
+    true = libp2p_config:insert_relay_client(TID, self()),
     {ok, #state{tid=TID}}.
 
 handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
@@ -199,7 +199,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 terminate(_Reason, #state{tid=TID, stream=Pid}) when is_pid(Pid) ->
     catch libp2p_framed_stream:close(Pid),
-    true = libp2p_config:remove_relay(TID),
+    true = libp2p_config:remove_relay_client(TID),
     ok;
 terminate(_Reason, _State) ->
     ok.
@@ -213,11 +213,11 @@ retry(#state{retrying=OldTimer}=State) ->
     TimeRef = erlang:send_after(2500, self(), retry),
     State#state{retrying=TimeRef}.
 
--spec get_relay_server(pid()) -> {ok, pid()} | {error, any()}.
-get_relay_server(Swarm) ->
+-spec get_relay_client(pid()) -> {ok, pid()} | {error, any()}.
+get_relay_client(Swarm) ->
     try libp2p_swarm:tid(Swarm) of
         TID ->
-            case libp2p_config:lookup_relay(TID) of
+            case libp2p_config:lookup_relay_client(TID) of
                 false -> {error, no_relay};
                 {ok, _Pid}=R -> R
             end
