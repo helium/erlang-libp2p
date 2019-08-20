@@ -10,7 +10,8 @@
 ]).
 
 -export([
-    basic/1
+    basic/1,
+    limit/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -24,7 +25,7 @@
 %% @end
 %%--------------------------------------------------------------------
 all() ->
-    [basic].
+    [basic, limit].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -189,9 +190,135 @@ basic(_Config) ->
     meck:unload(libp2p_relay),
     ok.
 
+%%--------------------------------------------------------------------
+%% @public
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+limit(_Config) ->
+    SwarmOpts = [
+        {libp2p_nat, [{enabled, false}]}
+    ],
+    Version = "relaytest/1.0.0",
+
+    {ok, ASwarm} = libp2p_swarm:start(relay_limit_a, SwarmOpts),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        ASwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
+    ),
+
+    {ok, BSwarm} = libp2p_swarm:start(relay_limit_b, SwarmOpts ++ [{libp2p_relay, [{limit, 0}]}]),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        BSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
+    ),
+
+    {ok, CSwarm} = libp2p_swarm:start(relay_limit_c, SwarmOpts),
+    ok = libp2p_swarm:listen(CSwarm, "/ip4/0.0.0.0/tcp/0"),
+    libp2p_swarm:add_stream_handler(
+        CSwarm,
+        Version,
+        {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), CSwarm]}
+    ),
+
+    % Relay needs a public ip now, not just a circuit address
+    meck:new(libp2p_transport_tcp, [no_link, passthrough]),
+    meck:expect(libp2p_transport_tcp, is_public, fun(_) -> true end),
+
+    ct:pal("A swarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
+    ct:pal("B swarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
+    ct:pal("C swarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
+
+    [CAddress|_] = libp2p_swarm:listen_addrs(CSwarm),
+    % A connect to C for PeerBook gossip
+    {ok, _} = libp2p_swarm:dial_framed_stream(
+        ASwarm,
+        CAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
+    ),
+    % B connect to C for PeerBook gossip
+    {ok, _} = libp2p_swarm:dial_framed_stream(
+        BSwarm,
+        CAddress,
+        Version,
+        libp2p_stream_relay_test,
+        []
+    ),
+
+    ok = test_util:wait_until(
+        fun() ->
+            case libp2p_peerbook:get(libp2p_swarm:peerbook(BSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
+                {ok, _} -> true;
+                _ -> false
+            end
+        end,
+        100,
+        250
+    ),
+
+    % Force B to be the relay
+    BP2P = libp2p_swarm:p2p_address(BSwarm),
+    meck:new(libp2p_relay, [no_link, passthrough]),
+    meck:expect(libp2p_relay, dial_framed_stream,
+        fun(S, _A, []) ->
+            meck:passthrough([S, BP2P, []]);
+        (S, A, O) ->
+            meck:passthrough([S, A, O])
+        end
+    ),
+    meck:expect(libp2p_relay, is_valid_peer, fun(_, _) -> true end),
+
+    meck:new(libp2p_relay_server, [no_link, passthrough]),
+    Self = self(),
+    meck:expect(libp2p_relay_server, allowed,
+        fun(Swarm, StreamPid) ->
+            R = meck:passthrough([Swarm, StreamPid]),
+            Self ! {libp2p_relay_server, allowed, R},
+            R
+        end
+    ),
+
+    % NAT fails so init relay on A manually
+    ok = libp2p_relay:init(ASwarm),
+
+    % Testing relay address
+    ?assertEqual([], get_relay_addresses(ASwarm)),
+    ?assertEqual(ok, limit_rcv_loop()),
+
+    ok = libp2p_swarm:stop(BSwarm),
+    ok = libp2p_swarm:stop(ASwarm),
+    ok = libp2p_swarm:stop(CSwarm),
+    ?assert(meck:validate(libp2p_relay_server)),
+    meck:unload(libp2p_relay_server),
+    ?assert(meck:validate(libp2p_transport_tcp)),
+    meck:unload(libp2p_transport_tcp),
+    ?assert(meck:validate(libp2p_relay)),
+    meck:unload(libp2p_relay),
+    timer:sleep(2000),
+    ok.
+
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+limit_rcv_loop() ->
+    receive
+        {libp2p_relay_server, allowed, {error, relay_limit_exceeded}} -> 
+            ok;
+        {libp2p_relay_server, allowed, ok} -> 
+            {error, got_ok};
+        _Msg ->
+            ct:pal("MSG ~p", [_Msg]),
+            limit_rcv_loop()
+    after 2500 ->
+        timeout
+    end.
 
 get_relay_addresses(Swarm) ->
     SwarmAddresses = libp2p_swarm:listen_addrs(Swarm),
@@ -201,6 +328,6 @@ get_relay_addresses(Swarm) ->
                 [{"p2p", _}, {"p2p-circuit", _}] -> true;
                 _ -> false
             end
-        end
-        ,SwarmAddresses
+        end,
+        SwarmAddresses
     ).

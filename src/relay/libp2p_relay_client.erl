@@ -99,6 +99,7 @@ init(TID) ->
 
 handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
     true = libp2p_config:insert_listener(TID, [Address], Pid),
+    lager:info("relay negotiated successfully", []),
     lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, Pid]),
     %% to ensure we don't get black-hole routed by a naughty relay, schedule a max-age we keep this relay around
     %% before trying to obtain a new one
@@ -140,7 +141,7 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfully with ~p", [Pid]),
+            lager:info("dialed peer successfully with ~p", [Pid]),
             {noreply, add_flap(State#state{stream=Pid, address=undefined})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
@@ -167,12 +168,15 @@ handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfully with ~p", [Pid]),
+            lager:info("dialed peer successfully with ~p", [Pid]),
             {noreply, add_flap(State#state{stream=Pid, address=undefined})};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             {noreply, next_peer(retry(State))}
     end;
+handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{stream=Pid, address=undefined}=State) ->
+    lager:info("Relay session with NO address closed with reason ~p", [Reason]),
+    {noreply, retry(State#state{stream=undefined, address=undefined})};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{tid=TID, stream=Pid, address=Address}=State) ->
     lager:info("Relay session with address ~p closed with reason ~p", [Address, Reason]),
     _ = libp2p_config:remove_listener(TID, Address),
@@ -218,7 +222,7 @@ get_relay_client(Swarm) ->
     try libp2p_swarm:tid(Swarm) of
         TID ->
             case libp2p_config:lookup_relay_client(TID) of
-                false -> {error, no_relay};
+                false -> {error, no_relay_client};
                 {ok, _Pid}=R -> R
             end
     catch

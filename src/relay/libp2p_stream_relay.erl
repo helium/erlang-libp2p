@@ -70,7 +70,14 @@ client(Connection, Args) ->
 init(server, Conn, [_, _Pid, TID]=Args) ->
     lager:debug("init relay server with ~p", [{Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
-    {ok, #state{swarm=Swarm, connection=Conn}};
+    case libp2p_relay_server:allowed(Swarm, self()) of
+        ok ->
+            lager:info("started relay srteam server"),
+            {ok, #state{swarm=Swarm, connection=Conn}};
+        {error, Reason} ->
+            lager:warning("cannot start relay srteam server ~p", [Reason]),
+            {stop, Reason}
+    end;
 init(client, Conn, Args) ->
     lager:debug("init relay client with ~p", [{Conn, Args}]),
     Swarm = proplists:get_value(swarm, Args),
