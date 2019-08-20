@@ -135,7 +135,8 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
                 _ ->
                     State0#state.peers
             end,
-    State = State0#state{peers=sort_peers(Peers, SwarmPubKeyBin, State0), peerbook=Peerbook},
+    SortedPeers = sort_peers(Peers, SwarmPubKeyBin, State0),
+    State = State0#state{peers=SortedPeers, peerbook=Peerbook, peer_index=rand:uniform(length(SortedPeers))},
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
@@ -156,7 +157,8 @@ handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid,
                                           peers=Peers, peerbook=PeerBook}=State) when is_pid(Pid) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State), peer_index=1}};
+    MergedPeers = sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State),
+    {noreply, State#state{peers=MergedPeers, peer_index=rand:uniform(length(MergedPeers))}};
 handle_info({new_peers, NewPeers}, #state{tid=TID, peers=Peers, peerbook=PeerBook}=State) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
@@ -280,7 +282,7 @@ merge_peers(NewPeers, OldPeers, PeerBook) ->
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
     case PeerIndex + 1 > length(Peers) of
         true ->
-            State#state{peer_index=1};
+            State#state{peer_index=rand:uniform(length(Peers))};
         false ->
             State#state{peer_index=PeerIndex +1}
     end.
