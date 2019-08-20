@@ -3,7 +3,7 @@
 %% == Libp2p Relay Server ==
 %% @end
 %%%-------------------------------------------------------------------
--module(libp2p_relay_server).
+-module(libp2p_relay_client).
 
 -behavior(gen_server).
 

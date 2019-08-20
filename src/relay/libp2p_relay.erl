@@ -10,6 +10,7 @@
 %% ------------------------------------------------------------------
 -export([
     init/1,
+    limit/1,
     version/0,
     add_stream_handler/1,
     dial_framed_stream/3,
@@ -23,6 +24,7 @@
 
 -define(RELAY_VERSION, "relay/1.0.0").
 -define(P2P_CIRCUIT, "/p2p-circuit").
+-define(LIMIT, 25).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -30,7 +32,18 @@
 %%--------------------------------------------------------------------
 -spec init(pid()) -> ok | {error, any()}.
 init(Swarm) ->
-    libp2p_relay_server:relay(Swarm).
+    libp2p_relay_client:relay(Swarm).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @end
+%%--------------------------------------------------------------------
+-spec limit(ets:tab() | list()) -> integer().
+limit(Opts) when is_list(Opts) ->
+    libp2p_config:get_opt(Opts, [?MODULE, limit], ?LIMIT);
+limit(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    libp2p_config:get_opt(Opts, [?MODULE, limit], ?LIMIT).
 
 %%--------------------------------------------------------------------
 %% @doc

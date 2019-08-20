@@ -157,7 +157,7 @@ handle_server_data({overload, Overload}, _Env, #state{swarm=Swarm}=State) ->
     P2PCircuit = libp2p_relay:p2p_circuit(R, A),
     lager:info("proxy server was overloaded, removing address: ~p", [P2PCircuit]),
     %% stop and start the relay to try to obtain a new peer
-    libp2p_relay_server:replace(P2PCircuit, Swarm),
+    libp2p_relay_client:replace(P2PCircuit, Swarm),
     {stop, normal, State};
 handle_server_data(_Data, _Env, State) ->
     lager:warning("server unknown envelope ~p", [_Env]),

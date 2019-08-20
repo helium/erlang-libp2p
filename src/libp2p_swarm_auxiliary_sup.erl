@@ -47,7 +47,7 @@ init([TID, Opts]) ->
     Specs = [
         ?WORKER(?CACHE, libp2p_cache, [TID]),
         ?WORKER(nat, libp2p_nat_server, [[TID]]),
-        ?WORKER(relay, libp2p_relay_server, [TID]),
+        ?WORKER(relay, libp2p_relay_client, [TID]),
         ?WORKER(proxy, libp2p_proxy_server, [[TID, libp2p_proxy:limit(Opts)]])
     ],
     {ok, {SupFlags, Specs}}.

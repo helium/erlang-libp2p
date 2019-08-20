@@ -245,7 +245,7 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm}=State) ->
             % Relay Step 3: Client A receives a relay response from server R
             % with p2p-circuit address and inserts it as a new listener to get
             % broadcasted by peerbook
-            ok = libp2p_relay_server:negotiated(Swarm, Address),
+            ok = libp2p_relay_client:negotiated(Swarm, Address),
             libp2p_connection:set_idle_timeout(State#state.connection, ?RELAY_TIMEOUT),
             {noreply, State#state{relay_addr=Address}};
         Error ->
