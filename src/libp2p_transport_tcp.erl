@@ -809,7 +809,7 @@ distinct_observed_addrs(Addrs) ->
     {DistinctAddresses, _} = lists:foldl(fun({Reporter, Addr}, {Addresses, Reporters}) ->
                                                  case lists:member(Reporter, Reporters) of
                                                      true ->
-                                                         {Addrs, Reporters};
+                                                         {Addresses, Reporters};
                                                      false ->
                                                          {[Addr|Addresses], [Reporter|Reporters]}
                                                  end
