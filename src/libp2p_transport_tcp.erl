@@ -805,6 +805,16 @@ most_observed_addr(Addrs) ->
             error
     end.
 
+distinct_observed_addrs(Addrs) ->
+    {DistinctAddresses, _} = lists:foldl(fun({Reporter, Addr}, {Addresses, Reporters}) ->
+                                                 case lists:member(Reporter, Reporters) of
+                                                     true ->
+                                                         {Addrs, Reporters};
+                                                     false ->
+                                                         {[Addr|Addresses], [Reporter|Reporters]}
+                                                 end
+                                         end, {[], []}, sets:to_list(Addrs)),
+    lists:usort(DistinctAddresses).
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
@@ -834,8 +844,17 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                             State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
                     end;
                 false ->
+                    ObservedAddresses = add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
                     lager:debug("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
-                    State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
+                    case length(distinct_observed_addrs(ObservedAddresses)) > 10 of
+                        true ->
+                            lager:info("Saw 10 distinct observed addresses, assuming static NAT"),
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
+                            libp2p_relay:init(libp2p_swarm:swarm(TID));
+                        false ->
+                            ok
+                    end,
+                    State#state{observed_addrs=ObservedAddresses}
             end
     end.
 
