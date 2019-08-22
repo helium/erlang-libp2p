@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p NAT Server ==
+%% Hold and renew NAT registrations
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_nat_server).
@@ -43,10 +44,17 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
-
+%%--------------------------------------------------------------------
+%% @doc 
+%% Attempt to add port mapping MultiAddr/Port
+%% @end
+%%--------------------------------------------------------------------
+-spec register(ets:tab(), pid(), string(), non_neg_integer()) -> ok | {error, any()}.
 register(TID, TransportPid, MultiAddr, IntPort) ->
     case libp2p_config:lookup_nat(TID) of
         false ->
@@ -54,16 +62,18 @@ register(TID, TransportPid, MultiAddr, IntPort) ->
         {ok, Pid} ->
             gen_server:call(Pid, {register, TransportPid, MultiAddr, IntPort})
     end.
-    
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden  
 init([TID]=_Args) ->
     lager:info("~p init with ~p", [?MODULE, _Args]),
     true = libp2p_config:insert_nat(TID, self()),
     {ok, #state{tid=TID}}.
 
+%% @hidden  
 handle_call({register, TransportPid, MultiAddr, IntPort}, _From, #state{tid=TID, transport_tcp=undefined}=State) ->
     CachedExtPort = get_port_from_cache(TID, IntPort),
     ok = delete_mapping(IntPort, CachedExtPort),
@@ -85,10 +95,12 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+%% @hidden  
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden  
 handle_info(renew, #state{transport_tcp=undefined}=State) ->
     lager:debug("got old renew ignoring"),
     {noreply, State};
@@ -121,16 +133,17 @@ handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden  
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% @hidden  
 terminate(_Reason, _State) ->
     ok.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
 
 -spec get_port_from_cache(ets:tab(), non_neg_integer()) -> non_neg_integer().
 get_port_from_cache(TID, IntPort) ->
@@ -141,7 +154,6 @@ get_port_from_cache(TID, IntPort) ->
             lager:info("got port from cache ~p", [P]),
             P
     end.
-
 
 -spec remove_multi_addr(ets:tab(), string(), non_neg_integer()) -> ok.
 remove_multi_addr(TID, Address, Port) ->

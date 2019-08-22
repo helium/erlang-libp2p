@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p NAT ==
+%% NAT utils functions
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_nat).
@@ -23,6 +24,11 @@
 -type opt() :: {enabled, boolean()}.
 -export_type([opt/0]).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Is NAT enabled?
+%% @end
+%%--------------------------------------------------------------------
 -spec enabled(ets:tab() | list()) -> boolean().
 enabled(Opts) when is_list(Opts) ->
     libp2p_config:get_opt(Opts, [?MODULE, enabled], true);
@@ -30,6 +36,13 @@ enabled(TID) ->
     Opts = libp2p_swarm:opts(TID),
     libp2p_config:get_opt(Opts, [?MODULE, enabled], true).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Maybe spawn NAT disconvery (if NAT enabled)
+%% @see libp2p_nat:enabled/1
+%% @see libp2p_nat:spawn_discovery/3
+%% @end
+%%--------------------------------------------------------------------
 -spec maybe_spawn_discovery(pid(), [string()], ets:tab()) -> ok.
 maybe_spawn_discovery(Pid, MultiAddrs, TID) ->
     case ?MODULE:enabled(TID) of
@@ -40,16 +53,21 @@ maybe_spawn_discovery(Pid, MultiAddrs, TID) ->
             lager:warning("nat is disabled")
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Spawn NAT disconvery
+%% @todo we should make a port mapping for EACH address
+%% here, for weird multihomed machines, but natupnp_v1 and
+%% natpmp don't support issuing a particular request from
+%% a particular interface yet
+%% @end
+%%--------------------------------------------------------------------
 -spec spawn_discovery(pid(), [string()], ets:tab()) -> ok.
 spawn_discovery(Pid, MultiAddrs, TID) ->
     case lists:filtermap(fun discovery_filter/1, MultiAddrs) of
         [] -> ok;
         [{MultiAddr, _IP, Port}|_] ->
             lager:info("trying to map ~p ~p", [MultiAddr, Port]),
-            %% TODO we should make a port mapping for EACH address
-            %% here, for weird multihomed machines, but natupnp_v1 and
-            %% natpmp don't support issuing a particular request from
-            %% a particular interface yet
             case libp2p_nat_server:register(TID, Pid, MultiAddr, Port) of
                 ok ->
                     lager:info("successfully registered nat");
@@ -58,6 +76,11 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
             end
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Try to add port mapping
+%% @end
+%%--------------------------------------------------------------------
 -spec add_port_mapping(integer(), integer()) ->
     {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
 add_port_mapping(InternalPort, ExternalPort) ->
@@ -76,6 +99,11 @@ add_port_mapping(InternalPort, ExternalPort) ->
         {error, {Type, Excep}}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Try to delete port mapping
+%% @end
+%%--------------------------------------------------------------------
 -spec delete_port_mapping(integer(), integer()) -> ok | {error, any()}.
 delete_port_mapping(InternalPort, ExternalPort) ->
     case nat:discover() of
@@ -85,23 +113,28 @@ delete_port_mapping(InternalPort, ExternalPort) ->
             {error, no_nat}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Try to renew port mapping.
+%% A renewal packet is formatted identically to an
+%% initial mapping request packet, except that for renewals the client
+%% sets the suggested external port field to the port the gateway
+%% actually assigned, rather than the port the client originally wanted
+%% @end
+%%--------------------------------------------------------------------
 -spec renew_port_mapping(integer(), integer()) ->
     {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
 renew_port_mapping(InternalPort, ExternalPort) ->
     case nat:discover() of
         {ok, {natpmp, _}=_Context} ->
-            %% A renewal packet is formatted identically to an
-            %% initial mapping request packet, except that for renewals the client
-            %% sets the Suggested External Port field to the port the gateway
-            %% actually assigned, rather than the port the client originally wanted.
             add_port_mapping(InternalPort, ExternalPort);
         {ok, _Context} ->
-            %nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort),
             add_port_mapping(InternalPort, ExternalPort);
         no_nat ->
             {error, no_nat}
     end.
 
+%% @hidden
 maybe_apply_nat_map({IP, Port}) ->
     Map = application:get_env(libp2p, nat_map, #{}),
     case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
