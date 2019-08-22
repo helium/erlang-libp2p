@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p Proxy ==
+%% Proxy utils
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_proxy).
@@ -18,7 +19,12 @@
 -type opt() :: {address, string()} | {port, integer()} | {limit, non_neg_integer()}.
 -export_type([opt/0]).
 
-
+%%--------------------------------------------------------------------
+%% @doc
+%% Get proxy limit
+%% @see opt()
+%% @end
+%%--------------------------------------------------------------------
 -spec limit(ets:tab() | list()) -> integer().
 limit(Opts) when is_list(Opts) ->
     libp2p_config:get_opt(Opts, [?MODULE, limit], ?LIMIT);
@@ -26,12 +32,20 @@ limit(TID) ->
     Opts = libp2p_swarm:opts(TID),
     libp2p_config:get_opt(Opts, [?MODULE, limit], ?LIMIT).
 
-
+%%--------------------------------------------------------------------
+%% @doc
+%% Return proxy version
+%% @end
+%%--------------------------------------------------------------------
 -spec version() -> string().
 version() ->
     ?PROXY_VERSION.
 
-
+%%--------------------------------------------------------------------
+%% @doc
+%% Add proxy stream handler
+%% @end
+%%--------------------------------------------------------------------
 -spec add_stream_handler(ets:tab()) -> ok.
 add_stream_handler(TID) ->
     libp2p_swarm:add_stream_handler(
@@ -54,7 +68,3 @@ dial_framed_stream(Swarm, Address, Args) ->
         libp2p_stream_proxy,
         [{swarm, Swarm}|Args]
     ).
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------

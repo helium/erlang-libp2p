@@ -17,7 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type proxy_overload() :: #libp2p_proxy_overload_pb{}.
+-type proxy_overload() :: #libp2p_proxy_overload_pb{pub_key_bin :: iodata()}.
 
 -export_type([proxy_overload/0]).
 

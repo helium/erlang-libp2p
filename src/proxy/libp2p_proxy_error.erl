@@ -17,7 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type proxy_error() :: #libp2p_proxy_error_pb{}.
+-type proxy_error() :: #libp2p_proxy_error_pb{reason :: iodata()}.
 
 -export_type([proxy_error/0]).
 

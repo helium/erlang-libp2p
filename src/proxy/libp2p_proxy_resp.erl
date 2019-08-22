@@ -7,10 +7,10 @@
 -module(libp2p_proxy_resp).
 
 -export([
-    create/1
-    ,create/2
-    ,success/1
-    ,multiaddr/1
+    create/1,
+    create/2,
+    success/1,
+    multiaddr/1
 ]).
 
 -include("pb/libp2p_proxy_pb.hrl").
@@ -19,7 +19,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type proxy_resp() :: #libp2p_proxy_resp_pb{}.
+-type proxy_resp() :: #libp2p_proxy_resp_pb{success :: boolean(),
+                                            multiaddr :: iodata() | undefined}.
 
 -export_type([proxy_resp/0]).
 
