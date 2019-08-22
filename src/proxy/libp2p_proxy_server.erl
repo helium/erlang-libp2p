@@ -53,10 +53,7 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec proxy(pid(), binary(), pid(), string()) -> ok | {error, any()}.
 proxy(Swarm, ID, ServerStream, AAddress) ->
     TID = libp2p_swarm:tid(Swarm),
@@ -68,10 +65,7 @@ proxy(Swarm, ID, ServerStream, AAddress) ->
             gen_server:call(Pid, {init_proxy, ID, ServerStream, AAddress})
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec connection(ets:tab(),libp2p_connection:connection(), binary()) -> ok | {error, any()}.
 connection(TID, Connection, ID) ->
     case libp2p_config:lookup_proxy(TID) of

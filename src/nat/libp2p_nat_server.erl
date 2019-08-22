@@ -46,10 +46,7 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 register(TID, TransportPid, MultiAddr, IntPort) ->
     case libp2p_config:lookup_nat(TID) of
         false ->
@@ -134,10 +131,7 @@ terminate(_Reason, _State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec get_port_from_cache(ets:tab(), non_neg_integer()) -> non_neg_integer().
 get_port_from_cache(TID, IntPort) ->
     Cache = libp2p_swarm:cache(TID),
@@ -148,10 +142,7 @@ get_port_from_cache(TID, IntPort) ->
             P
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec remove_multi_addr(ets:tab(), string(), non_neg_integer()) -> ok.
 remove_multi_addr(TID, Address, Port) ->
     {ok, ParsedAddress} = inet_parse:address(Address),
@@ -159,10 +150,7 @@ remove_multi_addr(TID, Address, Port) ->
     true = libp2p_config:remove_listener(TID, MultiAddr),
     ok.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec nat_discovered(pid(), string(), string(), non_neg_integer()) -> ok.
 nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort) ->
     {ok, ParsedExtAddr} = inet_parse:address(ExtAddr),
@@ -170,10 +158,7 @@ nat_discovered(Pid, MultiAddr, ExtAddr, ExtPort) ->
     Pid ! {nat_discovered, MultiAddr, ExtMultiAddr},
     ok.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec delete_mapping(integer(), integer()) -> ok.
 delete_mapping(IntPort, ExtPort) ->
     case libp2p_nat:delete_port_mapping(IntPort, ExtPort) of
@@ -183,10 +168,7 @@ delete_mapping(IntPort, ExtPort) ->
             lager:warning("failed to delete port mapping ~p: ~p", [{IntPort, ExtPort}, _Reason])
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec update_cache(ets:tab(), non_neg_integer()) -> ok.
 update_cache(TID, Port) ->
     Cache = libp2p_swarm:cache(TID),

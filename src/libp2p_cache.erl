@@ -43,18 +43,12 @@
 start_link(Args) ->
     gen_server:start_link(?MODULE, [Args], []).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec insert(pid(), any(), any()) -> ok | {error, any()}.
 insert(Pid, Key, Value) ->
     gen_server:call(Pid, {insert, Key, Value}).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec lookup(pid(), any()) -> undefined | any().
 lookup(Pid, Key) ->
     lookup(Pid, Key, undefined).
@@ -63,10 +57,7 @@ lookup(Pid, Key) ->
 lookup(Pid, Key, Default) ->
     gen_server:call(Pid, {lookup, Key, Default}).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec delete(pid(), any()) -> ok | {error, any()}.
 delete(Pid, Key) ->
     gen_server:call(Pid, {delete, Key}).
