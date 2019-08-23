@@ -26,6 +26,12 @@
 -define(P2P_CIRCUIT, "/p2p-circuit").
 
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Init relay
+%% @see  libp2p_relay_server:relay/1
+%% @end
+%%--------------------------------------------------------------------
 -spec init(pid()) -> ok | {error, any()}.
 init(Swarm) ->
     libp2p_relay_server:relay(Swarm).
