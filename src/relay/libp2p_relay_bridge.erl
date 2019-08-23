@@ -7,10 +7,10 @@
 -module(libp2p_relay_bridge).
 
 -export([
-    create_cr/2
-    ,create_rs/2
-    ,create_sc/2
-    ,server/1, client/1
+    create_cr/2,
+    create_rs/2,
+    create_sc/2,
+    server/1, client/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -19,9 +19,12 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_bridge_cr() :: #libp2p_relay_bridge_cr_pb{}.
--type relay_bridge_rs() :: #libp2p_relay_bridge_rs_pb{}.
--type relay_bridge_sc() :: #libp2p_relay_bridge_sc_pb{}.
+-type relay_bridge_cr() :: #libp2p_relay_bridge_cr_pb{server :: iolist(),
+                                                      client :: iolist()}.
+-type relay_bridge_rs() :: #libp2p_relay_bridge_rs_pb{server :: iolist(),
+                                                      client :: iolist()}.
+-type relay_bridge_sc() :: #libp2p_relay_bridge_sc_pb{server :: iolist(),
+                                                      client :: iolist()}.
 
 -export_type([relay_bridge_cr/0]).
 -export_type([relay_bridge_rs/0]).

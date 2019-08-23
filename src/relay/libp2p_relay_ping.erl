@@ -18,7 +18,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_ping() :: #libp2p_relay_ping_pb{}.
+-type relay_ping() :: #libp2p_relay_ping_pb{seq :: non_neg_integer(),
+                                            direction :: 'PING' | 'PONG'}.
 
 -export_type([relay_ping/0]).
 

@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p Relay Server ==
+%% Keep track of relay
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_relay_server).
@@ -50,9 +51,16 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Init relay for swarm
+%% @end
+%%--------------------------------------------------------------------
 -spec relay(pid()) -> ok | {error, any()}.
 relay(Swarm) ->
     case get_relay_server(Swarm) of
@@ -62,6 +70,11 @@ relay(Swarm) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Stop relay for swarm
+%% @end
+%%--------------------------------------------------------------------
 -spec stop(pid()) -> ok | {error, any()}.
 stop(Swarm) ->
     case get_relay_server(Swarm) of
@@ -71,6 +84,11 @@ stop(Swarm) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Replace relay address for swarm
+%% @end
+%%--------------------------------------------------------------------
 -spec replace(string(), pid()) -> ok | {error, any()}.
 replace(Address, Swarm) ->
     case get_relay_server(Swarm) of
@@ -80,6 +98,11 @@ replace(Address, Swarm) ->
             Error
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Relay was negotiated with address
+%% @end
+%%--------------------------------------------------------------------
 -spec negotiated(pid(), string()) -> ok | {error, any()}.
 negotiated(Swarm, Address) ->
     case get_relay_server(Swarm) of
@@ -92,11 +115,14 @@ negotiated(Swarm, Address) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 init(TID) ->
     lager:info("~p init with ~p", [?MODULE, TID]),
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID}}.
 
+%% @hidden
 handle_call({negotiated, Address, Pid}, _From, #state{tid=TID, stream=Pid}=State) when is_pid(Pid) ->
     true = libp2p_config:insert_listener(TID, [Address], Pid),
     lager:info("inserting new listener ~p, ~p, ~p", [TID, Address, Pid]),
@@ -114,6 +140,7 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+%% @hidden
 handle_cast(stop_relay, #state{stream=Pid, address=Address, tid=TID}=State) when is_pid(Pid) ->
     lager:warning("relay was asked to be stopped ~p ~p", [Pid, Address]),
     _ = libp2p_config:remove_listener(TID, Address),
@@ -153,6 +180,7 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden
 handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid,
                                           peers=Peers, peerbook=PeerBook}=State) when is_pid(Pid) ->
     Swarm = libp2p_swarm:swarm(TID),
@@ -194,9 +222,11 @@ handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% @hidden
 terminate(_Reason, #state{tid=TID, stream=Pid}) when is_pid(Pid) ->
     catch libp2p_framed_stream:close(Pid),
     true = libp2p_config:remove_relay(TID),
