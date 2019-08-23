@@ -364,6 +364,9 @@ handle_info(Msg, State) ->
 terminate(_, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
     relcast:stop(lite, Store),
     rm_rf(StoreDir);
+terminate(_Reason, #state{store=Whatever}) when Whatever == cannot_start orelse
+                                                Whatever == not_started ->
+    ok;
 terminate(Reason, #state{store=Store}) ->
     relcast:stop(Reason, Store).
 
