@@ -91,7 +91,6 @@ init([TID, GroupID, Args, Sup]) ->
             [Handler, [Addrs|_] = HandlerArgs, RArgs] ->
                 RArgs
         end,
-    erlang:process_flag(trap_exit, true),
     DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
     SelfAddr = libp2p_swarm:pubkey_bin(TID),
     case lists:keyfind(SelfAddr, 2, lists:zip(lists:seq(1, length(Addrs)), Addrs)) of
