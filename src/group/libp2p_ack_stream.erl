@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Libp2p Ack Stream ==
+%% @see libp2p_framed_stream
+%% @end
+%%%-------------------------------------------------------------------
 -module(libp2p_ack_stream).
 
 -include("pb/libp2p_ack_stream_pb.hrl").
@@ -10,9 +16,14 @@
     {ok, Ref::any()} | {error, term()}.
 -callback handle_ack(State::any(), Ref::any(), Seq::[pos_integer()], Reset::boolean()) -> ok.
 
-%% API
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
 -export([send_ack/3]).
-%% libp2p_framed_stream
+
+%% ------------------------------------------------------------------
+%% libp2p_framed_stream Function Exports
+%% ------------------------------------------------------------------
 -export([server/4, client/2, init/3, handle_data/3, handle_send/5, handle_info/3]).
 
 
@@ -25,22 +36,33 @@
 
 -define(ACK_STREAM_TIMEOUT, timer:minutes(5)).
 
-%% API
-%%
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
 
+%%%-------------------------------------------------------------------
+%% @doc
+%% Send ack message
+%% @end
+%%%-------------------------------------------------------------------
 -spec send_ack(pid(), pos_integer(), boolean()) -> ok.
 send_ack(Pid, Seq, Reset) ->
     Pid ! {send_ack, Seq, Reset},
     ok.
 
-%% libp2p_framed_stream
-%%
+%% ------------------------------------------------------------------
+%% libp2p_framed_stream Function Definitions
+%% ------------------------------------------------------------------
+
+%% @hidden
 client(Connection, Args) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).
 
+%% @hidden
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
+%% @hidden
 init(server, Connection, [Path, AckModule, AckState | _]) ->
     %% Catch errors from the handler module since the handling group
     %% may have already stopped or crashed.
@@ -65,6 +87,7 @@ init(client, Connection, [AckRef, AckModule, AckState | _]) ->
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
 
+%% @hidden
 handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{messages=Bin, seqs=Seq} when Bin /= [] ->
@@ -81,6 +104,7 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
             {noreply, State}
     end.
 
+%% @hidden
 handle_send(_Kind, From, Msgs, Timeout, State=#state{}) when is_list(Msgs) ->
     {Seqs, Data} = lists:unzip(Msgs),
     Msg = #libp2p_ack_frame_pb{messages=Data, seqs=Seqs},
@@ -89,6 +113,7 @@ handle_send(_Kind, From, {Data, Seq}, Timeout, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{messages=[Data], seqs=[Seq]},
     {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
 
+%% @hidden
 handle_info(_Kind, {send_ack, Seq, Reset}, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{seqs=Seq, reset=Reset},
     {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.

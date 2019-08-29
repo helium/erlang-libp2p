@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Libp2p Gossip Stream ==
+%% @see libp2p_framed_stream
+%% @end
+%%%-------------------------------------------------------------------
 -module(libp2p_gossip_stream).
 
 -include("pb/libp2p_gossip_pb.hrl").
@@ -9,9 +15,14 @@
                         Session::pid(),
                         Stream::pid()) -> ok | {error, term()}.
 
-%% API
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
 -export([encode/2]).
-%% libp2p_framed_stream
+
+%% ------------------------------------------------------------------
+%% libp2p_framed_stream Function Exports
+%% ------------------------------------------------------------------
 -export([server/4, client/2, init/3, handle_data/3]).
 
 
@@ -21,20 +32,27 @@
           handler_state :: any()
         }).
 
-%% API
-%%
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
+
 encode(Key, Data) ->
     Msg = #libp2p_gossip_frame_pb{key=Key, data=Data},
     libp2p_gossip_pb:encode_msg(Msg).
 
-%% libp2p_framed_stream
-%%
+%% ------------------------------------------------------------------
+%% libp2p_framed_stream Function Definitions
+%% ------------------------------------------------------------------
+
+%% @hidden
 client(Connection, Args) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).
 
+%% @hidden
 server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
+%% @hidden
 init(server, Connection, [HandlerModule, HandlerState]) ->
     {ok, Session} = libp2p_connection:session(Connection),
     %% Catch errors from the handler module in accepting a stream. The
@@ -58,6 +76,7 @@ init(client, Connection, [HandlerModule, HandlerState]) ->
                 handler_module=HandlerModule,
                 handler_state=HandlerState}}.
 
+%% @hidden
 handle_data(_, Data, State=#state{handler_module=HandlerModule,
                                   handler_state=HandlerState}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
