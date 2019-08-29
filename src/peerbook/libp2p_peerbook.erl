@@ -271,7 +271,10 @@ handle_cast({update_nat_type, UpdatedNatType}, State=#state{}) ->
 handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) ->
     %% Fetch our peer record
     SwarmAddr = libp2p_swarm:pubkey_bin(State#state.tid),
-    {ok, ThisPeer} = unsafe_fetch_peer(SwarmAddr, Handle),
+    ThisPeer = case unsafe_fetch_peer(SwarmAddr, Handle) of
+        {ok, Peer}  -> Peer;
+        {error, not_found} -> mk_this_peer(undefined, State)
+    end,
     %% Create the new association and put it in the peer
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
     {noreply, update_this_peer(UpdatedPeer, State)};
@@ -420,7 +423,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 %% so this is here until that gets fixed
 -dialyzer({nowarn_function, unsafe_fetch_peer/2}).
 -spec unsafe_fetch_peer(libp2p_crypto:pubkey_bin() | undefined, peerbook())
-                       -> {ok, libp2p_peer:peer()} | {error, term()}.
+                       -> {ok, libp2p_peer:peer()} | {error, not_found}.
 unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
 unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
