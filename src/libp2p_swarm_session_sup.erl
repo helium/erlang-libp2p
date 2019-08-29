@@ -23,5 +23,4 @@ sup(TID) ->
     ets:lookup_element(TID, ?SUP, 2).
 
 cleanup_ets(TID) ->
-    DeadSessions = lists:filter(fun({_, P}) -> not erlang:is_process_alive(P) end, libp2p_config:lookup_sessions(TID)),
-    [libp2p_config:remove_pid(TID, Pid) || {_, Pid} <- DeadSessions].
+    [libp2p_config:remove_pid(TID, Pid) || {_, Pid} <- libp2p_config:lookup_sessions(TID)].
