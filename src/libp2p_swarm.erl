@@ -386,7 +386,7 @@ remove_group(Sup, GroupID) when is_pid(Sup) ->
     remove_group(tid(Sup), GroupID);
 remove_group(TID, GroupID) ->
     Mgr = libp2p_group_mgr:mgr(TID),
-    libp2p_group_mgr:add_group(Mgr, GroupID).
+    libp2p_group_mgr:remove_group(Mgr, GroupID).
 
 %% Gossip Group
 %%
