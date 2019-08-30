@@ -54,18 +54,18 @@ unicast_test(Config) ->
 
     %% G1 takes input and unicasts it to itself, then handles the
     %% message to self by sending a message to G2
-    G1Args = [relcast_handler, [Members, input_unicast(1), handle_msg([{unicast, 2, <<"unicast1">>}])]],
+    G1Args = [relcast_handler, [Members, input_unicast(1), handle_msg([{unicast, 2, <<"unicast1">>}])], [{create, true}]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
     %% Adding the same group twice is the same group pid
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles any incoming message by sending a message to member
     %% 3 (G3)
-    G2Args = [relcast_handler, [Members, undefined, handle_msg([{unicast, 3, <<"unicast2">>}])]],
+    G2Args = [relcast_handler, [Members, undefined, handle_msg([{unicast, 3, <<"unicast2">>}])], [{create, true}]],
     {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     %% G3 handles a messages by just acknowledging it
-    G3Args = [relcast_handler, [Members, undefined, handle_msg([])]],
+    G3Args = [relcast_handler, [Members, undefined, handle_msg([])], [{create, true}]],
     {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
 
     %% Give G1 some input. This should end up getting to G2 who then
@@ -109,15 +109,15 @@ multicast_test(Config) ->
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and broadcasts
-    G1Args = [relcast_handler, [Members, input_multicast(), undefined]],
+    G1Args = [relcast_handler, [Members, input_multicast(), undefined], [{create, true}]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles a message by acknowledging it
-    G2Args = [relcast_handler, [Members, undefined, handle_msg([])]],
+    G2Args = [relcast_handler, [Members, undefined, handle_msg([])], [{create, true}]],
     {ok, _G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     %% G3 handles a messages by aknowledging it
-    G3Args = [relcast_handler, [Members, undefined, handle_msg([])]],
+    G3Args = [relcast_handler, [Members, undefined, handle_msg([])], [{create, true}]],
     {ok, _G3} = libp2p_swarm:add_group(S3, "test", libp2p_group_relcast, G3Args),
 
     libp2p_group_relcast:handle_input(G1, <<"multicast">>),
@@ -141,11 +141,11 @@ defer_test(Config) ->
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and unicasts it to G2
-    G1Args = [relcast_handler, [Members, input_unicast(2), handle_msg([])]],
+    G1Args = [relcast_handler, [Members, input_unicast(2), handle_msg([])], [{create, true}]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles a message by deferring it
-    G2Args = [relcast_handler, [Members, input_unicast(1), handle_msg(defer)]],
+    G2Args = [relcast_handler, [Members, input_unicast(1), handle_msg(defer)], [{create, true}]],
     {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     libp2p_group_relcast:handle_input(G1, <<"defer">>),
@@ -182,11 +182,11 @@ close_test(Config) ->
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
     %% G1 takes input and broadcasts
-    G1Args = [relcast_handler, [Members, input_multicast(), undefined]],
+    G1Args = [relcast_handler, [Members, input_multicast(), undefined], [{create, true}]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles a message by closing
-    G2Args = [relcast_handler, [Members, undefined, handle_msg([{stop, 5000}])]],
+    G2Args = [relcast_handler, [Members, undefined, handle_msg([{stop, 5000}])], [{create, true}]],
     {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     libp2p_group_relcast:handle_input(G1, <<"multicast">>),
@@ -227,11 +227,11 @@ pipeline_test(Config) ->
     %% g1 handles input by sending a lot of messages
     G1Args = [relcast_handler,
               [Members, many_messages(20, {unicast, 2, <<"unicast1">>}),
-               handle_msg([])]],
+               handle_msg([])], [{create, true}]],
     {ok, G1} = libp2p_swarm:add_group(S1, "test", libp2p_group_relcast, G1Args),
 
     %% G2 handles a message by acknowledging it
-    G2Args = [relcast_handler, [Members, undefined, handle_msg([])]],
+    G2Args = [relcast_handler, [Members, undefined, handle_msg([])], [{create, true}]],
     {ok, G2} = libp2p_swarm:add_group(S2, "test", libp2p_group_relcast, G2Args),
 
     libp2p_group_relcast:handle_input(G2, {limit, 10}),
