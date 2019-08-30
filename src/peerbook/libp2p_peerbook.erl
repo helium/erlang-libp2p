@@ -280,12 +280,17 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) 
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
-    {noreply, update_this_peer(State#state{sessions=NewSessions})};
-handle_cast({register_session, SessionPid, Identify},
-            State=#state{sessions=Sessions}) ->
+    %% don't update peer since session unregister can happen
+    %% often. Rely on peer_timeout to do the actual update to avoid
+    %% many calls to peer signing which loads up the cryptosigning system.
+    {noreply, State#state{sessions=NewSessions}};
+handle_cast({register_session, SessionPid, Identify}, State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:pubkey_bin(Identify),
     NewSessions = [{SessionAddr, SessionPid} | Sessions],
-    {noreply, update_this_peer(State#state{sessions=NewSessions})};
+    %% don't update peer since session register can happen
+    %% often. Rely on peer_timeout to do the actual update to avoid
+    %% many calls to peer signing which loads up the cryptosigning system.
+    {noreply, State#state{sessions=NewSessions}};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
