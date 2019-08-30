@@ -6,8 +6,8 @@
 -export([
          start_link/1,
          mgr/1,
-         add_group/5,
-         remove_group/3,
+         add_group/4,
+         remove_group/2,
          force_gc/1
         ]).
 
@@ -17,7 +17,10 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state,
+        {
+         tid :: term()
+        }).
 
 %%%===================================================================
 %%% API
@@ -30,11 +33,11 @@ mgr(TID) ->
     ets:lookup_element(TID, ?SERVER, 2).
 
 %% these are a simple wrapper around swarm add group to prevent races
-add_group(Mgr, TID, GroupID, Module, Args) ->
-    gen_server:call(Mgr, {add_group, TID, GroupID, Module, Args}, infinity).
+add_group(Mgr, GroupID, Module, Args) ->
+    gen_server:call(Mgr, {add_group, GroupID, Module, Args}, infinity).
 
-remove_group(Mgr, TID, GroupID) ->
-    gen_server:call(Mgr, {remove_group, TID, GroupID}, infinity).
+remove_group(Mgr, GroupID) ->
+    gen_server:call(Mgr, {remove_group, GroupID}, infinity).
 
 %% not implemented
 force_gc(Mgr) ->
@@ -46,9 +49,10 @@ force_gc(Mgr) ->
 
 init([TID]) ->
     _ = ets:insert(TID, {?SERVER, self()}),
-    {ok, #state{}}.
+    {ok, #state{tid  = TID}}.
 
-handle_call({add_group, TID, GroupID, Module, Args}, _From, State) ->
+handle_call({add_group, GroupID, Module, Args}, _From,
+            #state{tid = TID} = State) ->
     Reply =
         case libp2p_config:lookup_group(TID, GroupID) of
             {ok, Pid} ->
@@ -70,7 +74,7 @@ handle_call({add_group, TID, GroupID, Module, Args}, _From, State) ->
                 end
         end,
     {reply, Reply, State};
-handle_call({remove_group, TID, GroupID}, _From, State) ->
+handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
     case libp2p_config:lookup_group(TID, GroupID) of
         {ok, _Pid} ->
             lager:info("removing group ~p", [GroupID]),

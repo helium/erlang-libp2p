@@ -379,14 +379,14 @@ add_group(Sup, GroupID, Module, Args) when is_pid(Sup) ->
     add_group(tid(Sup), GroupID, Module, Args);
 add_group(TID, GroupID, Module, Args) ->
     Mgr = libp2p_group_mgr:mgr(TID),
-    libp2p_group_mgr:add_group(Mgr, TID, GroupID, Module, Args).
+    libp2p_group_mgr:add_group(Mgr, GroupID, Module, Args).
 
 -spec remove_group(pid() | ets:tab(), GroupID::string()) -> ok | {error, term()}.
 remove_group(Sup, GroupID) when is_pid(Sup) ->
     remove_group(tid(Sup), GroupID);
 remove_group(TID, GroupID) ->
     Mgr = libp2p_group_mgr:mgr(TID),
-    libp2p_group_mgr:add_group(Mgr, TID, GroupID).
+    libp2p_group_mgr:add_group(Mgr, GroupID).
 
 %% Gossip Group
 %%
