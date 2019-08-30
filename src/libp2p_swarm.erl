@@ -378,32 +378,15 @@ stream_handlers(TID) ->
 add_group(Sup, GroupID, Module, Args) when is_pid(Sup) ->
     add_group(tid(Sup), GroupID, Module, Args);
 add_group(TID, GroupID, Module, Args) ->
-    case libp2p_config:lookup_group(TID, GroupID) of
-        {ok, Pid} -> {ok, Pid};
-        false ->
-            GroupSup = libp2p_swarm_group_sup:sup(TID),
-            ChildSpec = #{ id => GroupID,
-                           start => {Module, start_link, [TID, GroupID, Args]},
-                           restart => transient,
-                           shutdown => 5000,
-                           type => supervisor },
-            case supervisor:start_child(GroupSup, ChildSpec) of
-                {error, Error} -> {error, Error};
-                {ok, GroupPid} ->
-                    libp2p_config:insert_group(TID, GroupID, GroupPid),
-                    {ok, GroupPid}
-            end
-    end.
+    Mgr = libp2p_group_mgr:mgr(TID),
+    libp2p_group_mgr:add_group(Mgr, GroupID, Module, Args).
 
 -spec remove_group(pid() | ets:tab(), GroupID::string()) -> ok | {error, term()}.
 remove_group(Sup, GroupID) when is_pid(Sup) ->
     remove_group(tid(Sup), GroupID);
 remove_group(TID, GroupID) ->
-    GroupSup = libp2p_swarm_group_sup:sup(TID),
-    _ = supervisor:terminate_child(GroupSup, GroupID),
-    _ = supervisor:delete_child(GroupSup, GroupID),
-    _ = libp2p_config:remove_group(TID, GroupID),
-    ok.
+    Mgr = libp2p_group_mgr:mgr(TID),
+    libp2p_group_mgr:remove_group(Mgr, GroupID).
 
 %% Gossip Group
 %%

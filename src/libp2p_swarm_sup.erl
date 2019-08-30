@@ -109,6 +109,13 @@ init([Name, Opts]) ->
             supervisor,
             [libp2p_swarm_transport_sup]
         },
+        {group_mgr,
+            {libp2p_group_mgr , start_link, [TID]},
+            permanent,
+            10000,
+            worker,
+            [libp2p_group_mgr]
+        },
         {groups,
             {libp2p_swarm_group_sup, start_link, [TID]},
             permanent,
