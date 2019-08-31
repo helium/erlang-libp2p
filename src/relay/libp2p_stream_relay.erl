@@ -142,7 +142,7 @@ handle_info(client, send_ping, State = #state{ping_seq=Seq, swarm=Swarm, relay_a
             Env = libp2p_relay_envelope:create(Ping),
             Ref = erlang:send_after(?RELAY_PING_TIMEOUT, self(), ping_timeout),
             {noreply, State#state{ping_timeout_timer=Ref}, libp2p_relay_envelope:encode(Env)}
-    end;        
+    end;
 % Bridge Step 3: The relay server R (stream to Server) receives a bridge request
 % and transfers it to Server.
 handle_info(server, {bridge_cr, BridgeCR}, State) ->
@@ -253,7 +253,8 @@ handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm}=State) ->
             case libp2p_config:lookup_relay_sessions(libp2p_swarm:tid(Swarm), Address) of
                 false -> ok;
                 {ok, Pid} -> Pid ! {error, Error}
-            end
+            end,
+            {noreply, State}
     end;
 % Bridge Step 4: Server got a bridge req, dialing Client
 handle_client_data({bridge_rs, Bridge}, _Env, #state{swarm=Swarm}=State) ->
