@@ -8,7 +8,8 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
 -export([client/3, server/3, server/4, send/2, send/3, recv/2,
-         close/1, close_state/1, addr_info/1, connection/1, session/1]).
+         close/1, close_state/1, addr_info/1, connection/1, session/1,
+         mk_secured_keypair/1]).
 %% libp2p_info
 -export([info/1]).
 
@@ -89,7 +90,6 @@
     secure_peer :: undefined | libp2p_crypto:pubkey_bin(),
     parent :: undefined | pid(),
     exchanged = false :: boolean(),
-    swarm=undefined :: pid() | undefined,
     args= [] :: [any()],
     pub_key= <<>> :: binary(),
     priv_key= <<>> :: binary(),
@@ -144,6 +144,13 @@ server(Connection, Path, _TID, [Module | Args]) ->
 info(Pid) ->
     catch gen_server:call(Pid, info).
 
+mk_secured_keypair(Swarm) ->
+    KeyPair = #{public := PubKey} = enacl:kx_keypair(),
+    {ok, _, SignFun, _} = libp2p_swarm:keys(Swarm),
+    Signature = SignFun(PubKey),
+    KeyPair#{signature => Signature}.
+
+
 %%
 %% Common
 %%
@@ -153,9 +160,13 @@ pre_init(Kind, Module, Connection, Args, Parent) ->
     SendPid = spawn_link(libp2p_connection:mk_async_sender(self(), Connection)),
     case proplists:get_value(secured, Args, false) of
         Swarm when is_pid(Swarm) ->
-            #{public := PubKey, secret := PrivKey} = enacl:kx_keypair(),
-            {ok, _, SignFun, _} = libp2p_swarm:keys(Swarm),
-            Signature = SignFun(PubKey),
+            case proplists:get_value(keys, Args, false) of
+                #{public := PubKey, secret := PrivKey, signature := Signature} ->
+                    ok;
+                false ->
+                    #{public := PubKey, secret := PrivKey, signature := Signature} =
+                        mk_secured_keypair(Swarm)
+            end,
             Data = <<PubKey/binary, Signature/binary>>,
             State0 = #state{
                 kind=Kind,
@@ -165,7 +176,6 @@ pre_init(Kind, Module, Connection, Args, Parent) ->
                 secured=true,
                 secure_peer = proplists:get_value(secure_peer, Args),
                 exchanged=false,
-                swarm=Swarm,
                 args=Args,
                 pub_key=PubKey,
                 priv_key=PrivKey,

@@ -204,12 +204,13 @@ stream(_Config) ->
 
     gen_server:stop(ClientStream0),
 
+    Keys = libp2p_framed_stream:mk_secured_keypair(ClientSwarm),
     {ok, ClientStream} = libp2p_swarm:dial_framed_stream(
         ClientSwarm,
         libp2p_swarm:p2p_address(ServerSwarm),
         Version,
         libp2p_secure_framed_stream_echo_test,
-        [self(), {secured, ClientSwarm}]
+        [self(), {secured, ClientSwarm}, {keys, Keys}]
     ),
 
     lists:foreach(
