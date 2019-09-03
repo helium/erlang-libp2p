@@ -214,6 +214,9 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{tid=TID}) ->
     {noreply, NewState};
 handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
     {noreply, State};
+handle_cast({handle_input, _Msg}, State=#state{store=Bad}) when Bad == not_started orelse
+                                                                Bad == cannot_start ->
+    {noreply, State};
 handle_cast({handle_input, Msg}, State=#state{store=Relcast}) ->
     case relcast:command(Msg, Relcast) of
         {_Reply, NewRelcast} ->
