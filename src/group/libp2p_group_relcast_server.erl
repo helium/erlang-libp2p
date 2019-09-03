@@ -32,6 +32,7 @@
        { sup :: pid(),
          tid :: ets:tab(),
          group_id :: string(),
+         group_keys :: map(),
          self_index :: pos_integer(),
          workers=[] :: [#worker{}],
          store = not_started :: not_started | cannot_start | relcast:relcast_state(),
@@ -93,13 +94,16 @@ init([TID, GroupID, Args, Sup]) ->
         end,
     DataDir = libp2p_config:swarm_dir(TID, [groups, GroupID]),
     SelfAddr = libp2p_swarm:pubkey_bin(TID),
+    GroupKeys = libp2p_framed_stream:mk_secured_keypair(libp2p_swarm:swarm(TID)),
     case lists:keyfind(SelfAddr, 2, lists:zip(lists:seq(1, length(Addrs)), Addrs)) of
         {SelfIndex, SelfAddr} ->
             %% we have to start relcast async because it might
             %% make a call to the process starting this process
             %% in its handler
             self() ! {start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs},
-            {ok, update_metadata(#state{sup=Sup, tid=TID, group_id=GroupID,
+            {ok, update_metadata(#state{sup=Sup, tid=TID,
+                                        group_id=GroupID,
+                                        group_keys=GroupKeys,
                                         self_index=SelfIndex,
                                         store_dir=DataDir})};
         false ->
@@ -204,7 +208,8 @@ handle_cast({request_target, Index, WorkerPid}, State=#state{tid=TID}) ->
     Path = lists:flatten([?GROUP_PATH_BASE, State#state.group_id, "/",
                           libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(TID))]),
     ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self(),
-                                             {secured, libp2p_swarm:swarm(TID)}]}},
+                                             {secured, libp2p_swarm:swarm(TID)},
+                                             {keys, State#state.group_keys}]}},
     libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),
     {noreply, NewState};
 handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
@@ -321,11 +326,13 @@ start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
     relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
                   HandlerArgs, [{data_dir, Store}|RelcastArgs]).
 
-handle_info({start_workers, Targets}, State=#state{group_id=GroupID, tid=TID}) ->
+handle_info({start_workers, Targets}, State=#state{group_id=GroupID, group_keys=GroupKeys, tid=TID}) ->
     ServerPath = lists:flatten(?GROUP_PATH_BASE, GroupID),
-    libp2p_swarm:add_stream_handler(libp2p_swarm:swarm(TID), ServerPath,
+    Swarm = libp2p_swarm:swarm(TID),
+    libp2p_swarm:add_stream_handler(Swarm, ServerPath,
                                     {libp2p_ack_stream, server,[?MODULE, self(),
-                                                                {secured, libp2p_swarm:swarm(TID)}]}),
+                                                                {secured, Swarm},
+                                                                {keys, GroupKeys}]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info({start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs}, State) ->
     case start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir) of
