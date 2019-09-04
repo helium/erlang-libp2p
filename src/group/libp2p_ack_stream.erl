@@ -42,13 +42,23 @@ server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
 init(server, Connection, [Path, AckModule, AckState | _]) ->
-    case AckModule:accept_stream(AckState, self(), Path) of
+    %% Catch errors from the handler module since the handling group
+    %% may have already stopped or crashed.
+    case (catch AckModule:accept_stream(AckState, self(), Path)) of
         {ok, AckRef} ->
             libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
             {ok, #state{connection=Connection,
                         ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}};
         {error, Reason} ->
-            {stop, {error, Reason}}
+            {stop, {error, Reason}};
+        {'EXIT', {noproc, _}} ->
+            %% Handle noproc silently since it's pretty common for a
+            %% relcast group to have gone away
+            {stop, normal};
+        Exit={'EXIT', _} ->
+            lager:warning("Stopping on accept_stream exit: ~s",
+                          [error_logger_lager_h:format_reason(Exit)]),
+            {stop, normal}
     end;
 init(client, Connection, [AckRef, AckModule, AckState | _]) ->
     libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
