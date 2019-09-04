@@ -37,22 +37,21 @@ server(Connection, _Path, _TID, Args) ->
 
 init(server, Connection, [HandlerModule, HandlerState]) ->
     {ok, Session} = libp2p_connection:session(Connection),
-    State = #state{connection=Connection,
-                   handler_module=HandlerModule,
-                   handler_state=HandlerState},
     %% Catch errors from the handler module in accepting a stream. The
     %% most common occurence is during shutdown of a swarm where
     %% ordering of the shutdown will cause the accept below to crash
     %% noisily in the logs. This catch avoids that noise
     case (catch HandlerModule:accept_stream(HandlerState, Session, self())) of
-        ok -> {ok, State};
+        ok -> {ok, #state{connection=Connection,
+                          handler_module=HandlerModule,
+                          handler_state=HandlerState}};
         {error, Reason} ->
             lager:warning("Stopping on accept stream error: ~p", [Reason]),
-            {stop, {error, Reason}, State};
+            {stop, {error, Reason}};
         Exit={'EXIT', _} ->
             lager:warning("Stopping on accept_stream exit: ~s",
                           [error_logger_lager_h:format_reason(Exit)]),
-            {stop, normal, State}
+            {stop, normal}
     end;
 init(client, Connection, [HandlerModule, HandlerState]) ->
     {ok, #state{connection=Connection,
