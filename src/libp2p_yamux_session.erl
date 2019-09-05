@@ -156,8 +156,8 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
             {stop, normal, State};
         {error, Reason} ->
             %% Apparently this happens a LOT
-            %% just flag a warning, don't pollute the logs with an error
-            lager:warning("Session header read failed: ~p ", [Reason]),
+            %% just flag a notice, don't pollute the logs with an error
+            lager:notice("Session header read failed: ~p ", [Reason]),
             {stop, normal, State};
         {ok, Header=#header{type=HeaderType}} ->
             %% Kick the session liveness timer on inbound data
