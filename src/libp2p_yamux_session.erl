@@ -154,8 +154,11 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
         {error, closed} ->
             lager:notice("session closed"),
             {stop, normal, State};
+        {error, enotconn} ->
+            %% Dont log for enotconn
+            {stop, normal, State};
         {error, Reason} ->
-            lager:error("Session header read failed: ~p ", [Reason]),
+            lager:notice("Session header read failed: ~p ", [Reason]),
             {stop, normal, State};
         {ok, Header=#header{type=HeaderType}} ->
             %% Kick the session liveness timer on inbound data
