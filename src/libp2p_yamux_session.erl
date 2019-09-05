@@ -157,7 +157,13 @@ handle_info({inert_read, _, _}, State=#state{connection=Connection}) ->
         {error, Reason} ->
             %% Apparently this happens a LOT
             %% just flag a notice, don't pollute the logs with an error
-            lager:notice("Session header read failed: ~p ", [Reason]),
+            case Reason == enotconn of
+                true ->
+                    %% Don't log at all on enotconn
+                    ok;
+                false ->
+                    lager:notice("Session header read failed: ~p ", [Reason])
+            end,
             {stop, normal, State};
         {ok, Header=#header{type=HeaderType}} ->
             %% Kick the session liveness timer on inbound data
