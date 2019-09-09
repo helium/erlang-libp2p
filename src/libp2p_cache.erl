@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p Cache ==
+%% Simple dets cache
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_cache).
@@ -40,11 +41,14 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 start_link(Args) ->
     gen_server:start_link(?MODULE, [Args], []).
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Insert key, value in cache
 %% @end
 %%--------------------------------------------------------------------
 -spec insert(pid(), any(), any()) -> ok | {error, any()}.
@@ -53,18 +57,25 @@ insert(Pid, Key, Value) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Lookup key in cache (default to `undefined')
 %% @end
 %%--------------------------------------------------------------------
 -spec lookup(pid(), any()) -> undefined | any().
 lookup(Pid, Key) ->
     lookup(Pid, Key, undefined).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Lookup key in cache with default value
+%% @end
+%%--------------------------------------------------------------------
 -spec lookup(pid(), any(), any()) -> undefined | any().
 lookup(Pid, Key, Default) ->
     gen_server:call(Pid, {lookup, Key, Default}).
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Delete key in cache
 %% @end
 %%--------------------------------------------------------------------
 -spec delete(pid(), any()) -> ok | {error, any()}.
@@ -74,6 +85,8 @@ delete(Pid, Key) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 init([TID]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_auxiliary_sup:register_cache(TID),
@@ -84,6 +97,7 @@ init([TID]) ->
     _ = migrate(Dets),
     {ok, #state{dets=Dets}}.
 
+%% @hidden
 handle_call({insert, Key, Value}, _From, #state{dets=Dets}=State) ->
     Result = dets:insert(Dets, {Key, Value}),
     {reply, Result, State};
@@ -101,17 +115,21 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+%% @hidden
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden
 handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% @hidden
 terminate(_Reason, #state{dets=Name}) ->
     ok = dets:close(Name),
     ok.

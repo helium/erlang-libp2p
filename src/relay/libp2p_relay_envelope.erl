@@ -7,10 +7,10 @@
 -module(libp2p_relay_envelope).
 
 -export([
-    decode/1
-    ,encode/1
-    ,create/1
-    ,data/1
+    decode/1,
+    encode/1,
+    create/1,
+    data/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -19,7 +19,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_envelope() :: #libp2p_relay_envelope_pb{}.
+-type relay_envelope() :: #libp2p_relay_envelope_pb{data :: {req, libp2p_relay_req:relay_req()} |
+                                                            {resp, libp2p_relay_resp:relay_resp()} |
+                                                            {bridge_cr, libp2p_relay_bridge:relay_bridge_cr()} |
+                                                            {bridge_rs, libp2p_relay_bridge:relay_bridge_rs()} |
+                                                            {bridge_sc, libp2p_relay_bridge:relay_bridge_sc()} |
+                                                            {ping, libp2p_relay_ping:relay_ping()} |
+                                                            undefined}.
 
 -export_type([relay_envelope/0]).
 
@@ -46,12 +52,12 @@ encode(#libp2p_relay_envelope_pb{}=Env) ->
 %% Create an envelope
 %% @end
 %%--------------------------------------------------------------------
--spec create(libp2p_relay_req:relay_req()
-             | libp2p_relay_resp:relay_resp()
-             | libp2p_relay_bridge:relay_bridge_cr()
-             | libp2p_relay_bridge:relay_bridge_rs()
-             | libp2p_relay_bridge:relay_bridge_sc()
-             | libp2p_relay_ping:relay_ping()) -> relay_envelope().
+-spec create(libp2p_relay_req:relay_req() |
+             libp2p_relay_resp:relay_resp() |
+             libp2p_relay_bridge:relay_bridge_cr() |
+             libp2p_relay_bridge:relay_bridge_rs() |
+             libp2p_relay_bridge:relay_bridge_sc() |
+             libp2p_relay_ping:relay_ping()) -> relay_envelope().
 create(#libp2p_relay_req_pb{}=Data) ->
     #libp2p_relay_envelope_pb{
         data={req, Data}
@@ -83,12 +89,12 @@ create(#libp2p_relay_ping_pb{}=Data) ->
 %% Getter
 %% @end
 %%--------------------------------------------------------------------
--spec data(relay_envelope()) -> {req, libp2p_relay_req:relay_req()}
-                                | {resp, libp2p_relay_resp:relay_resp()}
-                                | {bridge_cr, libp2p_relay_bridge:relay_bridge_cr()}
-                                | {bridge_rs, libp2p_relay_bridge:relay_bridge_rs()}
-                                | {bridge_sc, libp2p_relay_bridge:relay_bridge_sc()}
-                                | {ping, libp2p_relay_ping:relay_ping()}.
+-spec data(relay_envelope()) -> {req, libp2p_relay_req:relay_req()} |
+                                {resp, libp2p_relay_resp:relay_resp()} |
+                                {bridge_cr, libp2p_relay_bridge:relay_bridge_cr()} |
+                                {bridge_rs, libp2p_relay_bridge:relay_bridge_rs()} |
+                                {bridge_sc, libp2p_relay_bridge:relay_bridge_sc()} |
+                                {ping, libp2p_relay_ping:relay_ping()}.
 data(Env) ->
     Env#libp2p_relay_envelope_pb.data.
 

@@ -7,8 +7,8 @@
 -module(libp2p_relay_req).
 
 -export([
-    create/1
-    ,address/1
+    create/1,
+    address/1
 ]).
 
 -include("pb/libp2p_relay_pb.hrl").
@@ -17,7 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type relay_req() :: #libp2p_relay_req_pb{}.
+-type relay_req() :: #libp2p_relay_req_pb{address :: iolist()}.
 
 -export_type([relay_req/0]).
 

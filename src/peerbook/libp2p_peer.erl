@@ -1,3 +1,8 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Libp2p Peer ==
+%% @end
+%%%-------------------------------------------------------------------
 -module(libp2p_peer).
 
 -include("pb/libp2p_peer_pb.hrl").
@@ -11,11 +16,22 @@
                        associations => association_map(),
                        signed_metadata => #{binary() => binary()}
                      }.
--type peer() :: #libp2p_signed_peer_pb{}.
--type association() :: #libp2p_association_pb{}.
+-type signed_peer() :: #libp2p_signed_peer_pb{peer :: libp2p_peer:peer() | undefined,
+                                              signature :: iodata() | undefined,
+                                              metadata :: [{iolist(), iodata()}] | undefined}.
+-type peer() :: #libp2p_peer_pb{pubkey :: iodata() | undefined,
+                                listen_addrs :: [iodata()] | undefined,
+                                connected :: [iodata()] | undefined,
+                                nat_type :: 'none' | 'static' | 'restricted' | 'symmetric' | 'unknown' | integer() | undefined,
+                                timestamp :: integer() | undefined,
+                                associations :: [{iolist(), libp2p_identify_pb:libp2p_association_list_pb()}] | undefined,
+                                network_id :: iodata() | undefined,
+                                signed_metadata :: [{iolist(), libp2p_identify_pb:libp2p_metadata_value_pb()}] | undefined}.
+-type association() :: #libp2p_association_pb{pubkey :: iodata() | undefined,
+                                              signature  :: iodata() | undefined}.
 -type association_map() :: [{Type::string(), [association()]}].
 -type metadata() :: [{string(), binary()}].
--export_type([peer/0, association/0, peer_map/0, nat_type/0]).
+-export_type([peer/0, signed_peer/0, association/0, peer_map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, decode_unsafe/1, encode_list/1, decode_list/1, verify/1,
          pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
@@ -37,6 +53,11 @@
 
 -define(MAX_PEER_SIZE, 50*1024). %% 50kb
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Create peer from map
+%% @end
+%%--------------------------------------------------------------------
 -spec from_map(peer_map(), fun((binary()) -> binary())) -> peer().
 from_map(Map, SigFun) ->
     Timestamp = case maps:get(timestamp, Map, no_entry) of
@@ -59,34 +80,56 @@ from_map(Map, SigFun) ->
                           },
     sign_peer(Peer, SigFun).
 
-%% @doc Gets the public key for the given peer.
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the public key for the given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec pubkey_bin(peer()) -> libp2p_crypto:pubkey_bin().
 pubkey_bin(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{pubkey=PubKeyBin}}) ->
     PubKeyBin.
-
-%% @doc Gets the list of peer multiaddrs that the given peer is
-%% listening on.
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the list of peer multiaddrs that the given peer is listening on.
+%% @end
+%%--------------------------------------------------------------------
 -spec listen_addrs(peer()) -> [string()].
 listen_addrs(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{listen_addrs=Addrs}}) ->
     [multiaddr:to_string(A) || A <- Addrs].
 
-%% @doc Gets the list of peer crypto addresses that the given peer was last
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the list of peer crypto addresses that the given peer was last
 %% known to be connected to.
+%% @end
+%%--------------------------------------------------------------------
 -spec connected_peers(peer()) -> [libp2p_crypto:pubkey_bin()].
 connected_peers(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{connected=Conns}}) ->
     Conns.
 
-%% @doc Gets the NAT type of the given peer.
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the NAT type of the given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec nat_type(peer()) -> nat_type().
 nat_type(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{nat_type=NatType}}) ->
     NatType.
 
-%% @doc Gets the timestamp of the given peer.
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the timestamp of the given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec timestamp(peer()) -> integer().
 timestamp(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}) ->
     Timestamp.
 
-%% @doc Gets the signed metadata of the given peer
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the signed metadata of the given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec signed_metadata(peer()) -> map().
 signed_metadata(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{signed_metadata=undefined}}) ->
     #{};
@@ -95,33 +138,53 @@ signed_metadata(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{signed_metadata=MD}}
                      maps:put(list_to_binary(K), V, Acc)
              end, #{}, MD).
 
-%% @doc Gets a key from the signed metadata of the given peer
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets a key from the signed metadata of the given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec signed_metadata_get(peer(), any(), any()) -> any().
 signed_metadata_get(Peer, Key, Default) ->
     maps:get(Key, signed_metadata(Peer), Default).
 
-%% @doc Gets the metadata map from the given peer. The metadata for a
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the metadata map from the given peer. The metadata for a
 %% peer is `NOT' part of the signed peer since it can be read and
 %% updated by anyone to annotate the given peer with extra information
+%% @end
+%%--------------------------------------------------------------------
 -spec metadata(peer()) -> metadata().
 metadata(#libp2p_signed_peer_pb{metadata=Metadata}) ->
     Metadata.
 
-%% @doc Replaces the full metadata for a given peer
+%%--------------------------------------------------------------------
+%% @doc
+%% Replaces the full metadata for a given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec metadata_set(peer(), metadata()) -> peer().
 metadata_set(Peer=#libp2p_signed_peer_pb{}, Metadata) when is_list(Metadata) ->
     Peer#libp2p_signed_peer_pb{metadata=Metadata}.
 
-%% @doc Updates the metadata for a given peer with the given key/value
+%%--------------------------------------------------------------------
+%% @doc
+%% Updates the metadata for a given peer with the given key/value
 %% pair. The `Key' is expected to be a string, while `Value' is
 %% expected to be a binary.
+%% @end
+%%--------------------------------------------------------------------
 -spec metadata_put(peer(), string(), binary()) -> peer().
 metadata_put(Peer=#libp2p_signed_peer_pb{}, Key, Value) when is_list(Key), is_binary(Value) ->
     Metadata = lists:keystore(Key, 1, metadata(Peer), {Key, Value}),
     metadata_set(Peer, Metadata).
 
-%% @doc Gets the value for a stored `Key' in metadata. If not found,
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the value for a stored `Key' in metadata. If not found,
 %% the `Default' is returned.
+%% @end
+%%--------------------------------------------------------------------
 -spec metadata_get(peer(), Key::string(), Default::binary()) -> binary().
 metadata_get(Peer=#libp2p_signed_peer_pb{}, Key, Default) ->
     case lists:keyfind(Key, 1, metadata(Peer)) of
@@ -129,25 +192,37 @@ metadata_get(Peer=#libp2p_signed_peer_pb{}, Key, Default) ->
         {_, Value} -> Value
     end.
 
-%% @doc Get the associations for this peer. This returns a keyed list
+%%--------------------------------------------------------------------
+%% @doc
+%% Get the associations for this peer. This returns a keyed list
 %% with the association type as the key and a list of assocations as
 %% the value for that type.
+%% @end
+%%--------------------------------------------------------------------
 -spec associations(peer()) -> association_map().
 associations(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) ->
     lists:map(fun({AssocType, #libp2p_association_list_pb{associations=AssocEntries}}) ->
                       {AssocType, AssocEntries}
               end, Assocs).
 
-%% @doc Returns a list of association keys. This can be used, for example, to
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns a list of association keys. This can be used, for example, to
 %% compare to peer assocation records with eachother (like in is_similar/2)
+%% @end
+%%--------------------------------------------------------------------
 -spec association_pubkey_bins(peer()) -> [{AssocType::string(), [AssocPubKeyBin::libp2p_crypto:pubkey_bin()]}].
 association_pubkey_bins(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}) ->
     lists:map(fun({AssocType, #libp2p_association_list_pb{associations=AssocEntries}}) ->
                       {AssocType, [association_pubkey_bin(A) || A <- AssocEntries]}
               end, Assocs).
 
-%% @doc Replaces all associations for a given association type in the
+%%--------------------------------------------------------------------
+%% @doc
+%% Replaces all associations for a given association type in the
 %% given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec associations_set(peer(), AssocType::string(), [association()], PeerSigFun::libp2p_crypto:sig_fun())
                       -> peer().
 associations_set(#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{associations=Assocs}},
@@ -157,7 +232,12 @@ associations_set(#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{associations=A
     UpdatedPeer = Peer#libp2p_peer_pb{associations=UpdatedAssocs},
     sign_peer(UpdatedPeer, PeerSigFun).
 
-%% @doc Gets the associations of the given `AssocType' for the given peer.
+%%--------------------------------------------------------------------
+%% @doc
+%% Replaces all associations for a given association type in the
+%% given peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec associations_get(peer(), string()) -> [association()].
 associations_get(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs}}, AssocType) ->
     case lists:keyfind(AssocType, 1, Assocs) of
@@ -165,9 +245,13 @@ associations_get(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs
         {_, #libp2p_association_list_pb{associations=AssocEntries}} -> AssocEntries
     end.
 
-%% @doc Adds or replaces a given assocation for the given type to the
+%%--------------------------------------------------------------------
+%% @doc
+%% Adds or replaces a given assocation for the given type to the
 %% peer. The returned peer is signed with the provided signing
 %% function.
+%% @end
+%%--------------------------------------------------------------------
 -spec associations_put(peer(), AssocType::string(), association(), PeerSigFun::libp2p_crypto:sig_fun())
                       -> peer().
 associations_put(Peer=#libp2p_signed_peer_pb{}, AssocType, Assoc, PeerSigFun) ->
@@ -181,9 +265,12 @@ associations_put(Peer=#libp2p_signed_peer_pb{}, AssocType, Assoc, PeerSigFun) ->
     %% and set the associations for the same type
     associations_set(Peer, AssocType, UpdatedAssocs, PeerSigFun).
 
-
-%% @doc Checks whether a given peer has an association stored with the
+%%--------------------------------------------------------------------
+%% @doc
+%% Checks whether a given peer has an association stored with the
 %% given assocation type and key
+%% @end
+%%--------------------------------------------------------------------
 -spec is_association(peer(), AssocType::string(), AssocPubKeyBin::libp2p_crypto:pubkey_bin()) -> boolean().
 is_association(Peer=#libp2p_signed_peer_pb{}, AssocType, AssocPubKeyBin) ->
     Assocs = associations_get(Peer, AssocType),
@@ -192,10 +279,14 @@ is_association(Peer=#libp2p_signed_peer_pb{}, AssocType, AssocPubKeyBin) ->
         _ -> true
     end.
 
-%% @doc Make an association for a given peer key. The returned
+%%--------------------------------------------------------------------
+%% @doc
+%% Make an association for a given peer key. The returned
 %% association contains the given assocation key and the given
 %% peer key signed with the passed in association provided
 %% signature function.
+%% @end
+%%--------------------------------------------------------------------
 -spec mk_association(AssocPubKeyBin::libp2p_crypto:pubkey_bin(),
                      PeerPubKeyBin::libp2p_crypto:pubkey_bin(),
                      AssocSigFun::libp2p_crypto:sig_fun()) -> association().
@@ -204,20 +295,32 @@ mk_association(AssocPubKeyBin, PeerPubKeyBin, AssocSigFun) ->
                             signature=AssocSigFun(PeerPubKeyBin)
                           }.
 
-%% @doc Gets the address for the given association
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the address for the given association
+%% @end
+%%--------------------------------------------------------------------
 -spec association_pubkey_bin(association()) -> libp2p_crypto:pubkey_bin().
 association_pubkey_bin(#libp2p_association_pb{pubkey=PubKeyBin}) ->
     PubKeyBin.
 
-%% @doc Gets the signature for the given association
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the signature for the given association
+%% @end
+%%--------------------------------------------------------------------
 -spec association_signature(association()) -> binary().
 association_signature(#libp2p_association_pb{signature=Signature}) ->
     Signature.
 
-%% @doc Returns true if the association can be verified against the
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns true if the association can be verified against the
 %% given peer key. This has to be the same peer key that was
 %% used to construct the signature in the assocation and should be the
 %% key of the peer record containing the given association.
+%% @end
+%%--------------------------------------------------------------------
 -spec association_verify(association(), PeerPubKeyBin::libp2p_crypto:pubkey_bin()) -> true.
 association_verify(Assoc=#libp2p_association_pb{}, PeerPubKeyBin) ->
     PubKey = libp2p_crypto:bin_to_pubkey(association_pubkey_bin(Assoc)),
@@ -226,28 +329,44 @@ association_verify(Assoc=#libp2p_association_pb{}, PeerPubKeyBin) ->
         false -> error(invalid_association_signature)
     end.
 
-%% @doc Encodes the given association to it's binary form
+%%--------------------------------------------------------------------
+%% @doc
+%% Encodes the given association to it's binary form
+%% @end
+%%--------------------------------------------------------------------
 -spec association_encode(association()) -> binary().
 association_encode(Msg=#libp2p_association_pb{}) ->
     libp2p_peer_pb:encode_msg(Msg).
 
-%% @doc Decodes the given binary to an association and verifies it
+%%--------------------------------------------------------------------
+%% @doc
+%% Decodes the given binary to an association and verifies it
 %% against the given peer key.
+%% @end
+%%--------------------------------------------------------------------
 -spec association_decode(binary(), PeerPubKeyBin::libp2p_crypto:pubkey_bin()) -> association().
 association_decode(Bin, PeerPubKeyBin) ->
     Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_association_pb),
     association_verify(Msg, PeerPubKeyBin),
     Msg.
 
-%% @doc Returns whether a given `Target' is more recent than `Other'
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns whether a given `Target' is more recent than `Other'
+%% @end
+%%--------------------------------------------------------------------
 -spec supersedes(Target::peer(), Other::peer()) -> boolean().
 supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}},
            #libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=OtherTimestamp}}) ->
     ThisTimestamp > OtherTimestamp.
 
-%% @doc Returns whether a given `Target' is mostly equal to an `Other'
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns whether a given `Target' is mostly equal to an `Other'
 %% peer. Similarity means equality for all fields, except for the
 %% timestamp of the peers.
+%% @end
+%%--------------------------------------------------------------------
 -spec is_similar(Target::peer(), Other::peer()) -> boolean().
 is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
            Other=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}}) ->
@@ -261,7 +380,11 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
         %% differ
         andalso sets:from_list(association_pubkey_bins(Target)) == sets:from_list(association_pubkey_bins(Other)).
 
-%% @doc Returns the declared network id for the peer, if any
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns the declared network id for the peer, if any
+%% @end
+%%--------------------------------------------------------------------
 -spec network_id(peer()) -> binary() | undefined.
 network_id(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{network_id = <<>>}}) ->
     undefined;
@@ -273,15 +396,23 @@ network_id_allowable(Peer, MyNetworkID) ->
     orelse libp2p_peer:network_id(Peer) == undefined
     orelse MyNetworkID == undefined.
 
-%% @doc Returns whether the peer is listening on a public, externally
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns whether the peer is listening on a public, externally
 %% visible IP address.
+%% @end
+%%--------------------------------------------------------------------
 -spec has_public_ip(peer()) -> boolean().
 has_public_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
     lists:any(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
 
-%% @doc Returns whether the peer is dialable. A peer is dialable if it
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns whether the peer is dialable. A peer is dialable if it
 %% has a public IP address or it is reachable via a relay address.
+%% @end
+%%--------------------------------------------------------------------
 is_dialable(Peer) ->
     ListenAddrs = ?MODULE:listen_addrs(Peer),
     lists:any(fun(Addr) ->
@@ -289,17 +420,25 @@ is_dialable(Peer) ->
                           libp2p_relay:is_p2p_circuit(Addr)
               end, ListenAddrs).
 
-%% @doc Returns whether a given peer is stale relative to a given
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns whether a given peer is stale relative to a given
 %% stale delta time in milliseconds.
+%% @end
+%%--------------------------------------------------------------------
 -spec is_stale(peer(), integer()) -> boolean().
 is_stale(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=Timestamp}}, StaleMS) ->
     Now = erlang:system_time(millisecond),
     (Timestamp + StaleMS) < Now.
 
-%% @doc Gets the blacklist for this peer. This is a metadata based
+%%--------------------------------------------------------------------
+%% @doc
+%% Gets the blacklist for this peer. This is a metadata based
 %% feature that enables listen addresses to be blacklisted so they
 %% will not be connected to until that address is removed from the
 %% blacklist.
+%% @end
+%%--------------------------------------------------------------------
 -spec blacklist(peer()) -> [string()].
 blacklist(#libp2p_signed_peer_pb{metadata=Metadata}) ->
     case lists:keyfind("blacklist", 1, Metadata) of
@@ -307,23 +446,34 @@ blacklist(#libp2p_signed_peer_pb{metadata=Metadata}) ->
         {_, Bin} -> binary_to_term(Bin)
     end.
 
-%% @doc Returns whether a given listen address is blacklisted. Note
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns whether a given listen address is blacklisted. Note
 %% that a blacklisted address may not actually appear in the
 %% listen_addrs for this peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec is_blacklisted(peer(), string()) -> boolean().
 is_blacklisted(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
    lists:member(ListenAddr, blacklist(Peer)).
 
-%% @doc Sets the blacklist for a given peer. Note that currently no
+%%--------------------------------------------------------------------
+%% @doc
+%% Sets the blacklist for a given peer. Note that currently no
 %% validation is done against the existing listen addresses stored in
 %% the peer. Blacklisting an address that the peer is not listening to
 %% will have no effect anyway.
+%% @end
+%%--------------------------------------------------------------------
 -spec blacklist_set(peer(), [string()]) -> peer().
 blacklist_set(Peer=#libp2p_signed_peer_pb{}, BlackList) when is_list(BlackList) ->
     metadata_put(Peer, "blacklist", term_to_binary(BlackList)).
 
-%% @doc Add a given listen address to the blacklist for the given
-%% peer.
+%%--------------------------------------------------------------------
+%% @doc
+%% Add a given listen address to the blacklist for the given peer.
+%% @end
+%%--------------------------------------------------------------------
 blacklist_add(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
     BlackList = blacklist(Peer),
     NewBlackList = case lists:member(ListenAddr, BlackList) of
@@ -333,36 +483,55 @@ blacklist_add(Peer=#libp2p_signed_peer_pb{}, ListenAddr) ->
                    end,
     blacklist_set(Peer, NewBlackList).
 
-%% @doc Returns the listen addrs for this peer filtered using the
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns the listen addrs for this peer filtered using the
 %% blacklist for the peer, if one is present. This is just a
 %% convenience function to clear the listen adddresses for a peer
 %% with the blacklist stored in metadata.
+%% @end
+%%--------------------------------------------------------------------
 -spec cleared_listen_addrs(peer()) -> [string()].
 cleared_listen_addrs(Peer=#libp2p_signed_peer_pb{}) ->
     sets:to_list(sets:subtract(sets:from_list(listen_addrs(Peer)),
                                sets:from_list(blacklist(Peer)))).
 
-
-%% @doc Encodes the given peer into its binary form.
+%%--------------------------------------------------------------------
+%% @doc
+%% Encodes the given peer into its binary form.
+%% @end
+%%--------------------------------------------------------------------
 -spec encode(peer()) -> binary().
 encode(Msg=#libp2p_signed_peer_pb{}) ->
     libp2p_peer_pb:encode_msg(Msg).
 
-%% @doc Encodes a given list of peer into a binary form. Since
+%%--------------------------------------------------------------------
+%% @doc
+%% Encodes a given list of peer into a binary form. Since
 %% encoding lists is primarily used for gossipping peers around, this
 %% strips metadata from the peers as part of encoding.
+%% @end
+%%--------------------------------------------------------------------
 -spec encode_list([peer()]) -> binary().
 encode_list(List) ->
     StrippedList = [metadata_set(P, []) || P <- List],
     libp2p_peer_pb:encode_msg(#libp2p_peer_list_pb{peers=StrippedList}).
 
-%% @doc Decodes a given binary into a list of peers.
+%%--------------------------------------------------------------------
+%% @doc
+%% Decodes a given binary into a list of peers.
+%% @end
+%%--------------------------------------------------------------------
 -spec decode_list(binary()) -> [peer()].
 decode_list(Bin) ->
     List = libp2p_peer_pb:decode_msg(Bin, libp2p_peer_list_pb),
     List#libp2p_peer_list_pb.peers.
 
-%% @doc Decodes a given binary into a peer.
+%%--------------------------------------------------------------------
+%% @doc
+%% Decodes a given binary into a peer.
+%% @end
+%%--------------------------------------------------------------------
 -spec decode(binary()) -> peer().
 decode(Bin) when byte_size(Bin) > ?MAX_PEER_SIZE ->
     error(peer_too_large);
@@ -371,15 +540,23 @@ decode(Bin) ->
     verify(Msg),
     Msg.
 
-%% @doc Decodes a binary peer without verification, use with care.
+%%--------------------------------------------------------------------
+%% @doc
+%% Decodes a binary peer without verification, use with care.
+%% @end
+%%--------------------------------------------------------------------
 -spec decode_unsafe(binary()) -> peer().
 decode_unsafe(Bin) ->
     libp2p_peer_pb:decode_msg(Bin, libp2p_signed_peer_pb).
 
-%% @doc Cryptographically verifies a given peer and it's
+%%--------------------------------------------------------------------
+%% @doc
+%% Cryptographically verifies a given peer and it's
 %% associations. Returns true if the given peer can be verified or
 %% throws an error if the peer or one of it's associations can't be
 %% verified
+%% @end
+%%--------------------------------------------------------------------
 -spec verify(peer()) -> true.
 verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs, signed_metadata=MD}, signature=Signature}) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
@@ -396,10 +573,9 @@ verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs
         false -> error(invalid_signature)
     end.
 
-%%
-%% Internal
-%%
-
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 -spec sign_peer(#libp2p_peer_pb{}, libp2p_crypto:sig_fun()) -> peer().
 sign_peer(Peer0 = #libp2p_peer_pb{signed_metadata=MD}, SigFun) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},

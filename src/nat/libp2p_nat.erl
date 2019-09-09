@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p NAT ==
+%% NAT utils functions
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_nat).
@@ -25,6 +26,7 @@
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Is NAT enabled?
 %% @end
 %%--------------------------------------------------------------------
 -spec enabled(ets:tab() | list()) -> boolean().
@@ -36,6 +38,9 @@ enabled(TID) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Maybe spawn NAT disconvery (if NAT enabled)
+%% @see libp2p_nat:enabled/1
+%% @see libp2p_nat:spawn_discovery/3
 %% @end
 %%--------------------------------------------------------------------
 -spec maybe_spawn_discovery(pid(), [string()], ets:tab()) -> ok.
@@ -50,6 +55,11 @@ maybe_spawn_discovery(Pid, MultiAddrs, TID) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Spawn NAT disconvery
+%% @todo we should make a port mapping for EACH address
+%% here, for weird multihomed machines, but natupnp_v1 and
+%% natpmp don't support issuing a particular request from
+%% a particular interface yet
 %% @end
 %%--------------------------------------------------------------------
 -spec spawn_discovery(pid(), [string()], ets:tab()) -> ok.
@@ -58,10 +68,6 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
         [] -> ok;
         [{MultiAddr, _IP, Port}|_] ->
             lager:info("trying to map ~p ~p", [MultiAddr, Port]),
-            %% TODO we should make a port mapping for EACH address
-            %% here, for weird multihomed machines, but natupnp_v1 and
-            %% natpmp don't support issuing a particular request from
-            %% a particular interface yet
             case libp2p_nat_server:register(TID, Pid, MultiAddr, Port) of
                 ok ->
                     lager:info("successfully registered nat");
@@ -72,6 +78,7 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Try to add port mapping
 %% @end
 %%--------------------------------------------------------------------
 -spec add_port_mapping(integer(), integer()) ->
@@ -94,6 +101,7 @@ add_port_mapping(InternalPort, ExternalPort) ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Try to delete port mapping
 %% @end
 %%--------------------------------------------------------------------
 -spec delete_port_mapping(integer(), integer()) -> ok | {error, any()}.
@@ -105,27 +113,28 @@ delete_port_mapping(InternalPort, ExternalPort) ->
             {error, no_nat}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Try to renew port mapping.
+%% A renewal packet is formatted identically to an
+%% initial mapping request packet, except that for renewals the client
+%% sets the suggested external port field to the port the gateway
+%% actually assigned, rather than the port the client originally wanted
+%% @end
+%%--------------------------------------------------------------------
 -spec renew_port_mapping(integer(), integer()) ->
     {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
 renew_port_mapping(InternalPort, ExternalPort) ->
     case nat:discover() of
         {ok, {natpmp, _}=_Context} ->
-            %% A renewal packet is formatted identically to an
-            %% initial mapping request packet, except that for renewals the client
-            %% sets the Suggested External Port field to the port the gateway
-            %% actually assigned, rather than the port the client originally wanted.
             add_port_mapping(InternalPort, ExternalPort);
         {ok, _Context} ->
-            %nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort),
             add_port_mapping(InternalPort, ExternalPort);
         no_nat ->
             {error, no_nat}
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+%% @hidden
 maybe_apply_nat_map({IP, Port}) ->
     Map = application:get_env(libp2p, nat_map, #{}),
     case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
@@ -139,10 +148,6 @@ maybe_apply_nat_map({IP, Port}) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec discovery_filter(string()) -> false | {true, any()}.
 discovery_filter(MultiAddr) ->
     case libp2p_transport_tcp:tcp_addr(MultiAddr) of
@@ -154,10 +159,6 @@ discovery_filter(MultiAddr) ->
         _ -> false
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec add_port_mapping(nat:nat_ctx(), integer(), integer(), integer()) ->
     {ok, string(), integer(), integer() | infinity, integer()} | {error, any()}.
 add_port_mapping(_Context, _InternalPort, _ExternalPort, 0) ->
@@ -181,10 +182,6 @@ add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
             add_port_mapping(Context, InternalPort, ExternalPort0, Retry-1)
     end.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec retry_matrix(integer()) -> list().
 retry_matrix(Port) ->
     [
@@ -203,19 +200,11 @@ retry_matrix(Port) ->
 retry_matrix(Try, Port) ->
     lists:nth(Try, retry_matrix(Port)).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 increment_port(Port) when Port < 65535-1 ->
     Port+1;
 increment_port(Port) ->
     Port.
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec random_port(integer()) -> integer().
 random_port(Port) ->
     case rand:uniform(65535-1024) + 1024 of

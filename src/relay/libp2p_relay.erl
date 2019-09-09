@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p Relay ==
+%% Relay utils
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_relay).
@@ -24,16 +25,21 @@
 -define(RELAY_VERSION, "relay/1.0.0").
 -define(P2P_CIRCUIT, "/p2p-circuit").
 
+
 %%--------------------------------------------------------------------
 %% @doc
+%% Init relay
+%% @see  libp2p_relay_server:relay/1
 %% @end
 %%--------------------------------------------------------------------
 -spec init(pid()) -> ok | {error, any()}.
 init(Swarm) ->
     libp2p_relay_server:relay(Swarm).
 
+
 %%--------------------------------------------------------------------
 %% @doc
+%% Return relay version
 %% @end
 %%--------------------------------------------------------------------
 -spec version() -> string().
@@ -42,6 +48,7 @@ version() ->
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Add relay stream handler
 %% @end
 %%--------------------------------------------------------------------
 -spec add_stream_handler(ets:tab()) -> ok.
@@ -103,6 +110,11 @@ is_p2p_circuit(Address) ->
         _ -> true
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Check if public key bin is a valid peer entry
+%% @end
+%%--------------------------------------------------------------------
 -spec is_valid_peer(pid(), libp2p_crypto:pubkey_bin()) -> {error, any()} | boolean().
 is_valid_peer(Swarm, PubKeyBin) ->
     PeerBook = libp2p_swarm:peerbook(Swarm),
@@ -116,10 +128,6 @@ is_valid_peer(Swarm, PubKeyBin) ->
             libp2p_peer:has_public_ip(Peer) andalso
             lists:member(libp2p_swarm:pubkey_bin(Swarm), ConnectedPeers)
     end.
-
-%% ------------------------------------------------------------------
-%% Internal Function Definitions
-%% ------------------------------------------------------------------
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

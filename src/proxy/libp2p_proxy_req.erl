@@ -17,7 +17,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type proxy_req() :: #libp2p_proxy_req_pb{}.
+-type proxy_req() :: #libp2p_proxy_req_pb{address :: iolist()}.
 
 -export_type([proxy_req/0]).
 

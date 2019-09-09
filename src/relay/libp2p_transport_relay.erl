@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Libp2p Relay Transport ==
+%% @see libp2p_transport
+%% @end
+%%%-------------------------------------------------------------------
 -module(libp2p_transport_relay).
 
 -behavior(libp2p_transport).
@@ -13,14 +19,18 @@
 %% ------------------------------------------------------------------
 %% libp2p_transport
 %% ------------------------------------------------------------------
+
+%% @hidden
 -spec start_link(ets:tab()) -> ignore.
 start_link(_TID) ->
     ignore.
 
+%% @hidden
 -spec start_listener(pid(), string()) -> {error, unsupported}.
 start_listener(_Pid, _Addr) ->
     {error, unsupported}.
 
+%% @hidden
 -spec match_addr(string(), ets:tab()) -> {ok, string()} | false.
 match_addr(Addr, TID) when is_list(Addr) ->
     Protocols = multiaddr:protocols(Addr),
@@ -37,10 +47,12 @@ match_addr(Addr, TID) when is_list(Addr) ->
        false -> false
    end.
 
+%% @hidden
 -spec sort_addrs([string()]) -> [{integer(), string()}].
 sort_addrs(Addrs) ->
     [{2, A} || A <- Addrs].
 
+%% @hidden
 -spec connect(pid(), string(), libp2p_swarm:connect_opts()
               ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect(Pid, MAddr, Options, Timeout, TID) ->

@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p Relay Stream ==
+%% @see libp2p_framed_stream
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_stream_relay).
@@ -58,15 +59,20 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
+%% @hidden
 client(Connection, Args) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 init(server, Conn, [_, _Pid, TID]=Args) ->
     lager:debug("init relay server with ~p", [{Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
@@ -86,6 +92,7 @@ init(client, Conn, Args) ->
     end,
     {ok, #state{swarm=Swarm, connection=Conn, ping_timer = Ref, ping_seq=1}}.
 
+%% @hidden
 handle_data(server, Bin, State) ->
     handle_server_data(Bin, State);
 handle_data(client, Bin, State) ->
@@ -93,6 +100,7 @@ handle_data(client, Bin, State) ->
 
 % Relay Step 1: Init relay, if listen_addrs, the client A create a relay request
 % to be sent to the relay server R
+%% @hidden
 handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
     case libp2p_swarm:listen_addrs(Swarm) of
         [] ->
@@ -166,6 +174,7 @@ handle_info(_Type, _Msg, State) ->
     lager:warning("~p got unknown info message ~p", [_Type, _Msg]),
     {noreply, State}.
 
+%% @hidden
 terminate(_Type, _Reason, _State) ->
     ok.
 

@@ -50,11 +50,14 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 start_link(Args) ->
     gen_server:start_link(?MODULE, Args, []).
 
 %%--------------------------------------------------------------------
 %% @doc
+%% Init proxy request
 %% @end
 %%--------------------------------------------------------------------
 -spec proxy(pid(), binary(), pid(), string()) -> ok | {error, any()}.
@@ -68,8 +71,10 @@ proxy(Swarm, ID, ServerStream, AAddress) ->
             gen_server:call(Pid, {init_proxy, ID, ServerStream, AAddress})
     end.
 
+
 %%--------------------------------------------------------------------
 %% @doc
+%% Get connection back
 %% @end
 %%--------------------------------------------------------------------
 -spec connection(ets:tab(),libp2p_connection:connection(), binary()) -> ok | {error, any()}.
@@ -86,6 +91,8 @@ connection(TID, Connection, ID) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 init([TID, Limit]=Args) ->
     erlang:process_flag(trap_exit, true),
     lager:info("~p init with ~p", [?MODULE, Args]),
@@ -93,6 +100,7 @@ init([TID, Limit]=Args) ->
     Swarm = libp2p_swarm:swarm(TID),
     {ok, #state{tid=TID, swarm=Swarm, limit=Limit}}.
 
+%% @hidden
 handle_call({init_proxy, ID, ServerStream, SAddress}, _From, #state{data=Data,
                                                                     limit=Limit,
                                                                     size=Size}=State) when Size < Limit ->
@@ -169,10 +177,12 @@ handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.
 
+%% @hidden
 handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden
 handle_info({post_init, ID, SAddress}, #state{swarm=Swarm, data=Data, size=Size}=State) ->
     case maps:find(ID, Data) of
         {ok, PState} ->
@@ -227,16 +237,17 @@ handle_info(_Msg, State) ->
     lager:warning("rcvd unknown info msg: ~p", [_Msg]),
     {noreply, State}.
 
+%% @hidden
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%% @hidden
 terminate(_Reason, _State) ->
     ok.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-
 -spec dial_back(binary(), pid(), pid()) -> ok.
 dial_back(ID, ServerStream, ClientStream) ->
     DialBack = libp2p_proxy_dial_back:create(),

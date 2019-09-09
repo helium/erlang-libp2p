@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %% @doc
 %% == Libp2p Proxy Stream ==
+%% @see libp2p_framed_stream
 %% @end
 %%%-------------------------------------------------------------------
 -module(libp2p_stream_proxy).
@@ -46,15 +47,19 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @hidden
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
+%% @hidden
 client(Connection, Args) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).
 
 %% ------------------------------------------------------------------
 %% libp2p_framed_stream Function Definitions
 %% ------------------------------------------------------------------
+%% @hidden
 init(server, Conn, [_, _Pid, TID]=Args) ->
     lager:info("init proxy server with ~p", [{Conn, Args}]),
     Swarm = libp2p_swarm:swarm(TID),
@@ -73,11 +78,13 @@ init(client, Conn, Args) ->
 
     end.
 
+%% @hidden
 handle_data(server, Bin, State) ->
     handle_server_data(Bin, State);
 handle_data(client, Bin, State) ->
     handle_client_data(Bin, State).
 
+%% @hidden
 % STEP 2
 handle_info(client, {proxy_req_send, P2P2PCircuit}, #state{id=ID}=State) ->
     {ok, {PAddress, SAddress}} = libp2p_relay:p2p_circuit(P2P2PCircuit),

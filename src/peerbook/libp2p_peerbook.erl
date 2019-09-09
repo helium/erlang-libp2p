@@ -1,20 +1,35 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Libp2p Peerbook ==
+%% @end
+%%%-------------------------------------------------------------------
 -module(libp2p_peerbook).
 
--export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
+-behviour(gen_server).
+-behavior(libp2p_group_gossip_handler).
+
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
 -export([keys/1, values/1, put/2,get/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
+
+%% ------------------------------------------------------------------
 %% libp2p_group_gossip_handler
+%% ------------------------------------------------------------------
 -export([handle_gossip_data/2, init_gossip_data/1]).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Exports
+%% ------------------------------------------------------------------
+-export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
 
 -export_type([opt/0]).
-
--behviour(gen_server).
--behavior(libp2p_group_gossip_handler).
 
 -record(peerbook, { tid :: ets:tab(),
                     store :: rocksdb:db_handle(),
@@ -50,10 +65,15 @@
 %% Gossip group key to register and transmit with
 -define(GOSSIP_GROUP_KEY, "peer").
 
-%%
-%% API
-%%
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Add peer to peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec put(peerbook(), [libp2p_peer:peer()]) -> ok | {error, term()}.
 put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     lists:foreach(fun libp2p_peer:verify/1, PeerList),
@@ -79,6 +99,11 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers}),
     ok.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get peer from peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook{tid=TID}=Handle, ID) ->
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
@@ -97,6 +122,11 @@ get(#peerbook{tid=TID}=Handle, ID) ->
             end
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Is key in peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec is_key(peerbook(), libp2p_crypto:pubkey_bin()) -> boolean().
 is_key(Handle=#peerbook{}, ID) ->
     case get(Handle, ID) of
@@ -104,14 +134,29 @@ is_key(Handle=#peerbook{}, ID) ->
         {ok, _} -> true
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get all peer keys from peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec keys(peerbook()) -> [libp2p_crypto:pubkey_bin()].
 keys(Handle=#peerbook{}) ->
     fetch_keys(Handle).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get all peers from peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec values(peerbook()) -> [libp2p_peer:peer()].
 values(Handle=#peerbook{}) ->
     fetch_peers(Handle).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Remove peer from peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec remove(peerbook(), libp2p_crypto:pubkey_bin()) -> ok | {error, no_delete}.
 remove(#peerbook{tid=TID}=Handle, ID) ->
      case ID == libp2p_swarm:pubkey_bin(TID) of
@@ -119,10 +164,20 @@ remove(#peerbook{tid=TID}=Handle, ID) ->
          false -> delete_peer(ID, Handle)
      end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Get stale time from peerbook
+%% @end
+%%--------------------------------------------------------------------
 -spec stale_time(peerbook()) -> pos_integer().
 stale_time(#peerbook{stale_time=StaleTime}) ->
     StaleTime.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Black list an address
+%% @end
+%%--------------------------------------------------------------------
 -spec blacklist_listen_addr(peerbook(), libp2p_crypto:pubkey_bin(), ListenAddr::string())
                            -> ok | {error, not_found}.
 blacklist_listen_addr(Handle=#peerbook{}, ID, ListenAddr) ->
@@ -134,26 +189,50 @@ blacklist_listen_addr(Handle=#peerbook{}, ID, ListenAddr) ->
             store_peer(UpdatedPeer, Handle)
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Join peerbook notify updates
+%% @end
+%%--------------------------------------------------------------------
 -spec join_notify(peerbook(), pid()) -> ok.
 join_notify(#peerbook{tid=TID}, Joiner) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {join_notify, Joiner}).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Register session
+%% @end
+%%--------------------------------------------------------------------
 -spec register_session(peerbook(), pid(), libp2p_identify:identify()) -> ok.
 register_session(#peerbook{tid=TID}, SessionPid, Identify) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {register_session, SessionPid, Identify}).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Unregister session
+%% @end
+%%--------------------------------------------------------------------
 -spec unregister_session(peerbook(), pid()) -> ok.
 unregister_session(#peerbook{tid=TID}, SessionPid) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {unregister_session, SessionPid}).
 
+
 changed_listener(#peerbook{tid=TID}) ->%
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), changed_listener).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Update NAT type
+%% @end
+%%--------------------------------------------------------------------
 -spec update_nat_type(peerbook(), libp2p_peer:nat_type()) -> ok.
 update_nat_type(#peerbook{tid=TID}, NatType) ->%
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {update_nat_type, NatType}).
 
-%% @doc Adds an association under the given type to for the swarm this
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Adds an association under the given type to for the swarm this
 %% peerbook is part of. Note that the association _must_ have its
 %% signature be valid for the address of the swarm this peerbook is
 %% part of.
@@ -162,12 +241,17 @@ update_nat_type(#peerbook{tid=TID}, NatType) ->%
 %%
 %% Note that the given association will replace an existing
 %% association with the given type and address of the association.
+%% @end
+%%--------------------------------------------------------------------
 -spec add_association(peerbook(), AssocType::string(), Assoc::libp2p_peer:association()) -> ok.
 add_association(#peerbook{tid=TID}, AssocType, Assoc) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {add_association, AssocType, Assoc}).
 
+%%--------------------------------------------------------------------
 %% @doc Look up all the peers that have a given association type
 %% `AssocTyp' and address `AssocAddress' in their associations.
+%% @end
+%%--------------------------------------------------------------------
 -spec lookup_association(peerbook(), AssocType::string(), AssocAddress::libp2p_crypto:pubkey_bin())
                         -> [libp2p_peer:peer()].
 lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
@@ -178,19 +262,26 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
                        end
                end, [], Handle).
 
-%%
-%% Gossip Group
-%%
+%% @hidden
+start_link(TID, SigFun) ->
+    gen_server:start_link(?MODULE, [TID, SigFun], []).
 
+%% ------------------------------------------------------------------
+%% Gossip Group Function Definitions
+%% ------------------------------------------------------------------
+
+%% @hidden
 -spec handle_gossip_data(binary(), peerbook()) -> ok.
 handle_gossip_data(Data, Handle) ->
     DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList).
 
+%% @hidden
 is_eligible_gossip_peer(Peer) ->
     libp2p_peer:is_dialable(Peer)
         andalso length(libp2p_peer:connected_peers(Peer)) >= 5.
 
+%% @hidden
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
 init_gossip_data(Handle) ->
     EligiblePeers = fold_peers(fun(_, Peer, Acc) ->
@@ -213,13 +304,11 @@ init_gossip_data(Handle) ->
     end.
 
 
-%%
-%% gen_server
-%%
+%% ------------------------------------------------------------------
+%% gen_server Function Definitions
+%% ------------------------------------------------------------------
 
-start_link(TID, SigFun) ->
-    gen_server:start_link(?MODULE, [TID, SigFun], []).
-
+%% @hidden
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_peerbook(TID),
@@ -256,12 +345,14 @@ init([TID, SigFun]) ->
                                                  gossip_group=GossipGroup})}
     end.
 
+%% @hidden
 handle_call(update_this_peer, _From, State) ->
     {reply, update_this_peer(State), State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
+%% @hidden
 handle_cast({notify_new_peers, Peers}, State) ->
     {noreply, notify_new_peers(Peers, State)};
 handle_cast(changed_listener, State=#state{}) ->
@@ -293,6 +384,7 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+%% @hidden
 handle_info(peer_timeout, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     {ok, CurrentPeer} = unsafe_fetch_peer(SwarmAddr, State#state.peerbook),
@@ -300,20 +392,21 @@ handle_info(peer_timeout, State=#state{tid=TID}) ->
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
 
+%% @hidden
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
+%% @hidden
 terminate(shutdown, #state{peerbook=#peerbook{store=Store}}) ->
     %% only close the db on shutdown
     rocksdb:close(Store);
 terminate(_Reason, _State) ->
     ok.
 
-
-%%
-%% Internal
-%%
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> libp2p_peer:peer().
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->

@@ -20,7 +20,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--type proxy_envelope() :: #libp2p_proxy_envelope_pb{}.
+-type proxy_envelope() :: #libp2p_proxy_envelope_pb{id:: iodata(),
+                                                    data :: {req, libp2p_proxy_req:proxy_req()} |
+                                                            {resp, libp2p_proxy_resp:proxy_resp()} |
+                                                            {dial_back, libp2p_proxy_dial_back:proxy_dial_back()} |
+                                                            {error, libp2p_proxy_error:proxy_error()} |
+                                                            {overload, libp2p_proxy_overload:proxy_overload()} |
+                                                            undefined}.
 
 -export_type([proxy_envelope/0]).
 

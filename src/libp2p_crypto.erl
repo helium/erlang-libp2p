@@ -1,3 +1,9 @@
+%%%-------------------------------------------------------------------
+%% @doc
+%% == Libp2p Crypto ==
+%% Crypto utils
+%% @end
+%%%-------------------------------------------------------------------
 -module(libp2p_crypto).
 
 -include_lib("public_key/include/public_key.hrl").
@@ -34,9 +40,13 @@
          keys_to_bin/1, keys_from_bin/1
         ]).
 
-%% @doc Generate keys suitable for a swarm.  The returned private and
+%%--------------------------------------------------------------------
+%% @doc
+%% Generate keys suitable for a swarm. The returned private and
 %% public key has the attribute that the public key is a compressable
 %% public key.
+%% @end
+%%--------------------------------------------------------------------
 -spec generate_keys(key_type()) -> key_map().
 generate_keys(ecc_compact) ->
     {ok, PrivKey, CompactKey} = ecc_compact:generate_key(),
@@ -46,11 +56,13 @@ generate_keys(ed25519) ->
     #{public := PubKey, secret := PrivKey} = enacl:crypto_sign_ed25519_keypair(),
     #{secret => {ed25519, PrivKey}, public => {ed25519, PubKey}}.
 
-
-
-%% @doc Load the private key from a pem encoded given filename.
+%%--------------------------------------------------------------------
+%% @doc
+%% Load the private key from a pem encoded given filename.
 %% Returns the private and extracted public key stored in the file or
 %% an error if any occorred.
+%% @end
+%%--------------------------------------------------------------------
 -spec load_keys(string()) -> {ok, key_map()} | {error, term()}.
 load_keys(FileName) ->
     case file:read_file(FileName) of
@@ -58,13 +70,23 @@ load_keys(FileName) ->
         {error, Error} -> {error, Error}
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Create signature function from private key
+%% @end
+%%--------------------------------------------------------------------
 -spec mk_sig_fun(privkey()) -> sig_fun().
 mk_sig_fun({ecc_compact, PrivKey}) ->
     fun(Bin) -> public_key:sign(Bin, sha256, PrivKey) end;
 mk_sig_fun({ed25519, PrivKey}) ->
     fun(Bin) -> enacl:sign_detached(Bin, PrivKey) end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Create ecdh signature function from private key.
 %% Note that a Key Derivation Function should be applied to these keys before use
+%% @end
+%%--------------------------------------------------------------------
 -spec mk_ecdh_fun(privkey()) -> ecdh_fun().
 mk_ecdh_fun({ecc_compact, PrivKey}) ->
     fun({ecc_compact, {PubKey, {namedCurve, ?secp256r1}}}) -> public_key:compute_key(PubKey, PrivKey) end;
@@ -73,14 +95,24 @@ mk_ecdh_fun({ed25519, PrivKey}) ->
     fun({ed25519, PubKey}) -> enacl:box_beforenm(enacl:crypto_sign_ed25519_public_to_curve25519(PubKey),
                                                  enacl:crypto_sign_ed25519_secret_to_curve25519(PrivKey)) end.
 
-%% @doc Store the given keys in a file.  See @see key_folder/1 for a
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Store the given keys in a file.  See @see key_folder/1 for a
 %% utility function that returns a name and location for the keys that
 %% are relative to the swarm data folder.
+%% @end
+%%--------------------------------------------------------------------
 -spec save_keys(key_map(), string()) -> ok | {error, term()}.
 save_keys(KeysMap, FileName) when is_list(FileName) ->
     Bin = keys_to_bin(KeysMap),
     file:write_file(FileName, Bin).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Compact keys to a binary
+%% @end
+%%--------------------------------------------------------------------
 -spec keys_to_bin(key_map()) -> binary().
 keys_to_bin(#{secret := {ecc_compact, PrivKey}, public := {ecc_compact, _PubKey}}) ->
     #'ECPrivateKey'{privateKey=PrivKeyBin, publicKey=PubKeyBin} = PrivKey,
@@ -94,6 +126,11 @@ keys_to_bin(#{secret := {ecc_compact, PrivKey}, public := {ecc_compact, _PubKey}
 keys_to_bin(#{secret := {ed25519, PrivKey}, public := {ed25519, PubKey}}) ->
     <<?KEYTYPE_ED25519:8, PrivKey:64/binary, PubKey:32/binary>>.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Unpack keys from binary
+%% @end
+%%--------------------------------------------------------------------
 -spec keys_from_bin(binary()) -> key_map().
 keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, 0:8/integer, PrivKeyBin:31/binary, PubKeyBin/binary>>) ->
     Params = {namedCurve, ?secp256r1},
@@ -108,7 +145,11 @@ keys_from_bin(<<?KEYTYPE_ECC_COMPACT:8, PrivKeyBin:32/binary, PubKeyBin/binary>>
 keys_from_bin(<<?KEYTYPE_ED25519, PrivKey:64/binary, PubKey:32/binary>>) ->
     #{secret => {ed25519, PrivKey}, public => {ed25519, PubKey}}.
 
-
+%%--------------------------------------------------------------------
+%% @doc
+%% Compact public key to binary
+%% @end
+%%--------------------------------------------------------------------
 -spec pubkey_to_bin(pubkey()) -> pubkey_bin().
 pubkey_to_bin({ecc_compact, PubKey}) ->
     case ecc_compact:is_compact(PubKey) of
@@ -118,21 +159,40 @@ pubkey_to_bin({ecc_compact, PubKey}) ->
 pubkey_to_bin({ed25519, PubKey}) ->
     <<?KEYTYPE_ED25519, PubKey/binary>>.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Unpack public key from binary
+%% @end
+%%--------------------------------------------------------------------
 -spec bin_to_pubkey(pubkey_bin()) -> pubkey().
 bin_to_pubkey(<<?KEYTYPE_ECC_COMPACT, PubKey:32/binary>>) ->
     {ecc_compact, ecc_compact:recover_key(PubKey)};
 bin_to_pubkey(<<?KEYTYPE_ED25519, PubKey:32/binary>>) ->
     {ed25519, PubKey}.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Compact public key to b58 (string)
+%% @end
+%%--------------------------------------------------------------------
 -spec pubkey_to_b58(pubkey()) -> string().
 pubkey_to_b58(PubKey) ->
     bin_to_b58(pubkey_to_bin(PubKey)).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Unpack public key from b58
+%% @end
+%%--------------------------------------------------------------------
 -spec b58_to_pubkey(string()) -> pubkey().
 b58_to_pubkey(Str) ->
     bin_to_pubkey(b58_to_bin(Str)).
 
-%% @doc Verifies a digital signature, using sha256.
+%%--------------------------------------------------------------------
+%% @doc
+%% Verifies a digital signature, using sha256
+%% @end
+%%--------------------------------------------------------------------
 -spec verify(binary(), binary(), pubkey()) -> boolean().
 verify(Bin, Signature, {ecc_compact, PubKey}) ->
     public_key:verify(Bin, sha256, Signature, PubKey);
@@ -142,20 +202,39 @@ verify(Bin, Signature, {ed25519, PubKey}) ->
         _ -> false
     end.
 
-
+%%--------------------------------------------------------------------
+%% @doc
+%% Binary to b58
+%% @end
+%%--------------------------------------------------------------------
 -spec bin_to_b58(binary()) -> string().
 bin_to_b58(Bin) ->
     bin_to_b58(16#00, Bin).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Binary to b58
+%% @end
+%%--------------------------------------------------------------------
 -spec bin_to_b58(non_neg_integer(), binary()) -> string().
 bin_to_b58(Version, Bin) ->
     base58check_encode(Version, Bin).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% B58 to binary
+%% @end
+%%--------------------------------------------------------------------
 -spec b58_to_bin(string())-> binary().
 b58_to_bin(Str) ->
     {_, Addr} = b58_to_version_bin(Str),
     Addr.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% B58 to binary
+%% @end
+%%--------------------------------------------------------------------
 -spec b58_to_version_bin(string())-> {Version::non_neg_integer(), binary()}.
 b58_to_version_bin(Str) ->
     case base58check_decode(Str) of
@@ -163,16 +242,30 @@ b58_to_version_bin(Str) ->
         {error, Reason} -> error(Reason)
     end.
 
+%%--------------------------------------------------------------------
+%% @doc
+%% Public key Binary to P2P address
+%% @end
+%%--------------------------------------------------------------------
 -spec pubkey_bin_to_p2p(pubkey_bin()) -> string().
 pubkey_bin_to_p2p(PubKey) when is_binary(PubKey) ->
     "/p2p/" ++ bin_to_b58(PubKey).
 
+%%--------------------------------------------------------------------
+%% @doc
+%% P2P address to public key binary
+%% @end
+%%--------------------------------------------------------------------
 -spec p2p_to_pubkey_bin(string()) -> pubkey_bin().
 p2p_to_pubkey_bin(Str) ->
     case multiaddr:protocols(Str) of
         [{"p2p", B58Addr}] -> b58_to_bin(B58Addr);
         _ -> error(badarg)
     end.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
 
 -spec base58check_encode(non_neg_integer(), binary()) -> string().
 base58check_encode(Version, Payload) when Version >= 0, Version =< 16#FF ->
@@ -194,10 +287,12 @@ base58check_decode(B58) ->
       {error, bad_checksum}
   end.
 
+%% ------------------------------------------------------------------
+%% EUNIT Tests
+%% ------------------------------------------------------------------
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
-
 
 save_load_test() ->
     SaveLoad = fun(KeyType) ->
