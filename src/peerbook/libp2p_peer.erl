@@ -16,11 +16,22 @@
                        associations => association_map(),
                        signed_metadata => #{binary() => binary()}
                      }.
--type peer() :: #libp2p_signed_peer_pb{}.
--type association() :: #libp2p_association_pb{}.
+-type signed_peer() :: #libp2p_signed_peer_pb{peer :: libp2p_peer:peer() | undefined,
+                                              signature :: iodata() | undefined,
+                                              metadata :: [{iolist(), iodata()}] | undefined}.
+-type peer() :: #libp2p_peer_pb{pubkey :: iodata() | undefined,
+                                listen_addrs :: [iodata()] | undefined,
+                                connected :: [iodata()] | undefined,
+                                nat_type :: 'none' | 'static' | 'restricted' | 'symmetric' | 'unknown' | integer() | undefined,
+                                timestamp :: integer() | undefined,
+                                associations :: [{iolist(), libp2p_identify_pb:libp2p_association_list_pb()}] | undefined,
+                                network_id :: iodata() | undefined,
+                                signed_metadata :: [{iolist(), libp2p_identify_pb:libp2p_metadata_value_pb()}] | undefined}.
+-type association() :: #libp2p_association_pb{pubkey :: iodata() | undefined,
+                                              signature  :: iodata() | undefined}.
 -type association_map() :: [{Type::string(), [association()]}].
 -type metadata() :: [{string(), binary()}].
--export_type([peer/0, association/0, peer_map/0, nat_type/0]).
+-export_type([peer/0, signed_peer/0, association/0, peer_map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, decode_unsafe/1, encode_list/1, decode_list/1, verify/1,
          pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
