@@ -32,7 +32,7 @@ coding_test(_) ->
                  nat_type => static,
                  associations => [{"wallet", Associations}]
                 },
-    Peer1 = libp2p_peer:from_map(Peer1Map, SigFun1),
+    {ok, Peer1} = libp2p_peer:from_map(Peer1Map, SigFun1),
 
     DecodedPeer = libp2p_peer:decode(libp2p_peer:encode(Peer1)),
 
@@ -46,16 +46,16 @@ coding_test(_) ->
 
     ?assert(libp2p_peer:is_similar(Peer1, DecodedPeer)),
 
-    InvalidPeer = libp2p_peer:from_map(Peer1Map, SigFun2),
+    {ok, InvalidPeer} = libp2p_peer:from_map(Peer1Map, SigFun2),
 
     ?assertError(invalid_signature, libp2p_peer:decode(libp2p_peer:encode(InvalidPeer))),
 
     % Check peer list coding
-    Peer2 = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey2),
-                                   listen_addrs => ["/ip4/8.8.8.8/tcp/5678"],
-                                   connected => [libp2p_crypto:pubkey_to_bin(PubKey1)],
-                                   nat_type => static},
-                                 SigFun2),
+    {ok, Peer2} = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey2),
+                                         listen_addrs => ["/ip4/8.8.8.8/tcp/5678"],
+                                         connected => [libp2p_crypto:pubkey_to_bin(PubKey1)],
+                                         nat_type => static},
+                                       SigFun2),
 
     ?assert(not libp2p_peer:is_similar(Peer1, Peer2)),
     ?assertEqual([Peer1, Peer2], libp2p_peer:decode_list(libp2p_peer:encode_list([Peer1, Peer2]))),
@@ -70,7 +70,7 @@ metadata_test(_) ->
                 listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                 connected => [],
                 nat_type => static},
-    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
+    {ok, Peer} = libp2p_peer:from_map(PeerMap, SigFun1),
 
     Excludes = ["/ip4/8.8.8.8/tcp/1234"],
     MPeer = libp2p_peer:metadata_put(Peer, "exclude", term_to_binary(Excludes)),
@@ -101,7 +101,7 @@ blacklist_test(_) ->
                 listen_addrs => [BadListenAddr, GoodListenAddr],
                 connected => [],
                 nat_type => static},
-    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
+    {ok, Peer} = libp2p_peer:from_map(PeerMap, SigFun1),
 
     MPeer = libp2p_peer:blacklist_add(Peer, BadListenAddr),
 
@@ -124,7 +124,7 @@ association_test(_) ->
     ValidAssoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
                                             libp2p_crypto:pubkey_to_bin(PubKey1),
                                             libp2p_crypto:mk_sig_fun(AssocPrivKey1)),
-    ValidPeer = libp2p_peer:from_map(PeerMap#{associations => [{"wallet", [ValidAssoc]}]}, SigFun1),
+    {ok, ValidPeer} = libp2p_peer:from_map(PeerMap#{associations => [{"wallet", [ValidAssoc]}]}, SigFun1),
 
     ?assert(libp2p_peer:is_association(ValidPeer, "wallet",
                                        libp2p_crypto:pubkey_to_bin(AssocPubKey1))),
@@ -143,13 +143,13 @@ association_test(_) ->
                                                             libp2p_crypto:pubkey_to_bin(PubKey1))),
 
     %% Setting the same association dedupes
-    ValidPeer2 = libp2p_peer:associations_put(ValidPeer, "wallet", ValidAssoc, SigFun1),
+    {ok, ValidPeer2} = libp2p_peer:associations_put(ValidPeer, "wallet", ValidAssoc, SigFun1),
     ?assertEqual([ValidAssoc], libp2p_peer:associations_get(ValidPeer2, "wallet")),
 
     %% Make an association signed with the wrong private key
     InvalidAssoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
                                               libp2p_crypto:pubkey_to_bin(PubKey1), SigFun1),
-    InvalidPeer = libp2p_peer:associations_put(ValidPeer, "wallet", InvalidAssoc, SigFun1),
+    {ok, InvalidPeer} = libp2p_peer:associations_put(ValidPeer, "wallet", InvalidAssoc, SigFun1),
     ?assert(libp2p_peer:is_association(InvalidPeer, "wallet",
                                        libp2p_crypto:pubkey_to_bin(AssocPubKey1))),
     ?assertEqual([InvalidAssoc], libp2p_peer:associations_get(InvalidPeer, "wallet")),
@@ -167,7 +167,7 @@ signed_metadata_test(_) ->
                 connected => [],
                 nat_type => static,
                 signed_metadata => #{<<"hello">> => <<"world">>, <<"number">> => 1, <<"floaty">> => 0.42}},
-    Peer = libp2p_peer:from_map(PeerMap, SigFun1),
+    {ok, Peer} = libp2p_peer:from_map(PeerMap, SigFun1),
     ?assertEqual(<<"world">>, libp2p_peer:signed_metadata_get(Peer, <<"hello">>, <<"dlrow">>)),
     ?assertEqual(1, libp2p_peer:signed_metadata_get(Peer, <<"number">>, 1)),
     ?assertEqual(0.42, libp2p_peer:signed_metadata_get(Peer, <<"floaty">>, 0.42)),
@@ -179,4 +179,3 @@ signed_metadata_test(_) ->
     ?assertEqual(0.42, libp2p_peer:signed_metadata_get(DecodedPeer, <<"floaty">>, 0.42)),
     ?assertEqual(<<"dlrow">>, libp2p_peer:signed_metadata_get(DecodedPeer, <<"goodbye">>, <<"dlrow">>)),
     ok.
-
