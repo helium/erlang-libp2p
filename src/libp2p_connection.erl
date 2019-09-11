@@ -122,7 +122,7 @@ mk_async_sender(Handler, Connection) ->
                                                   [Handler, Error]),
                                      Handler ! {send_result, Ref, {error, Error}};
                                  Result ->
-                                     lager:info("unknown send: ~p", [erlang:process_info(Handler, current_stacktrace)]),
+                                     lager:info("unknown send: ~p", [recon:info(Handler)]),
                                      libp2p_stats:report(unknown_send, byte_size(Data)),
                                      Handler ! {send_result, Ref, Result}
                              end,
