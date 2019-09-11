@@ -315,7 +315,7 @@ terminate(_Reason, _State) ->
 %% Internal
 %%
 
--spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> libp2p_peer:peer().
+-spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> {ok, libp2p_peer:peer()} | {error, term()}.
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
@@ -354,15 +354,27 @@ update_this_peer(State=#state{tid=TID}) ->
             NewPeer = mk_this_peer(undefined, State),
             update_this_peer(NewPeer, State);
         {ok, OldPeer} ->
-            NewPeer = mk_this_peer(OldPeer, State),
-            case libp2p_peer:is_similar(NewPeer, OldPeer) of
-                true -> State;
-                false -> update_this_peer(NewPeer, State)
+            case mk_this_peer(OldPeer, State) of
+                {ok, NewPeer} ->
+                    case libp2p_peer:is_similar(NewPeer, OldPeer) of
+                        true -> State;
+                        false -> update_this_peer({ok, NewPeer}, State)
+                    end;
+                {error, Error} ->
+                    lager:notice("Failed to make peer: ~p", [Error]),
+                    State
             end
     end.
 
--spec update_this_peer(libp2p_peer:peer(), #state{}) -> #state{}.
-update_this_peer(NewPeer, State=#state{peer_timer=PeerTimer}) ->
+-spec update_this_peer({ok, libp2p_peer:peer()} | {error, term()}, #state{}) -> #state{}.
+update_this_peer({error, _Error}, State=#state{peer_timer=PeerTimer}) ->
+    case PeerTimer of
+        undefined -> ok;
+        _ -> erlang:cancel_timer(PeerTimer)
+    end,
+    NewPeerTimer = erlang:send_after(State#state.peer_time, self(), peer_timeout),
+    State#state{peer_timer=NewPeerTimer};
+update_this_peer({ok, NewPeer}, State=#state{peer_timer=PeerTimer}) ->
     store_peer(NewPeer, State#state.peerbook),
     case PeerTimer of
         undefined -> ok;
