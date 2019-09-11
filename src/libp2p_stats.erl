@@ -34,7 +34,7 @@ report(Source, Bytes) ->
 %%%===================================================================
 
 init([]) ->
-    erlang:send_after(timer:seconds(30), self(), tick),
+    erlang:send_after(timer:seconds(10), self(), tick),
     {ok, #state{}}.
 
 handle_call(_Request, _From, State) ->
@@ -51,7 +51,7 @@ handle_cast(_Msg, State) ->
 
 handle_info(tick, #state{stats = Stats} = State) ->
     lager:info("tick stats ~p", [Stats]),
-    erlang:send_after(timer:seconds(30), self(), tick),
+    erlang:send_after(timer:seconds(10), self(), tick),
     {noreply, State};
 handle_info(_Info, State) ->
     lager:warning("unexpected message ~p", [_Info]),

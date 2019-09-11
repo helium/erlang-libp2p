@@ -349,6 +349,21 @@ handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=Stre
         _ ->
             keep_state_and_data
     end;
+handle_event(cast, {send, Ref, _Source, _Bin}, #data{server=Server, stream_pid=undefined}) ->
+    %% Trying to send while not connected to a stream
+    libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
+    keep_state_and_data;
+handle_event(cast, {send, Ref, Source, Bin}, Data = #data{server=Server, stream_pid=StreamPid}) ->
+    Result = libp2p_framed_stream:send(StreamPid, Bin, Source),
+    libp2p_group_server:send_result(Server, Ref, Result),
+    case Result of
+        {error, _Reason} ->
+            %lager:info("send failed with reason ~p", [Result]),
+            {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
+             ?TRIGGER_CONNECT_RETRY};
+        _ ->
+            keep_state_and_data
+    end;
 handle_event(cast, clear_target, #data{}) ->
     %% ignore (handled in all states but `closing')
     keep_state_and_data;
