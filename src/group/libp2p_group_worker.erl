@@ -9,7 +9,7 @@
 %% API
 -export([start_link/4, start_link/5,
          assign_target/2, clear_target/1,
-         assign_stream/2, send/3, send_ack/3, close/1]).
+         assign_stream/2, send/3, send/4, send_ack/3, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -81,6 +81,9 @@ assign_stream(Pid, StreamPid) ->
 -spec send(pid(), term(), any()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
+
+send(Pid, Ref, Source, Data) ->
+    gen_statem:cast(Pid, {send, Ref, Source, Data}).
 
 %% @doc Changes the group worker state to `closing' state. Closing
 %% means that a newly assigned stream is still accepted but the worker

@@ -123,6 +123,13 @@ init([Name, Opts]) ->
             supervisor,
             [libp2p_swarm_group_sup]
         },
+        {stats,
+            {libp2p_stats, start_link, []},
+            permanent,
+            10000,
+            worker,
+            [libp2p_stats]
+        },
         {?SERVER,
             {libp2p_swarm_server, start_link, [TID, SigFun, ECDHFun]},
             permanent,

@@ -509,11 +509,11 @@ handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=tru
 handle_resp_send(Action, Data, Timeout, State=#state{}) ->
     handle_resp_send_inner(Action, Data, Timeout, State).
 
-handle_resp_send_inner(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendPid}) ->
+handle_resp_send_inner(Action, Data, Timeout, State=#state{sends=Sends, module=Module, send_pid=SendPid}) ->
     Key = make_ref(),
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    SendPid ! {send, Key, Bin},
+    SendPid ! {send, Key, Module, Bin},
     State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
 
 

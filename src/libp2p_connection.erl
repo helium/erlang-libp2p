@@ -122,7 +122,19 @@ mk_async_sender(Handler, Connection) ->
                                                   [Handler, Error]),
                                      Handler ! {send_result, Ref, {error, Error}};
                                  Result ->
+                                     libp2p_stats:report(unknown_send, byte_size(Data)),
                                      Handler ! {send_result, Ref, Result}
+                             end,
+                             Fun();
+                         {send, Ref, Source, Data} ->
+                             case (catch libp2p_connection:send(Connection, Data)) of
+                                 {'EXIT', Error} ->
+                                     lager:notice("Failed sending on connection for ~p: ~p",
+                                                  [Handler, Error]),
+                                     Handler ! {send_result, Ref, {error, Error}};
+                                 Result ->
+                                     Handler ! {send_result, Ref, Result},
+                                     libp2p_stats:report(Source, byte_size(Data))
                              end,
                              Fun();
                          {cast, Data} ->
@@ -131,7 +143,16 @@ mk_async_sender(Handler, Connection) ->
                                      lager:notice("Failed casting on connection for ~p: ~p",
                                                   [Handler, Error]);
                                  _ ->
-                                     ok
+                                     libp2p_stats:report(unknown_cast, byte_size(Data))
+                             end,
+                             Fun();
+                         {cast, Source, Data} ->
+                             case (catch libp2p_connection:send(Connection, Data)) of
+                                 {'EXIT', Error} ->
+                                     lager:notice("Failed casting on connection for ~p: ~p",
+                                                  [Handler, Error]);
+                                 _ ->
+                                     libp2p_stats:report(Source, byte_size(Data))
                              end,
                              Fun()
                      end

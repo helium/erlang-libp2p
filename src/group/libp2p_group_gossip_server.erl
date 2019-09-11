@@ -163,6 +163,10 @@ handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
                                              {send, Data} ->
                                                  Msg = libp2p_gossip_stream:encode(Key, Data),
                                                  libp2p_group_worker:send(WorkerPid, send_ready, Msg),
+                                                 Acc;
+                                             {send, Source, Data} ->
+                                                 Msg = libp2p_gossip_stream:encode(Key, Data),
+                                                 libp2p_group_worker:send(WorkerPid, send_ready, Source, Msg),
                                                  Acc
                                          end
                                  end, State, State#state.handlers),
