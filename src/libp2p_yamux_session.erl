@@ -354,7 +354,7 @@ session_send(Info, Header=#header{}, Timeout, State=#state{}) ->
 session_send(Info, Data, Timeout, State=#state{send_pid=SendPid, sends=Sends}) when is_binary(Data)->
     Key = make_ref(),
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
-    SendPid ! {send, Key, Data},
+    SendPid ! {send, Key, session_send, Data},
     State#state{sends=maps:put(Key, {Timer, Info}, Sends)}.
 
 -spec session_cast(header() | binary(), #state{}) -> #state{}.
