@@ -488,10 +488,10 @@ handle_resp_send(Action, Data, State=#state{}) ->
     handle_resp_send(Action, Data, ?SEND_TIMEOUT, State).
 
 -spec send_key(binary(), #state{}) -> #state{}.
-send_key(Data, #state{send_pid=SendPid}=State) ->
+send_key(Data, #state{send_pid=SendPid, module=M}=State) ->
     Key = make_ref(),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    SendPid ! {send, Key, Bin},
+    SendPid ! {send, Key, M, Bin},
     State.
 
 
