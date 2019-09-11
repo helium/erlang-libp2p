@@ -479,7 +479,7 @@ take_while([Worker | Workers], State) ->
             take_while(Workers, update_worker(Worker#worker{last_take=not_found}, State#state{store = NewRelcast}));
         {ok, Msgs, Acks, NewRelcast} ->
             %% lager:info("take ~p got ~p", [Index, length(Msgs)]),
-            libp2p_group_worker:send(Worker#worker.pid, Index, State#state.group_id, Msgs),
+            libp2p_group_worker:send(Worker#worker.pid, Index, Msgs),
             dispatch_acks(Acks, false, State),
             InFlight = relcast:in_flight(Index, NewRelcast),
             NewWorker = Worker#worker{in_flight=InFlight, last_take=ok},
