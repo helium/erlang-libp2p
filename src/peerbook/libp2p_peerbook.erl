@@ -69,6 +69,7 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
                                             NewPeerId /= ThisPeerId
                                                 andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
                                                 andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
+                                                andalso not libp2p_peer:is_similar(NewPeer, ExistingPeer)
                                                 andalso libp2p_peer:network_id_allowable(NewPeer, libp2p_swarm:network_id(TID))
                                     end
                             end, PeerList),
