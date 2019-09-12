@@ -37,7 +37,7 @@
 
 -define(MAX_PEER_SIZE, 50*1024). %% 50kb
 
--spec from_map(peer_map(), fun((binary()) -> binary())) -> peer().
+-spec from_map(peer_map(), fun((binary()) -> binary())) -> {ok, peer()} | {error, term()}.
 from_map(Map, SigFun) ->
     Timestamp = case maps:get(timestamp, Map, no_entry) of
                     no_entry -> erlang:system_time(millisecond);
@@ -149,7 +149,7 @@ association_pubkey_bins(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations
 %% @doc Replaces all associations for a given association type in the
 %% given peer.
 -spec associations_set(peer(), AssocType::string(), [association()], PeerSigFun::libp2p_crypto:sig_fun())
-                      -> peer().
+                      -> {ok, peer()} | {error, term()}.
 associations_set(#libp2p_signed_peer_pb{peer=Peer=#libp2p_peer_pb{associations=Assocs}},
                  AssocType, NewAssocs, PeerSigFun) ->
     ListifiedAssocs = #libp2p_association_list_pb{associations=NewAssocs},
@@ -169,7 +169,7 @@ associations_get(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{associations=Assocs
 %% peer. The returned peer is signed with the provided signing
 %% function.
 -spec associations_put(peer(), AssocType::string(), association(), PeerSigFun::libp2p_crypto:sig_fun())
-                      -> peer().
+                      -> {ok, peer()} | {error, term()}.
 associations_put(Peer=#libp2p_signed_peer_pb{}, AssocType, Assoc, PeerSigFun) ->
     %% Get current associations for type
     CurrentAssocs = associations_get(Peer, AssocType),
@@ -416,12 +416,16 @@ verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs
 %% Internal
 %%
 
--spec sign_peer(#libp2p_peer_pb{}, libp2p_crypto:sig_fun()) -> peer().
+-spec sign_peer(#libp2p_peer_pb{}, libp2p_crypto:sig_fun()) -> {ok, peer()} | {error, term()}.
 sign_peer(Peer0 = #libp2p_peer_pb{signed_metadata=MD}, SigFun) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
     EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
-    Signature = SigFun(EncodedPeer),
-    #libp2p_signed_peer_pb{peer=Peer, signature=Signature}.
+    case SigFun(EncodedPeer) of
+        {error, Error} ->
+            {error, Error};
+        Signature ->
+            {ok, #libp2p_signed_peer_pb{peer=Peer, signature=Signature}}
+    end.
 
 encode_map(Map) ->
     lists:sort(maps:fold(fun(K, V, Acc) when is_binary(K), is_integer(V) ->
@@ -439,4 +443,3 @@ encode_map(Map) ->
                                  lager:warning("invalid metadata key ~p with value ~p, keys must be binaries", [K, V]),
                                  Acc
                          end, [], Map)).
-

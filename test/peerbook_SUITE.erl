@@ -118,12 +118,12 @@ bad_peer_test(Config) ->
 
     SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
 
-    InvalidPeer = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
-                                         listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
-                                         connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
-                                         nat_type => static,
-                                         timestamp => erlang:system_time(millisecond)},
-                                       SigFun2),
+    {ok, InvalidPeer} = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
+                                               listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                                               connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
+                                               nat_type => static,
+                                               timestamp => erlang:system_time(millisecond)},
+                                             SigFun2),
 
     {'EXIT', {invalid_signature, _}} = (catch libp2p_peerbook:put(PeerBook, [InvalidPeer])),
     false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(InvalidPeer)),
@@ -389,12 +389,13 @@ peer_keys(PeerList) ->
 mk_peer() ->
     #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     #{ public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
-    libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey),
-                           listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
-                           connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
-                           nat_type => static,
-                           timestamp => erlang:system_time(millisecond)},
-                         libp2p_crypto:mk_sig_fun(PrivKey)).
+    {ok, Peer} = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey),
+                                        listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
+                                        connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
+                                        nat_type => static,
+                                        timestamp => erlang:system_time(millisecond)},
+                                      libp2p_crypto:mk_sig_fun(PrivKey)),
+    Peer.
 
 setup_peerbook(Config, Opts) ->
     test_util:setup(),
