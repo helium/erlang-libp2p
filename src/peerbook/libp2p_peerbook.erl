@@ -385,7 +385,9 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
                                case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
                                    error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
                                    {ok, FoundPeer} ->
-                                       case libp2p_peer:supersedes(Peer, FoundPeer) of
+                                       case libp2p_peer:supersedes(Peer, FoundPeer) andalso
+                                           not libp2p_peer:is_similar(Peer, FoundPeer)
+                                       of
                                            true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
                                            false -> Acc
                                        end
