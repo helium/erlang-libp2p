@@ -252,7 +252,8 @@ supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}}
 is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=TargetTimestamp}},
            Other=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=OtherTimestamp}}) ->
     %% if the set difference is greater than a quarter the old set
-    %% size, we're no longer similar
+    %% size, or it has been three minutes since the original was
+    %% published, we're no longer similar
     TSet = sets:from_list(connected_peers(Target)),
     OSet = sets:from_list(connected_peers(Other)),
     TSize = sets:size(TSet),
@@ -262,7 +263,8 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=TargetTi
     ConnPeersSimilar = (OSize == TSize andalso OSize == 0) orelse
         (IntSize > (OSize * 0.25) andalso TSize < (OSize * 2)),
 
-    TimestampSimilar = TargetTimestamp < (OtherTimestamp + timer:minutes(3)),
+    TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff, 3),
+    TimestampSimilar = TargetTimestamp < (OtherTimestamp + timer:minutes(TimeDiffMinutes)),
 
     pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
