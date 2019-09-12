@@ -255,16 +255,17 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{}},
     %% we're no longer similar
     TSet = sets:from_list(connected_peers(Target)),
     OSet = sets:from_list(connected_peers(Other)),
+    TSize = sets:size(TSet),
     OSize = sets:size(OSet),
     Intersection = sets:intersection(TSet, OSet),
     IntSize = sets:size(Intersection),
-    ConnDiff = IntSize > (OSize * 0.5),
+    ConnPeersSimilar = IntSize > (OSize * 0.25) andalso TSize < (OSize * 2),
 
     pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
         andalso network_id(Target) == network_id(Other)
         andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
-        andalso ConnDiff
+        andalso ConnPeersSimilar
         %% We only compare the {type, assoc_adddress} parts of an
         %% association as multiple signatures over the same value will
         %% differ
