@@ -382,14 +382,30 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
-                                   error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                   {ok, FoundPeer} ->
-                                       case libp2p_peer:supersedes(Peer, FoundPeer) andalso
-                                           not libp2p_peer:is_similar(Peer, FoundPeer)
-                                       of
-                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                           false -> Acc
+                               case unsafe_fetch_peer(libp2p_peer:pubkey_bin(Peer), State#state.peerbook) of
+                                   {error, not_found} ->
+                                       case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                           {ok, FoundPeer} ->
+                                               case libp2p_peer:supersedes(Peer, FoundPeer) andalso
+                                                   not libp2p_peer:is_similar(Peer, FoundPeer)
+                                               of
+                                                   true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                   false -> Acc
+                                               end
+                                       end;
+                                   {ok, OldPeer} ->
+                                       case libp2p_peer:is_similar(Peer, OldPeer) of
+                                           true -> Acc;
+                                           false ->
+                                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                                   {ok, FoundPeer} ->
+                                                       case libp2p_peer:supersedes(Peer, FoundPeer) andalso
+                                                           not libp2p_peer:is_similar(Peer, FoundPeer)
+                                                       of
+                                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                           false -> Acc
+                                                       end
+                                               end
                                        end
                                end
                        end, NotifyPeers, NewPeers),
