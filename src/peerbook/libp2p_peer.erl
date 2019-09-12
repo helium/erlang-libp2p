@@ -261,7 +261,7 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=TargetTi
     IntSize = sets:size(Intersection),
     ConnPeersSimilar = IntSize > (OSize * 0.25) andalso TSize < (OSize * 2),
 
-    TimestampSimilar = TargetTimestamp < (OtherTimestamp + timer:minutes(5)),
+    TimestampSimilar = TargetTimestamp < (OtherTimestamp + timer:minutes(10)),
 
     pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
