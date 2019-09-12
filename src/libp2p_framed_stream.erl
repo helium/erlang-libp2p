@@ -7,7 +7,7 @@
 % gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 % API
--export([client/3, server/3, server/4, send/2, send/3, recv/2,
+-export([client/3, server/3, server/4, send/2, send/3, send/4, recv/2,
          close/1, close_state/1, addr_info/1, connection/1, session/1,
          mk_secured_keypair/1]).
 %% libp2p_info
@@ -246,11 +246,22 @@ handle_call({send, Data, Timeout}, From, State=#state{kind=Kind, module=Module, 
         true -> case Module:handle_send(Kind, From, Data, Timeout, ModuleState0) of
                     {error, Error, ModuleState} -> {reply, {error, Error}, State#state{state=ModuleState}};
                     {ok, ResultAction, NewData, NewTimeout, ModuleState} ->
-                        {noreply, handle_resp_send(ResultAction, NewData, NewTimeout,
+                        {noreply, handle_resp_send(ResultAction, NewData, undefined, NewTimeout,
                                                    State#state{state=ModuleState})}
                 end;
         false ->
-            {noreply, handle_resp_send({reply, From}, Data, Timeout, State)}
+            {noreply, handle_resp_send({reply, From}, Data, undefined, Timeout, State)}
+    end;
+handle_call({send, Data, Source, Timeout}, From, State=#state{kind=Kind, module=Module, state=ModuleState0}) ->
+    case erlang:function_exported(Module, handle_send, 5) of
+        true -> case Module:handle_send(Kind, From, Data, Timeout, ModuleState0) of
+                    {error, Error, ModuleState} -> {reply, {error, Error}, State#state{state=ModuleState}};
+                    {ok, ResultAction, NewData, NewTimeout, ModuleState} ->
+                        {noreply, handle_resp_send(ResultAction, NewData, Source, NewTimeout,
+                                                   State#state{state=ModuleState})}
+                end;
+        false ->
+            {noreply, handle_resp_send({reply, From}, Data, Source, Timeout, State)}
     end;
 handle_call(connection, _From, State=#state{connection=Connection}) ->
     {reply, Connection, State};
@@ -338,10 +349,14 @@ close_state(Pid) ->
     end.
 
 send(Pid, Data) ->
-    send(Pid, Data, ?SEND_TIMEOUT).
-
-send(Pid, Data, Timeout) ->
+    Timeout = ?SEND_TIMEOUT,
     call(Pid, {send, Data, Timeout}, Timeout * 2).
+
+send(Pid, Data, Source) ->
+    send(Pid, Data, Source, ?SEND_TIMEOUT).
+
+send(Pid, Data, Source, Timeout) ->
+    call(Pid, {send, Data, Source, Timeout}, Timeout * 2).
 
 addr_info(Pid) ->
     call(Pid, addr_info).
@@ -485,7 +500,7 @@ handle_fdset(State=#state{connection=Connection}) ->
 
 -spec handle_resp_send(send_result_action(), binary(), #state{}) -> #state{}.
 handle_resp_send(Action, Data, State=#state{}) ->
-    handle_resp_send(Action, Data, ?SEND_TIMEOUT, State).
+    handle_resp_send(Action, Data, undefined, ?SEND_TIMEOUT, State).
 
 -spec send_key(binary(), #state{}) -> #state{}.
 send_key(Data, #state{send_pid=SendPid, module=M}=State) ->
@@ -495,25 +510,30 @@ send_key(Data, #state{send_pid=SendPid, module=M}=State) ->
     State.
 
 
--spec handle_resp_send(send_result_action(), binary(), non_neg_integer(), #state{}) -> #state{}.
-handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=true,
-                                                     send_nonce=Nonce, connection=Conn}) ->
+-spec handle_resp_send(send_result_action(), binary(), undefined | atom(), non_neg_integer(), #state{}) -> #state{}.
+handle_resp_send(Action, Data, Source, Timeout, State=#state{secured=true, exchanged=true,
+                                                             send_nonce=Nonce, connection=Conn}) ->
     case enacl:aead_chacha20poly1305_encrypt(State#state.send_key, Nonce, <<>>, Data) of
         {error, _Reason} ->
             libp2p_connection:close(Conn),
             lager:warning("failed to encrypt ~p : ~p", [{Nonce, Data}, _Reason]),
             State;
         EncryptedData ->
-            handle_resp_send_inner(Action, EncryptedData, Timeout, State#state{send_nonce=Nonce+1})
+            handle_resp_send_inner(Action, EncryptedData, Source, Timeout, State#state{send_nonce=Nonce+1})
     end;
-handle_resp_send(Action, Data, Timeout, State=#state{}) ->
-    handle_resp_send_inner(Action, Data, Timeout, State).
+handle_resp_send(Action, Data, Source, Timeout, State=#state{}) ->
+    handle_resp_send_inner(Action, Data, Source, Timeout, State).
 
-handle_resp_send_inner(Action, Data, Timeout, State=#state{sends=Sends, module=Module, send_pid=SendPid}) ->
+handle_resp_send_inner(Action, Data, Source, Timeout, State=#state{sends=Sends, module=Module, send_pid=SendPid}) ->
     Key = make_ref(),
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
     Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    SendPid ! {send, Key, Module, Bin},
+    case Source of
+        undefined ->
+            SendPid ! {send, Key, Module, Bin};
+        _ ->
+            SendPid ! {send, Key, Source, Bin}
+    end,
     State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
 
 

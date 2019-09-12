@@ -9,7 +9,7 @@
 %% API
 -export([start_link/4, start_link/5,
          assign_target/2, clear_target/1,
-         assign_stream/2, send/3, send_ack/3, close/1]).
+         assign_stream/2, send/3, send/4, send_ack/3, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -81,6 +81,9 @@ assign_stream(Pid, StreamPid) ->
 -spec send(pid(), term(), any()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
+
+send(Pid, Ref, Source, Data) ->
+    gen_statem:cast(Pid, {send, Ref, Source, Data}).
 
 %% @doc Changes the group worker state to `closing' state. Closing
 %% means that a newly assigned stream is still accepted but the worker
@@ -337,6 +340,21 @@ handle_event(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}
     keep_state_and_data;
 handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=StreamPid}) ->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
+    libp2p_group_server:send_result(Server, Ref, Result),
+    case Result of
+        {error, _Reason} ->
+            %lager:info("send failed with reason ~p", [Result]),
+            {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
+             ?TRIGGER_CONNECT_RETRY};
+        _ ->
+            keep_state_and_data
+    end;
+handle_event(cast, {send, Ref, _Source, _Bin}, #data{server=Server, stream_pid=undefined}) ->
+    %% Trying to send while not connected to a stream
+    libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
+    keep_state_and_data;
+handle_event(cast, {send, Ref, Source, Bin}, Data = #data{server=Server, stream_pid=StreamPid}) ->
+    Result = libp2p_framed_stream:send(StreamPid, Bin, Source),
     libp2p_group_server:send_result(Server, Ref, Result),
     case Result of
         {error, _Reason} ->

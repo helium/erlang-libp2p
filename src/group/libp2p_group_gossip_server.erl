@@ -141,7 +141,7 @@ handle_cast({send, Key, Data}, State=#state{}) ->
             lager:warning("Error encoding gossip data ~p", [Error]);
         Msg ->
             lists:foreach(fun(Pid) ->
-                                  libp2p_group_worker:send(Pid, Key, Msg)
+                                  libp2p_group_worker:send(Pid, Key, Key, Msg)
                           end, Pids)
     end,
     {noreply, State};
