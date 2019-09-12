@@ -383,6 +383,7 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
                                case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                   error -> Acc;
                                    {ok, FoundPeer} ->
                                        case libp2p_peer:supersedes(Peer, FoundPeer) of
                                            true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
