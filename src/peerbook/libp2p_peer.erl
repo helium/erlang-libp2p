@@ -260,10 +260,11 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=TargetTi
     OSize = sets:size(OSet),
     Intersection = sets:intersection(TSet, OSet),
     IntSize = sets:size(Intersection),
+    ConnDiffPct = application:get_env(libp2p, similarity_conn_pct, 0.3333),
     ConnPeersSimilar = (OSize == TSize andalso OSize == 0) orelse
-        (IntSize > (OSize * 0.25) andalso TSize < (OSize * 2)),
+        (IntSize > (OSize * ConnDiffPct) andalso TSize < (OSize * 2)),
 
-    TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff, 3),
+    TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff_mins, 6),
     TimestampSimilar = TargetTimestamp < (OtherTimestamp + timer:minutes(TimeDiffMinutes)),
 
     pubkey_bin(Target) == pubkey_bin(Other)
