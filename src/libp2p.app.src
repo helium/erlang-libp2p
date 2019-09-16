@@ -31,7 +31,8 @@
                   enacl,
                   splicer,
                   backoff,
-                  relcast
+                  relcast,
+                  libp2p_crypto
                  ]},
   {env,[]},
 
