@@ -17,6 +17,7 @@ message peer {
     map<string, association_list> associations = 6;
     bytes network_id = 7;
     map<string, metadata_value> signed_metadata = 8;
+    repeated bytes relaying_for = 9;
 }
 
 message metadata_value {

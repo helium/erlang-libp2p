@@ -123,7 +123,7 @@ check_peerbook(TID, MAddr) ->
     ServerAddress = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
     case libp2p_peerbook:get(Peerbook, RelayAddress) of
         {ok, Peer} ->
-            lists:member(ServerAddress, libp2p_peer:connected_peers(Peer));
+            lists:member(ServerAddress, libp2p_peer:relaying_for_peers(Peer));
         Error ->
             Error
     end.

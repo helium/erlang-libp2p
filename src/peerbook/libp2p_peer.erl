@@ -9,7 +9,8 @@
                        nat_type => nat_type(),
                        network_id => binary(),
                        associations => association_map(),
-                       signed_metadata => #{binary() => binary()}
+                       signed_metadata => #{binary() => binary()},
+                       relaying_for => [binary()]
                      }.
 -type peer() :: #libp2p_signed_peer_pb{}.
 -type association() :: #libp2p_association_pb{}.
@@ -18,7 +19,7 @@
 -export_type([peer/0, association/0, peer_map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, decode_unsafe/1, encode_list/1, decode_list/1, verify/1,
-         pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
+         pubkey_bin/1, listen_addrs/1, connected_peers/1, relaying_for_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2, network_id/1, network_id_allowable/2,
          has_public_ip/1, is_dialable/1]).
 %% associations
@@ -55,7 +56,8 @@ from_map(Map, SigFun) ->
                            network_id=maps:get(network_id, Map, <<>>),
                            timestamp=Timestamp,
                            associations=Assocs,
-                           signed_metadata=encode_map(maps:get(signed_metadata, Map, #{}))
+                           signed_metadata=encode_map(maps:get(signed_metadata, Map, #{})),
+                           relaying_for = maps:get(relaying_for, Map)
                           },
     sign_peer(Peer, SigFun).
 
@@ -74,6 +76,12 @@ listen_addrs(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{listen_addrs=Addrs}}) -
 %% known to be connected to.
 -spec connected_peers(peer()) -> [libp2p_crypto:pubkey_bin()].
 connected_peers(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{connected=Conns}}) ->
+    Conns.
+
+%% @doc Gets the list of peer crypto addresses that the given peer was last
+%% known to be relaying for.
+-spec relaying_for_peers(peer()) -> [libp2p_crypto:pubkey_bin()].
+relaying_for_peers(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{relaying_for=Conns}}) ->
     Conns.
 
 %% @doc Gets the NAT type of the given peer.
