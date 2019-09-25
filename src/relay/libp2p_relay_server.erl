@@ -135,7 +135,6 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
                     State0#state.peers
             end,
     SortedPeers = sort_peers(Peers, SwarmPubKeyBin, State0),
-    % BAD TODO
     State = State0#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))},
     case init_relay(State) of
         {ok, Pid} ->
