@@ -111,7 +111,7 @@ is_valid_peer(Swarm, PubKeyBin) ->
             Error;
         {ok, Peer} ->
             StaleTime = libp2p_peerbook:stale_time(PeerBook),
-            ConnectedPeers = libp2p_peer:connected_peers(Peer),
+            ConnectedPeers = libp2p_peer:relaying_for_peers(Peer),
             not libp2p_peer:is_stale(Peer, StaleTime) andalso
             libp2p_peer:has_public_ip(Peer) andalso
             lists:member(libp2p_swarm:pubkey_bin(Swarm), ConnectedPeers)
