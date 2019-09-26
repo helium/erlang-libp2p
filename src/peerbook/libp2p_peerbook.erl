@@ -147,7 +147,7 @@ register_session(#peerbook{tid=TID}, SessionPid, Identify) ->
 unregister_session(#peerbook{tid=TID}, SessionPid) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {unregister_session, SessionPid}).
 
-changed_listener(#peerbook{tid=TID}) ->%
+changed_listener(#peerbook{tid=TID}) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), changed_listener).
 
 -spec update_nat_type(peerbook(), libp2p_peer:nat_type()) -> ok.
@@ -318,11 +318,23 @@ terminate(_Reason, _State) ->
 %%
 
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> {ok, libp2p_peer:peer()} | {error, term()}.
-mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
+mk_this_peer(CurrentPeer, #state{tid=TID, peerbook=PeerBook, sessions=Sessions}=State) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
     NetworkID = libp2p_swarm:network_id(TID),
-    ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
+    ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- Sessions])),
+    RelayUsingAddrs = lists:filter(
+        fun(PubKeyBin) ->
+            case ?MODULE:get(PeerBook, PubKeyBin) of
+                {error, _} ->
+                    false;
+                {ok, Peer} ->
+                    ListenAddresses = libp2p_peer:listen_addrs(Peer),
+                    lists:any(fun libp2p_relay:is_p2p_circuit/1, ListenAddresses)
+            end
+        end,
+        ConnectedAddrs
+    ),
     %% Copy data from current peer
     case CurrentPeer of
         undefined ->
@@ -339,13 +351,14 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                catch
                    _:_ -> #{}
                end,
-    libp2p_peer:from_map(#{ pubkey => SwarmAddr,
-                            listen_addrs => ListenAddrs,
-                            connected => ConnectedAddrs,
-                            nat_type => State#state.nat_type,
-                            network_id => NetworkID,
-                            associations => Associations,
-                            signed_metadata => MetaData},
+    libp2p_peer:from_map(#{pubkey => SwarmAddr,
+                           listen_addrs => ListenAddrs,
+                           connected => ConnectedAddrs -- RelayUsingAddrs,
+                           nat_type => State#state.nat_type,
+                           network_id => NetworkID,
+                           associations => Associations,
+                           signed_metadata => MetaData,
+                           relaying_for => RelayUsingAddrs},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
