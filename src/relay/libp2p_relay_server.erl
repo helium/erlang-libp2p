@@ -37,8 +37,7 @@
     address :: string() | undefined,
     stream :: pid() | undefined,
     retrying = make_ref() :: reference(),
-    banlist = [] :: list(),
-    peerbook :: libp2p_peerbook:peerbook() | undefined
+    banlist = [] :: list()
 }).
 
 -type state() :: #state{}.
@@ -126,17 +125,17 @@ handle_cast(stop_relay, State) ->
 handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    Peerbook = libp2p_swarm:peerbook(Swarm),
+    PeerBook = libp2p_swarm:peerbook(TID),
     Peers = case State0#state.peers of
                 [] ->
-                    ok = libp2p_peerbook:join_notify(Peerbook, self()),
-                    lager:debug("joined peerbook ~p notifications", [Peerbook]),
-                    libp2p_peerbook:values(Peerbook);
+                    ok = libp2p_peerbook:join_notify(PeerBook, self()),
+                    lager:debug("joined peerbook ~p notifications", [PeerBook]),
+                    libp2p_peerbook:values(PeerBook);
                 _ ->
                     State0#state.peers
             end,
     SortedPeers = sort_peers(Peers, SwarmPubKeyBin, State0),
-    State = State0#state{peers=SortedPeers, peerbook=Peerbook, peer_index=rand:uniform(length(SortedPeers))},
+    State = State0#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))},
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
@@ -153,15 +152,16 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid,
-                                          peers=Peers, peerbook=PeerBook}=State) when is_pid(Pid) ->
+handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid, peers=Peers}=State) when is_pid(Pid) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    PeerBook = libp2p_swarm:peerbook(TID),
     MergedPeers = sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State),
     {noreply, State#state{peers=MergedPeers, peer_index=rand:uniform(length(MergedPeers))}};
-handle_info({new_peers, NewPeers}, #state{tid=TID, peers=Peers, peerbook=PeerBook}=State) ->
+handle_info({new_peers, NewPeers}, #state{tid=TID, peers=Peers}=State) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    PeerBook = libp2p_swarm:peerbook(TID),
     {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State)}};
 handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of

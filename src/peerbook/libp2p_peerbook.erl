@@ -234,6 +234,7 @@ init([TID, SigFun]) ->
     StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
     case libp2p_swarm:peerbook(TID) of
         false ->
+            ok = rocksdb:repair(DataDir, []), % This is just in case DB gets corrupted
             case rocksdb:open_with_ttl(DataDir, [{create_if_missing, true}] ++ CFOpts,
                                        (2 * StaleTime) div 1000, false) of
                 {error, Reason} -> {stop, Reason};
