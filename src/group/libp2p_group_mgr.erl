@@ -4,7 +4,7 @@
 
 %% API
 -export([
-         start_link/1,
+         start_link/2,
          mgr/1,
          add_group/4,
          remove_group/2,
@@ -19,15 +19,17 @@
 
 -record(state,
         {
-         tid :: term()
+         tid :: term(),
+         group_deletion_predicate :: function(),
+         storage_dir :: string()
         }).
 
 %%%===================================================================
 %%% API
 %%%===================================================================
 
-start_link(TID) ->
-    gen_server:start_link(?MODULE, [TID], []).
+start_link(TID, Predicate) ->
+    gen_server:start_link(?MODULE, [TID, Predicate], []).
 
 mgr(TID) ->
     ets:lookup_element(TID, ?SERVER, 2).
@@ -41,15 +43,20 @@ remove_group(Mgr, GroupID) ->
 
 %% not implemented
 force_gc(Mgr) ->
-    gen_server:call(Mgr, add_group, infinity).
+    gen_server:call(Mgr, force_gc, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init([TID]) ->
+init([TID, Predicate]) ->
     _ = ets:insert(TID, {?SERVER, self()}),
-    {ok, #state{tid  = TID}}.
+    erlang:send_after(timer:seconds(30), self(), gc_tick),
+    Dir = libp2p_config:swarm_dir(TID, [groups]),
+    lager:debug("groups dir ~p", [Dir]),
+    {ok, #state{tid  = TID,
+                group_deletion_predicate = Predicate,
+                storage_dir = Dir}}.
 
 handle_call({add_group, GroupID, Module, Args}, _From,
             #state{tid = TID} = State) ->
@@ -86,15 +93,25 @@ handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
             lager:warning("removing missing group ~p", [GroupID])
     end,
     {reply, ok, State};
+handle_call(force_gc, _From, #state{group_deletion_predicate = Predicate,
+                                    storage_dir = Dir} = State) ->
+    lager:info("forcing gc"),
+    Reply = gc(Predicate, Dir),
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     lager:warning("unexpected call ~p from ~p", [_Request, _From]),
-    Reply = ok,
-    {reply, Reply, State}.
+    {noreply, State}.
 
 handle_cast(_Msg, State) ->
     lager:warning("unexpected cast ~p", [_Msg]),
     {noreply, State}.
 
+handle_info(gc_tick, #state{group_deletion_predicate = Predicate,
+                            storage_dir = Dir} = State) ->
+    gc(Predicate, Dir),
+    Timeout = application:get_env(libp2p, group_gc_tick, timer:seconds(30)),
+    erlang:send_after(Timeout, self(), gc_tick),
+    {noreply, State};
 handle_info(_Info, State) ->
     lager:warning("unexpected message ~p", [_Info]),
     {noreply, State}.
@@ -108,3 +125,31 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+gc(_Predicate, "") ->
+    lager:debug("no dir"),
+    ok;
+gc(Predicate, Dir) ->
+    %% fetch all directories in Dir
+    case file:list_dir(Dir) of
+        {ok, Groups} ->
+            %% filter using predicate
+            Dels = lists:filter(Predicate, Groups),
+            lager:debug("groups ~p dels ~p", [Groups, Dels]),
+            %% delete.
+            lists:foreach(fun(Grp) -> rm_rf(Dir ++ "/" ++ Grp) end, Dels);
+        _ ->
+            ok
+    end,
+    ok.
+
+
+-spec rm_rf(file:filename()) -> ok.
+rm_rf(Dir) ->
+    lager:debug("deleting dir: ~p", [Dir]),
+    Paths = filelib:wildcard(Dir ++ "/**"),
+    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
+    ok = lists:foreach(fun file:delete/1, Files),
+    Sorted = lists:reverse(lists:sort(Dirs)),
+    ok = lists:foreach(fun file:del_dir/1, Sorted),
+    file:del_dir(Dir).
