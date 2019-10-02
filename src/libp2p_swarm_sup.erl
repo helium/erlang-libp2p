@@ -85,6 +85,7 @@ init([Name, Opts]) ->
     % Get or generate our keys
     {PubKey, SigFun, ECDHFun} = init_keys(Opts),
     ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_bin(PubKey)}),
+    GroupDeletePred = libp2p_config:get_opt(Opts, group_delete_predicate, fun(_) -> false end),
 
     SupFlags = {one_for_all, 3, 10},
     ChildSpecs = [
@@ -110,7 +111,7 @@ init([Name, Opts]) ->
             [libp2p_swarm_transport_sup]
         },
         {group_mgr,
-            {libp2p_group_mgr , start_link, [TID]},
+            {libp2p_group_mgr , start_link, [TID, GroupDeletePred]},
             permanent,
             10000,
             worker,
