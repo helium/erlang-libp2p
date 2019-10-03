@@ -370,9 +370,8 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 
-terminate(_, #state{close_state=closing, store=Store, store_dir=StoreDir}) ->
-    relcast:stop(lite, Store),
-    rm_rf(StoreDir);
+terminate(_, #state{close_state=closing, store=Store}) ->
+    relcast:stop(lite, Store);
 terminate(_Reason, #state{store=Whatever}) when Whatever == cannot_start orelse
                                                 Whatever == not_started ->
     ok;
@@ -381,15 +380,6 @@ terminate(Reason, #state{store=Store}) ->
 
 %% Internal
 %%
-
--spec rm_rf(file:filename()) -> ok.
-rm_rf(Dir) ->
-    Paths = filelib:wildcard(Dir ++ "/**"),
-    {Dirs, Files} = lists:partition(fun filelib:is_dir/1, Paths),
-    ok = lists:foreach(fun file:delete/1, Files),
-    Sorted = lists:reverse(lists:sort(Dirs)),
-    ok = lists:foreach(fun file:del_dir/1, Sorted),
-    file:del_dir(Dir).
 
 -spec start_workers([string()], #state{}) -> [#worker{}].
 start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index=SelfIndex}) ->
