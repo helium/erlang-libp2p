@@ -134,10 +134,11 @@ gc(Predicate, Dir) ->
     case file:list_dir(Dir) of
         {ok, Groups} ->
             %% filter using predicate
-            Dels = lists:filter(Predicate, Groups),
+            Dels = lists:filter(Predicate, lists:sublist(Groups, 100)),
             lager:debug("groups ~p dels ~p", [Groups, Dels]),
             %% delete.
-            lists:foreach(fun(Grp) -> rm_rf(Dir ++ "/" ++ Grp) end, Dels);
+            lists:foreach(fun(Grp) -> rm_rf(Dir ++ "/" ++ Grp) end,
+                          lists:sublist(Dels, 50));
         _ ->
             ok
     end,
