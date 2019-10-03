@@ -20,7 +20,7 @@
 -record(state,
         {
          tid :: term(),
-         group_deletion_predicate :: function(),
+         group_deletion_predicate :: fun((string()) -> boolean()),
          storage_dir :: string()
         }).
 
