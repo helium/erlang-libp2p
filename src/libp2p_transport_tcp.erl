@@ -846,11 +846,12 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                 false ->
                     ObservedAddresses = add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
                     lager:debug("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
-                    %% check if we have 10 distinct observed addresses
+                    Limit = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_group_gossip, peerbook_connections], 5),
+                    %% check if we have `Limit' + 1 distinct observed addresses
                     %% make it an exact check so we don't do this constantly
-                    case length(distinct_observed_addrs(ObservedAddresses)) == 10 of
+                    case length(distinct_observed_addrs(ObservedAddresses)) == Limit + 1 of
                         true ->
-                            lager:info("Saw 10 distinct observed addresses, assuming static NAT"),
+                            lager:info("Saw ~p distinct observed addresses, assuming static NAT", [Limit + 1]),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
                             libp2p_relay:init(libp2p_swarm:swarm(TID));
                         false ->
