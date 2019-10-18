@@ -197,9 +197,11 @@ handle_info(_Msg, State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-terminate(_Reason, #state{tid=TID, stream=Pid}) when is_pid(Pid) ->
+terminate(_Reason, #state{tid=TID, stream=Pid, address=Address}) when is_pid(Pid) ->
     catch libp2p_framed_stream:close(Pid),
     true = libp2p_config:remove_relay(TID),
+    %% remove listener is harmless if the address is undefined
+    _ = libp2p_config:remove_listener(TID, Address),
     ok;
 terminate(_Reason, _State) ->
     ok.

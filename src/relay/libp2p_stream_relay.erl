@@ -97,7 +97,7 @@ handle_info(client, init_relay, #state{swarm=Swarm}=State) ->
     case libp2p_swarm:listen_addrs(Swarm) of
         [] ->
             lager:debug("no listen addresses for ~p, relay disabled", [Swarm]),
-            {stop, no_listen_address, State};
+            {stop, normal, State};
         [_|_] ->
             Address = libp2p_swarm:p2p_address(Swarm),
             Req = libp2p_relay_req:create(Address),
@@ -133,10 +133,10 @@ handle_info(client, send_ping, State = #state{ping_seq=Seq, swarm=Swarm, relay_a
     case libp2p_relay:is_valid_peer(Swarm, RelayServerPubKeyBin) of
         {error, _Reason} ->
             lager:error("failed to get peer for~p: ~p", [RelayServer, _Reason]),
-            {stop, no_peer, State};
+            {stop, normal, State};
         false ->
             lager:warning("peer ~p is invalid going down", [RelayServer]),
-            {stop, invalid_peer, State};
+            {stop, normal, State};
         true ->
             Ping = libp2p_relay_ping:create_ping(Seq),
             Env = libp2p_relay_envelope:create(Ping),
