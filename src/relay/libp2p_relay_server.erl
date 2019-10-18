@@ -92,6 +92,15 @@ negotiated(Swarm, Address) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init(TID) ->
+    %% remove any prior relay addresses we somehow leaked
+    lists:foreach(fun(Addr) ->
+                          case libp2p_transport_relay:match_addr(Addr,TID) of
+                              {ok, _} ->
+                                  libp2p_config:remove_listener(TID, Addr);
+                              _ ->
+                                  ok
+                          end
+                  end, libp2p_config:listen_addrs(TID)),
     lager:info("~p init with ~p", [?MODULE, TID]),
     true = libp2p_config:insert_relay(TID, self()),
     {ok, #state{tid=TID}}.
