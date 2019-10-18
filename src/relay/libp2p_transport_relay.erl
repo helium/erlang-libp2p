@@ -52,17 +52,10 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         false ->
             case check_peerbook(TID, MAddr) of
                 {error, _Reason} ->
-                    lager:error("failed to fetch beer book for ~p ~p", [{TID, MAddr}, _Reason]),
+                    lager:error("failed to fetch peer book for ~p ~p", [{TID, MAddr}, _Reason]),
                     %% don't blacklist here, the peerbook update might be coming
                     {error, error_fetching_peerbook};
-                false ->
-                    %% blacklist the relay address, it is stale
-                    {ok, {_RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
-                    MarkedPeerAddr = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
-                    PeerBook = libp2p_swarm:peerbook(Swarm),
-                    ok = libp2p_peerbook:blacklist_listen_addr(PeerBook, MarkedPeerAddr, MAddr),
-                    {error, not_in_peerbook};
-                true ->
+                _ ->
                     case has_public_address(ListenAddresses) of
                         true ->
                             connect_to(Pid, MAddr, Options, Timeout, TID);
