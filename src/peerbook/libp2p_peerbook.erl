@@ -49,6 +49,9 @@
 -define(DEFAULT_NOTIFY_TIME, 5 * 1000).
 %% Gossip group key to register and transmit with
 -define(GOSSIP_GROUP_KEY, "peer").
+%% number of recently updated peerbook entries we should regossip to our
+%% gossip peers
+-define(DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT, 5).
 
 %%
 %% API
@@ -418,17 +421,23 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
 notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) == 0 ->
     State;
 notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
-                          gossip_group=GossipGroup}) ->
+                          gossip_group=GossipGroup, tid=TID}) ->
     %% Notify to local interested parties
     PeerList = maps:values(NotifyPeers),
     [Pid ! {new_peers, PeerList} || Pid <- pg2:get_members(NotifyGroup)],
+
     case GossipGroup of
         undefined ->
             ok;
         _ ->
+            Opts = libp2p_swarm:opts(TID),
+            PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
-            EncodedPeerList = libp2p_peer:encode_list(PeerList),
-            libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY, EncodedPeerList)
+            SendFun = fun() ->
+                              {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
+                              libp2p_peer:encode_list(RandomNPeers)
+                      end,
+            libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY, SendFun)
     end,
     State#state{notify_peers=#{}}.
 

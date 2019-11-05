@@ -132,6 +132,23 @@ handle_cast({request_target, seed, WorkerPid}, State=#state{tid=TID, seed_nodes=
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
                                              sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(WorkerPid, TargetAddrs, State)};
+handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
+    %% use a fun to generate the send data for each gossip peer
+    %% this can be helpful to send a unique random subset of data to each peer
+    {_, Pids} = lists:unzip(connections(all, State)),
+    lists:foreach(fun(Pid) ->
+                          Data = Fun(),
+                          %% Catch errors encoding the given arguments to avoid a bad key or
+                          %% value taking down the gossip server
+                          case (catch libp2p_gossip_stream:encode(Key, Data)) of
+                              {'EXIT', Error} ->
+                                  lager:warning("Error encoding gossip data ~p", [Error]);
+                              Msg ->
+                                  libp2p_group_worker:send(Pid, Key, Msg)
+                          end
+                  end, Pids),
+    {noreply, State};
+
 handle_cast({send, Key, Data}, State=#state{}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
     %% Catch errors encoding the given arguments to avoid a bad key or
