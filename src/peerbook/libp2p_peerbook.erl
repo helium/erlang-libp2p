@@ -38,7 +38,10 @@
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=[] :: [{libp2p_crypto:pubkey_bin(), pid()}],
-          sigfun :: fun((binary()) -> binary())
+          sigfun :: fun((binary()) -> binary()),
+          metadata_fun :: fun(() -> map()),
+          metadata = #{} :: map(),
+          metadata_ref :: undefined | reference()
         }).
 
 %% Default peer stale time is 24 hours (in milliseconds)
@@ -245,6 +248,8 @@ init([TID, SigFun]) ->
     PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
     NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
     GossipPeersTimeout = libp2p_config:get_opt(Opts, [?MODULE, gossip_peers_timeout], ?DEFAULT_GOSSIP_PEERS_TIMEOUT),
+    MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
+                                        fun() -> #{} end),
     self() ! gossip_peers_timeout,
     case libp2p_swarm:peerbook(TID) of
         false ->
@@ -256,18 +261,24 @@ init([TID, SigFun]) ->
                     Handle = #peerbook{store=DB, tid=TID, stale_time=StaleTime},
                     GossipGroup = install_gossip_handler(TID, Handle),
                     libp2p_swarm:store_peerbook(TID, Handle),
-                    {ok, update_this_peer(#state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
-                                                 peer_time=PeerTime, notify_time=NotifyTime,
-                                                 gossip_group=GossipGroup,
-                                                 gossip_peers_timeout=GossipPeersTimeout})}
+                    {ok, update_this_peer(
+                           get_async_signed_metadata(
+                             #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
+                                    peer_time=PeerTime, notify_time=NotifyTime,
+                                    gossip_group=GossipGroup,
+                                    metadata_fun=MetaDataFun,
+                                    gossip_peers_timeout=GossipPeersTimeout}))}
             end;
         Handle ->
             %% we already got a handle in ETS
             GossipGroup = install_gossip_handler(TID, Handle),
-            {ok, update_this_peer(#state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
-                                         peer_time=PeerTime, notify_time=NotifyTime,
-                                         gossip_group=GossipGroup,
-                                         gossip_peers_timeout=GossipPeersTimeout})}
+            {ok, update_this_peer(
+                   get_async_signed_metadata(
+                     #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
+                            peer_time=PeerTime, notify_time=NotifyTime,
+                            gossip_group=GossipGroup,
+                            metadata_fun=MetaDataFun,
+                            gossip_peers_timeout=GossipPeersTimeout}))}
     end.
 
 handle_call(update_this_peer, _From, State) ->
@@ -307,10 +318,15 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({signed_metadata, MD}, State) ->
+    {noreply, State#state{metadata=MD}};
+handle_info({'DOWN', Ref, _, _, _}, State=#state{metadata_ref=Ref}) ->
+    {noreply, State#state{metadata_ref=undefined}};
 handle_info(peer_timeout, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     {ok, CurrentPeer} = unsafe_fetch_peer(SwarmAddr, State#state.peerbook),
-    {noreply, update_this_peer(mk_this_peer(CurrentPeer, State), State)};
+    NewPeer = mk_this_peer(CurrentPeer, State),
+    {noreply, update_this_peer(NewPeer, get_async_signed_metadata(State))};
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
 handle_info(gossip_peers_timeout, State=#state{peerbook=Handle, tid=TID}) ->
@@ -359,22 +375,13 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
         _ ->
             Associations = libp2p_peer:associations(CurrentPeer)
     end,
-    MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
-                                        fun() -> #{} end),
-    %% if the metadata fun crashes, simply return an empty map
-    MetaData = try MetaDataFun() of
-                   Result ->
-                       Result
-               catch
-                   _:_ -> #{}
-               end,
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
-                            signed_metadata => MetaData},
+                            signed_metadata => State#state.metadata},
                          State#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
@@ -383,13 +390,13 @@ update_this_peer(State=#state{tid=TID}) ->
     case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
         {error, not_found} ->
             NewPeer = mk_this_peer(undefined, State),
-            update_this_peer(NewPeer, State);
+            update_this_peer(NewPeer, get_async_signed_metadata(State));
         {ok, OldPeer} ->
             case mk_this_peer(OldPeer, State) of
                 {ok, NewPeer} ->
                     case libp2p_peer:is_similar(NewPeer, OldPeer) of
                         true -> State;
-                        false -> update_this_peer({ok, NewPeer}, State)
+                        false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
                     end;
                 {error, Error} ->
                     lager:notice("Failed to make peer: ~p", [Error]),
@@ -562,3 +569,14 @@ install_gossip_handler(TID, Handle) ->
             libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
             G
     end.
+
+get_async_signed_metadata(State = #state{metadata_ref=undefined, metadata_fun=MetaDataFun}) ->
+    Parent = self(),
+    {_, Ref} = spawn_monitor(fun() ->
+                                     Parent ! {signed_metadata, MetaDataFun()}
+                             end),
+    State#state{metadata_ref=Ref};
+get_async_signed_metadata(State) ->
+    %% metadata fun still running
+    State.
+
