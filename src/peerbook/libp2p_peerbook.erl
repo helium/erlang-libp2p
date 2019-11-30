@@ -354,7 +354,7 @@ terminate(_Reason, _State) ->
 %% Internal
 %%
 
--spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> {ok, libp2p_peer:peer()} | {error, term()}.
+-spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> {{ok, libp2p_peer:peer()} | {error, term()}, #state{}}.
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     ListenAddrs = libp2p_config:listen_addrs(TID),
@@ -368,32 +368,32 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
             Associations = libp2p_peer:associations(CurrentPeer)
     end,
     {MetaData, State1} = get_signed_metadata(State),
-    libp2p_peer:from_map(#{ pubkey => SwarmAddr,
+    {libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
                             signed_metadata => MetaData},
-                         State1#state.sigfun).
+                         State1#state.sigfun), State1}.
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
         {error, not_found} ->
-            NewPeer = mk_this_peer(undefined, State),
-            update_this_peer(NewPeer, State);
+            {NewPeer, NewState} = mk_this_peer(undefined, State),
+            update_this_peer(NewPeer, NewState);
         {ok, OldPeer} ->
             case mk_this_peer(OldPeer, State) of
-                {ok, NewPeer} ->
+                {{ok, NewPeer}, NewState} ->
                     case libp2p_peer:is_similar(NewPeer, OldPeer) of
-                        true -> State;
-                        false -> update_this_peer({ok, NewPeer}, State)
+                        true -> NewState;
+                        false -> update_this_peer({ok, NewPeer}, NewState)
                     end;
-                {error, Error} ->
+                {{error, Error}, NewState} ->
                     lager:notice("Failed to make peer: ~p", [Error]),
-                    State
+                    NewState
             end
     end.
 
