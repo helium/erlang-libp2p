@@ -570,17 +570,13 @@ install_gossip_handler(TID, Handle) ->
             G
     end.
 
-get_async_signed_metadata(State = #state{metadata_ref=MR, metadata_fun=MetaDataFun}) ->
-    case MR of
-        undefined ->
-            Parent = self(),
-            {_, Ref} = spawn_monitor(fun() ->
-                                             Parent ! {signed_metadata, MetaDataFun()}
-                                     end),
-            %% return the old metadata
-            State#state{metadata_ref=Ref};
-        _ ->
-            %% metadata fun is running
-            State
-    end.
+get_async_signed_metadata(State = #state{metadata_ref=undefined, metadata_fun=MetaDataFun}) ->
+    Parent = self(),
+    {_, Ref} = spawn_monitor(fun() ->
+                                     Parent ! {signed_metadata, MetaDataFun()}
+                             end),
+    State#state{metadata_ref=Ref};
+get_async_signed_metadata(State) ->
+    %% metadata fun still running
+    State.
 
