@@ -38,7 +38,9 @@
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=[] :: [{libp2p_crypto:pubkey_bin(), pid()}],
-          sigfun :: fun((binary()) -> binary())
+          sigfun :: fun((binary()) -> binary()),
+          metadata = #{} :: map(),
+          metadata_ref :: undefined | reference()
         }).
 
 %% Default peer stale time is 24 hours (in milliseconds)
@@ -264,10 +266,12 @@ init([TID, SigFun]) ->
         Handle ->
             %% we already got a handle in ETS
             GossipGroup = install_gossip_handler(TID, Handle),
-            {ok, update_this_peer(#state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
+            State = #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
                                          peer_time=PeerTime, notify_time=NotifyTime,
                                          gossip_group=GossipGroup,
-                                         gossip_peers_timeout=GossipPeersTimeout})}
+                                         gossip_peers_timeout=GossipPeersTimeout},
+            {_, State1} = get_signed_metadata(State),
+            {ok, update_this_peer(State1)}
     end.
 
 handle_call(update_this_peer, _From, State) ->
@@ -307,6 +311,10 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+handle_info({signed_metadata, MD}, State) ->
+    {noreply, State#state{metadata=MD}};
+handle_info({'DOWN', Ref, _, _, _}, State=#state{metadata_ref=Ref}) ->
+    {noreply, State#state{metadata_ref=undefined}};
 handle_info(peer_timeout, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     {ok, CurrentPeer} = unsafe_fetch_peer(SwarmAddr, State#state.peerbook),
@@ -359,15 +367,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
         _ ->
             Associations = libp2p_peer:associations(CurrentPeer)
     end,
-    MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
-                                        fun() -> #{} end),
-    %% if the metadata fun crashes, simply return an empty map
-    MetaData = try MetaDataFun() of
-                   Result ->
-                       Result
-               catch
-                   _:_ -> #{}
-               end,
+    {MetaData, State1} = get_signed_metadata(State),
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
                             connected => ConnectedAddrs,
@@ -375,7 +375,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                             network_id => NetworkID,
                             associations => Associations,
                             signed_metadata => MetaData},
-                         State#state.sigfun).
+                         State1#state.sigfun).
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
@@ -562,3 +562,27 @@ install_gossip_handler(TID, Handle) ->
             libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
             G
     end.
+
+get_signed_metadata(State = #state{tid=TID, metadata_ref=MR}) ->
+    case MR of
+        undefined ->
+            MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
+                                                fun() -> #{} end),
+
+            Parent = self(),
+            {_, Ref} = spawn_monitor(fun() ->
+                                             %% if the metadata fun crashes, use the old metadata
+                                             try MetaDataFun() of
+                                                 Result ->
+                                                     Parent ! {signed_metadata, Result}
+                                             catch
+                                                 _:_ -> ok
+                                             end
+                                     end),
+            %% return the old metadata
+            {State#state.metadata, State#state{metadata_ref=Ref}};
+        _ ->
+            %% metadata fun is running
+            {State#state.metadata, State}
+    end.
+
