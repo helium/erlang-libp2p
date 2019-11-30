@@ -39,6 +39,7 @@
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=[] :: [{libp2p_crypto:pubkey_bin(), pid()}],
           sigfun :: fun((binary()) -> binary()),
+          metadata_fun :: fun(() -> map()),
           metadata = #{} :: map(),
           metadata_ref :: undefined | reference()
         }).
@@ -247,6 +248,8 @@ init([TID, SigFun]) ->
     PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
     NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
     GossipPeersTimeout = libp2p_config:get_opt(Opts, [?MODULE, gossip_peers_timeout], ?DEFAULT_GOSSIP_PEERS_TIMEOUT),
+    MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
+                                        fun() -> #{} end),
     self() ! gossip_peers_timeout,
     case libp2p_swarm:peerbook(TID) of
         false ->
@@ -263,6 +266,7 @@ init([TID, SigFun]) ->
                              #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
                                     peer_time=PeerTime, notify_time=NotifyTime,
                                     gossip_group=GossipGroup,
+                                    metadata_fun=MetaDataFun,
                                     gossip_peers_timeout=GossipPeersTimeout}))}
             end;
         Handle ->
@@ -273,6 +277,7 @@ init([TID, SigFun]) ->
                      #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
                             peer_time=PeerTime, notify_time=NotifyTime,
                             gossip_group=GossipGroup,
+                            metadata_fun=MetaDataFun,
                             gossip_peers_timeout=GossipPeersTimeout}))}
     end.
 
@@ -565,12 +570,9 @@ install_gossip_handler(TID, Handle) ->
             G
     end.
 
-get_async_signed_metadata(State = #state{tid=TID, metadata_ref=MR}) ->
+get_async_signed_metadata(State = #state{metadata_ref=MR, metadata_fun=MetaDataFun}) ->
     case MR of
         undefined ->
-            MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
-                                                fun() -> #{} end),
-
             Parent = self(),
             {_, Ref} = spawn_monitor(fun() ->
                                              Parent ! {signed_metadata, MetaDataFun()}
