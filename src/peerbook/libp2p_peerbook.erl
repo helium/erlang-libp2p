@@ -570,7 +570,7 @@ get_signed_metadata(State = #state{tid=TID, metadata_ref=MR}) ->
                                                 fun() -> #{} end),
 
             Parent = self(),
-            {_, Ref} = spawn_monitor(fun() ->
+            {Pid, Ref} = spawn_monitor(fun() ->
                                              %% if the metadata fun crashes, use the old metadata
                                              try MetaDataFun() of
                                                  Result ->
@@ -579,6 +579,7 @@ get_signed_metadata(State = #state{tid=TID, metadata_ref=MR}) ->
                                                  _:_ -> ok
                                              end
                                      end),
+            lager:info("signed metadata spawned under ~p", [{Pid, Ref}]),
             %% return the old metadata
             {State#state.metadata, State#state{metadata_ref=Ref}};
         _ ->
