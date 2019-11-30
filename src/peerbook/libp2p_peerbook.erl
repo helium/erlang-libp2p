@@ -579,7 +579,6 @@ get_signed_metadata(State = #state{tid=TID, metadata_ref=MR}) ->
                                                  _:_ -> ok
                                              end
                                      end),
-            lager:info("signed metadata spawned under ~p", [{Pid, Ref}]),
             %% return the old metadata
             {State#state.metadata, State#state{metadata_ref=Ref}};
         _ ->
