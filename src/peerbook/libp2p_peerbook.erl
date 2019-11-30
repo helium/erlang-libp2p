@@ -318,7 +318,7 @@ handle_info({'DOWN', Ref, _, _, _}, State=#state{metadata_ref=Ref}) ->
 handle_info(peer_timeout, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
     {ok, CurrentPeer} = unsafe_fetch_peer(SwarmAddr, State#state.peerbook),
-    {NewPeer, NewState} = mk_this_peer(CurrentPeer, State)
+    {NewPeer, NewState} = mk_this_peer(CurrentPeer, State),
     {noreply, update_this_peer(NewPeer, NewState)};
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
@@ -571,7 +571,7 @@ get_signed_metadata(State = #state{tid=TID, metadata_ref=MR}) ->
                                                 fun() -> #{} end),
 
             Parent = self(),
-            {Pid, Ref} = spawn_monitor(fun() ->
+            {_, Ref} = spawn_monitor(fun() ->
                                              %% if the metadata fun crashes, use the old metadata
                                              try MetaDataFun() of
                                                  Result ->
