@@ -84,6 +84,7 @@
     state :: any(),
     kind :: kind(),
     connection :: libp2p_connection:connection(),
+    conn_ref :: reference(),
     sends=#{} :: #{ Timer::reference() => From::pid() },
     send_pid :: pid(),
     secured = false :: boolean(),
@@ -168,10 +169,12 @@ pre_init(Kind, Module, Connection, Args, Parent) ->
                         mk_secured_keypair(Swarm)
             end,
             Data = <<PubKey/binary, Signature/binary>>,
+            Ref = libp2p_connection:monitor(Connection),
             State0 = #state{
                 kind=Kind,
                 module=Module,
                 connection=Connection,
+                conn_ref = Ref,
                 send_pid=SendPid,
                 secured=true,
                 secure_peer = proplists:get_value(secure_peer, Args),
@@ -193,15 +196,18 @@ pre_init(Kind, Module, Connection, Args, Parent) ->
 
 -spec init_module(atom(), atom(), libp2p_connection:connection(), [any()], pid()) -> {ok, #state{}} | {error, term()}.
 init_module(Kind, Module, Connection, Args, SendPid) ->
+    Ref = libp2p_connection:monitor(Connection),
     case Module:init(Kind, Connection, Args) of
         {ok, ModuleState} ->
             {ok, handle_fdset(#state{kind=Kind,
-                                     connection=Connection, send_pid=SendPid,
+                                     connection=Connection, conn_ref=Ref,
+                                     send_pid=SendPid,
                                      module=Module, state=ModuleState})};
         {ok, ModuleState, Response} ->
             {ok, handle_fdset(handle_resp_send(noreply, Response,
                                                #state{kind=Kind,
-                                                      connection=Connection, send_pid=SendPid,
+                                                      connection=Connection,  conn_ref=Ref,
+                                                      send_pid=SendPid,
                                                       module=Module, state=ModuleState}))};
         {stop, Reason} ->
             libp2p_connection:close(Connection),
@@ -222,6 +228,8 @@ handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
             erlang:cancel_timer(Timer),
             handle_send_result(Info, Result, State#state{sends=NewSends})
     end;
+handle_info({'DOWN', _, process, _, _}, State) ->
+    {stop, normal, State};
 handle_info(Msg, State=#state{kind=Kind, module=Module, state=ModuleState0}) ->
     case erlang:function_exported(Module, handle_info, 3) of
         true -> case Module:handle_info(Kind, Msg, ModuleState0) of

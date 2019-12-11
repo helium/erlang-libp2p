@@ -60,7 +60,7 @@
 % libp2p_connection
 -export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2,
-         session/1, set_idle_timeout/2]).
+         session/1, monitor/1, set_idle_timeout/2]).
 %% libp2p_info
 -export([info/1]).
 
@@ -75,6 +75,7 @@ receive_stream(Session, TID, StreamID) ->
 
 init({Session, TID, StreamID, Flags}) ->
     erlang:process_flag(trap_exit, true),
+    erlang:monitor(process, Session),
     gen_statem:cast(self(), {init, Flags}),
     MaxWindow = libp2p_config:get_opt(libp2p_swarm:opts(TID), [?MODULE, max_window],
                                       ?DEFAULT_MAX_WINDOW_SIZE),
@@ -151,6 +152,9 @@ set_idle_timeout(Pid, Timeout) ->
 
 controlling_process(_Pid, _Owner) ->
     {error, unsupported}.
+
+monitor(Pid) ->
+    erlang:monitor(process, Pid).
 
 %%
 %% libp2p_info
@@ -310,6 +314,8 @@ handle_event(cast, {set_idle_timeout, Timeout}, _State, Data=#state{}) ->
 
 % Info
 %
+handle_event(info, {'DOWN', _, process, Pid, _}, _State, Data=#state{session = Pid})  ->
+    {stop, normal, Data};
 handle_event(info, {'EXIT', Pid, normal}, _State, Data=#state{handler=Pid})  ->
     {stop, normal, Data};
 handle_event(info, {'EXIT', Pid, Reason}, _State, Data=#state{handler=Pid}) ->
