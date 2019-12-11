@@ -14,7 +14,7 @@
          recv/1, recv/2, recv/3,
          acknowledge/2, fdset/1, socket/1, fdclr/1,
          addr_info/1, close/1, close_state/1,
-         controlling_process/2, session/1,
+         controlling_process/2, session/1, monitor/1,
          set_idle_timeout/2]).
 -export([mk_async_sender/2]).
 
@@ -29,6 +29,7 @@
 -callback session(any()) -> {ok, pid()} | {error, term()}.
 -callback set_idle_timeout(any(), pos_integer() | infinity) -> ok | {error, term()}.
 -callback controlling_process(any(), pid()) ->  {ok, any()} | {error, closed | not_owner | atom()}.
+-callback monitor(any()) -> reference().
 
 -define(RECV_TIMEOUT, 60000).
 -define(SEND_TIMEOUT, 60000).
@@ -103,6 +104,9 @@ controlling_process(Conn=#connection{module=Module, state=State}, Pid) ->
         Other -> Other
     end.
 
+-spec monitor(connection())-> reference().
+monitor(#connection{module=Module, state=State}) ->
+    Module:monitor(State).
 
 %%
 %% Utilities
