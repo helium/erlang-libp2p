@@ -43,7 +43,7 @@
 %% libp2p_connection
 -export([send/3, recv/3, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
-         session/1, fdset/1, socket/1, fdclr/1,
+         session/1, fdset/1, socket/1, fdclr/1, monitor/1,
          set_idle_timeout/2
         ]).
 
@@ -307,6 +307,11 @@ controlling_process(State=#tcp_state{socket=Socket}, Pid) ->
         ok -> {ok, State#tcp_state{session=Pid}};
         Other -> Other
     end.
+
+%% this is faked out because it's already handled in framed stream,
+%% which is the only user of monitor
+monitor(_) ->
+    make_ref().
 
 -spec common_options() -> [term()].
 common_options() ->
