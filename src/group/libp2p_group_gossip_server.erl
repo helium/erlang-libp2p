@@ -21,6 +21,7 @@
        { sup :: pid(),
          tid :: ets:tab(),
          peerbook_connections :: pos_integer(),
+         seednode_connections :: pos_integer(),
          max_inbound_connections :: non_neg_integer(),
          seed_nodes :: [string()],
          workers=[] :: [#worker{}],
@@ -33,6 +34,7 @@
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
+-define(DEFAULT_SEEDNODE_CONNECTIONS, 2).
 -define(DEFAULT_MAX_INBOUND_CONNECTIONS, 10).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 %% Since fetching all known peers from the peerbook can take some
@@ -67,16 +69,18 @@ init([Sup, TID]) ->
     libp2p_swarm_sup:register_gossip_group(TID),
     Opts = libp2p_swarm:opts(TID),
     PeerBookCount = get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
+    SeedNodeCount = get_opt(Opts, seednode_connections, ?DEFAULT_SEEDNODE_CONNECTIONS),
     InboundCount = get_opt(Opts, inbound_connections, ?DEFAULT_MAX_INBOUND_CONNECTIONS),
     DropTimeOut = get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
     PeerCacheTimeOut = get_opt(Opts, peer_cache_timeout, ?DEFAULT_PEER_CACHE_TIMEOUT),
     SeedNodes = get_opt(Opts, seed_nodes, []),
     self() ! peer_cache_timeout,
-    self() ! {start_workers, PeerBookCount, length(SeedNodes)},
+    self() ! start_workers,
     {ok, update_metadata(#state{sup=Sup, tid=TID,
                                 seed_nodes=SeedNodes,
                                 max_inbound_connections=InboundCount,
                                 peerbook_connections=PeerBookCount,
+                                seednode_connections=SeedNodeCount,
                                 drop_timeout=DropTimeOut,
                                 drop_timer=schedule_drop_timer(DropTimeOut),
                                 peer_cache_timeout=PeerCacheTimeOut})}.
@@ -193,7 +197,7 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info({start_workers, PeerCount, SeedCount}, State=#state{tid=TID}) ->
+handle_info(start_workers, State=#state{tid=TID, seednode_connections=SeedCount, peerbook_connections=PeerCount}) ->
     PeerBookWorkers = [start_worker(peerbook, State) || _ <- lists:seq(1, PeerCount)],
     SeedWorkers = [start_worker(seed, State) || _ <- lists:seq(1, SeedCount)],
     libp2p_swarm:add_stream_handler(TID, ?GROUP_PATH,
