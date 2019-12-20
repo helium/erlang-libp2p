@@ -335,6 +335,15 @@ rfc1918(IP={172, _, _, _}) ->
         false ->
             false
     end;
+rfc1918(MA) when is_list(MA) ->
+    case tcp_addr(MA) of
+        {IP, _Port, inet, _} ->
+            case rfc1918(IP) of
+                false -> false;
+                true -> true
+            end;
+        _ -> false
+    end;
 rfc1918(_) ->
     false.
 
@@ -881,8 +890,7 @@ mask_address(Addr={_, _, _, _}, Maskbits) ->
 do_identify(Session, Identify, State=#state{tid=TID}) ->
     {LocalAddr, _PeerAddr} = libp2p_session:addr_info(State#state.tid, Session),
     RemoteP2PAddr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
-    {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
-    ListenAddrs = libp2p_peer:listen_addrs(MyPeer),
+    ListenAddrs = libp2p_config:listen_addrs(TID),
     case lists:member(LocalAddr, ListenAddrs) of
         true ->
             ObservedAddr = libp2p_identify:observed_addr(Identify),

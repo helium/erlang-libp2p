@@ -20,7 +20,7 @@
 -export([from_map/2, encode/1, decode/1, decode_unsafe/1, encode_list/1, decode_list/1, verify/1,
          pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2, network_id/1, network_id_allowable/2,
-         has_public_ip/1, is_dialable/1]).
+         has_private_ip/1, has_public_ip/1, is_dialable/1]).
 %% associations
 -export([associations/1, association_pubkey_bins/1, associations_set/4, associations_get/2, associations_put/4,
          is_association/3, association_pubkey_bin/1, association_signature/1,
@@ -296,6 +296,13 @@ network_id_allowable(Peer, MyNetworkID) ->
 has_public_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
     lists:any(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
+
+%% @doc Returns whether the peer is publishing a RFC1918 address
+-spec has_private_ip(peer()) -> boolean().
+has_private_ip(Peer) ->
+    ListenAddresses = ?MODULE:listen_addrs(Peer),
+    not lists:all(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
+
 
 %% @doc Returns whether the peer is dialable. A peer is dialable if it
 %% has a public IP address or it is reachable via a relay address.

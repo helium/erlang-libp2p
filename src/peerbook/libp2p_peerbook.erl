@@ -61,6 +61,12 @@
 %% minutes (in milliseconds)
 -define(DEFAULT_GOSSIP_PEERS_TIMEOUT, 30 * 60 * 1000).
 
+-ifdef(TEST).
+-define(DEFAULT_PEERBOOK_ALLOW_RFC1918, true).
+-else.
+-define(DEFAULT_PEERBOOK_ALLOW_RFC1918, false).
+-endif.
+
 %%
 %% API
 %%
@@ -69,15 +75,18 @@
 put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
     lists:foreach(fun libp2p_peer:verify/1, PeerList),
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
+    %% XXX uncomment this to reject any peers publishing RFC1918 addresses once the network has transitioned over
+    AllowRFC1918 = true, %% is_rfc1918_allowed(TID),
     NewPeers = lists:filter(fun(NewPeer) ->
                                     NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
                                     case unsafe_fetch_peer(NewPeerId, Handle) of
-                                        {error, not_found} -> true;
+                                        {error, not_found} -> AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer);
                                         {ok, ExistingPeer} ->
                                             %% Only store peers that are not _this_ peer,
                                             %% are newer than what we have,
                                             %% are not stale themselves
                                             NewPeerId /= ThisPeerId
+                                                andalso (AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer))
                                                 andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
                                                 andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
                                                 andalso not libp2p_peer:is_similar(NewPeer, ExistingPeer)
@@ -365,7 +374,15 @@ terminate(_Reason, _State) ->
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> {ok, libp2p_peer:peer()} | {error, term()}.
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     SwarmAddr = libp2p_swarm:pubkey_bin(TID),
-    ListenAddrs = libp2p_config:listen_addrs(TID),
+    AllowRFC1918 = is_rfc1918_allowed(TID),
+    ListenAddrs0 = libp2p_config:listen_addrs(TID),
+    ListenAddrs = case AllowRFC1918 of
+                      true ->
+                          %% everything is ok
+                          ListenAddrs0;
+                      false ->
+                          filter_rfc1918_addresses(ListenAddrs0)
+                  end,
     NetworkID = libp2p_swarm:network_id(TID),
     ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
     %% Copy data from current peer
@@ -431,12 +448,18 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
-                                   error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                   {ok, FoundPeer} ->
-                                       case libp2p_peer:supersedes(Peer, FoundPeer) of
-                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                           false -> Acc
+                               %% check the peer has some interesting information
+                               case has_useful_listen_addrs(Peer, State) orelse
+                                    libp2p_peer:connected_peers(Peer) /= [] of
+                                   false -> Acc;
+                                   true ->
+                                       case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                           error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                           {ok, FoundPeer} ->
+                                               case libp2p_peer:supersedes(Peer, FoundPeer) of
+                                                   true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                   false -> Acc
+                                               end
                                        end
                                end
                        end, NotifyPeers, NewPeers),
@@ -449,6 +472,24 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
                          Other -> Other
                      end,
     State#state{notify_peers=NewNotifyPeers, notify_timer=NewNotifyTimer}.
+
+-spec has_useful_listen_addrs(libp2p_peer:peer(), #state{}) -> boolean().
+has_useful_listen_addrs(Peer, #state{tid=TID}) ->
+    Opts = libp2p_swarm:opts(TID),
+    AllowRFC1918 = libp2p_config:get_opt(Opts, [?MODULE, allow_rfc1918], ?DEFAULT_PEERBOOK_ALLOW_RFC1918),
+    ListenAddrs0 = libp2p_peer:listen_addrs(Peer),
+    ListenAddrs = case AllowRFC1918 of
+                      true ->
+                          %% everything is ok
+                          ListenAddrs0;
+                      false ->
+                          filter_rfc1918_addresses(ListenAddrs0)
+                  end,
+    ListenAddrs /= [].
+
+filter_rfc1918_addresses(ListenAddrs) ->
+    %% filter out any rfc1918 addresses
+    lists:filter(fun libp2p_transport_tcp:rfc1918/1, ListenAddrs).
 
 -spec notify_peers(#state{}) -> #state{}.
 notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) == 0 ->
@@ -585,3 +626,8 @@ get_async_signed_metadata(State = #state{metadata_ref=undefined, metadata_fun=Me
 get_async_signed_metadata(State) ->
     %% metadata fun still running
     State.
+
+is_rfc1918_allowed(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    libp2p_config:get_opt(Opts, [?MODULE, allow_rfc1918], ?DEFAULT_PEERBOOK_ALLOW_RFC1918).
+
