@@ -45,6 +45,8 @@ init(server, Connection, [HandlerModule, HandlerState]) ->
         ok -> {ok, #state{connection=Connection,
                           handler_module=HandlerModule,
                           handler_state=HandlerState}};
+        {error, too_many} ->
+            {stop, normal};
         {error, Reason} ->
             lager:warning("Stopping on accept stream error: ~p", [Reason]),
             {stop, {error, Reason}};
