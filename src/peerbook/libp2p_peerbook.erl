@@ -56,7 +56,7 @@
 -define(GOSSIP_GROUP_KEY, "peer").
 %% number of recently updated peerbook entries we should regossip to our
 %% gossip peers
--define(DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT, 20).
+-define(DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT, 100).
 %% Default timeout for selecting eligible gossip peers. Set to 30
 %% minutes (in milliseconds)
 -define(DEFAULT_GOSSIP_PEERS_TIMEOUT, 30 * 60 * 1000).
