@@ -229,8 +229,8 @@ handle_info({handle_identify, {From, StreamPid}, {ok, Identify}}, State=#state{}
         false ->
             case count_workers(inbound, State) > State#state.max_inbound_connections of
                 true ->
-                    lager:notice("Too many inbound workers: ~p",
-                                 [State#state.max_inbound_connections]),
+                    lager:debug("Too many inbound workers: ~p",
+                                [State#state.max_inbound_connections]),
                     gen_server:reply(From, {error, too_many}),
                     {noreply, State};
                 false ->
