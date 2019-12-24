@@ -484,7 +484,13 @@ unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
 unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
     case rocksdb:get(Store, ID, []) of
-        {ok, Bin} -> {ok, libp2p_peer:decode(Bin)};
+        {ok, Bin} ->
+            try libp2p_peer:decode(Bin) of
+                Peer -> {ok, Peer}
+            catch
+                _:_ ->
+                    {error, not_found}
+            end;
         %% we can get 'corruption' when the system time is not at least 05/09/2013:5:40PM GMT-8
         %% https://github.com/facebook/rocksdb/blob/4decff6fa8c4d46e905a66d439394c4bfb889a69/utilities/ttl/db_ttl_impl.cc#L154
         corruption -> {error, not_found};
