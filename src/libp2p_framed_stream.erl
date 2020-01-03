@@ -214,7 +214,9 @@ init_module(Kind, Module, Connection, Args, SendPid) ->
             {error, Reason};
         {stop, Reason, Response} ->
             {ok, handle_fdset(handle_resp_send({stop, Reason}, Response,
-                                               #state{kind=Kind, connection=Connection, send_pid=SendPid,
+                                               #state{kind=Kind,
+                                                      connection=Connection, conn_ref=Ref,
+                                                      send_pid=SendPid,
                                                       module=Module, state=undefined}))}
     end.
 

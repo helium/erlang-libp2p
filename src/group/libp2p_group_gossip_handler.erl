@@ -2,7 +2,7 @@
 
 
 -callback init_gossip_data(State::any()) -> init_result().
--callback handle_gossip_data(Msg::binary(), State::any()) -> ok.
+-callback handle_gossip_data(StreamPid::pid(), Msg::binary(), State::any()) -> ok.
 
 -type init_result() :: ok | {send, binary()}.
 
