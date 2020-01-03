@@ -1,12 +1,12 @@
 -module(libp2p_peerbook).
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
--export([keys/1, values/1, put/2,get/2, is_key/2, remove/2, stale_time/1,
+-export([keys/1, values/1, put/2,get/2, refresh/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/3, init_gossip_data/1]).
+-export([handle_gossip_data/2, init_gossip_data/1]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
@@ -109,6 +109,35 @@ get(#peerbook{tid=TID}=Handle, ID) ->
             end
     end.
 
+-spec refresh(peerbook(), libp2p_crypto:pubkey_bin() | libp2p_peer:peer()) -> ok.
+refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
+    ThisPeerID = libp2p_swarm:pubkey_bin(TID),
+    case ThisPeerID == ID of
+        true ->
+            ok;
+        false ->
+            case fetch_peer(ID, Handle) of
+                {error, _Error} ->
+                    GossipGroup = libp2p_swarm:gossip_group(TID),
+                    libp2p_peer_resolution:resolve(GossipGroup, ID, 0),
+                    ok;
+                {ok, Peer} ->
+                    refresh(Handle, Peer)
+            end
+    end;
+refresh(#peerbook{tid=TID}, Peer) ->
+    Opts = libp2p_swarm:opts(TID),
+    StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
+    case libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) andalso
+         libp2p_peer:is_stale(Peer, StaleTime) of
+        false ->
+            ok;
+        true ->
+            GossipGroup = libp2p_swarm:gossip_group(TID),
+            libp2p_peer_resolution:resolve(GossipGroup, libp2p_peer:pubkey_bin(Peer), libp2p_peer:timestamp(Peer)),
+            ok
+    end.
+
 -spec is_key(peerbook(), libp2p_crypto:pubkey_bin()) -> boolean().
 is_key(Handle=#peerbook{}, ID) ->
     case get(Handle, ID) of
@@ -194,10 +223,11 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(StreamPid::pid(), binary(), peerbook()) -> ok.
-handle_gossip_data(_, Data, Handle) ->
+-spec handle_gossip_data(binary(), peerbook()) -> noreply.
+handle_gossip_data(Data, Handle) ->
     DecodedList = libp2p_peer:decode_list(Data),
-    ?MODULE:put(Handle, DecodedList).
+    ?MODULE:put(Handle, DecodedList),
+    noreply.
 
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
 init_gossip_data(Handle=#peerbook{tid=TID}) ->
@@ -573,6 +603,7 @@ install_gossip_handler(TID, Handle) ->
         {'EXIT', _} -> undefined;
         G ->
             libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
+            libp2p_peer_resolution:install_handler(G, Handle),
             G
     end.
 
