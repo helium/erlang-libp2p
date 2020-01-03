@@ -6,7 +6,7 @@
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/2, init_gossip_data/1]).
+-export([handle_gossip_data/3, init_gossip_data/1]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
@@ -194,8 +194,8 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(binary(), peerbook()) -> ok.
-handle_gossip_data(Data, Handle) ->
+-spec handle_gossip_data(StreamPid::pid(), binary(), peerbook()) -> ok.
+handle_gossip_data(_, Data, Handle) ->
     DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList).
 
@@ -585,4 +585,3 @@ get_async_signed_metadata(State = #state{metadata_ref=undefined, metadata_fun=Me
 get_async_signed_metadata(State) ->
     %% metadata fun still running
     State.
-

@@ -4,7 +4,7 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), Key::string(), Msg::binary()) -> ok.
+-callback handle_data(State::any(), StreamPid::pid(), Key::string(), Msg::binary()) -> ok.
 -callback accept_stream(State::any(),
                         Session::pid(),
                         Stream::pid()) -> ok | {error, term()}.
@@ -65,5 +65,5 @@ handle_data(_, Data, State=#state{handler_module=HandlerModule,
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
         libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
 
-    ok = HandlerModule:handle_data(HandlerState, Key, Bin),
+    ok = HandlerModule:handle_data(HandlerState, self(), Key, Bin),
     {noreply, State}.

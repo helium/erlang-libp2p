@@ -8,7 +8,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_gossip_stream
--export([accept_stream/3, handle_data/3]).
+-export([accept_stream/3, handle_data/4]).
 
 -record(worker,
        { target :: string() | undefined,
@@ -54,8 +54,8 @@ start_link(Sup, TID) ->
 %% libp2p_gossip_stream
 %%
 
-handle_data(Pid, Key, Bin) ->
-    gen_server:cast(Pid, {handle_data, Key, Bin}).
+handle_data(Pid, StreamPid, Key, Bin) ->
+    gen_server:cast(Pid, {handle_data, StreamPid, Key, Bin}).
 
 accept_stream(Pid, SessionPid, StreamPid) ->
     gen_server:call(Pid, {accept_stream, SessionPid, StreamPid}).
@@ -99,14 +99,14 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({handle_data, Key, Msg}, State=#state{}) ->
+handle_cast({handle_data, StreamPid, Key, Msg}, State=#state{}) ->
     %% Incoming message from a gossip stream for a given key
     case maps:find(Key, State#state.handlers) of
         error -> {noreply, State};
         {ok, {M, S}} ->
             %% Catch the callback response. This avoids a crash in the
             %% handler taking down the gossip_server itself.
-            catch M:handle_gossip_data(Msg, S),
+            catch M:handle_gossip_data(StreamPid, Msg, S),
             {noreply, State}
     end;
 
