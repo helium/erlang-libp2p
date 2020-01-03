@@ -50,7 +50,8 @@ match_protocols(_) ->
 connect_to(MAddr, UserOptions, Timeout, TID) ->
     case p2p_addr(MAddr) of
         {ok, Addr} ->
-            case libp2p_peerbook:get(libp2p_swarm:peerbook(TID), Addr) of
+            Peerbook = libp2p_swarm:peerbook(TID),
+            Result = case libp2p_peerbook:get(Peerbook, Addr) of
                 {ok, PeerInfo} ->
                     ListenAddrs = libp2p_peer:cleared_listen_addrs(PeerInfo),
                     case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
@@ -68,7 +69,15 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
                         {error, Error} -> {error, Error}
                     end;
                 {error, Reason} -> {error, Reason}
-            end;
+            end,
+            case Result of
+                {error, _} ->
+                    %% try a refresh of the peer
+                    libp2p_peerbook:refresh(Peerbook, Addr);
+                _ ->
+                    ok
+            end,
+            Result;
         {error, Reason} -> {error, Reason}
     end.
 

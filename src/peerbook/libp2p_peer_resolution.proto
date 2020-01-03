@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+import "libp2p_peer.proto";
+
+message peer_request {
+    bytes pubkey = 1;
+    int64 timestamp = 2;
+}
+
+message peer_resolution_msg {
+    oneof msg {
+        peer_request request = 1;
+        signed_peer response = 2;
+    }
+}
+
