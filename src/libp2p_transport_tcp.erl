@@ -323,6 +323,7 @@ tcp_addr(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(MAddr)).
 
 %% return RFC1918 mask for IP or false if not in RFC1918 range
+-spec rfc1918(inet:ip_address() | string()) -> 8 | 16| 12 | false.
 rfc1918({10, _, _, _}) ->
     8;
 rfc1918({192,168, _, _}) ->
@@ -340,7 +341,7 @@ rfc1918(MA) when is_list(MA) ->
         {IP, _Port, inet, _} ->
             case rfc1918(IP) of
                 false -> false;
-                true -> true
+                R -> R
             end;
         _ -> false
     end;
