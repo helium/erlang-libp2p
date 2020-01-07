@@ -7,7 +7,7 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([connection_test/1, gossip_test/1, seed_test/1]).
--export([init_gossip_data/1, handle_gossip_data/2]).
+-export([init_gossip_data/1, handle_gossip_data/3]).
 
 all() ->
     [
@@ -129,7 +129,7 @@ seed_test(Config) ->
 init_gossip_data(_) ->
      ok.
 
-handle_gossip_data(Msg, Parent) ->
+handle_gossip_data(_StreamPid, Msg, Parent) ->
     Parent ! {handle_gossip_data, Msg},
     noreply.
 

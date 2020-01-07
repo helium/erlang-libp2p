@@ -106,7 +106,7 @@ handle_cast({handle_data, StreamPid, Key, Msg}, State=#state{}) ->
         {ok, {M, S}} ->
             %% Catch the callback response. This avoids a crash in the
             %% handler taking down the gossip_server itself.
-            try M:handle_gossip_data(Msg, S) of
+            try M:handle_gossip_data(StreamPid, Msg, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
                     case (catch libp2p_gossip_stream:encode(Key, Reply)) of

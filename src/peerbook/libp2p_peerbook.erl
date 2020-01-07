@@ -6,7 +6,7 @@
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/2, init_gossip_data/1]).
+-export([handle_gossip_data/3, init_gossip_data/1]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
@@ -135,10 +135,9 @@ refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
             end
     end;
 refresh(#peerbook{tid=TID}, Peer) ->
-    Opts = libp2p_swarm:opts(TID),
-    StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
+    TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff_mins, 6),
     case libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) andalso
-         libp2p_peer:is_stale(Peer, StaleTime) of
+         libp2p_peer:is_stale(Peer, timer:minutes(TimeDiffMinutes)) of
         false ->
             ok;
         true ->
@@ -232,8 +231,8 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(binary(), peerbook()) -> noreply.
-handle_gossip_data(Data, Handle) ->
+-spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
+handle_gossip_data(_StreamPid, Data, Handle) ->
     DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList),
     noreply.
