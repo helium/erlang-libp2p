@@ -135,6 +135,7 @@ prop_correct() ->
                    ?FORALL({Packet, Cmds},
                            {eqc_gen:largebinary(500000), noshrink(commands(?MODULE))},
                            begin
+                               application:ensure_all_started(throttle),
                                application:ensure_all_started(ranch),
                                application:ensure_all_started(lager),
                                lager:set_loglevel(lager_console_backend, debug),
