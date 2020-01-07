@@ -32,7 +32,8 @@
                   splicer,
                   backoff,
                   relcast,
-                  libp2p_crypto
+                  libp2p_crypto,
+                  throttle
                  ]},
   {env,[]},
 
