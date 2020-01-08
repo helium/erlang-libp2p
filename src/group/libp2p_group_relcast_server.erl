@@ -324,7 +324,6 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
--dialyzer({nowarn_function, [start_relcast/6]}).
 start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, Store) ->
     relcast:start(SelfIndex, lists:seq(1, length(Addrs)), Handler,
                   HandlerArgs, [{data_dir, Store}|RelcastArgs]).
