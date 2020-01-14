@@ -45,6 +45,7 @@
 -define(FLAP_LIMIT, 3).
 -define(BANLIST_TIMEOUT, timer:minutes(5)).
 -define(MAX_RELAY_DURATION, timer:minutes(30)).
+-define(MAX_PEERS, 500).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -256,7 +257,7 @@ sort_peers(Peers0, SwarmPubKeyBin, State) ->
         libp2p_peer:has_public_ip(Peer) andalso
         not lists:member(libp2p_peer:pubkey_bin(Peer), State#state.banlist)
     end, Peers0),
-    lists:sort(fun sort_peers_fun/2, shuffle(Peers1)).
+    lists:sublist(lists:sort(fun sort_peers_fun/2, shuffle(Peers1)), ?MAX_PEERS).
 
 -spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
 sort_peers_fun(A, B) ->
