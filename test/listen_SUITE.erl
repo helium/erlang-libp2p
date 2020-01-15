@@ -132,7 +132,6 @@ port0_reuse(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
 
     {ok, Swarm} = libp2p_swarm:start(listen_port0_reuse, SwarmOpts),
-    true = erlang:register(test, Swarm),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
     ok = libp2p_swarm:listen(Swarm, "/ip6/::/tcp/0"),
 
