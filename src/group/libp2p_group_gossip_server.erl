@@ -125,7 +125,7 @@ handle_cast({request_target, peerbook, WorkerPid}, State=#state{tid=TID}) ->
                    false ->
                        [];
                    Peerbook ->
-                       WorkerAddrs = [ libp2p_crypto:p2p_to_pubkey_bin(W#worker.target) || W <- State#state.workers, W#worker.target /= undefined],
+                       WorkerAddrs = [ libp2p_crypto:p2p_to_pubkey_bin(W#worker.target) || W <- State#state.workers, W#worker.target /= undefined, W#worker.kind /= seed ],
                        try libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs]) of
                            {Addr, _} ->
                                [Addr];
