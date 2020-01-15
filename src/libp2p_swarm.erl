@@ -12,7 +12,8 @@
          add_stream_handler/3, remove_stream_handler/2, stream_handlers/1,
          register_session/2, register_listener/2,
          add_group/4, remove_group/2,
-         gossip_group/1]).
+         gossip_group/1,
+         reg_name_from_tid/2]).
 
 -type swarm_opts() :: [swarm_opt()].
 -type connect_opts() :: [connect_opt()].
@@ -46,12 +47,17 @@ start(Name) when is_atom(Name) ->
 %% control behavior of various subsystems of the swarm.
 -spec start(atom(), swarm_opts()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name, Opts)  ->
-    case supervisor:start_link(libp2p_swarm_sup, [Name, Opts]) of
+    case supervisor:start_link({local, Name}, libp2p_swarm_sup, [Name, Opts]) of
         {ok, Pid} ->
             unlink(Pid),
             {ok, Pid};
         Other -> Other
     end.
+
+%% @doc returns an atom to be used as the registered name of a process
+-spec reg_name_from_tid(ets:tab(), atom()) -> atom().
+reg_name_from_tid(TID, Module)->
+    list_to_atom(atom_to_list(Module) ++ "_" ++ atom_to_list(name(TID))).
 
 %% @doc Stops the given swarm.
 -spec stop(pid()) -> ok.

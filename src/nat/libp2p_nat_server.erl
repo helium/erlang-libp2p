@@ -43,8 +43,11 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_server:start_link(?MODULE, Args, []).
+start_link(TID) ->
+    gen_server:start_link(reg_name(TID), ?MODULE, [TID], []).
+
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -57,7 +60,7 @@ register(TID, TransportPid, MultiAddr, IntPort) ->
         {ok, Pid} ->
             gen_server:call(Pid, {register, TransportPid, MultiAddr, IntPort})
     end.
-    
+
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions

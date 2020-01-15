@@ -15,7 +15,10 @@
 %%
 
 start_link(TID, SigFun, ECDHFun) ->
-    gen_server:start_link(?MODULE, [TID, SigFun, ECDHFun], []).
+    gen_server:start_link(reg_name(TID), ?MODULE, [TID, SigFun, ECDHFun], []).
+
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
 init([TID, SigFun, ECDHFun]) ->
     erlang:process_flag(trap_exit, true),

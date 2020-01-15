@@ -32,6 +32,7 @@
 -define(NAT, nat).
 -define(ADDR_INFO, addr_info).
 
+
 -type handler() :: {atom(), atom()}.
 -type opts() :: [{atom(), any()}].
 
@@ -75,6 +76,7 @@ swarm_dir(TID, Names) ->
     FileName = filename:join([base_dir(TID), libp2p_swarm:name(TID) | Names]),
     ok = filelib:ensure_dir(FileName),
     FileName.
+
 
 %%
 %% Common pid CRUD

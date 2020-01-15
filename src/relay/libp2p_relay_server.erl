@@ -50,8 +50,11 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_server:start_link(?MODULE, Args, [{hibernate_after, 5000}]).
+start_link(TID) ->
+    gen_server:start_link(reg_name(TID), ?MODULE, [TID], [{hibernate_after, 5000}]).
+
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
 -spec relay(pid()) -> ok | {error, any()}.
 relay(Swarm) ->
@@ -92,7 +95,7 @@ negotiated(Swarm, Address) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-init(TID) ->
+init([TID]) ->
     %% remove any prior relay addresses we somehow leaked
     lists:foreach(fun(Addr) ->
                           case libp2p_transport_relay:match_addr(Addr,TID) of

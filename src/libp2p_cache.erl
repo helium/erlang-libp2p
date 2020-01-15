@@ -40,9 +40,11 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_server:start_link(?MODULE, [Args], []).
+start_link(TID) ->
+    gen_server:start_link(reg_name(TID), ?MODULE, [TID], []).
 
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end
@@ -126,11 +128,11 @@ migrate(Dets) ->
             dets:delete(Dets, Key);
         (Key0, Key1, _) ->
             case dets:lookup(Dets, Key0) of
-                [] -> 
+                [] ->
                     ok;
-                [{Key0, Value}] -> 
+                [{Key0, Value}] ->
                     dets:insert(Dets, {Key1, Value});
-                [{Key0, Value}|_]-> 
+                [{Key0, Value}|_]->
                     dets:insert(Dets, {Key1, Value})
             end,
             dets:delete(Dets, Key0)
