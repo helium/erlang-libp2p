@@ -41,7 +41,10 @@
 %%
 
 start_link(Sup, TID) ->
-    gen_server:start_link(?MODULE, [Sup, TID], [{hibernate_after, 5000}]).
+    gen_server:start_link(reg_name(TID), ?MODULE, [Sup, TID], [{hibernate_after, 5000}]).
+
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
 %% libp2p_gossip_stream
 %%
