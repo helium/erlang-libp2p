@@ -47,7 +47,8 @@ start(Name) when is_atom(Name) ->
 %% control behavior of various subsystems of the swarm.
 -spec start(atom(), swarm_opts()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name, Opts)  ->
-    case supervisor:start_link({local, Name}, libp2p_swarm_sup, [Name, Opts]) of
+    RegName = list_to_atom(atom_to_list(libp2p_swarm_sup) ++ "_" ++ atom_to_list(Name)),
+    case supervisor:start_link({local,RegName}, libp2p_swarm_sup, [Name, Opts]) of
         {ok, Pid} ->
             unlink(Pid),
             {ok, Pid};
@@ -58,6 +59,7 @@ start(Name, Opts)  ->
 -spec reg_name_from_tid(ets:tab(), atom()) -> atom().
 reg_name_from_tid(TID, Module)->
     list_to_atom(atom_to_list(Module) ++ "_" ++ atom_to_list(name(TID))).
+
 
 %% @doc Stops the given swarm.
 -spec stop(pid()) -> ok.
