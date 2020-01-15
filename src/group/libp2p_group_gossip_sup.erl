@@ -20,7 +20,7 @@ init([TID]) ->
     ChildSpecs =
         [
          #{ id => ?WORKERS,
-            start => {libp2p_group_worker_sup, start_link, [TID]},
+            start => {libp2p_group_worker_sup, start_link, []},
             type => supervisor
           },
          #{ id => server,

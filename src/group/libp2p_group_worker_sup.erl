@@ -2,15 +2,12 @@
 
 -behavior(supervisor).
 
--export([start_link/1, init/1]).
+-export([start_link/0, init/1]).
 
-start_link(TID) ->
-    supervisor:start_link(reg_name(TID), ?MODULE, [TID]).
+start_link() ->
+    supervisor:start_link(?MODULE, []).
 
-reg_name(TID)->
-    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
-
-init([_TID]) ->
+init([]) ->
     SupFlags = #{strategy => one_for_one,
                  intensity => 100
                 },
