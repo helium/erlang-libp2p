@@ -317,7 +317,7 @@ init_gossip_data(Handle=#peerbook{tid=TID}) ->
 %%
 
 start_link(TID, SigFun) ->
-    gen_server:start_link(?MODULE, [TID, SigFun], []).
+    gen_server:start_link(?MODULE, [TID, SigFun], [{hibernate_after, 5000}]).
 
 init([TID, SigFun]) ->
     erlang:process_flag(trap_exit, true),
