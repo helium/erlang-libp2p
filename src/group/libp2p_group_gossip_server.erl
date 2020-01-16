@@ -41,7 +41,7 @@
 %%
 
 start_link(Sup, TID) ->
-    gen_server:start_link(?MODULE, [Sup, TID], []).
+    gen_server:start_link(?MODULE, [Sup, TID], [{hibernate_after, 5000}]).
 
 %% libp2p_gossip_stream
 %%
