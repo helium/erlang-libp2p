@@ -82,6 +82,8 @@ handle_call({accept_stream, Session, StreamPid}, From, State=#state{}) ->
 handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
     {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
     {reply, Addrs, State};
+handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
+    {reply, ok, State#state{handlers=maps:remove(Key, Handlers)}};
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -114,9 +116,6 @@ handle_cast({handle_data, StreamPid, Key, Msg}, State=#state{}) ->
 
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
-handle_cast({remove_handler, Key}, State=#state{handlers=Handlers}) ->
-    {noreply, State#state{handlers=maps:remove(Key, Handlers)}};
-
 handle_cast({request_target, inbound, WorkerPid}, State=#state{}) ->
     {noreply, stop_inbound_worker(WorkerPid, State)};
 handle_cast({request_target, peerbook, WorkerPid}, State=#state{tid=TID}) ->
