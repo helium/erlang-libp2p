@@ -272,6 +272,12 @@ handle_call(info, _From, State=#state{kind=Kind, module=Module}) ->
              handler => Module
             },
     {reply, Info, State};
+
+handle_call(close, _From, State=#state{connection=Connection}) ->
+    catch libp2p_connection:fdclr(Connection),
+    catch libp2p_connection:close(Connection),
+    {stop, normal, ok, State};
+
 handle_call(Msg, From, State=#state{kind=Kind, module=Module, state=ModuleState0}) ->
     case erlang:function_exported(Module, handle_call, 4) of
         true -> case Module:handle_call(Kind, Msg, From, ModuleState0) of
@@ -295,9 +301,7 @@ handle_call(Msg, From, State=#state{kind=Kind, module=Module, state=ModuleState0
         false -> {reply, ok, State}
     end.
 
-handle_cast(close, State=#state{connection=Connection}) ->
-    libp2p_connection:close(Connection),
-    {stop, normal, State};
+
 handle_cast(Request, State=#state{kind=Kind, module=Module, state=ModuleState}) ->
     case erlang:function_exported(Module, handle_cast, 3) of
         true -> case Module:handle_cast(Kind, Request, ModuleState) of
@@ -320,8 +324,9 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
     end,
     unlink(SendPid),
     erlang:exit(SendPid, kill),
-    libp2p_connection:fdclr(Connection),
-    libp2p_connection:close(Connection).
+    catch libp2p_connection:fdclr(Connection),
+    catch libp2p_connection:close(Connection),
+    ok.
 
 call(Pid, Cmd) ->
     call(Pid, Cmd, 5000).
@@ -339,7 +344,7 @@ call(Pid, Cmd, Timeout) ->
     end.
 
 close(Pid) ->
-    gen_server:cast(Pid, close).
+    call(Pid, close, 3000).
 
 close_state(Pid) ->
     case call(Pid, close_state) of
