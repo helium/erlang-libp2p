@@ -19,7 +19,7 @@ setup_swarms(N, Opts, Acc) ->
     setup_swarms(N - 1, Opts,
                  [begin
                       Name = list_to_atom("swarm" ++ integer_to_list(erlang:unique_integer([monotonic]))),
-                      TmpDir = test_util:nonl(os:cmd("mktemp -d")),
+                      TmpDir = test_util:nonl(os:cmd("mktemp -d ./_build/test/tmp/XXXXXXXX")),
                       BaseDir = libp2p_config:get_opt(Opts, base_dir, TmpDir),
                       NewOpts = lists:keystore(base_dir, 1, Opts, {base_dir, BaseDir})
                         ++ [{libp2p_nat, [{enabled, false}]}],
