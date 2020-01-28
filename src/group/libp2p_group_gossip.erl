@@ -29,6 +29,6 @@ remove_handler(Pid, Key) ->
 send(Pid, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
     gen_server:cast(Pid, {send, Key, Data}).
 
--spec connected_addrs(pid(), connection_kind() | all) -> [string()].
+-spec connected_addrs(pid(), connection_kind() | all) -> [{MAddr::string(), Pid::pid()}].
 connected_addrs(Pid, WorkerKind) ->
     gen_server:call(Pid, {connected_addrs, WorkerKind}, infinity).
