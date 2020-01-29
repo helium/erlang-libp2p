@@ -33,10 +33,11 @@ all() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     test_util:setup(),
     lager:set_loglevel(lager_console_backend, info),
-    Config.
+    Config0.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -93,7 +94,7 @@ basic(_Config) ->
     meck:new(libp2p_peer, [no_link, passthrough]),
     meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
 
-    
+
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
     ct:pal("CSwarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
@@ -125,7 +126,7 @@ basic(_Config) ->
         100,
         250
     ),
-    
+
     BP2P = libp2p_swarm:p2p_address(BSwarm),
     meck:new(libp2p_relay, [no_link, passthrough]),
     meck:expect(libp2p_relay, dial_framed_stream,
@@ -243,7 +244,7 @@ limit_exceeded(_Config) ->
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
     meck:new(libp2p_peer, [no_link, passthrough]),
     meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
-    
+
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
     ct:pal("CSwarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),

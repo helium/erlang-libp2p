@@ -19,40 +19,54 @@ all() ->
      association_test
     ].
 
-init_per_testcase(accessor_test, Config) ->
-    setup_peerbook(Config, []);
-init_per_testcase(bad_peer_test, Config) ->
-    setup_peerbook(Config, []);
-init_per_testcase(blacklist_test, Config) ->
-    setup_peerbook(Config, []);
-init_per_testcase(association_test, Config) ->
-    setup_peerbook(Config, []);
-init_per_testcase(put_test, Config) ->
-    setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}]
+
+
+init_per_testcase(accessor_test = TestCase, Config) ->
+
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_peerbook(Config0, []);
+init_per_testcase(bad_peer_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_peerbook(Config0, []);
+init_per_testcase(blacklist_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_peerbook(Config0, []);
+init_per_testcase(association_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_peerbook(Config0, []);
+init_per_testcase(put_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_peerbook(Config0, [{libp2p_peerbook, [{notify_time, 200}]
                             }]);
-init_per_testcase(gossip_test, Config) ->
+init_per_testcase(gossip_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 1}]
                                         },
                                         {libp2p_peerbook,
                                          [{notify_time, 500},
                                           {peer_time, 400}]
-                                        }]),
+                                        },
+                                        {base_dir, ?config(basedir, Config0)}]),
     [{swarms, Swarms} | Config];
-init_per_testcase(network_id_gossip_test, Config) ->
+init_per_testcase(network_id_gossip_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(3, [{libp2p_group_gossip,
                                          [{peerbook_connections, 2}]
                                         },
                                         {libp2p_peerbook,
                                          [{notify_time, 500},
                                           {peer_time, 400}]
-                                        }]),
+                                        },
+                                        {base_dir, ?config(basedir, Config0)}]),
     [{swarms, Swarms} | Config];
-init_per_testcase(stale_test, Config) ->
+init_per_testcase(stale_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(1, [{libp2p_peerbook, [{stale_time, 100},
                                                            {peer_time, 400},
                                                            {notify_time, 500}]
-                                        }]),
+                                        },
+                                        {base_dir, ?config(priv_dir, Config0)}]),
     [{swarms, Swarms} | Config].
 
 
@@ -405,8 +419,8 @@ setup_peerbook(Config, Opts) ->
     #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     CompactKey = libp2p_crypto:pubkey_to_bin(PubKey),
     ets:insert(TID, {swarm_address, CompactKey}),
-    TmpDir = test_util:nonl(os:cmd("mktemp -d ./_build/test/tmp/XXXXXXXX")),
-    ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, TmpDir})}),
+    PrivDir = ?config(priv_dir, Config),
+    ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, PrivDir})}),
     {ok, Pid} = libp2p_peerbook:start_link(TID, libp2p_crypto:mk_sig_fun(PrivKey)),
     [{peerbook, {Pid, CompactKey}}, {tid, TID} | Config].
 
@@ -419,3 +433,4 @@ teardown_peerbook(Config) ->
     after 1000 ->
             error(timeout)
     end.
+

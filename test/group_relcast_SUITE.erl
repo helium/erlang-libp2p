@@ -1,4 +1,5 @@
 -module(group_relcast_SUITE).
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([
@@ -20,20 +21,26 @@ all() ->
       % pipeline_test
     ].
 
-init_per_testcase(defer_test, Config) ->
+init_per_testcase(defer_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
                                         {libp2p_group_gossip, [{peer_cache_timeout, 50}]},
-                                        {libp2p_nat, [{enabled, false}]}]),
+                                        {libp2p_nat, [{enabled, false}]},
+                                        {base_dir, ?config(base_dir, Config0)}]),
     [{swarms, Swarms} | Config];
-init_per_testcase(close_test, Config) ->
+init_per_testcase(close_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
                                         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
-                                        {libp2p_nat, [{enabled, false}]}]),
+                                        {libp2p_nat, [{enabled, false}]},
+                                        {base_dir, ?config(base_dir, Config0)}]),
     [{swarms, Swarms} | Config];
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]},
                                         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
-                                        {libp2p_nat, [{enabled, false}]}]),
+                                        {libp2p_nat, [{enabled, false}]},
+                                        {base_dir, ?config(base_dir, Config0)}]),
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->

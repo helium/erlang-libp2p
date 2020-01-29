@@ -1,5 +1,5 @@
 -module(session_SUITE).
-
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([open_close_test/1, idle_test/1, ping_test/1, sessions_test/1]).
@@ -12,22 +12,27 @@ all() ->
      sessions_test
     ].
 
-init_per_testcase(open_close_test, Config) ->
+init_per_testcase(open_close_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 0}]
-                                        }]),
-    [{swarms, Swarms} | Config];
-init_per_testcase(idle_test, Config) ->
+                                        },
+                                        {base_dir, ?config(base_dir, Config0)}]),
+    [{swarms, Swarms} | Config0];
+init_per_testcase(idle_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 0}]
                                         },
                                        {libp2p_session,
                                         [{idle_timeout, 1500}]
-                                       }]),
-    [{swarms, Swarms} | Config];
-init_per_testcase(_, Config) ->
-    Swarms = test_util:setup_swarms(2, []),
-    [{swarms, Swarms} | Config].
+                                       },
+                                       {base_dir, ?config(base_dir, Config0)}]),
+    [{swarms, Swarms} | Config0];
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    Swarms = test_util:setup_swarms(2, [{base_dir, ?config(base_dir, Config0)}]),
+    [{swarms, Swarms} | Config0].
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),

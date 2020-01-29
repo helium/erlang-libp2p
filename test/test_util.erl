@@ -1,8 +1,16 @@
 -module(test_util).
 
--export([setup/0, setup_swarms/0, setup_swarms/2, teardown_swarms/1,
+-include_lib("common_test/include/ct.hrl").
+
+-define(BASE_TMP_DIR, "./_build/test/tmp").
+-define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
+
+-export([setup/0, setup_swarms/1, setup_swarms/2, teardown_swarms/1,
          connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1,
-         wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1]).
+         wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1,
+         init_base_dir_config/3,
+         tmp_dir/0, tmp_dir/1,
+         cleanup_tmp_dir/1]).
 
 setup() ->
     application:ensure_all_started(ranch),
@@ -19,10 +27,7 @@ setup_swarms(N, Opts, Acc) ->
     setup_swarms(N - 1, Opts,
                  [begin
                       Name = list_to_atom("swarm" ++ integer_to_list(erlang:unique_integer([monotonic]))),
-                      TmpDir = test_util:nonl(os:cmd("mktemp -d ./_build/test/tmp/XXXXXXXX")),
-                      BaseDir = libp2p_config:get_opt(Opts, base_dir, TmpDir),
-                      NewOpts = lists:keystore(base_dir, 1, Opts, {base_dir, BaseDir})
-                        ++ [{libp2p_nat, [{enabled, false}]}],
+                      NewOpts = [{libp2p_nat, [{enabled, false}]} | Opts],
                       {ok, Pid} = libp2p_swarm:start(Name, NewOpts),
                       ok = libp2p_swarm:listen(Pid, "/ip4/0.0.0.0/tcp/0"),
                       Pid
@@ -32,8 +37,8 @@ setup_swarms(N, Opts) when N >= 1 ->
     setup(),
     setup_swarms(N, Opts, []).
 
-setup_swarms() ->
-    setup_swarms(2, []).
+setup_swarms(Opts) ->
+    setup_swarms(2, Opts).
 
 teardown_swarms(Swarms) ->
     lists:map(fun libp2p_swarm:stop/1, Swarms).
@@ -107,3 +112,47 @@ await_gossip_groups(Swarms) ->
 nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
 nonl([]) -> [].
+
+%%--------------------------------------------------------------------
+%% @doc
+%% generate a tmp directory based off priv_data to be used as a scratch by common tests
+%% and add to Config
+%% @end
+%%-------------------------------------------------------------------
+-spec init_base_dir_config(atom(), atom(), list()) -> list().
+init_base_dir_config(Mod, TestCase, Config)->
+    PrivDir = ?config(priv_dir, Config),
+    BaseDir = PrivDir ++ "data/" ++ erlang:atom_to_list(Mod) ++ "_" ++
+                    erlang:atom_to_list(TestCase),
+    [{base_dir, BaseDir} | Config].
+
+%%--------------------------------------------------------------------
+%% @doc
+%% generate a tmp directory to be used as a scratch by eunit tests
+%% @end
+%%-------------------------------------------------------------------
+tmp_dir() ->
+    os:cmd("mkdir -p " ++ ?BASE_TMP_DIR),
+    create_tmp_dir(?BASE_TMP_DIR_TEMPLATE).
+tmp_dir(SubDir) ->
+    Path = filename:join(?BASE_TMP_DIR, SubDir),
+    os:cmd("mkdir -p " ++ Path),
+    create_tmp_dir(Path ++ "/" ++ ?BASE_TMP_DIR_TEMPLATE).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Deletes the specified directory
+%% @end
+%%-------------------------------------------------------------------
+-spec cleanup_tmp_dir(list()) -> ok.
+cleanup_tmp_dir(Dir)->
+    os:cmd("rm -rf " ++ Dir),
+    ok.
+%%--------------------------------------------------------------------
+%% @doc
+%% create a tmp directory at the specified path
+%% @end
+%%-------------------------------------------------------------------
+-spec create_tmp_dir(list()) -> list().
+create_tmp_dir(Path)->
+    ?MODULE:nonl(os:cmd("mktemp -d " ++  Path)).
