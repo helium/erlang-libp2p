@@ -38,10 +38,11 @@ all() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     test_util:setup(),
     {ok, Swarm} = libp2p_swarm:start(test),
-    [{swarm, Swarm} | Config].
+    [{swarm, Swarm} | Config0].
 
 %%--------------------------------------------------------------------
 %% @public

@@ -32,10 +32,11 @@ all() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     test_util:setup(),
     lager:set_loglevel(lager_console_backend, info),
-    Config.
+    Config0.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -139,7 +140,7 @@ basic(_Config) ->
     % Wait for a relay address to be provided
     ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
 
-    
+
     % Testing relay address
     [ACircuitAddress] = get_relay_addresses(ASwarm),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),

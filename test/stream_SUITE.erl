@@ -1,5 +1,6 @@
 -module(stream_SUITE).
 
+-include_lib("common_test/include/ct.hrl").
 -include("src/libp2p_yamux.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
@@ -14,7 +15,8 @@ all() ->
      idle_test
     ].
 
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = [S1, S2] =
         test_util:setup_swarms(2, [
                                    {libp2p_group_gossip,
@@ -25,13 +27,14 @@ init_per_testcase(_, Config) ->
                                    },
                                   {libp2p_stream,
                                    [{idle_timeout, 2000}]
-                                  }
+                                  },
+                                  {base_dir, ?config(base_dir, Config0)}
                                   ]),
 
     ok = serve_stream:register(S2, "serve"),
     {Stream, Server, ServerConnection} = serve_stream:dial(S1, S2, "serve"),
 
-    [{swarms, Swarms}, {serve, {Stream, Server}}, {server_connection, ServerConnection} | Config].
+    [{swarms, Swarms}, {serve, {Stream, Server}}, {server_connection, ServerConnection} | Config0].
 
 end_per_testcase(_, Config) ->
     Swarms = proplists:get_value(swarms, Config),

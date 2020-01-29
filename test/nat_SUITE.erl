@@ -34,10 +34,11 @@ all() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, _Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     test_util:setup(),
     lager:set_loglevel(lager_console_backend, info),
-    _Config.
+    Config0.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -93,7 +94,7 @@ basic(_Config) ->
     libp2p_swarm:stop(Swarm).
 
 server(_Config) ->
-    
+
     MockLease = 3,
     Since = 0,
 
@@ -114,7 +115,7 @@ server(_Config) ->
     end),
 
     {ok, Swarm} = libp2p_swarm:start(nat_server_test),
-    
+
     {ok, NatServer} = libp2p_config:lookup_nat(libp2p_swarm:tid(Swarm)),
     Self = self(),
     ?assertEqual(true, erlang:is_process_alive(NatServer)),
@@ -138,10 +139,10 @@ renew(_Config) ->
 
     meck:new(libp2p_nat, [no_link, passthrough]),
     meck:expect(libp2p_nat, add_port_mapping, fun(_IntPort, _ExtPort) ->
-        {ok, "11.0.0.2", EXT_PORT, 10, 2000} 
+        {ok, "11.0.0.2", EXT_PORT, 10, 2000}
     end),
     meck:expect(libp2p_nat, renew_port_mapping, fun(_IntPort, _ExtPort) ->
-        {ok, "11.0.0.2", EXT_PORT+1, 100, 2000} 
+        {ok, "11.0.0.2", EXT_PORT+1, 100, 2000}
     end),
     meck:expect(libp2p_nat, delete_port_mapping, fun(_IntPort, _ExtPort) ->
         ok

@@ -17,10 +17,12 @@ all() ->
     ].
 
 
-init_per_testcase(seed_test, Config) ->
+init_per_testcase(seed_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     %% Set up S2 as the seed.
     [S2] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 0}]}
+                                       {libp2p_group_gossip, [{peerbook_connections, 0}]},
+                                       {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
     [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
@@ -30,15 +32,18 @@ init_per_testcase(seed_test, Config) ->
                                        {libp2p_group_gossip,
                                         [ {peerbook_connections, 0},
                                           {seed_nodes, [S2ListenAddr]}
-                                        ]}
+                                        ]},
+                                       {base_dir, ?config(base_dir, Config0)}
                                      ]),
     [{swarms, [S1, S2]} | Config];
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [
                                         {libp2p_group_gossip,
                                          [{peerbook_connections, 1},
                                           {peer_cache_timeout, 100}]
-                                        }]),
+                                        },
+                                        {base_dir, ?config(base_dir, Config0)} ]),
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->

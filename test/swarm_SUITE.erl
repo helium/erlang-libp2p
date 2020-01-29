@@ -1,4 +1,5 @@
 -module(swarm_SUITE).
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([accessor_test/1, stop_test/1, dial_self/1]).
@@ -10,9 +11,10 @@ all() ->
         dial_self
     ].
 
-init_per_testcase(_, Config) ->
-    Swarms = test_util:setup_swarms(1, []),
-    [{swarms, Swarms} | Config].
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    Swarms = test_util:setup_swarms(1, [{base_dir, ?config(base_dir, Config0)}]),
+    [{swarms, Swarms} | Config0].
 
 end_per_testcase(stop_test, _Config) ->
     ok;
