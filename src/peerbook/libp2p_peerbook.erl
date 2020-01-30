@@ -344,6 +344,8 @@ init([TID, SigFun]) ->
                                        (2 * StaleTime) div 1000, false) of
                 {error, Reason} -> {stop, Reason};
                 {ok, DB} ->
+                    %% compact the DB on open, just in case
+                    rocksdb:compact_range(DB, undefined, undefined, []),
                     Handle = #peerbook{store=DB, tid=TID, stale_time=StaleTime},
                     GossipGroup = install_gossip_handler(TID, Handle),
                     libp2p_swarm:store_peerbook(TID, Handle),
