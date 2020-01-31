@@ -47,12 +47,12 @@ init_per_testcase(TestCase, Config) ->
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 
 connection_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     %% Add S2 to the S1 peerbook. This shoud cause the S1 group
     %% to connect to S2
@@ -94,7 +94,7 @@ connection_test(Config) ->
 gossip_test(Config) ->
     timer:sleep(1000),
 
-    Swarms = [S1, S2] = proplists:get_value(swarms, Config),
+    Swarms = [S1, S2] = ?config(swarms, Config),
 
     S1Group = libp2p_swarm:gossip_group(S1),
     libp2p_group_gossip:add_handler(S1Group, "gossip_test", {?MODULE, self()}),
@@ -114,7 +114,7 @@ gossip_test(Config) ->
     ok.
 
 seed_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),

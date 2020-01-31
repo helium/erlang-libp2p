@@ -35,14 +35,14 @@ init_per_testcase(TestCase, Config) ->
     [{swarms, Swarms} | Config0].
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 %% Tests
 %%
 
 open_close_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
@@ -86,7 +86,7 @@ open_close_test(Config) ->
     ok.
 
 idle_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
     {ok, Session1} = libp2p_swarm:connect(S1, S2Addr),
@@ -99,7 +99,7 @@ idle_test(Config) ->
 
 
 ping_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
@@ -109,7 +109,7 @@ ping_test(Config) ->
     ok.
 
 sessions_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 

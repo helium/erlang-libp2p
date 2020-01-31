@@ -44,11 +44,11 @@ init_per_testcase(TestCase, Config) ->
     [{swarms, Swarms} | Config].
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 unicast_test(Config) ->
-    Swarms = [S1, S2, S3] = proplists:get_value(swarms, Config),
+    Swarms = [S1, S2, S3] = ?config(swarms, Config),
 
     ct:pal("self ~p", [self()]),
 
@@ -106,7 +106,7 @@ unicast_test(Config) ->
 
 
 multicast_test(Config) ->
-    Swarms = [S1, S2, S3] = proplists:get_value(swarms, Config),
+    Swarms = [S1, S2, S3] = ?config(swarms, Config),
 
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
@@ -139,7 +139,7 @@ multicast_test(Config) ->
 
 
 defer_test(Config) ->
-    Swarms = [S1, S2] = proplists:get_value(swarms, Config),
+    Swarms = [S1, S2] = ?config(swarms, Config),
 
     test_util:connect_swarms(S1, S2),
 
@@ -180,7 +180,7 @@ defer_test(Config) ->
 
 
 close_test(Config) ->
-    Swarms = [S1, S2] = proplists:get_value(swarms, Config),
+    Swarms = [S1, S2] = ?config(swarms, Config),
 
     test_util:connect_swarms(S1, S2),
 
@@ -219,7 +219,7 @@ close_test(Config) ->
     ok.
 
 pipeline_test(Config) ->
-    [S1, S2, _S3] = proplists:get_value(swarms, Config),
+    [S1, S2, _S3] = ?config(swarms, Config),
 
     Swarms = [S1, S2],
 

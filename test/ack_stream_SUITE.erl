@@ -24,11 +24,11 @@ init_per_testcase(ack_test=TestCase, Config) ->
     setup_swarms(ok, Config0).
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 ack_test(Config) ->
-    Client = proplists:get_value(client, Config),
+    Client = ?config(client, Config),
     pending = libp2p_framed_stream:send(Client, {<<"hello">>, 1}, 10000),
 
     receive

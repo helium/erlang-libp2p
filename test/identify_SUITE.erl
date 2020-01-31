@@ -15,11 +15,11 @@ init_per_testcase(TestCase, Config) ->
     [{swarms, Swarms}| Config].
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 identify_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
     S1Addrs = libp2p_swarm:listen_addrs(S1),
     [S2Addr|_] = libp2p_swarm:listen_addrs(S2),
 
