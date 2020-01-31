@@ -44,7 +44,7 @@
 
 -define(FLAP_LIMIT, 3).
 -define(BANLIST_TIMEOUT, timer:minutes(5)).
--define(MAX_RELAY_DURATION, timer:minutes(30)).
+-define(MAX_RELAY_DURATION, timer:minutes(90)).
 -define(MAX_PEERS, 500).
 
 %% ------------------------------------------------------------------
