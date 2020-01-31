@@ -37,14 +37,14 @@ init_per_testcase(TestCase, Config) ->
     [{swarms, Swarms}, {serve, {Stream, Server}}, {server_connection, ServerConnection} | Config0].
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 %% Tests
 %%
 
 auto_close_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     % Write some data from the server
     ok = serve_stream:send(Server, <<"hello">>),
@@ -79,7 +79,7 @@ auto_close_test(Config) ->
     ok.
 
 close_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     % Write some data from the server
     ok =  serve_stream:send(Server, <<"hello">>),
@@ -97,7 +97,7 @@ close_test(Config) ->
 
 
 timeout_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     % Test receiving: simple timeout for a small number of bytes < window
     {error, timeout} = serve_stream:recv(Server, 1, 100),
@@ -110,7 +110,7 @@ timeout_test(Config) ->
     ok.
 
 window_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     SmallData = <<41, 42, 43>>,
     libp2p_connection:send(Stream, SmallData),
@@ -128,8 +128,8 @@ window_test(Config) ->
     ok.
 
 idle_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
-    ServerConnection = proplists:get_value(server_connection, Config),
+    {Stream, Server} = ?config(serve, Config),
+    ServerConnection = ?config(server_connection, Config),
 
     StreamPid = element(3, Stream),
     ServerStreamPid = element(3, ServerConnection),

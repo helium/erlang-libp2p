@@ -81,13 +81,13 @@ end_per_testcase(association_test, Config) ->
 end_per_testcase(put_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(gossip_test, Config) ->
-    [S1, _S2] = proplists:get_value(swarms, Config),
+    [S1, _S2] = ?config(swarms, Config),
     test_util:teardown_swarms([S1]);
 end_per_testcase(network_id_gossip_test, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms);
 end_per_testcase(stale_test, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 
@@ -95,8 +95,8 @@ end_per_testcase(stale_test, Config) ->
 %%
 
 accessor_test(Config) ->
-    {_PeerBook, Address} = proplists:get_value(peerbook, Config),
-    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
+    {_PeerBook, Address} = ?config(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
     Peer1 = mk_peer(),
     Peer2 = mk_peer(),
@@ -125,7 +125,7 @@ accessor_test(Config) ->
     ok.
 
 bad_peer_test(Config) ->
-    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
+    PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
     #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
     #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
@@ -146,8 +146,8 @@ bad_peer_test(Config) ->
 
 
 blacklist_test(Config) ->
-    {_PeerBook, _Address} = proplists:get_value(peerbook, Config),
-    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
+    {_PeerBook, _Address} = ?config(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
     Peer1 = mk_peer(),
 
@@ -165,8 +165,8 @@ blacklist_test(Config) ->
 
 
 association_test(Config) ->
-    {_PeerBook, Address} = proplists:get_value(peerbook, Config),
-    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
+    {_PeerBook, Address} = ?config(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
     #{secret := AssocPrivKey, public := AssocPubKey} = libp2p_crypto:generate_keys(ecc_compact),
     AssocSigFun = libp2p_crypto:mk_sig_fun(AssocPrivKey),
@@ -187,8 +187,8 @@ association_test(Config) ->
     ok.
 
 put_test(Config) ->
-    {_PeerBook, Address} = proplists:get_value(peerbook, Config),
-    PeerBook = libp2p_swarm:peerbook(proplists:get_value(tid, Config)),
+    {_PeerBook, Address} = ?config(peerbook, Config),
+    PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
     PeerList1 = [mk_peer() || _ <- lists:seq(1, 5)],
 
@@ -228,7 +228,7 @@ put_test(Config) ->
 
 
 gossip_test(Config) ->
-    [S1, S2] = proplists:get_value(swarms, Config),
+    [S1, S2] = ?config(swarms, Config),
 
     test_util:connect_swarms(S1, S2),
 
@@ -275,7 +275,7 @@ gossip_test(Config) ->
     ok.
 
 network_id_gossip_test(Config) ->
-    [S1, S2, S3] = proplists:get_value(swarms, Config),
+    [S1, S2, S3] = ?config(swarms, Config),
 
     libp2p_swarm:network_id(S1, <<"s1">>),
     libp2p_swarm:network_id(S3, <<"s3">>),
@@ -345,7 +345,7 @@ network_id_gossip_test(Config) ->
     ok.
 
 stale_test(Config) ->
-    [S1] = proplists:get_value(swarms, Config),
+    [S1] = ?config(swarms, Config),
 
     PeerBook = libp2p_swarm:peerbook(S1),
     S1Addr = libp2p_swarm:pubkey_bin(S1),
@@ -425,7 +425,7 @@ setup_peerbook(Config, Opts) ->
     [{peerbook, {Pid, CompactKey}}, {tid, TID} | Config].
 
 teardown_peerbook(Config) ->
-    {Pid, _} = proplists:get_value(peerbook, Config),
+    {Pid, _} = ?config(peerbook, Config),
     Ref = erlang:monitor(process, Pid),
     exit(Pid, normal),
     receive

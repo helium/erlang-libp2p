@@ -66,23 +66,23 @@ init_per_testcase(handle_cast_test = TestCase, Config) ->
 
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 path_test(Config) ->
-    {_Client, Server} = proplists:get_value(serve, Config),
+    {_Client, Server} = ?config(serve, Config),
     "/hello" = serve_framed_stream:server_path(Server),
     ok.
 
 send_test(Config) ->
-    {Client, Server} = proplists:get_value(serve, Config),
+    {Client, Server} = ?config(serve, Config),
 
     libp2p_framed_stream:send(Client, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:server_data(Server) == <<"hello">> end),
     ok.
 
 handle_info_test(Config) ->
-    {_Client, Server} = proplists:get_value(serve, Config),
+    {_Client, Server} = ?config(serve, Config),
 
     % Noop but causes noreply path to be executed
     Server ! noreply,
@@ -92,8 +92,8 @@ handle_info_test(Config) ->
     ok.
 
 handle_call_test(Config) ->
-    [Sw1, Sw2] = proplists:get_value(swarms, Config),
-    {C1, S1} = proplists:get_value(serve, Config),
+    [Sw1, Sw2] = ?config(swarms, Config),
+    {C1, S1} = ?config(serve, Config),
 
     %% Try addr_info
     {_, _} = libp2p_framed_stream:addr_info(C1),
@@ -127,8 +127,8 @@ handle_call_test(Config) ->
     ok.
 
 handle_cast_test(Config) ->
-    [Sw1, Sw2] = proplists:get_value(swarms, Config),
-    {_C1, S1} = proplists:get_value(serve, Config),
+    [Sw1, Sw2] = ?config(swarms, Config),
+    {_C1, S1} = ?config(serve, Config),
 
     %% Try a no reply cast
     ok = gen_server:cast(S1, noreply),
