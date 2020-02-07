@@ -25,8 +25,11 @@
 %%====================================================================
 %% API functions
 %%====================================================================
-start_link(Args) ->
-    supervisor:start_link(?MODULE, Args).
+start_link([TID, _Opts] = Args) ->
+    supervisor:start_link(reg_name(TID), ?MODULE, Args).
+
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
 register_cache(TID) ->
     ets:insert(TID, {?CACHE, self()}).
@@ -46,9 +49,9 @@ init([TID, Opts]) ->
     },
     Specs = [
         ?WORKER(?CACHE, libp2p_cache, [TID]),
-        ?WORKER(nat, libp2p_nat_server, [[TID]]),
+        ?WORKER(nat, libp2p_nat_server, [TID]),
         ?WORKER(relay, libp2p_relay_server, [TID]),
-        ?WORKER(proxy, libp2p_proxy_server, [[TID, libp2p_proxy:limit(Opts)]])
+        ?WORKER(proxy, libp2p_proxy_server, [TID, libp2p_proxy:limit(Opts)])
     ],
     {ok, {SupFlags, Specs}}.
 

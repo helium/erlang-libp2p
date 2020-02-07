@@ -11,7 +11,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 -export([
-    start_link/1,
+    start_link/2,
     proxy/4,
     connection/3
 ]).
@@ -50,9 +50,11 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
-start_link(Args) ->
-    gen_server:start_link(?MODULE, Args, []).
+start_link(TID, Limit) ->
+    gen_server:start_link(reg_name(TID), ?MODULE, [TID, Limit], []).
 
+reg_name(TID)->
+    {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 %%--------------------------------------------------------------------
 %% @doc
 %% @end

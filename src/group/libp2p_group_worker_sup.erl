@@ -7,7 +7,6 @@
 start_link() ->
     supervisor:start_link(?MODULE, []).
 
-
 init([]) ->
     SupFlags = #{strategy => one_for_one,
                  intensity => 100
