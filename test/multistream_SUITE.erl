@@ -1,4 +1,5 @@
 -module(multistream_SUITE).
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([client_ls_test/1, client_negotiate_handler_test/1]).
@@ -9,8 +10,9 @@ all() ->
     , client_negotiate_handler_test
     ].
 
-init_per_testcase(_, Config) ->
-    [Swarm] = test_util:setup_swarms(1, []),
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    [Swarm] = test_util:setup_swarms(1, [{base_dir, ?config(base_dir, Config0)}]),
     [Addr|_] = libp2p_swarm:listen_addrs(Swarm),
 
     [{"ip4", IPStr}, {"tcp", PortStr}] = multiaddr:protocols(Addr),
@@ -22,14 +24,14 @@ init_per_testcase(_, Config) ->
     [{swarm, Swarm}, {connection, Connection} | Config].
 
 end_per_testcase(_, Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
     test_util:teardown_swarms([Swarm]).
 
 %% Tests
 %%
 
 client_ls_test(Config) ->
-    Connection = proplists:get_value(connection, Config),
+    Connection = ?config(connection, Config),
 
     ok = libp2p_multistream_client:handshake(Connection),
     true = lists:member("yamux/1.0.0", libp2p_multistream_client:ls(Connection)),
@@ -38,7 +40,7 @@ client_ls_test(Config) ->
     ok.
 
 client_negotiate_handler_test(Config) ->
-    Connection = proplists:get_value(connection, Config),
+    Connection = ?config(connection, Config),
 
     Handlers = [{"othermux", "othermux"}, {"yamux/1.0.0", "yamux"}],
     {ok, "yamux"} = libp2p_multistream_client:negotiate_handler(Handlers, "", Connection),

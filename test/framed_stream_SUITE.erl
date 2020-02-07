@@ -1,4 +1,5 @@
 -module(framed_stream_SUITE).
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([path_test/1, send_test/1, handle_info_test/1, handle_call_test/1, handle_cast_test/1]).
@@ -13,23 +14,27 @@ all() ->
     ].
 
 setup_swarms(Callbacks, Path, Config) ->
-    Swarms = [S1, S2] = test_util:setup_swarms(),
+    Swarms = [S1, S2] = test_util:setup_swarms([{base_dir, ?config(base_dir, Config)}]),
     serve_framed_stream:register(S2, "serve_frame", Callbacks),
     {Client, Server} = serve_framed_stream:dial(S1, S2, "serve_frame" ++ Path),
     [{swarms, Swarms}, {serve, {Client, Server}} | Config].
 
-init_per_testcase(send_test, Config) ->
-    setup_swarms([], "", Config);
-init_per_testcase(path_test, Config) ->
-    setup_swarms([], "/hello", Config);
-init_per_testcase(handle_info_test, Config) ->
+init_per_testcase(send_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_swarms([], "", Config0);
+init_per_testcase(path_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_swarms([], "/hello", Config0);
+init_per_testcase(handle_info_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     InfoFun = fun(_, noreply, S) ->
                       {noreply, S};
                  (_, stop, S) ->
                       {stop, normal, S}
               end,
-    setup_swarms([{info_fun, InfoFun}], "", Config);
-init_per_testcase(handle_call_test, Config) ->
+    setup_swarms([{info_fun, InfoFun}], "", Config0);
+init_per_testcase(handle_call_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     CallFun = fun(_, noreply, _From, S) ->
                       {noreply, S};
                  (_, {noreply, Data}, _From, S) ->
@@ -45,8 +50,9 @@ init_per_testcase(handle_call_test, Config) ->
                  (_, {stop, Reason}, _From, S) ->
                       {stop, Reason, S}
               end,
-    setup_swarms([{call_fun, CallFun}], "", Config);
-init_per_testcase(handle_cast_test, Config) ->
+    setup_swarms([{call_fun, CallFun}], "", Config0);
+init_per_testcase(handle_cast_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     CastFun = fun(_, noreply, S) ->
                       {noreply, S};
                  (_, {noreply, Data}, S) ->
@@ -56,27 +62,27 @@ init_per_testcase(handle_cast_test, Config) ->
                  (_, {stop, Reason}, S) ->
                       {stop, Reason, S}
               end,
-    setup_swarms([{cast_fun, CastFun}], "", Config).
+    setup_swarms([{cast_fun, CastFun}], "", Config0).
 
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 path_test(Config) ->
-    {_Client, Server} = proplists:get_value(serve, Config),
+    {_Client, Server} = ?config(serve, Config),
     "/hello" = serve_framed_stream:server_path(Server),
     ok.
 
 send_test(Config) ->
-    {Client, Server} = proplists:get_value(serve, Config),
+    {Client, Server} = ?config(serve, Config),
 
     libp2p_framed_stream:send(Client, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:server_data(Server) == <<"hello">> end),
     ok.
 
 handle_info_test(Config) ->
-    {_Client, Server} = proplists:get_value(serve, Config),
+    {_Client, Server} = ?config(serve, Config),
 
     % Noop but causes noreply path to be executed
     Server ! noreply,
@@ -86,8 +92,8 @@ handle_info_test(Config) ->
     ok.
 
 handle_call_test(Config) ->
-    [Sw1, Sw2] = proplists:get_value(swarms, Config),
-    {C1, S1} = proplists:get_value(serve, Config),
+    [Sw1, Sw2] = ?config(swarms, Config),
+    {C1, S1} = ?config(serve, Config),
 
     %% Try addr_info
     {_, _} = libp2p_framed_stream:addr_info(C1),
@@ -121,8 +127,8 @@ handle_call_test(Config) ->
     ok.
 
 handle_cast_test(Config) ->
-    [Sw1, Sw2] = proplists:get_value(swarms, Config),
-    {_C1, S1} = proplists:get_value(serve, Config),
+    [Sw1, Sw2] = ?config(swarms, Config),
+    {_C1, S1} = ?config(serve, Config),
 
     %% Try a no reply cast
     ok = gen_server:cast(S1, noreply),

@@ -1,4 +1,5 @@
 -module(swarm_SUITE).
+-include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([accessor_test/1, stop_test/1, dial_self/1]).
@@ -10,21 +11,22 @@ all() ->
         dial_self
     ].
 
-init_per_testcase(_, Config) ->
-    Swarms = test_util:setup_swarms(1, []),
-    [{swarms, Swarms} | Config].
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    Swarms = test_util:setup_swarms(1, [{base_dir, ?config(base_dir, Config0)}]),
+    [{swarms, Swarms} | Config0].
 
 end_per_testcase(stop_test, _Config) ->
     ok;
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 %% Tests
 %%
 
 accessor_test(Config) ->
-    [S1] = proplists:get_value(swarms, Config),
+    [S1] = ?config(swarms, Config),
 
     {ok, PubKey, _, _} = libp2p_swarm:keys(S1),
     true = libp2p_crypto:pubkey_to_bin(PubKey) == libp2p_swarm:pubkey_bin(S1),
@@ -35,7 +37,7 @@ accessor_test(Config) ->
     ok.
 
 stop_test(Config) ->
-    [S1] = proplists:get_value(swarms, Config),
+    [S1] = ?config(swarms, Config),
 
     libp2p_swarm:stop(S1),
     true = libp2p_swarm:is_stopping(S1),
@@ -44,7 +46,7 @@ stop_test(Config) ->
 
 
 dial_self(Config) ->
-    [Swarm] = proplists:get_value(swarms, Config),
+    [Swarm] = ?config(swarms, Config),
     Version = "proxytest/1.0.0",
     libp2p_swarm:add_stream_handler(
         Swarm

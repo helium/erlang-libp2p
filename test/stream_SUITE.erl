@@ -1,5 +1,6 @@
 -module(stream_SUITE).
 
+-include_lib("common_test/include/ct.hrl").
 -include("src/libp2p_yamux.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
@@ -14,7 +15,8 @@ all() ->
      idle_test
     ].
 
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = [S1, S2] =
         test_util:setup_swarms(2, [
                                    {libp2p_group_gossip,
@@ -25,23 +27,24 @@ init_per_testcase(_, Config) ->
                                    },
                                   {libp2p_stream,
                                    [{idle_timeout, 2000}]
-                                  }
+                                  },
+                                  {base_dir, ?config(base_dir, Config0)}
                                   ]),
 
     ok = serve_stream:register(S2, "serve"),
     {Stream, Server, ServerConnection} = serve_stream:dial(S1, S2, "serve"),
 
-    [{swarms, Swarms}, {serve, {Stream, Server}}, {server_connection, ServerConnection} | Config].
+    [{swarms, Swarms}, {serve, {Stream, Server}}, {server_connection, ServerConnection} | Config0].
 
 end_per_testcase(_, Config) ->
-    Swarms = proplists:get_value(swarms, Config),
+    Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
 
 %% Tests
 %%
 
 auto_close_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     % Write some data from the server
     ok = serve_stream:send(Server, <<"hello">>),
@@ -76,7 +79,7 @@ auto_close_test(Config) ->
     ok.
 
 close_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     % Write some data from the server
     ok =  serve_stream:send(Server, <<"hello">>),
@@ -94,7 +97,7 @@ close_test(Config) ->
 
 
 timeout_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     % Test receiving: simple timeout for a small number of bytes < window
     {error, timeout} = serve_stream:recv(Server, 1, 100),
@@ -107,7 +110,7 @@ timeout_test(Config) ->
     ok.
 
 window_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
+    {Stream, Server} = ?config(serve, Config),
 
     SmallData = <<41, 42, 43>>,
     libp2p_connection:send(Stream, SmallData),
@@ -125,8 +128,8 @@ window_test(Config) ->
     ok.
 
 idle_test(Config) ->
-    {Stream, Server} = proplists:get_value(serve, Config),
-    ServerConnection = proplists:get_value(server_connection, Config),
+    {Stream, Server} = ?config(serve, Config),
+    ServerConnection = ?config(server_connection, Config),
 
     StreamPid = element(3, Stream),
     ServerStreamPid = element(3, ServerConnection),

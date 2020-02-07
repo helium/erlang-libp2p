@@ -38,10 +38,11 @@ all() ->
 %%   Special init config for test case
 %% @end
 %%--------------------------------------------------------------------
-init_per_testcase(_, Config) ->
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     test_util:setup(),
     {ok, Swarm} = libp2p_swarm:start(test),
-    [{swarm, Swarm} | Config].
+    [{swarm, Swarm} | Config0].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -50,7 +51,7 @@ init_per_testcase(_, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 end_per_testcase(_, Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
     test_util:teardown_swarms([Swarm]).
 
 %%--------------------------------------------------------------------
@@ -63,7 +64,7 @@ end_per_testcase(_, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 port0(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
 
     [] = libp2p_swarm:listen_addrs(Swarm),
     ok = libp2p_swarm:listen(Swarm, "/ip4/127.0.0.1/tcp/0"),
@@ -81,7 +82,7 @@ port0(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 addr0(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
 
     ok =  libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
@@ -101,7 +102,7 @@ addr0(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 already(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
 
     ok = libp2p_swarm:listen(Swarm, "/ip4/127.0.0.1/tcp/0"),
     [ListenAddr] = libp2p_swarm:listen_addrs(Swarm),
@@ -116,7 +117,7 @@ already(Config) ->
 %% @end
 %%--------------------------------------------------------------------
 bad_addr(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
 
     {error, {unsupported_address, _}} = libp2p_swarm:listen(Swarm, "/onion/timaq4ygg2iegci7:1234"),
     {error, {unsupported_address, _}} = libp2p_swarm:listen(Swarm, "/udp/1234/udt"),
@@ -168,7 +169,7 @@ port0_reuse(_Config) ->
     ok.
 
 restart_transport(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
 
     [] = libp2p_swarm:listen_addrs(Swarm),
     ok = libp2p_swarm:listen(Swarm, "/ip4/127.0.0.1/tcp/0"),
@@ -195,7 +196,7 @@ restart_transport(Config) ->
     ok.
 
 sort_addresses(Config) ->
-    Swarm = proplists:get_value(swarm, Config),
+    Swarm = ?config(swarm, Config),
     TID = libp2p_swarm:tid(Swarm),
     ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
     Addresses = [
