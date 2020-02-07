@@ -350,6 +350,7 @@ handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
     %% down the group by exiting the supervisor.
     spawn(fun() ->
+                  lager:info("removing group for force_close timeout"),
                   libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
           end),
     {noreply, State#state{close_state=closing}};
