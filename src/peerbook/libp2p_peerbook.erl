@@ -83,7 +83,9 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
                          case unsafe_fetch_peer(NewPeerId, Handle) of
                              {error, not_found} ->
                                  case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
-                                     true -> [NewPeer | Acc];
+                                     true ->
+                                         store_peer(NewPeer, Handle),
+                                         [NewPeer | Acc];
                                      false -> Acc
                                  end;
                              {ok, ExistingPeer} ->
