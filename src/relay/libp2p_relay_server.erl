@@ -148,15 +148,20 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
                     State0#state.peers
             end,
     SortedPeers = sort_peers(Peers, SwarmPubKeyBin, State0),
-    State = State0#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))},
-    case init_relay(State) of
-        {ok, Pid} ->
-            _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfully with ~p", [Pid]),
-            {noreply, add_flap(State#state{stream=Pid, address=undefined})};
-        _Error ->
-            lager:warning("could not initiate relay ~p", [_Error]),
-            {noreply, next_peer(retry(State))}
+    case SortedPeers of
+        [] ->
+            {noreply, retry(State0)};
+        _ ->
+            State = State0#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))},
+            case init_relay(State) of
+                {ok, Pid} ->
+                    _ = erlang:monitor(process, Pid),
+                    lager:info("relay started successfully with ~p", [Pid]),
+                    {noreply, add_flap(State#state{stream=Pid, address=undefined})};
+                _Error ->
+                    lager:warning("could not initiate relay ~p", [_Error]),
+                    {noreply, next_peer(retry(State))}
+            end
     end;
 handle_cast(init_relay,  #state{stream=Pid}=State) when is_pid(Pid) ->
     lager:info("requested to init relay but we already have one @ ~p", [Pid]),
@@ -296,6 +301,8 @@ merge_peers(NewPeers, OldPeers, PeerBook) ->
 -spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
     case PeerIndex + 1 > length(Peers) of
+        true when Peers == [] ->
+            State#state{peer_index=1};
         true ->
             State#state{peer_index=rand:uniform(length(Peers))};
         false ->
