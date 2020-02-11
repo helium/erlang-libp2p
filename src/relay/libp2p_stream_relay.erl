@@ -126,23 +126,12 @@ handle_info(client, send_ping, State = #state{ping_seq=Seq, relay_addr=undefined
     Env = libp2p_relay_envelope:create(Ping),
     Ref = erlang:send_after(?RELAY_PING_TIMEOUT, self(), ping_timeout),
     {noreply, State#state{ping_timeout_timer=Ref}, libp2p_relay_envelope:encode(Env)};
-handle_info(client, send_ping, State = #state{ping_seq=Seq, swarm=Swarm, relay_addr=RelayAddress}) ->
+handle_info(client, send_ping, State = #state{ping_seq=Seq}) ->
     erlang:cancel_timer(State#state.ping_timer),
-    {ok, {RelayServer, _}} = libp2p_relay:p2p_circuit(RelayAddress),
-    RelayServerPubKeyBin = libp2p_crypto:p2p_to_pubkey_bin(RelayServer),
-    case libp2p_relay:is_valid_peer(Swarm, RelayServerPubKeyBin) of
-        {error, _Reason} ->
-            lager:error("failed to get peer for~p: ~p", [RelayServer, _Reason]),
-            {stop, normal, State};
-        false ->
-            lager:warning("peer ~p is invalid going down", [RelayServer]),
-            {stop, normal, State};
-        true ->
-            Ping = libp2p_relay_ping:create_ping(Seq),
-            Env = libp2p_relay_envelope:create(Ping),
-            Ref = erlang:send_after(?RELAY_PING_TIMEOUT, self(), ping_timeout),
-            {noreply, State#state{ping_timeout_timer=Ref}, libp2p_relay_envelope:encode(Env)}
-    end;
+    Ping = libp2p_relay_ping:create_ping(Seq),
+    Env = libp2p_relay_envelope:create(Ping),
+    Ref = erlang:send_after(?RELAY_PING_TIMEOUT, self(), ping_timeout),
+    {noreply, State#state{ping_timeout_timer=Ref}, libp2p_relay_envelope:encode(Env)};
 % Bridge Step 3: The relay server R (stream to Server) receives a bridge request
 % and transfers it to Server.
 handle_info(server, {bridge_cr, BridgeCR}, State) ->
