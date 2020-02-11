@@ -133,7 +133,6 @@ basic(_Config) ->
             meck:passthrough([S, A, O])
         end
     ),
-    meck:expect(libp2p_relay, is_valid_peer, fun(_, _) -> true end),
 
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),

@@ -50,18 +50,11 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
         true ->
             {error, relay_not_allowed};
         false ->
-            case check_peerbook(TID, MAddr) of
-                {error, _Reason} ->
-                    lager:error("failed to fetch peer book for ~p ~p", [{TID, MAddr}, _Reason]),
-                    %% don't blacklist here, the peerbook update might be coming
-                    {error, error_fetching_peerbook};
-                _ ->
-                    case has_public_address(ListenAddresses) of
-                        true ->
-                            connect_to(Pid, MAddr, Options, Timeout, TID);
-                        false ->
-                            libp2p_transport_proxy:connect(Pid, MAddr, [no_relay|Options], Timeout, TID)
-                    end
+            case has_public_address(ListenAddresses) of
+                true ->
+                    connect_to(Pid, MAddr, Options, Timeout, TID);
+                false ->
+                    libp2p_transport_proxy:connect(Pid, MAddr, [no_relay|Options], Timeout, TID)
             end
     end.
 
@@ -104,22 +97,6 @@ match_protocols([{_, _}=Head | Tail], Acc) ->
 -spec has_public_address(list()) -> boolean().
 has_public_address(Addresses) ->
     lists:any(fun libp2p_transport_tcp:is_public/1, Addresses).
-
-%% returns true or false if the peerbook says this route is possible
-%% returns an error if the peerbook doesn't contain the relay's entry
--spec check_peerbook(ets:tab(), string()) -> boolean() | {error, term()}.
-check_peerbook(TID, MAddr) ->
-    {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    Swarm = libp2p_swarm:swarm(TID),
-    Peerbook = libp2p_swarm:peerbook(Swarm),
-    RelayAddress = libp2p_crypto:p2p_to_pubkey_bin(RAddress),
-    ServerAddress = libp2p_crypto:p2p_to_pubkey_bin(SAddress),
-    case libp2p_peerbook:get(Peerbook, RelayAddress) of
-        {ok, Peer} ->
-            lists:member(ServerAddress, libp2p_peer:connected_peers(Peer));
-        Error ->
-            Error
-    end.
 
 -spec connect_rcv(pid(), string(), string(), pid(), pid()) -> {ok, pid()} | {error, term()}.
 connect_rcv(Swarm, MAddr, SAddress, SessionPid, Stream) ->
