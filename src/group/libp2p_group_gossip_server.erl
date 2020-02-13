@@ -50,7 +50,15 @@ reg_name(TID)->
 %%
 
 handle_data(Pid, StreamPid, Key, Bin) ->
-    gen_server:cast(Pid, {handle_data, StreamPid, Key, Bin}).
+    %% experimentally move decoding out to the caller
+    ListOrData =
+        case Key of
+            "peer" ->
+                libp2p_peer:decode_list(Bin);
+            _ ->
+                Bin
+        end,
+    gen_server:cast(Pid, {handle_data, StreamPid, Key, ListOrData}).
 
 accept_stream(Pid, SessionPid, StreamPid) ->
     gen_server:call(Pid, {accept_stream, SessionPid, StreamPid}).
@@ -64,10 +72,17 @@ init([Sup, TID]) ->
     libp2p_swarm_sup:register_gossip_group(TID),
     Opts = libp2p_swarm:opts(TID),
     PeerBookCount = get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
-    SeedNodeCount = get_opt(Opts, seednode_connections, ?DEFAULT_SEEDNODE_CONNECTIONS),
+    SeedNodes = get_opt(Opts, seed_nodes, []),
+    SeedNodeCount =
+        case application:get_env(libp2p, seed_node, false) of
+            false ->
+                get_opt(Opts, seednode_connections, ?DEFAULT_SEEDNODE_CONNECTIONS);
+            true ->
+                length(SeedNodes) - 1
+        end,
     InboundCount = get_opt(Opts, inbound_connections, ?DEFAULT_MAX_INBOUND_CONNECTIONS),
     DropTimeOut = get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
-    SeedNodes = get_opt(Opts, seed_nodes, []),
+
     self() ! start_workers,
     {ok, update_metadata(#state{sup=Sup, tid=TID,
                                 seed_nodes=SeedNodes,
@@ -93,21 +108,21 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({handle_data, StreamPid, Key, Msg}, State=#state{}) ->
+handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
     %% Incoming message from a gossip stream for a given key
     case maps:find(Key, State#state.handlers) of
         error -> {noreply, State};
         {ok, {M, S}} ->
             %% Catch the callback response. This avoids a crash in the
             %% handler taking down the gossip_server itself.
-            try M:handle_gossip_data(StreamPid, Msg, S) of
+            try M:handle_gossip_data(StreamPid, ListOrData, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
                     case (catch libp2p_gossip_stream:encode(Key, Reply)) of
                         {'EXIT', Error} ->
                             lager:warning("Error encoding gossip data ~p", [Error]);
                         ReplyMsg ->
-                            _ = libp2p_framed_stream:send(StreamPid, ReplyMsg)
+                            spawn(fun() -> libp2p_framed_stream:send(StreamPid, ReplyMsg) end)
                     end;
                 _ ->
                     ok

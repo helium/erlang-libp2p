@@ -251,27 +251,14 @@ supersedes(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=ThisTimestamp}}
 -spec is_similar(Target::peer(), Other::peer()) -> boolean().
 is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=TargetTimestamp}},
            Other=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=OtherTimestamp}}) ->
-    %% if the set difference is greater than a quarter the old set
-    %% size, or it has been three minutes since the original was
-    %% published, we're no longer similar
-    TSet = sets:from_list(connected_peers(Target)),
-    OSet = sets:from_list(connected_peers(Other)),
-    TSize = sets:size(TSet),
-    OSize = sets:size(OSet),
-    Intersection = sets:intersection(TSet, OSet),
-    IntSize = sets:size(Intersection),
-    ConnDiffPct = application:get_env(libp2p, similarity_conn_pct, 0.3333),
-    ConnPeersSimilar = (OSize == TSize andalso OSize == 0) orelse
-        (IntSize > (OSize * ConnDiffPct) andalso TSize < (OSize * 2)),
 
-    TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff_mins, 6),
+    TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff_mins, 15),
     TimestampSimilar = TargetTimestamp < (OtherTimestamp + timer:minutes(TimeDiffMinutes)),
 
     pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
         andalso network_id(Target) == network_id(Other)
         andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
-        andalso ConnPeersSimilar
         andalso TimestampSimilar
         %% We only compare the {type, assoc_adddress} parts of an
         %% association as multiple signatures over the same value will

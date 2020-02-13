@@ -1,7 +1,8 @@
 -module(libp2p_peerbook).
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
--export([keys/1, values/1, put/2,get/2, random/1, random/2, refresh/2, is_key/2, remove/2, stale_time/1,
+-export([keys/1, values/1, put/2, put/3, get/2,
+         random/1, random/2, refresh/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2, blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
@@ -37,7 +38,7 @@
           notify_time :: pos_integer(),
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
-          sessions=[] :: [{libp2p_crypto:pubkey_bin(), pid()}],
+          sessions=#{} :: #{libp2p_crypto:pubkey_bin() => pid()},
           sigfun :: fun((binary()) -> binary()),
           metadata_fun :: fun(() -> map()),
           metadata = #{} :: map(),
@@ -72,8 +73,17 @@
 %%
 
 -spec put(peerbook(), [libp2p_peer:peer()]) -> ok | {error, term()}.
-put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
-    lists:foreach(fun libp2p_peer:verify/1, PeerList),
+put(Handle, PeerList) ->
+    put(Handle, PeerList, false).
+
+-spec put(peerbook(), [libp2p_peer:peer()], boolean()) -> ok | {error, term()}.
+put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
+    PeerList =
+        %% allow prevalidation so we can move the work around if needed
+        case Prevalidated of
+            true -> PeerList0;
+            false -> lists:filter(fun libp2p_peer:verify/1, PeerList0)
+        end,
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
     %% XXX uncomment this to reject any peers publishing RFC1918 addresses once the network has transitioned over
     AllowRFC1918 = true, %% is_rfc1918_allowed(TID),
@@ -120,8 +130,9 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList) ->
 -spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook{tid=TID}=Handle, ID) ->
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
+    SeedNode = application:get_env(libp2p, seed_node, false),
     case fetch_peer(ID, Handle) of
-        {error, not_found} when ID == ThisPeerId ->
+        {error, not_found} when ID == ThisPeerId, SeedNode == false ->
             gen_server:call(libp2p_swarm:peerbook_pid(TID), update_this_peer, infinity),
             get(Handle, ID);
         {error, Error} ->
@@ -155,7 +166,8 @@ random(Peerbook=#peerbook{store=Store}, Exclude, Tries) ->
                     %% only peer we have is excluded
                     false;
                 false ->
-                    try libp2p_peer:decode(FirstPeer) of
+                    %% use unsafe coming off the disk
+                    try libp2p_peer:decode_unsafe(FirstPeer) of
                         Peer -> {FirstAddr, Peer}
                     catch
                         _:_ ->
@@ -179,7 +191,8 @@ random(Peerbook=#peerbook{store=Store}, Exclude, Tries) ->
                         true ->
                             RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
                         false ->
-                            try libp2p_peer:decode(Bin) of
+                            %% use unsafe coming off the disk
+                            try libp2p_peer:decode_unsafe(Bin) of
                                 Peer ->
                                     rocksdb:iterator_close(Iterator),
                                     {Addr, Peer}
@@ -305,9 +318,9 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %%
 
 -spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, Data, Handle) ->
-    DecodedList = libp2p_peer:decode_list(Data),
-    ?MODULE:put(Handle, DecodedList),
+handle_gossip_data(_StreamPid, DecodedList, Handle) ->
+    %% DecodedList = libp2p_peer:decode_list(Data),
+    ?MODULE:put(Handle, DecodedList, true),
     noreply.
 
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
@@ -420,13 +433,11 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) 
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
-    NewSessions = lists:filter(fun({_Addr, Pid}) -> Pid /= SessionPid end, Sessions),
-    {noreply, update_this_peer(State#state{sessions=NewSessions})};
+    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions)})};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:pubkey_bin(Identify),
-    NewSessions = [{SessionAddr, SessionPid} | Sessions],
-    {noreply, update_this_peer(State#state{sessions=NewSessions})};
+    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, Sessions)})};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
@@ -491,7 +502,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                           filter_rfc1918_addresses(ListenAddrs0)
                   end,
     NetworkID = libp2p_swarm:network_id(TID),
-    ConnectedAddrs = sets:to_list(sets:from_list([Addr || {Addr, _} <- State#state.sessions])),
+    ConnectedAddrs = maps:values(State#state.sessions),
     %% Copy data from current peer
     case CurrentPeer of
         undefined ->
@@ -510,22 +521,27 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
-    SwarmAddr = libp2p_swarm:pubkey_bin(TID),
-    case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
-        {error, not_found} ->
-            NewPeer = mk_this_peer(undefined, State),
-            update_this_peer(NewPeer, get_async_signed_metadata(State));
-        {ok, OldPeer} ->
-            case mk_this_peer(OldPeer, State) of
-                {ok, NewPeer} ->
-                    case libp2p_peer:is_similar(NewPeer, OldPeer) of
-                        true -> State;
-                        false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
-                    end;
-                {error, Error} ->
-                    lager:notice("Failed to make peer: ~p", [Error]),
-                    State
-            end
+    case application:get_env(libp2p, seed_node, false) of
+        false ->
+            SwarmAddr = libp2p_swarm:pubkey_bin(TID),
+            case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
+                {error, not_found} ->
+                    NewPeer = mk_this_peer(undefined, State),
+                    update_this_peer(NewPeer, get_async_signed_metadata(State));
+                {ok, OldPeer} ->
+                    case mk_this_peer(OldPeer, State) of
+                        {ok, NewPeer} ->
+                            case libp2p_peer:is_similar(NewPeer, OldPeer) of
+                                true -> State;
+                                false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
+                            end;
+                        {error, Error} ->
+                            lager:notice("Failed to make peer: ~p", [Error]),
+                            State
+                    end
+            end;
+         true ->
+            State
     end.
 
 -spec update_this_peer({ok, libp2p_peer:peer()} | {error, term()}, #state{}) -> #state{}.
@@ -633,7 +649,9 @@ unsafe_fetch_peer(undefined, _) ->
 unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
     case rocksdb:get(Store, ID, []) of
         {ok, Bin} ->
-            try libp2p_peer:decode(Bin) of
+            %% I think that it's OK to use unsafe here for performance, this was validated on
+            %% storage.  disk corruption will result in a crash anyway.
+            try libp2p_peer:decode_unsafe(Bin) of
                 Peer -> {ok, Peer}
             catch
                 _:_ ->
