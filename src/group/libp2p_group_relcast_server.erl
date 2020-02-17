@@ -337,7 +337,7 @@ handle_info({start_workers, Targets}, State=#state{group_id=GroupID, group_keys=
                                                                 {keys, GroupKeys}]}),
     {noreply, State#state{workers=start_workers(Targets, State)}};
 handle_info({start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs}, State) ->
-    case start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir) of
+    try start_relcast(Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs, State#state.store_dir) of
         {ok, Relcast} ->
             self() ! {start_workers, lists:map(fun mk_multiaddr/1, Addrs)},
             erlang:send_after(1500, self(), inbound_tick),
@@ -345,7 +345,12 @@ handle_info({start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs}
         {error, {invalid_or_no_existing_store, _Msg}} ->
             lager:info("unable to start relcast: ~p", [_Msg]),
             {noreply, State#state{store=cannot_start}}
-    end;
+        catch
+            _Error:_Ex:_StackTrace ->
+                lager:warning("Cannot start relcast server. Reason: ~p, StackTrace: ~p ",
+                    [_Ex, _StackTrace]),
+                {noreply, State#state{store=cannot_start}}
+        end;
 handle_info(force_close, State=#state{}) ->
     %% The timeout after the handler returned close has fired. Shut
     %% down the group by exiting the supervisor.
