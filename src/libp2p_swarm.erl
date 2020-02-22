@@ -313,7 +313,7 @@ dial(Sup, Addr, Path, Options, Timeout) when is_pid(Sup) ->
     % e.g. dial(SID, "/ip4/127.0.0.1/tcp/5555", "echo")
     case connect(Sup, Addr, Options, Timeout) of
         {error, Error} -> {error, Error};
-        {ok, SessionPid} -> libp2p_session:dial(Path, SessionPid)
+        {ok, SessionPid} -> libp2p_session:dial(Path, Path, SessionPid)
     end;
 dial(TID, Addr, Path, Options, Timeout) ->
     dial(swarm(TID), Addr, Path, Options, Timeout).

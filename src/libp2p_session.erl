@@ -9,7 +9,7 @@
 
 -export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/2, identify/3]).
 
--export([dial/2, dial/3, dial_framed_stream/4]).
+-export([dial/3, dial_framed_stream/4]).
 
 %% libp2p_info
 -export([info/1]).
@@ -69,14 +69,9 @@ info(Pid) ->
 %%
 %% Stream negotiation
 %%
--spec dial(dial_path(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Pathz=[H | _T], SessionPid) when is_list(H) ->
-    dial(Pathz, "", SessionPid);
-dial(Pathz, SessionPid) when is_list(Pathz) ->
-    dial([Pathz], SessionPid).
 
--spec dial(Paths::[string()], Info::string(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Paths, Info, SessionPid) ->
+-spec dial(Paths::dial_path(), Info::string(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(Paths=[H | _T], Info, SessionPid) when is_list(H) ->
     try libp2p_session:open(SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} ->
@@ -95,13 +90,16 @@ dial(Paths, Info, SessionPid) ->
             end
     catch
         What:Why -> {error, {What, Why}}
-    end.
+    end;
+dial(Path, Info, SessionPid) when is_list(Path) ->
+    dial([Path], Info, SessionPid).
+
 
 
 -spec dial_framed_stream(Path::dial_path(), Session::pid(), Module::atom(), Args::[any()])
                         -> {ok, Stream::pid()} | {error, term()}.
 dial_framed_stream(Path, SessionPid, Module, Args) ->
-    case dial(Path, SessionPid) of
+    case dial(Path, Path, SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} -> Module:client(Connection, Args)
     end.
