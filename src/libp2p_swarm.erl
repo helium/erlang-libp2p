@@ -329,7 +329,7 @@ dial_framed_stream(Sup, Addr, Path, Module, Args) when is_pid(Sup) ->
 dial_framed_stream(TID, Addr, Path, Module, Args) ->
     dial_framed_stream(swarm(TID), Addr, Path, Module, Args).
 
--spec dial_framed_stream(pid() | ets:tab(), Addr::string(), Path::string(), connect_opts(),
+-spec dial_framed_stream(pid() | ets:tab(), Addr::string(), Path::libp2p_session:dial_path(), connect_opts(),
                          Timeout::pos_integer(), Module::atom(), Args::[any()])
                         -> {ok, pid()} | {error, term()}.
 dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) when is_pid(Sup) ->

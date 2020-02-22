@@ -3,12 +3,13 @@
 -behavior(libp2p_info).
 
 -type stream_handler() :: {atom(), atom(), [any()]}.
+-type dial_path() :: string() | [string()].
 
--export_type([stream_handler/0]).
+-export_type([stream_handler/0, dial_path/0]).
 
 -export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/2, identify/3]).
 
--export([dial/2, dial_framed_stream/4]).
+-export([dial/2, dial/3, dial_framed_stream/4]).
 
 %% libp2p_info
 -export([info/1]).
@@ -68,19 +69,25 @@ info(Pid) ->
 %%
 %% Stream negotiation
 %%
+-spec dial(dial_path(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(Pathz=[H | _T], SessionPid) when is_list(H) ->
+    dial(Pathz, "", SessionPid);
+dial(Pathz, SessionPid) when is_list(Pathz) ->
+    dial([Pathz], SessionPid).
 
--spec dial(string(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
-dial(Path, SessionPid) ->
+-spec dial(Paths::[string()], Info::string(), pid()) -> {ok, libp2p_connection:connection()} | {error, term()}.
+dial(Paths, Info, SessionPid) ->
     try libp2p_session:open(SessionPid) of
         {error, Error} -> {error, Error};
         {ok, Connection} ->
-            Handlers = [{Path, undefined}],
-            try libp2p_multistream_client:negotiate_handler(Handlers, Path, Connection) of
+            Handlers = [{Path, undefined} || Path <- Paths],
+            try libp2p_multistream_client:negotiate_handler(Handlers, Info, Connection) of
                 {error, Error} ->
                     lager:debug("Failed to negotiate handler for ~p: ~p", [Connection, Error]),
                     {error, Error};
                 server_switch ->
-                    lager:warning("Simultaneous connection with ~p resulted from dial", [libp2p_connection:addr_info(Connection)]),
+                    lager:warning("Simultaneous connection with ~p resulted from dial",
+                                  [libp2p_connection:addr_info(Connection)]),
                     {error, simultaneous_connection};
                 {ok, _} -> {ok, Connection}
             catch
@@ -91,7 +98,7 @@ dial(Path, SessionPid) ->
     end.
 
 
--spec dial_framed_stream(Path::string(), Session::pid(), Module::atom(), Args::[any()])
+-spec dial_framed_stream(Path::dial_path(), Session::pid(), Module::atom(), Args::[any()])
                         -> {ok, Stream::pid()} | {error, term()}.
 dial_framed_stream(Path, SessionPid, Module, Args) ->
     case dial(Path, SessionPid) of

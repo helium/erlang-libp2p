@@ -2,26 +2,26 @@
 
 -export([handshake/1, negotiate_handler/3, select/2, select_one/3, ls/1]).
 
--spec negotiate_handler([{string(), term()}], string(), libp2p_connection:connection())
+-spec negotiate_handler(Handlers::[{string(), term()}], Info::string(), libp2p_connection:connection())
                        -> {ok, term()} | server_switch | {error, term()}.
-negotiate_handler(Handlers0, Path, Connection) ->
+negotiate_handler(Handlers0, Info, Connection) ->
     %% filter out any handlers where the client side is undefined, eg. proxy
     Handlers = lists:filter(fun({_Name, {_ServerDef, undefined}}) -> false;
                                    (_) -> true
                             end, Handlers0),
     case ?MODULE:handshake(Connection) of
         {error, Error} ->
-            lager:notice("Client handshake failed for ~p: ~p", [Path, Error]),
+            lager:notice("Client handshake failed for ~p: ~p", [Info, Error]),
             libp2p_connection:close(Connection),
             {error, Error};
         server_switch ->
             lager:info("Simultaneous connection detected with ~p, elected to server role", [libp2p_connection:addr_info(Connection)]),
             server_switch;
         ok ->
-            lager:debug("Negotiating handler for ~p using ~p", [Path, [Key || {Key, _} <- Handlers]]),
+            lager:debug("Negotiating handler for ~p using ~p", [Info, [Key || {Key, _} <- Handlers]]),
             case ?MODULE:select_one(Handlers, 1, Connection) of
                 {error, Error} ->
-                    lager:notice("Failed to negotiate handler for ~p: ~p", [Path, Error]),
+                    lager:notice("Failed to negotiate handler for ~p: ~p", [Info, Error]),
                     {error, Error};
                 {_, Handler} -> {ok, Handler}
             end
