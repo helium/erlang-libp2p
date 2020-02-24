@@ -301,7 +301,7 @@ has_public_ip(Peer) ->
 -spec has_private_ip(peer()) -> boolean().
 has_private_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
-    not lists:all(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
+    lists:any(fun(MA) -> libp2p_transport_tcp:rfc1918(MA) /= false end, ListenAddresses).
 
 
 %% @doc Returns whether the peer is dialable. A peer is dialable if it
