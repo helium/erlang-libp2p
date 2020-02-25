@@ -137,6 +137,8 @@ basic(_Config) ->
         end
     ),
 
+    try
+
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
@@ -157,7 +159,7 @@ basic(_Config) ->
             _ ->
                 false
         end
-    end),
+    end, 60, 500),
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
 
@@ -184,11 +186,15 @@ basic(_Config) ->
     %% really close the socket here
     {ok, Session} = libp2p_connection:session(libp2p_framed_stream:connection(ClientStream)),
     libp2p_framed_stream:close(ClientStream),
-    libp2p_session:close(Session),
+    libp2p_session:close(Session)
+
+    after
 
     ok = libp2p_swarm:stop(CSwarm),
     ok = libp2p_swarm:stop(ASwarm),
-    ok = libp2p_swarm:stop(BSwarm),
+    ok = libp2p_swarm:stop(BSwarm)
+
+    end,
 
     %% check we didn't leak any sockets here
     ok = check_sockets(),
