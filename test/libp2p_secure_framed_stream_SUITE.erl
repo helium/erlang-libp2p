@@ -108,17 +108,24 @@ invalid_key_exchange(_Config) ->
         {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), EvilSwarm, {secured, EvilSwarm}]}
      ),
 
-    %% this should fail because the swarm on the other end is not who we think it is
-    ?assertEqual({error, incorrect_peer}, libp2p_swarm:dial_framed_stream(
-        ClientSwarm,
-        ServerP2P,
-        Version,
-        libp2p_secure_framed_stream_echo_test,
-        [ClientSwarm, self(), {secured, ClientSwarm}]
-    )),
+    try
 
-    ok = libp2p_swarm:stop(EvilSwarm),
-    ok = libp2p_swarm:stop(ClientSwarm),
+    ok = test_util:wait_until(
+           fun() ->
+                   %% this should fail because the swarm on the other end is not who we think it is
+                   {error, incorrect_peer} == libp2p_swarm:dial_framed_stream(
+                                                ClientSwarm,
+                                                ServerP2P,
+                                                Version,
+                                                libp2p_secure_framed_stream_echo_test,
+                                                [ClientSwarm, self(), {secured, ClientSwarm}]
+                                               )
+           end, 45, 1000)
+
+    after
+        ok = libp2p_swarm:stop(EvilSwarm),
+        ok = libp2p_swarm:stop(ClientSwarm)
+    end,
     ok.
 
 key_exchange(_Config) ->

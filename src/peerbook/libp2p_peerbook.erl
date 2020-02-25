@@ -141,8 +141,6 @@ random(Peerbook) ->
 random(Peerbook, Exclude) ->
     random(Peerbook, Exclude, 5).
 
-random(_, _, 0) ->
-    false;
 random(Peerbook=#peerbook{store=Store}, Exclude, Tries) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
     {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} = rocksdb:iterator_move(Iterator, first),
@@ -168,19 +166,29 @@ random(Peerbook=#peerbook{store=Store}, Exclude, Tries) ->
         _ ->
             Offset = rand:uniform(Difference),
             SeekPoint = Start + Offset,
-            {ok, Addr, Bin} = rocksdb:iterator_move(Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>),
-            rocksdb:iterator_close(Iterator),
-            case lists:member(Addr, Exclude) of
-                true ->
-                    random(Peerbook, Exclude, Tries - 1);
-                false ->
-                    try libp2p_peer:decode(Bin) of
-                        Peer -> {Addr, Peer}
-                    catch
-                        _:_ ->
-                            random(Peerbook, [Addr, Exclude], Tries - 1)
+            fun RandLoop(_, 0) ->
+                    rocksdb:iterator_close(Iterator),
+                    false;
+                RandLoop({error, iterator_closed}, T) ->
+                    %% start completely over because our iterator is bad
+                    random(Peerbook, Exclude, T - 1);
+                RandLoop({error, _} = _E, T) ->
+                    RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
+                RandLoop({ok, Addr, Bin}, T) ->
+                    case lists:member(Addr, Exclude) of
+                        true ->
+                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                        false ->
+                            try libp2p_peer:decode(Bin) of
+                                Peer ->
+                                    rocksdb:iterator_close(Iterator),
+                                    {Addr, Peer}
+                            catch
+                                _:_ ->
+                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                            end
                     end
-            end
+            end(rocksdb:iterator_move(Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
     end.
 
 -spec refresh(peerbook(), libp2p_crypto:pubkey_bin() | libp2p_peer:peer()) -> ok.
