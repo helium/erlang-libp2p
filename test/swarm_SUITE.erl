@@ -30,8 +30,10 @@ accessor_test(Config) ->
 
     {ok, PubKey, _, _} = libp2p_swarm:keys(S1),
     true = libp2p_crypto:pubkey_to_bin(PubKey) == libp2p_swarm:pubkey_bin(S1),
-
-    [{base_dir, _}, {libp2p_nat, [{enabled, false}]}] = libp2p_swarm:opts(S1),
+    case libp2p_swarm:opts(S1) of
+        [{libp2p_nat, [{enabled, false}]}, {base_dir, _}] -> ok;
+        [{base_dir, _}, {libp2p_nat, [{enabled, false}]}] -> ok
+    end,
     "swarm" ++ _ = atom_to_list(libp2p_swarm:name(S1)),
 
     ok.
