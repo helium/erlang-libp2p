@@ -90,6 +90,8 @@ basic(_Config) ->
     meck:new(libp2p_transport_tcp, [no_link, passthrough]),
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> true end),
 
+    try
+
     ct:pal("A swarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("B swarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
     ct:pal("C swarm ~p", [libp2p_swarm:p2p_address(CSwarm)]),
@@ -178,15 +180,19 @@ basic(_Config) ->
             end
         end,
         100,
-        250
-    ),
+        500
+    )
+
+    after
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(CSwarm),
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
     ?assert(meck:validate(libp2p_relay)),
-    meck:unload(libp2p_relay),
+    meck:unload(libp2p_relay)
+
+    end,
     ok.
 
 %% ------------------------------------------------------------------

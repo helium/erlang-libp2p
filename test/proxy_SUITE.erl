@@ -282,8 +282,8 @@ limit_exceeded(_Config) ->
                 _ -> false
             end
         end,
-        200,
-        250
+        100,
+        750
     ),
 
     % Force B to be the relay
