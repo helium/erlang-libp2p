@@ -33,6 +33,8 @@ all() ->
 %% @end
 %%--------------------------------------------------------------------
 init_per_testcase(TestCase, Config) ->
+    application:set_env(libp2p, similarity_time_diff_mins, 0),
+
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     test_util:setup(),
     lager:set_loglevel(lager_console_backend, info),
@@ -45,6 +47,7 @@ init_per_testcase(TestCase, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 end_per_testcase(_, _Config) ->
+    application:set_env(libp2p, similarity_time_diff_mins, 15),
     ok.
 
 %%--------------------------------------------------------------------
@@ -57,9 +60,11 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 basic(_Config) ->
-    SwarmOpts = [
-        {libp2p_nat, [{enabled, false}]}
-    ],
+    SwarmOpts =
+        [
+         {libp2p_nat, [{enabled, false}]},
+         {libp2p_group_gossip, [{peer_cache_timeout, 100}]}
+        ],
     Version = "relaytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(relay_basic_a, SwarmOpts),
@@ -122,7 +127,7 @@ basic(_Config) ->
             end
         end,
         100,
-        250
+        500
     ),
 
     % Force B to be the relay
@@ -135,6 +140,7 @@ basic(_Config) ->
             meck:passthrough([S, A, O])
         end
     ),
+
 
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
@@ -157,7 +163,7 @@ basic(_Config) ->
             end
         end,
         100,
-        250
+        500
     ),
 
     {ok, _} = libp2p_swarm:dial_framed_stream(
@@ -167,6 +173,9 @@ basic(_Config) ->
         libp2p_stream_relay_test,
         []
     ),
+
+    ?assert(meck:validate(libp2p_relay)),
+    meck:unload(libp2p_relay),
 
     ok = libp2p_swarm:stop(BSwarm),
     % wait for A to remove its relay address in C
@@ -187,10 +196,9 @@ basic(_Config) ->
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(CSwarm),
+
     ?assert(meck:validate(libp2p_transport_tcp)),
-    meck:unload(libp2p_transport_tcp),
-    ?assert(meck:validate(libp2p_relay)),
-    meck:unload(libp2p_relay)
+    meck:unload(libp2p_transport_tcp)
 
     end,
     ok.
