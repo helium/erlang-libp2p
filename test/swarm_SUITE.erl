@@ -1,5 +1,6 @@
 -module(swarm_SUITE).
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([accessor_test/1, stop_test/1, dial_self/1]).
@@ -64,11 +65,13 @@ dial_self(Config) ->
         ,[{echo, self()}]
     ),
     timer:sleep(100),
-    {error, [{Address, dialing_self}]} = libp2p_swarm:dial_framed_stream(
+    {error, Replies} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,libp2p_swarm:p2p_address(Swarm)
         ,Version
         ,libp2p_stream_proxy_test
         ,[{echo, self()}]
     ),
+    {_Addrs, Reasons} = lists:unzip(Replies),
+    ?assertEqual([dialing_self], lists:usort(Reasons)),
     ok.
