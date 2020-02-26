@@ -58,7 +58,8 @@ disconnect_swarms(Source, Target) ->
     end.
 
 wait_until(Fun) ->
-    wait_until(Fun, 40, 100).
+    %% default of 30s
+    wait_until(Fun, 60, 500).
 
 wait_until(Fun, Retry, Delay) when Retry > 0 ->
     Res = Fun(),
