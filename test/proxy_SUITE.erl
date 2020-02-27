@@ -336,9 +336,7 @@ limit_exceeded(_Config) ->
 
     ok = libp2p_swarm:stop(ASwarm),
     ok = libp2p_swarm:stop(CSwarm),
-    ok = libp2p_swarm:stop(BSwarm)
-
-    end,
+    ok = libp2p_swarm:stop(BSwarm),
 
     %% check we didn't leak any sockets here
     ok = check_sockets(),
@@ -348,7 +346,10 @@ limit_exceeded(_Config) ->
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
     ?assert(meck:validate(libp2p_peer)),
-    meck:unload(libp2p_peer),
+    meck:unload(libp2p_peer)
+
+    end,
+
     ok.
 
 
