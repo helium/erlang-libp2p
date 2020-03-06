@@ -443,17 +443,22 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
             {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
             %% choose a random connected peer to do stungun with
             {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
-            MyConnectedPeers = [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)],
-            PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
-            lager:debug("retrying stungun with peer ~p", [PeerAddr]),
-            case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
-                {ok, StunPid} ->
-                    %% TODO: Remove this once dial stops using start_link
-                    unlink(StunPid),
-                    erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-                    {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
-                _ ->
-                    {noreply, State}
+            case [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)] of
+                [] ->
+                    %% no connected peers
+                    {noreply, State};
+                MyConnectedPeers ->
+                    PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
+                    lager:debug("retrying stungun with peer ~p", [PeerAddr]),
+                    case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                        {ok, StunPid} ->
+                            %% TODO: Remove this once dial stops using start_link
+                            unlink(StunPid),
+                            erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                            {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
+                        _ ->
+                            {noreply, State}
+                    end
             end;
         error ->
             %% we need at least 2 peers to agree on the observed address
