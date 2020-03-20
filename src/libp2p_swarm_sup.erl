@@ -4,11 +4,10 @@
 
 %% API
 -export([
-    start_link/1,
+    start_link/2,
     sup/1, opts/1, name/1, pubkey_bin/1,
     register_server/1, server/1,
-    register_gossip_group/1, gossip_group/1,
-    register_peerbook/1, peerbook/1
+    register_gossip_group/1, gossip_group/1
 ]).
 
 %% Supervisor callbacks
@@ -17,16 +16,20 @@
 -define(SUP, swarm_sup).
 -define(SERVER, swarm_server).
 -define(GOSSIP_GROUP, swarm_gossip_group).
--define(PEERBOOK, swarm_peerbook).
 -define(ADDRESS, swarm_address).
 -define(NAME, swarm_name).
 -define(OPTS, swarm_opts).
 
+
 %%====================================================================
 %% API functions
 %%====================================================================
-start_link(Args) ->
-    supervisor:start_link(?MODULE, Args).
+
+start_link(Name, Opts) ->
+    RegName = list_to_atom(atom_to_list(?MODULE) ++ "_" ++ atom_to_list(Name)),
+    supervisor:start_link({local, RegName}, ?MODULE, [Name, Opts]).
+
+
 
 -spec sup(ets:tab()) -> pid().
 sup(TID) ->
@@ -65,30 +68,32 @@ gossip_group(TID) ->
 register_gossip_group(TID) ->
     ets:insert(TID, {?GOSSIP_GROUP, self()}).
 
-register_peerbook(TID) ->
-    ets:insert(TID, {?PEERBOOK, self()}).
-
--spec peerbook(ets:tab()) -> pid().
-peerbook(TID) ->
-    ets:lookup_element(TID, ?PEERBOOK, 2).
-
-
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
 init([Name, Opts]) ->
+    lager:debug("starting swarm with name ~p and opts ~p",[Name, Opts]),
     inert:start(),
-    TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
+    % Get or generate our keys
+    {PubKey, SigFun, ECDHFun} = init_keys(Opts),
+
+    %% NOTE: as we are using a named table the TID below is same as the swarm name
+    TID = ets:new(Name, [public, ordered_set, named_table, {read_concurrency, true}]),
+
     ets:insert(TID, {?SUP, self()}),
     ets:insert(TID, {?NAME, Name}),
     ets:insert(TID, {?OPTS, Opts}),
-    % Get or generate our keys
-    {PubKey, SigFun, ECDHFun} = init_keys(Opts),
     ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_bin(PubKey)}),
     GroupDeletePred = libp2p_config:get_opt(Opts, group_delete_predicate, fun(_) -> false end),
 
-    SupFlags = {one_for_all, 3, 10},
     ChildSpecs = [
+        {peerbook,
+            {libp2p_peerbook_sup, start_link, [TID, Name, PubKey, SigFun]},
+            permanent,
+            10000,
+            supervisor,
+            [libp2p_peerbook_sup]
+        },
         {listeners,
             {libp2p_swarm_listener_sup, start_link, [TID]},
             permanent,
@@ -138,13 +143,6 @@ init([Name, Opts]) ->
             supervisor,
             [libp2p_group_gossip_sup]
         },
-        {?PEERBOOK,
-            {libp2p_peerbook, start_link, [TID, SigFun]},
-            permanent,
-            10000,
-            supervisor,
-            [libp2p_peerbook]
-        },
         {libp2p_swarm_auxiliary_sup,
             {libp2p_swarm_auxiliary_sup, start_link, [[TID, Opts]]},
             permanent,
@@ -153,6 +151,7 @@ init([Name, Opts]) ->
             [libp2p_swarm_auxiliary_sup]
         }
     ],
+    SupFlags = {one_for_one, 5, 10},
     {ok, {SupFlags, ChildSpecs}}.
 
 %%====================================================================

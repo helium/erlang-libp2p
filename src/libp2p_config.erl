@@ -147,13 +147,20 @@ listener() ->
 
 -spec insert_listener(ets:tab(), [string()], pid()) -> true.
 insert_listener(TID, Addrs, Pid) ->
+    AllowRFC1918 = libp2p_peer_resolution:is_rfc1918_allowed(TID),
+    PeerBook = libp2p_swarm:peerbook(TID),
     lists:foreach(fun(A) ->
-                          insert_pid(TID, ?LISTENER, A, Pid)
+                          case AllowRFC1918 orelse (libp2p_transport_tcp:rfc1918(A) == false) of
+                              true ->
+                                  %% only register useful listen addrs, ev thing else ignored
+                                  insert_pid(TID, ?LISTENER, A, Pid),
+                                  libp2p_peerbook:register_listen_addr(PeerBook, A);
+                              false ->
+                                  noop
+                          end
                   end, Addrs),
     %% TODO: This was a convenient place to notify peerbook, but can
     %% we not do this here?
-    PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:changed_listener(PeerBook),
     true.
 
 -spec lookup_listener(ets:tab(), string()) -> {ok, pid()} | false.
@@ -166,13 +173,12 @@ remove_listener(TID, Addr) ->
     %% TODO: This was a convenient place to notify peerbook, but can
     %% we not do this here?
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:changed_listener(PeerBook),
+    ok = libp2p_peerbook:unregister_listen_addr(PeerBook, Addr),
     true.
 
 -spec listen_addrs(ets:tab()) -> [string()].
 listen_addrs(TID) ->
     [ Addr || [Addr] <- ets:match(TID, {{?LISTENER, '$1'}, '_'})].
-
 
 %%
 %% Listen sockets

@@ -73,7 +73,7 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
             case Result of
                 {error, _} ->
                     %% try a refresh of the peer
-                    libp2p_peerbook:refresh(Peerbook, Addr);
+                    libp2p_peer_resolution:refresh(TID, Addr);
                 _ ->
                     ok
             end,

@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-import "libp2p_peer.proto";
+import "libp2p_peerbook/src/libp2p_peer.proto";
 
 message identify {
     // peer is the node's peer information. The only stable part for

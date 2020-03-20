@@ -170,17 +170,22 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid, peers=Peers}=State) when is_pid(Pid) ->
+%% TODO - handle removed peers
+handle_info({changed_peers, {{add, Add}, {remove, Remove}}}, #state{tid=TID, stream=Pid, peers=Peers}=State) when is_pid(Pid) ->
+    lager:debug("~p relay got changed peers. Add: ~p, Remove: ~p",[TID, Add, Remove]),
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PeerBook = libp2p_swarm:peerbook(TID),
-    MergedPeers = sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State),
+    MergedPeers = sort_peers(merge_peers(Add, Remove, Peers, PeerBook), SwarmPubKeyBin, State),
     {noreply, State#state{peers=MergedPeers, peer_index=rand:uniform(length(MergedPeers))}};
-handle_info({new_peers, NewPeers}, #state{tid=TID, peers=Peers}=State) ->
+
+handle_info({changed_peers, {{add, Add}, {remove, Remove}}}, #state{tid=TID, stream=_Pid, peers=Peers}=State) ->
+    lager:debug("~p relay got changed peers. Add: ~p, Remove: ~p",[TID, Add, Remove]),
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PeerBook = libp2p_swarm:peerbook(TID),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State)}};
+    {noreply, State#state{peers=sort_peers(merge_peers(Add, Remove, Peers, PeerBook), SwarmPubKeyBin, State)}};
+
 handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
         {ok, Pid} ->
@@ -262,7 +267,7 @@ init_relay(#state{tid=TID}=State) ->
 sort_peers(Peers0, SwarmPubKeyBin, State) ->
     Peers1 = lists:filter(fun(Peer) ->
         libp2p_peer:pubkey_bin(Peer) /= SwarmPubKeyBin andalso
-        libp2p_peer:has_public_ip(Peer) andalso
+        libp2p_peer_resolution:has_public_ip(Peer) andalso
         not lists:member(libp2p_peer:pubkey_bin(Peer), State#state.banlist)
     end, Peers0),
     lists:sublist(lists:sort(fun sort_peers_fun/2, shuffle(Peers1)), ?MAX_PEERS).
@@ -292,11 +297,12 @@ shuffle(List) ->
     element(2, lists:unzip(lists:sort([{rand:uniform(), E} || E <- List]))).
 
 %% merge new peers into old peers based on their address
-merge_peers(NewPeers, OldPeers, PeerBook) ->
+merge_peers(NewPeers, PeersToRemove, OldPeers, PeerBook) ->
     StaleTime = libp2p_peerbook:stale_time(PeerBook),
     Peers = maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]),
-                                   maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]))),
-    lists:filter(fun(P) -> not libp2p_peer:is_stale(P, StaleTime) end, Peers).
+                                   NewPeers)),
+    lists:filter(fun(P) -> (not libp2p_peer:is_stale(P, StaleTime))
+                                andalso (not lists:member(libp2p_peer:pubkey_bin(P), PeersToRemove)) end, Peers).
 
 -spec next_peer(state()) -> state().
 next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->

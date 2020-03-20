@@ -91,8 +91,8 @@ basic(_Config) ->
     % Relay needs a public ip now, not just a circuit address
     meck:new(libp2p_transport_tcp, [no_link, passthrough]),
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
-    meck:new(libp2p_peer, [no_link, passthrough]),
-    meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
+    meck:new(libp2p_peer_resolution, [no_link, passthrough]),
+    meck:expect(libp2p_peer_resolution, has_public_ip, fun(_) -> true end),
 
 
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
@@ -203,8 +203,8 @@ basic(_Config) ->
     meck:unload(libp2p_relay),
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
-    ?assert(meck:validate(libp2p_peer)),
-    meck:unload(libp2p_peer),
+    ?assert(meck:validate(libp2p_peer_resolution)),
+    meck:unload(libp2p_peer_resolution),
     ok.
 
 %%--------------------------------------------------------------------
@@ -248,8 +248,8 @@ limit_exceeded(_Config) ->
    % Relay needs a public ip now, not just a circuit address
     meck:new(libp2p_transport_tcp, [no_link, passthrough]),
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
-    meck:new(libp2p_peer, [no_link, passthrough]),
-    meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
+    meck:new(libp2p_peer_resolution, [no_link, passthrough]),
+    meck:expect(libp2p_peer_resolution, has_public_ip, fun(_) -> true end),
 
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
@@ -347,8 +347,8 @@ limit_exceeded(_Config) ->
     meck:unload(libp2p_relay),
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
-    ?assert(meck:validate(libp2p_peer)),
-    meck:unload(libp2p_peer),
+    ?assert(meck:validate(libp2p_peer_resolution)),
+    meck:unload(libp2p_peer_resolution),
     ok.
 
 

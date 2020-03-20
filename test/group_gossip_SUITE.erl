@@ -24,7 +24,6 @@ init_per_testcase(seed_test = TestCase, Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 0}]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
-
     [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
 
     %% Set up S1 to be the client..one peer connection, and S2 as the seed node
@@ -35,7 +34,9 @@ init_per_testcase(seed_test = TestCase, Config) ->
                                         ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
+
     [{swarms, [S1, S2]} | Config];
+
 init_per_testcase(TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [
@@ -67,7 +68,7 @@ connection_test(Config) ->
     ?assertEqual([], libp2p_group_gossip:connected_addrs(S1Group, peerbook)),
 
     %% Now tell S1 about S2
-    libp2p_peerbook:put(S1PeerBook, [get_peer(S2)]),
+    libp2p_peerbook:put(S1PeerBook, get_peer(S2)),
 
     %% Verify that S2 finds out about S1
     S2PeerBook = libp2p_swarm:peerbook(S2),
@@ -114,6 +115,7 @@ gossip_test(Config) ->
     ok.
 
 seed_test(Config) ->
+
     [S1, S2] = ?config(swarms, Config),
 
     %% Verify that S2 finds out about S1
