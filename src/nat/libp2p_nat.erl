@@ -66,7 +66,7 @@ spawn_discovery(Pid, MultiAddrs, TID) ->
                 ok ->
                     lager:info("successfully registered nat");
                 {error, _Reason} ->
-                    ok
+                    lager:error("failed to register nat ~p", [_Reason])
             end
     end.
 

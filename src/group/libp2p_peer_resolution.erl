@@ -37,7 +37,7 @@ init_gossip_data(_TID) ->
 
 -spec refresh(ets:tab(), libp2p_crypto:pubkey_bin() | libp2p_peer:peer()) -> ok.
 refresh(TID, ID) when is_binary(ID) ->
-    ThisPeerID = libp2p_swarm:p2p_address(TID),
+    ThisPeerID = libp2p_swarm:pubkey_bin(TID),
     case ThisPeerID == ID of
         true ->
             ok;

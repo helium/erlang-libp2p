@@ -106,7 +106,7 @@ swarm(TID) ->
 %% swarm/1 and used by a number of internal swarm functions and
 %% services to find other services in the given swarm.
 -spec tid(pid()) -> ets:tab().
-tid(Sup) when is_pid(Sup)->
+tid(Sup)->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, tid).
 

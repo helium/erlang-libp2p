@@ -30,11 +30,13 @@ handle_gossip_data(_StreamPid, Data, Handle) ->
     Peerbook = libp2p_swarm:peerbook(Handle),
     {ok, GossipedPeerList} = libp2p_peer:decode_list(Data),
     F = fun(Peer)->
+            lager:debug("~p putting peer: ~p", [Handle, Peer]),
             case libp2p_peer_resolution:is_rfc1918_allowed(Handle) orelse
                     not libp2p_peer_resolution:has_private_ip(Peer) of
                 true ->
                     libp2p_peerbook:put(Peerbook, Peer);
                 false ->
+                    lager:debug("not putting peer",[]),
                     ok
             end
         end,

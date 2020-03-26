@@ -33,6 +33,7 @@ init([TID, Name, PubKey, SigFun]) ->
                      data_dir => DataDir,
                      pubkey_bin => libp2p_crypto:pubkey_to_bin(PubKey),
                      register_callback =>  CallbackFun,
+                     notify_time => 50, peer_time => 50,
                      register_ref => TID
 
     },

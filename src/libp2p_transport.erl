@@ -98,6 +98,7 @@ connect_to(Addr, Options, Timeout, TID) ->
         true -> {error, stopping};
         false ->
             ListenAddrs = libp2p_swarm:listen_addrs(TID),
+            lager:debug("got listen addrs for ~p: ~p", [TID, ListenAddrs]),
             case lists:member(Addr, ListenAddrs) of
                 true ->
                     {error, dialing_self};
