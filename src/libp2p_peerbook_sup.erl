@@ -12,14 +12,6 @@
 
 -define(PEERBOOK, swarm_peerbook).
 
-%% Default "this" peer heartbeat time 5 minutes (in milliseconds)
--define(DEFAULT_PEER_TIME, 5 * 60 * 1000).
-
-%% Default timer for new peer notifications to connected peers. This
-%% allows for fast arrivels to coalesce a number of new peers before a
-%% new list is sent out.
--define(DEFAULT_NOTIFY_TIME, 5 * 1000).
-
 %%====================================================================
 %% API functions
 %%====================================================================
@@ -40,7 +32,6 @@ init([TID, Name, PubKey, SigFun]) ->
                      sig_fun => SigFun,
                      data_dir => DataDir,
                      pubkey_bin => libp2p_crypto:pubkey_to_bin(PubKey),
-                     notify_time => ?DEFAULT_NOTIFY_TIME, peer_time => ?DEFAULT_PEER_TIME,
                      register_callback =>  CallbackFun,
                      register_ref => TID
 

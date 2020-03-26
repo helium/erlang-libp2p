@@ -171,6 +171,7 @@ lookup_listener(TID, Addr) ->
 
 -spec remove_listener(ets:tab(), string()) -> true.
 remove_listener(TID, Addr) ->
+    lager:debug("removing listener on ~p with addr ~p",[TID, Addr]),
     remove_pid(TID, ?LISTENER, Addr),
     %% TODO: This was a convenient place to notify peerbook, but can
     %% we not do this here?

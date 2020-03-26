@@ -197,7 +197,7 @@ handle_info(retry, #state{stream=undefined}=State) ->
             {noreply, next_peer(retry(State))}
     end;
 handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{tid=TID, stream=Pid, address=Address}=State) ->
-    lager:info("Relay session with address ~p closed with reason ~p", [Address, Reason]),
+    lager:info("~p relay session with address ~p closed with reason ~p", [TID, Address, Reason]),
     _ = libp2p_config:remove_listener(TID, Address),
     %% add it to the banlist so we temporarily avoid trying to connect to it again
     {noreply, retry(banlist(Address, State#state{stream=undefined, address=undefined}))};
