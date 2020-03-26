@@ -149,18 +149,20 @@ listener() ->
 insert_listener(TID, Addrs, Pid) ->
     AllowRFC1918 = libp2p_peer_resolution:is_rfc1918_allowed(TID),
     PeerBook = libp2p_swarm:peerbook(TID),
-    lists:foreach(fun(A) ->
-                          case AllowRFC1918 orelse (libp2p_transport_tcp:rfc1918(A) == false) of
-                              true ->
-                                  %% only register useful listen addrs, ev thing else ignored
-                                  insert_pid(TID, ?LISTENER, A, Pid),
-                                  libp2p_peerbook:register_listen_addr(PeerBook, A);
-                              false ->
-                                  noop
-                          end
-                  end, Addrs),
-    %% TODO: This was a convenient place to notify peerbook, but can
-    %% we not do this here?
+    RegisterFun = fun(A)-> insert_pid(TID, ?LISTENER, A, Pid), libp2p_peerbook:register_listen_addr(PeerBook, A) end,
+    lists:foreach(
+        fun(A) ->
+              case AllowRFC1918 of
+                  true -> RegisterFun(A);
+                  false ->
+                      %% we need to filter 1918 addrs
+                      case libp2p_transport_tcp:rfc1918(A) of
+                          false -> RegisterFun(A);
+                          _ -> noop
+                      end
+              end
+        end, Addrs),
+    %% TODO: This was a convenient place to notify peerbook, but can we not do this here?
     true.
 
 -spec lookup_listener(ets:tab(), string()) -> {ok, pid()} | false.

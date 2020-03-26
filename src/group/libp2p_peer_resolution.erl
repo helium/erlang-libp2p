@@ -19,6 +19,12 @@
 %% Gossip group key to register and transmit with
 -define(GOSSIP_GROUP_KEY, "peer_resolution").
 
+-ifdef(TEST).
+-define(DEFAULT_PEERBOOK_ALLOW_RFC1918, true).
+-else.
+-define(DEFAULT_PEERBOOK_ALLOW_RFC1918, false).
+-endif.
+
 -spec install_handler(any())-> ok | {error, any()}.
 install_handler(Handle)->
     throttle:setup(?MODULE, 10, per_minute),
@@ -106,11 +112,9 @@ resolve(GossipGroup, PK, Ts) ->
     ok.
 
 %% @doc Returns whether peers publishing RFC1918 addresses are allowed
-is_rfc1918_allowed(_TID) ->
-    %% TODO: uncomment this to reject any peers publishing RFC1918 addresses once the network has transitioned over
-    %% Opts = libp2p_swarm:opts(TID),
-    %% libp2p_config:get_opt(Opts, [?MODULE, allow_rfc1918], ?DEFAULT_PEERBOOK_ALLOW_RFC1918).
-    true.
+is_rfc1918_allowed(TID) ->
+    Opts = libp2p_swarm:opts(TID),
+    libp2p_config:get_opt(Opts, [?MODULE, allow_rfc1918], ?DEFAULT_PEERBOOK_ALLOW_RFC1918).
 
 %% @doc Returns whether the peer is listening on a public, externally
 %% visible IP address.

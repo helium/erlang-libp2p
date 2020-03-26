@@ -100,6 +100,7 @@ handle_cast(Msg, State) ->
 
 
 terminate(Reason, #state{tid=TID}) ->
+    lager:debug("swarm ~p terminating with reason ~p", [TID, Reason]),
     lists:foreach(fun({Addr, Pid}) ->
                           libp2p_config:remove_session(TID, Addr),
                           catch libp2p_session:close(Pid, Reason, infinity)
