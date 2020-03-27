@@ -168,6 +168,8 @@ start_client_session(TID, Addr, Connection) ->
                             libp2p_swarm:register_session(libp2p_swarm:swarm(TID), SessionPid),
                             {ok, SessionPid};
                         {error, Error} ->
+                            lager:error("Changing controlling process for ~p to ~p failed ~p",
+                                        [Connection, SessionPid, Error]),
                             libp2p_connection:close(Connection),
                             {error, Error}
                     end;

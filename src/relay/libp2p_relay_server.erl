@@ -136,6 +136,7 @@ handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
 handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
+    lager:debug("***** init relay for tid ~p",[TID]),
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PeerBook = libp2p_swarm:peerbook(TID),
@@ -150,16 +151,17 @@ handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
     SortedPeers = sort_peers(Peers, SwarmPubKeyBin, State0),
     case SortedPeers of
         [] ->
+            lager:debug("no peers for ~p, retrying...",[TID]),
             {noreply, retry(State0)};
         _ ->
             State = State0#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))},
             case init_relay(State) of
                 {ok, Pid} ->
                     _ = erlang:monitor(process, Pid),
-                    lager:info("relay started successfully with ~p", [Pid]),
+                    lager:info("~p relay started successfully with ~p", [TID, Pid]),
                     {noreply, add_flap(State#state{stream=Pid, address=undefined})};
                 _Error ->
-                    lager:warning("could not initiate relay ~p", [_Error]),
+                    lager:warning("~p could not initiate relay ~p", [TID, _Error]),
                     {noreply, next_peer(retry(State))}
             end
     end;
@@ -176,10 +178,10 @@ handle_info({changed_peers, {{add, Add}, {remove, Remove}}}, #state{tid=TID, str
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PeerBook = libp2p_swarm:peerbook(TID),
-    MergedPeers = sort_peers(merge_peers(Add, Remove, Peers, PeerBook), SwarmPubKeyBin, State),
-    {noreply, State#state{peers=MergedPeers, peer_index=rand:uniform(length(MergedPeers))}};
+    SortedPeers = sort_peers(merge_peers(Add, Remove, Peers, PeerBook), SwarmPubKeyBin, State),
+    {noreply, State#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))}};
 
-handle_info({changed_peers, {{add, Add}, {remove, Remove}}}, #state{tid=TID, stream=_Pid, peers=Peers}=State) ->
+handle_info({changed_peers, {{add, Add}, {remove, Remove}}}, #state{tid=TID, peers=Peers}=State) ->
     lager:debug("~p relay got changed peers. Add: ~p, Remove: ~p",[TID, Add, Remove]),
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
