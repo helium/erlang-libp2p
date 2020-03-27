@@ -349,6 +349,7 @@ limit_exceeded(_Config) ->
     meck:unload(libp2p_transport_tcp),
     ?assert(meck:validate(libp2p_peer_resolution)),
     meck:unload(libp2p_peer_resolution),
+    meck:unload(libp2p_peer),
     ok.
 
 
