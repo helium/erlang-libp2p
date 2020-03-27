@@ -88,7 +88,7 @@ init([Name, Opts]) ->
 
     ChildSpecs = [
         {peerbook,
-            {libp2p_peerbook_sup, start_link, [TID, Name, PubKey, SigFun]},
+            {libp2p_peerbook_sup, start_link, [Opts, TID, Name, PubKey, SigFun]},
             permanent,
             10000,
             supervisor,

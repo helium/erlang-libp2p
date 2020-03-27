@@ -4,7 +4,7 @@
 
 %% API
 -export([
-    start_link/4
+    start_link/5
 ]).
 
 %% Supervisor callbacks
@@ -16,8 +16,8 @@
 %% API functions
 %%====================================================================
 
-start_link(TID, Name, PubKey, SigFun) ->
-    supervisor:start_link({local, reg_name(TID)}, ?MODULE, [TID, Name, PubKey, SigFun]).
+start_link(Opts, TID, Name, PubKey, SigFun) ->
+    supervisor:start_link({local, reg_name(TID)}, ?MODULE, [Opts, TID, Name, PubKey, SigFun]).
 
 reg_name(Name)->
     libp2p_swarm:reg_name_from_tid(Name, ?MODULE).
@@ -25,18 +25,21 @@ reg_name(Name)->
 %%====================================================================
 %% Supervisor callbacks
 %%====================================================================
-init([TID, Name, PubKey, SigFun]) ->
+init([Opts, TID, Name, PubKey, SigFun]) ->
     DataDir = libp2p_config:swarm_dir(TID, [Name]),
     CallbackFun = fun(FunTID, Handle) -> libp2p_swarm:store_peerbook(FunTID, Handle) end,
-    PeerbookOpts = #{
+    SuppliedPBOpts = proplists:get_value(libp2p_peerbook, Opts, []),
+    PeerbookOpts0 = maps:from_list(SuppliedPBOpts),
+    PeerbookOpts1 = #{
                      sig_fun => SigFun,
                      data_dir => DataDir,
                      pubkey_bin => libp2p_crypto:pubkey_to_bin(PubKey),
                      register_callback =>  CallbackFun,
-                     notify_time => 50, peer_time => 50,
                      register_ref => TID
 
     },
+    PeerbookOpts = maps:merge(PeerbookOpts0, PeerbookOpts1),
+
     ChildSpecs = [
         {?PEERBOOK,
             {libp2p_peerbook, start_link, [PeerbookOpts]},
