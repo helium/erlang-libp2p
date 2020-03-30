@@ -25,7 +25,7 @@
  {<<"libp2p_crypto">>,{pkg,<<"libp2p_crypto">>,<<"1.0.1">>},0},
  {<<"libp2p_peerbook">>,
   {git,"https://github.com/helium/libp2p-peerbook",
-       {ref,"1a741ed94e89975250f1bcdb9296bcf18010d37e"}},
+       {ref,"d198028c356521d40389f5c75e187c1cfc065a6b"}},
   0},
  {<<"multiaddr">>,{pkg,<<"multiaddr">>,<<"1.1.3">>},0},
  {<<"nat">>,
