@@ -59,7 +59,9 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]},
-                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]}
+                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
+                 {libp2p_peerbook, [{peer_time, 4000},
+                                    {notify_time, 5000}]}
                 ],
     Version = "proxytest/1.0.0",
 
@@ -216,7 +218,9 @@ limit_exceeded(_Config) ->
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
-        {libp2p_proxy, [{limit, 0}]}
+        {libp2p_proxy, [{limit, 0}]},
+        {libp2p_peerbook, [{peer_time, 4000},
+                           {notify_time, 5000}]}
     ],
     Version = "proxytest/1.0.0",
 
