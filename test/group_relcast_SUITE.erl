@@ -173,7 +173,7 @@ defer_test(Config) ->
     test_util:wait_until(
       fun() ->
               lists:member({handle_msg, 2, <<"defer2">>}, receive_messages([], 1))
-      end),
+      end, 100, 250),
 
     true = is_map(libp2p_group_relcast:info(G1)),
     ok.
