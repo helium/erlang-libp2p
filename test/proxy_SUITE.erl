@@ -144,12 +144,12 @@ basic(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 100, 250),
 
     % NAT fails so init relay on C manually
     ok = libp2p_relay:init(CSwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end, 100, 250),
 
 
     [CCircuitAddress] = get_relay_addresses(CSwarm),
@@ -304,12 +304,12 @@ limit_exceeded(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 100, 250),
 
     % NAT fails so init relay on C manually
     ok = libp2p_relay:init(CSwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end, 100, 250),
 
 
     [CCircuitAddress] = get_relay_addresses(CSwarm),
@@ -321,7 +321,7 @@ limit_exceeded(_Config) ->
             _ ->
                 false
         end
-    end),
+    end, 100, 250),
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
     % Avoid trying another address
