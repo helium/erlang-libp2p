@@ -96,6 +96,8 @@ negotiated(Swarm, Address) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 init([TID]) ->
+    erlang:process_flag(trap_exit, true),
+    lager:debug("starting relay server for tid ~p", [TID]),
     %% remove any prior relay addresses we somehow leaked
     lists:foreach(fun(Addr) ->
                           case libp2p_transport_relay:match_addr(Addr,TID) of
@@ -136,7 +138,7 @@ handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
 handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
-    lager:debug("***** init relay for tid ~p",[TID]),
+    lager:debug("init_relay for tid ~p",[TID]),
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PeerBook = libp2p_swarm:peerbook(TID),
@@ -186,7 +188,8 @@ handle_info({changed_peers, {{add, Add}, {remove, Remove}}}, #state{tid=TID, pee
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
     PeerBook = libp2p_swarm:peerbook(TID),
-    {noreply, State#state{peers=sort_peers(merge_peers(Add, Remove, Peers, PeerBook), SwarmPubKeyBin, State)}};
+    SortedPeers = sort_peers(merge_peers(Add, Remove, Peers, PeerBook), SwarmPubKeyBin, State),
+    {noreply, State#state{peers=SortedPeers}};
 
 handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
@@ -227,8 +230,10 @@ terminate(_Reason, #state{tid=TID, stream=Pid, address=Address}) when is_pid(Pid
     true = libp2p_config:remove_relay(TID),
     %% remove listener is harmless if the address is undefined
     _ = libp2p_config:remove_listener(TID, Address),
+    lager:debug("terminating with reason ~p",[_Reason]),
     ok;
 terminate(_Reason, _State) ->
+    lager:debug("terminating with reason ~p",[_Reason]),
     ok.
 
 %% ------------------------------------------------------------------

@@ -59,8 +59,8 @@ end_per_testcase(_, _Config) ->
 basic(_Config) ->
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
-        {libp2p_peerbook, [{peer_time, 400},
-                           {notify_time, 500}]}
+        {libp2p_peerbook, [{peer_time, 4000},
+                           {notify_time, 5000}]}
         ],
 
     Version = "relaytest/1.0.0",
@@ -179,13 +179,14 @@ basic(_Config) ->
         fun() ->
             case libp2p_peerbook:get(libp2p_swarm:peerbook(CSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
                 {ok, PeerBookEntry} ->
+                    lager:debug("peerbook listen addrs ~p", [libp2p_peer:listen_addrs(PeerBookEntry)]),
                     not lists:member(ACircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
                 _ ->
                     false
             end
         end,
         200,
-        250
+        100
     ),
 
     ok = libp2p_swarm:stop(ASwarm),

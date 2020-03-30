@@ -73,6 +73,7 @@ accept_stream(Pid, SessionPid, StreamPid) ->
 
 init([Sup, TID]) ->
     erlang:process_flag(trap_exit, true),
+    lager:debug("starting gossip server for tid ~p", [TID]),
     libp2p_swarm_sup:register_gossip_group(TID),
     Opts = libp2p_swarm:opts(TID),
     PeerBookCount = get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
@@ -278,7 +279,9 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 terminate(_Reason, #state{tid=TID}) ->
-    libp2p_swarm:remove_stream_handler(TID, ?GROUP_PATH).
+    libp2p_swarm:remove_stream_handler(TID, ?GROUP_PATH),
+    lager:debug("terminating with reason ~p",[_Reason]),
+    ok.
 
 
 %% Internal

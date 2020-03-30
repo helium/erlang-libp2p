@@ -55,7 +55,8 @@ dial_self(Config) ->
         ,Version
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), Swarm]}
     ),
-    [Address|_] = libp2p_swarm:listen_addrs(Swarm),
+    Addrs0 = [Address|_] = libp2p_swarm:listen_addrs(Swarm),
+    ct:pal("listen addrs: ~p",[Addrs0]),
     {error, dialing_self} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,Address
@@ -64,6 +65,7 @@ dial_self(Config) ->
         ,[{echo, self()}]
     ),
     timer:sleep(100),
+    ct:pal("p2p addr: ~p",[libp2p_swarm:p2p_address(Swarm)]),
     {error, [{Address, dialing_self}]} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,libp2p_swarm:p2p_address(Swarm)
