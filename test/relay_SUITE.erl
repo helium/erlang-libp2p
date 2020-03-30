@@ -186,7 +186,7 @@ basic(_Config) ->
             end
         end,
         200,
-        100
+        250
     ),
 
     ok = libp2p_swarm:stop(ASwarm),

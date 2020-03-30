@@ -25,7 +25,7 @@ cover:
 	$(REBAR) cover
 
 test:
-	$(REBAR) as test do eunit, ct --suite test/swarm_SUITE
+	$(REBAR) as test do eunit, ct
 
 ci:
 	$(REBAR) as test do eunit,ct,cover && $(REBAR) do xref, dialyzer
