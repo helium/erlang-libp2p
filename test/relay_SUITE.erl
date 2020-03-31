@@ -185,7 +185,7 @@ basic(_Config) ->
                     false
             end
         end,
-        200,
+        150,
         250
     ),
 
