@@ -4,7 +4,8 @@
 
 %% API
 -export([
-    start_link/5
+    start_link/5,
+    peerbook/1
 ]).
 
 %% Supervisor callbacks
@@ -19,8 +20,9 @@
 start_link(Opts, TID, Name, PubKey, SigFun) ->
     supervisor:start_link({local, reg_name(TID)}, ?MODULE, [Opts, TID, Name, PubKey, SigFun]).
 
-reg_name(Name)->
-    libp2p_swarm:reg_name_from_tid(Name, ?MODULE).
+-spec peerbook(ets:tab()) -> pid().
+peerbook(TID) ->
+    ets:lookup_element(TID, ?PEERBOOK, 2).
 
 %%====================================================================
 %% Supervisor callbacks
@@ -56,3 +58,7 @@ init([Opts, TID, Name, PubKey, SigFun]) ->
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+reg_name(Name)->
+    libp2p_swarm:reg_name_from_tid(Name, ?MODULE).
+
