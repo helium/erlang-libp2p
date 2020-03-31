@@ -36,7 +36,7 @@ handle_gossip_data(_StreamPid, Data, Handle) ->
                 true ->
                     libp2p_peerbook:put(Peerbook, Peer);
                 false ->
-                    lager:debug("not putting peer",[]),
+                    lager:debug("not putting peer ~p",[Peer]),
                     ok
             end
         end,
