@@ -22,7 +22,9 @@ init_per_testcase(seed_test = TestCase, Config) ->
     %% Set up S2 as the seed.
     [S2] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 0}]},
-                                       {base_dir, ?config(base_dir, Config0)}
+                                       {base_dir, ?config(base_dir, Config0)},
+                                       {libp2p_peerbook, [{peer_time, 4000},
+                                                          {notify_time, 5000}]}
                                      ]),
     [S2ListenAddr | _] = libp2p_swarm:listen_addrs(S2),
 
@@ -32,6 +34,8 @@ init_per_testcase(seed_test = TestCase, Config) ->
                                         [ {peerbook_connections, 0},
                                           {seed_nodes, [S2ListenAddr]}
                                         ]},
+                                       {libp2p_peerbook, [{peer_time, 4000},
+                                                          {notify_time, 5000}]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
@@ -44,6 +48,8 @@ init_per_testcase(TestCase, Config) ->
                                          [{peerbook_connections, 1},
                                           {peer_cache_timeout, 100}]
                                         },
+                                       {libp2p_peerbook, [{peer_time, 4000},
+                                                          {notify_time, 5000}]},
                                         {base_dir, ?config(base_dir, Config0)} ]),
     [{swarms, Swarms} | Config].
 
