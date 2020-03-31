@@ -68,12 +68,14 @@ dial_self(Config) ->
     timer:sleep(100),
     %% when using the p2p address, it will result in all listen addrs being pulled from the peerbook
     %% and each will be interated over resulting in a dialing_self error for each
-    ExpResult = [{A, dialing_self} || A <- Addrs],
-    {error, ExpResult} = libp2p_swarm:dial_framed_stream(
+    {error, Result} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,libp2p_swarm:p2p_address(Swarm)
         ,Version
         ,libp2p_stream_proxy_test
         ,[{echo, self()}]
     ),
+    S1 = sets:from_list(Result),
+    S2 = sets:from_list([{A, dialing_self} || A <- Addrs]),
+    [] = sets:to_list(sets:subtract(S1, S2)),
     ok.
