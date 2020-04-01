@@ -1,6 +1,9 @@
 steps:
   - commands:
+      - "make compile"
       - "make ci"
     name: ":hammer: build"
     agents:
       queue: "erlang"
+    artifact_paths:
+      - "artifacts/*"

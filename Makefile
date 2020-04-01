@@ -3,6 +3,7 @@
 REBAR=./rebar3
 SHORTSHA=`git rev-parse --short HEAD`
 PKG_NAME_VER=${SHORTSHA}
+HASH=$(shell git rev-parse HEAD)
 
 OS_NAME=$(shell uname -s)
 
@@ -25,10 +26,10 @@ cover:
 	$(REBAR) cover
 
 test:
-	$(REBAR) as test do eunit, ct
+	$(REBAR) as test do ct --suite test/proxy_SUITE
 
 ci:
-	$(REBAR) as test do eunit,ct,cover && $(REBAR) do xref, dialyzer
+	$(REBAR) do dialyzer,xref && ($(REBAR) do eunit, cover, ct || (mkdir -p artifacts; tar -czf artifacts/test_log-$(HASH).tar.gz _build/test; false))
 	$(REBAR) covertool generate
 	codecov --required -f _build/test/covertool/libp2p.covertool.xml
 
