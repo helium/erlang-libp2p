@@ -15,7 +15,7 @@ init_gossip_data(_TID) ->
     ok.
 
 
--spec handle_gossip_data(pid(), binary(), any()) -> noreply.
+-spec handle_gossip_data(pid(), [libp2p_crypto:pubkey_bin()], any()) -> noreply.
 handle_gossip_data(_StreamPid, Data, Handle) ->
     lager:debug("~p got gossip data ~p",[Handle, Data]),
     Peerbook = libp2p_swarm:peerbook(Handle),

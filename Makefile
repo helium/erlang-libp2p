@@ -26,10 +26,10 @@ cover:
 	$(REBAR) cover
 
 test:
-	$(REBAR) as test do ct
+	$(REBAR) as test do eunit, ct
 
 ci:
-	($(REBAR) do ct || (mkdir -p artifacts; tar -czf artifacts/test_log-$(HASH).tar.gz _build/test; false))
+	($(REBAR) do dialyzer,xref && do ct || (mkdir -p artifacts; tar -czf artifacts/test_log-$(HASH).tar.gz _build/test; false))
 	$(REBAR) covertool generate
 	codecov --required -f _build/test/covertool/libp2p.covertool.xml
 
