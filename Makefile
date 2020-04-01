@@ -29,7 +29,7 @@ test:
 	$(REBAR) as test do ct --suite test/proxy_SUITE
 
 ci:
-	$(REBAR) do dialyzer,xref && ($(REBAR) do eunit, cover, ct || (mkdir -p artifacts; tar -czf artifacts/test_log-$(HASH).tar.gz _build/test; false))
+	($(REBAR) do ct || (mkdir -p artifacts; tar -czf artifacts/test_log-$(HASH).tar.gz _build/test; false))
 	$(REBAR) covertool generate
 	codecov --required -f _build/test/covertool/libp2p.covertool.xml
 
