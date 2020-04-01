@@ -218,7 +218,6 @@ basic(_Config) ->
 limit_exceeded(_Config) ->
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
-        {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
         {libp2p_proxy, [{limit, 0}]},
         {libp2p_peerbook, [{peer_time, 4000},
                            {notify_time, 5000}]}
@@ -226,7 +225,7 @@ limit_exceeded(_Config) ->
     Version = "proxytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(proxy_limit_exceeded_server, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/127.0.0.1/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm,
         Version,
@@ -235,7 +234,7 @@ limit_exceeded(_Config) ->
 
     Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
     {ok, BSwarm} = libp2p_swarm:start(proxy_limit_exceeded_proxy, Opts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/127.0.0.1/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm,
         Version,
@@ -243,7 +242,7 @@ limit_exceeded(_Config) ->
     ),
 
     {ok, CSwarm} = libp2p_swarm:start(proxy_limit_exceeded_client, SwarmOpts),
-    ok = libp2p_swarm:listen(CSwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(CSwarm, "/ip4/127.0.0.1/tcp/0"),
     libp2p_swarm:add_stream_handler(
         CSwarm,
         Version,
