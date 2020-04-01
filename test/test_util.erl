@@ -105,7 +105,7 @@ await_gossip_group(Swarm, Swarms) ->
       fun() ->
               GroupAddrs = sets:from_list(libp2p_group_gossip:connected_addrs(GossipGroup, all)),
               sets:is_subset(ExpectedAddrs, GroupAddrs)
-      end, 100, 250).
+      end, 150, 250).
 
 await_gossip_groups(Swarms) ->
     lists:foreach(fun(S) ->

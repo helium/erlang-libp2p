@@ -80,7 +80,7 @@ connection_test(Config) ->
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() ->
                                       libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:pubkey_bin(S1))
-                              end),
+                              end, 100, 250),
     %% And that the S1 gossip group is "conneted" to S2.
     ?assert(lists:member(libp2p_swarm:p2p_address(S2),
                          libp2p_group_gossip:connected_addrs(S1Group, peerbook))),
@@ -128,7 +128,7 @@ seed_test(Config) ->
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() ->
                                       libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:pubkey_bin(S1))
-                              end),
+                              end, 100, 250),
 
     %% And the S1 has a session to S2
     S1Group = libp2p_swarm:gossip_group(S1),
