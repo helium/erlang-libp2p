@@ -193,7 +193,10 @@ delete_mapping(IntPort, ExtPort) ->
 -spec update_cache(ets:tab(), non_neg_integer()) -> ok.
 update_cache(TID, Port) ->
     Cache = libp2p_swarm:cache(TID),
-    ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port).
+    spawn(fun() ->
+                  ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port)
+          end),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc

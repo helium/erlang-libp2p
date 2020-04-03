@@ -51,7 +51,7 @@ reg_name(TID)->
 %%--------------------------------------------------------------------
 -spec insert(pid(), any(), any()) -> ok | {error, any()}.
 insert(Pid, Key, Value) ->
-    gen_server:call(Pid, {insert, Key, Value}).
+    gen_server:call(Pid, {insert, Key, Value}, 30000).
 
 %%--------------------------------------------------------------------
 %% @doc
