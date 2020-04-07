@@ -147,20 +147,23 @@ listener() ->
 
 -spec insert_listener(ets:tab(), [string()], pid()) -> true.
 insert_listener(TID, Addrs, Pid) ->
-    lager:debug("inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
     AllowRFC1918 = libp2p_peer_resolution:is_rfc1918_allowed(TID),
     PeerBook = libp2p_swarm:peerbook(TID),
     RegisterFun = fun(A)-> insert_pid(TID, ?LISTENER, A, Pid), libp2p_peerbook:register_listen_addr(PeerBook, A) end,
     lists:foreach(
         fun(A) ->
               case AllowRFC1918 of
-                  true -> RegisterFun(A);
+                  true ->
+                      lager:debug("inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
+                      RegisterFun(A);
                   false ->
                       %% we need to filter 1918 addrs
                       case libp2p_transport_tcp:rfc1918(A) of
-                          false -> RegisterFun(A);
+                          false ->
+                              lager:debug("inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
+                              RegisterFun(A);
                           _ ->
-                              lager:debug("not registering listen addr ~p", [A]),
+                              lager:debug("NOT inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
                               noop
                       end
               end
