@@ -33,6 +33,7 @@
                   backoff,
                   relcast,
                   libp2p_crypto,
+                  libp2p_peerbook,
                   throttle
                  ]},
   {env,[]},
