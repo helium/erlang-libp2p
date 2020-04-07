@@ -305,7 +305,7 @@ limit_exceeded(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 150, 250),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 200, 250),
 
     % NAT fails so init relay on C manually
     ok = libp2p_relay:init(CSwarm),
