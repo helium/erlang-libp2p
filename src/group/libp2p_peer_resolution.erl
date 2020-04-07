@@ -98,7 +98,7 @@ handle_gossip_data(StreamPid, Data, Handle) ->
         #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}} ->
             lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
             %% send this peer to the peerbook
-            libp2p_peerbook:put(Handle, [Peer]),
+            libp2p_peerbook:put(Handle, Peer),
             noreply
     end.
 
