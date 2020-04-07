@@ -144,11 +144,13 @@ terminate(_Reason, _State) ->
 -spec get_port_from_cache(ets:tab(), non_neg_integer()) -> non_neg_integer().
 get_port_from_cache(TID, IntPort) ->
     Cache = libp2p_swarm:cache(TID),
-    case libp2p_cache:lookup(Cache, ?CACHE_KEY) of
+    try libp2p_cache:lookup(Cache, ?CACHE_KEY) of
         undefined -> IntPort;
         P ->
             lager:info("got port from cache ~p", [P]),
             P
+    catch _:_ ->
+            IntPort
     end.
 
 %%--------------------------------------------------------------------
@@ -193,7 +195,10 @@ delete_mapping(IntPort, ExtPort) ->
 -spec update_cache(ets:tab(), non_neg_integer()) -> ok.
 update_cache(TID, Port) ->
     Cache = libp2p_swarm:cache(TID),
-    ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port).
+    spawn(fun() ->
+                  ok = libp2p_cache:insert(Cache, ?CACHE_KEY, Port)
+          end),
+    ok.
 
 %%--------------------------------------------------------------------
 %% @doc
