@@ -46,6 +46,7 @@ init_per_testcase(TestCase, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 end_per_testcase(_, _Config) ->
+    meck:unload(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -59,7 +60,9 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]},
-                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]}
+                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
+                 {libp2p_peerbook, [{peer_time, 4000},
+                                    {notify_time, 5000}]}
                 ],
     Version = "proxytest/1.0.0",
 
@@ -91,8 +94,8 @@ basic(_Config) ->
     % Relay needs a public ip now, not just a circuit address
     meck:new(libp2p_transport_tcp, [no_link, passthrough]),
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
-    meck:new(libp2p_peer, [no_link, passthrough]),
-    meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
+    meck:new(libp2p_peer_resolution, [no_link, passthrough]),
+    meck:expect(libp2p_peer_resolution, has_public_ip, fun(_) -> true end),
 
 
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
@@ -142,12 +145,12 @@ basic(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 100, 250),
 
     % NAT fails so init relay on C manually
     ok = libp2p_relay:init(CSwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end, 100, 250),
 
 
     [CCircuitAddress] = get_relay_addresses(CSwarm),
@@ -203,8 +206,8 @@ basic(_Config) ->
     meck:unload(libp2p_relay),
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
-    ?assert(meck:validate(libp2p_peer)),
-    meck:unload(libp2p_peer),
+    ?assert(meck:validate(libp2p_peer_resolution)),
+    meck:unload(libp2p_peer_resolution),
     ok.
 
 %%--------------------------------------------------------------------
@@ -215,13 +218,14 @@ basic(_Config) ->
 limit_exceeded(_Config) ->
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
-        {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
-        {libp2p_proxy, [{limit, 0}]}
+        {libp2p_proxy, [{limit, 0}]},
+        {libp2p_peerbook, [{peer_time, 4000},
+                           {notify_time, 5000}]}
     ],
     Version = "proxytest/1.0.0",
 
     {ok, ASwarm} = libp2p_swarm:start(proxy_limit_exceeded_server, SwarmOpts),
-    ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(ASwarm, "/ip4/127.0.0.1/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm,
         Version,
@@ -230,7 +234,7 @@ limit_exceeded(_Config) ->
 
     Opts = SwarmOpts ++ [{libp2p_proxy, [{address, "localhost"}, {port, 18080}]}],
     {ok, BSwarm} = libp2p_swarm:start(proxy_limit_exceeded_proxy, Opts),
-    ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(BSwarm, "/ip4/127.0.0.1/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm,
         Version,
@@ -238,7 +242,7 @@ limit_exceeded(_Config) ->
     ),
 
     {ok, CSwarm} = libp2p_swarm:start(proxy_limit_exceeded_client, SwarmOpts),
-    ok = libp2p_swarm:listen(CSwarm, "/ip4/0.0.0.0/tcp/0"),
+    ok = libp2p_swarm:listen(CSwarm, "/ip4/127.0.0.1/tcp/0"),
     libp2p_swarm:add_stream_handler(
         CSwarm,
         Version,
@@ -249,7 +253,8 @@ limit_exceeded(_Config) ->
     meck:new(libp2p_transport_tcp, [no_link, passthrough]),
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
     meck:new(libp2p_peer, [no_link, passthrough]),
-    meck:expect(libp2p_peer, has_public_ip, fun(_) -> true end),
+    meck:new(libp2p_peer_resolution, [no_link, passthrough]),
+    meck:expect(libp2p_peer_resolution, has_public_ip, fun(_) -> true end),
 
     ct:pal("ASwarm ~p", [libp2p_swarm:p2p_address(ASwarm)]),
     ct:pal("BSwarm ~p", [libp2p_swarm:p2p_address(BSwarm)]),
@@ -300,12 +305,12 @@ limit_exceeded(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 200, 250),
 
     % NAT fails so init relay on C manually
     ok = libp2p_relay:init(CSwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(CSwarm) end, 150, 250),
 
 
     [CCircuitAddress] = get_relay_addresses(CSwarm),
@@ -317,7 +322,7 @@ limit_exceeded(_Config) ->
             _ ->
                 false
         end
-    end),
+    end, 100, 250),
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
     % Avoid trying another address
@@ -347,6 +352,8 @@ limit_exceeded(_Config) ->
     meck:unload(libp2p_relay),
     ?assert(meck:validate(libp2p_transport_tcp)),
     meck:unload(libp2p_transport_tcp),
+    ?assert(meck:validate(libp2p_peer_resolution)),
+    meck:unload(libp2p_peer_resolution),
     ?assert(meck:validate(libp2p_peer)),
     meck:unload(libp2p_peer),
     ok.

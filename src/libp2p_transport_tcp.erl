@@ -475,9 +475,9 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     %% if we didn't have an external address originally, set the NAT type to 'static'
                     case State#state.negotiated_nat of
                         true ->
-                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), static);
+                            libp2p_peerbook:set_nat_type(libp2p_swarm:peerbook(TID), static);
                         false ->
-                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none)
+                            libp2p_peerbook:set_nat_type(libp2p_swarm:peerbook(TID), none)
                     end;
                 unknown ->
                     %% stungun failed to resolve, so we have to retry later
@@ -485,7 +485,7 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                 _ ->
                     %% we have either port restricted cone NAT or symmetric NAT
                     %% and we need to start a relay
-                    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
+                    libp2p_peerbook:set_nat_type(libp2p_swarm:peerbook(TID), NatType),
                     libp2p_relay:init(libp2p_swarm:swarm(TID))
             end,
             {noreply, State};
@@ -775,7 +775,8 @@ tcp_addr(Addr, [{AddrType, Address}, {"tcp", PortStr}]) ->
         "ip6" ->
             {ok, IP} = inet:parse_ipv6_address(Address),
             {IP, Port, inet6, [{ipv6_v6only, true}]};
-        _ -> {error, {unsupported_address, Addr}}
+        _ ->
+            {error, {unsupported_address, Addr}}
     end;
 tcp_addr(Addr, _Protocols) ->
     {error, {unsupported_address, Addr}}.
@@ -872,7 +873,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     case length(distinct_observed_addrs(ObservedAddresses)) == Limit + 1 of
                         true ->
                             lager:info("Saw ~p distinct observed addresses, assuming static NAT", [Limit + 1]),
-                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
+                            libp2p_peerbook:set_nat_type(libp2p_swarm:peerbook(TID), symmetric),
                             libp2p_relay:init(libp2p_swarm:swarm(TID));
                         false ->
                             ok
@@ -943,8 +944,6 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
                     [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
                     %% we can simply re-add all of the addresses again, overrides are fine
                     [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
-                    PB = libp2p_swarm:peerbook(TID),
-                    libp2p_peerbook:changed_listener(PB),
                     libp2p_nat:maybe_spawn_discovery(self(), NewListenAddrs, TID),
                     %% wipe out any prior observed addresses here
                     {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State#state{observed_addrs=sets:new()} )};

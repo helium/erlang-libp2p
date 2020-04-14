@@ -147,13 +147,28 @@ listener() ->
 
 -spec insert_listener(ets:tab(), [string()], pid()) -> true.
 insert_listener(TID, Addrs, Pid) ->
-    lists:foreach(fun(A) ->
-                          insert_pid(TID, ?LISTENER, A, Pid)
-                  end, Addrs),
-    %% TODO: This was a convenient place to notify peerbook, but can
-    %% we not do this here?
+    AllowRFC1918 = libp2p_peer_resolution:is_rfc1918_allowed(TID),
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:changed_listener(PeerBook),
+    RegisterFun = fun(A)-> insert_pid(TID, ?LISTENER, A, Pid), libp2p_peerbook:register_listen_addr(PeerBook, A) end,
+    lists:foreach(
+        fun(A) ->
+              case AllowRFC1918 of
+                  true ->
+                      lager:debug("inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
+                      RegisterFun(A);
+                  false ->
+                      %% we need to filter 1918 addrs
+                      case libp2p_transport_tcp:rfc1918(A) of
+                          false ->
+                              lager:debug("inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
+                              RegisterFun(A);
+                          _ ->
+                              lager:debug("NOT inserting listener for ~p with addr ~p and pid ~p", [TID, Addrs, Pid]),
+                              noop
+                      end
+              end
+        end, Addrs),
+    %% TODO: This was a convenient place to notify peerbook, but can we not do this here?
     true.
 
 -spec lookup_listener(ets:tab(), string()) -> {ok, pid()} | false.
@@ -162,17 +177,17 @@ lookup_listener(TID, Addr) ->
 
 -spec remove_listener(ets:tab(), string()) -> true.
 remove_listener(TID, Addr) ->
+    lager:debug("removing listener on ~p with addr ~p",[TID, Addr]),
     remove_pid(TID, ?LISTENER, Addr),
     %% TODO: This was a convenient place to notify peerbook, but can
     %% we not do this here?
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:changed_listener(PeerBook),
+    ok = libp2p_peerbook:unregister_listen_addr(PeerBook, Addr),
     true.
 
 -spec listen_addrs(ets:tab()) -> [string()].
 listen_addrs(TID) ->
     [ Addr || [Addr] <- ets:match(TID, {{?LISTENER, '$1'}, '_'})].
-
 
 %%
 %% Listen sockets

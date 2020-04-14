@@ -31,7 +31,7 @@ accessor_test(Config) ->
     {ok, PubKey, _, _} = libp2p_swarm:keys(S1),
     true = libp2p_crypto:pubkey_to_bin(PubKey) == libp2p_swarm:pubkey_bin(S1),
     case libp2p_swarm:opts(S1) of
-        [{libp2p_nat, [{enabled, false}]}, {base_dir, _}] -> ok;
+        [{libp2p_nat, [{enabled, false}]}, {data_dir, _}, {base_dir, _}] -> ok;
         [{base_dir, _}, {libp2p_nat, [{enabled, false}]}] -> ok
     end,
     "swarm" ++ _ = atom_to_list(libp2p_swarm:name(S1)),
@@ -55,7 +55,9 @@ dial_self(Config) ->
         ,Version
         ,{libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), Swarm]}
     ),
-    [Address|_] = libp2p_swarm:listen_addrs(Swarm),
+    Addrs = [Address|_] = libp2p_swarm:listen_addrs(Swarm),
+    ct:pal("Addrs: ~p", [Addrs]),
+
     {error, dialing_self} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,Address
@@ -64,11 +66,16 @@ dial_self(Config) ->
         ,[{echo, self()}]
     ),
     timer:sleep(100),
-    {error, [{Address, dialing_self}]} = libp2p_swarm:dial_framed_stream(
+    %% when using the p2p address, it will result in all listen addrs being pulled from the peerbook
+    %% and each will be interated over resulting in a dialing_self error for each
+    {error, Result} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,libp2p_swarm:p2p_address(Swarm)
         ,Version
         ,libp2p_stream_proxy_test
         ,[{echo, self()}]
     ),
+    S1 = sets:from_list(Result),
+    S2 = sets:from_list([{A, dialing_self} || A <- Addrs]),
+    [] = sets:to_list(sets:subtract(S1, S2)),
     ok.

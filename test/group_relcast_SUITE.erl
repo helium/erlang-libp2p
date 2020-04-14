@@ -23,21 +23,21 @@ all() ->
 
 init_per_testcase(defer_test = TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
+    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 5000}, {peer_time, 4000}]},
                                         {libp2p_group_gossip, [{peer_cache_timeout, 50}]},
                                         {libp2p_nat, [{enabled, false}]},
                                         {base_dir, ?config(base_dir, Config0)}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(close_test = TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 1000}]},
+    Swarms = test_util:setup_swarms(2, [{libp2p_peerbook, [{notify_time, 5000}, {peer_time, 4000}]},
                                         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
                                         {libp2p_nat, [{enabled, false}]},
                                         {base_dir, ?config(base_dir, Config0)}]),
     [{swarms, Swarms} | Config];
 init_per_testcase(TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 1000}]},
+    Swarms = test_util:setup_swarms(3, [{libp2p_peerbook, [{notify_time, 5000}, {peer_time, 4000}]},
                                         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
                                         {libp2p_nat, [{enabled, false}]},
                                         {base_dir, ?config(base_dir, Config0)}]),
@@ -173,7 +173,7 @@ defer_test(Config) ->
     test_util:wait_until(
       fun() ->
               lists:member({handle_msg, 2, <<"defer2">>}, receive_messages([], 1))
-      end),
+      end, 100, 250),
 
     true = is_map(libp2p_group_relcast:info(G1)),
     ok.

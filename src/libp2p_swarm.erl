@@ -42,14 +42,14 @@
 start(Name) when is_atom(Name) ->
     start(Name, []).
 
-%% @doc Starts a swarm with a given name and sarm options. This starts
+%% @doc Starts a swarm with a given name and swarm options. This starts
 %% a swarm with no listeners. The options can be used to configure and
 %% control behavior of various subsystems of the swarm.
 -spec start(atom(), swarm_opts()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name, Opts)  ->
-    RegName = list_to_atom(atom_to_list(libp2p_swarm_sup) ++ "_" ++ atom_to_list(Name)),
-    case supervisor:start_link({local,RegName}, libp2p_swarm_sup, [Name, Opts]) of
+    case libp2p_swarm_sup:start_link(Name, Opts) of
         {ok, Pid} ->
+            %% TODO - WHATS WITH THIS UNLINKING - start is called from blockchain worker
             unlink(Pid),
             {ok, Pid};
         Other -> Other
@@ -61,7 +61,7 @@ reg_name_from_tid(TID, Module)->
     list_to_atom(atom_to_list(Module) ++ "_" ++ atom_to_list(name(TID))).
 
 
-%% @doc Stops the given swarm.
+%% @doc Stops the given swarm, using the top level swarm pid
 -spec stop(pid()) -> ok.
 stop(Sup) ->
     ets:insert(tid(Sup), {shutdown, true}),
@@ -106,19 +106,19 @@ swarm(TID) ->
 %% swarm/1 and used by a number of internal swarm functions and
 %% services to find other services in the given swarm.
 -spec tid(pid()) -> ets:tab().
-tid(Sup) ->
+tid(Sup)->
     Server = libp2p_swarm_sup:server(Sup),
     gen_server:call(Server, tid).
 
 %% @doc Get the name for a swarm.
--spec name(ets:tab() | pid()) -> atom().
+-spec name(ets:tab() | pid() | atom()) -> atom().
 name(Sup) when is_pid(Sup) ->
     name(tid(Sup));
 name(TID) ->
     libp2p_swarm_sup:name(TID).
 
 %% @doc Get cryptographic address for a swarm.
--spec pubkey_bin(ets:tab() | pid()) -> libp2p_crypto:pubkey_bin().
+-spec pubkey_bin(ets:tab() | pid() | atom()) -> libp2p_crypto:pubkey_bin().
 pubkey_bin(Sup) when is_pid(Sup) ->
     pubkey_bin(tid(Sup));
 pubkey_bin(TID) ->
@@ -130,20 +130,20 @@ p2p_address(TidOrPid) ->
     libp2p_crypto:pubkey_bin_to_p2p(pubkey_bin(TidOrPid)).
 
 %% @doc Get the public key and signing function for a swarm
--spec keys(ets:tab() | pid()) -> {ok, libp2p_crypto:pubkey(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()} | {error, term()}.
+-spec keys(ets:tab() | pid() | atom()) -> {ok, libp2p_crypto:pubkey(), libp2p_crypto:sig_fun(), libp2p_crypto:ecdh_fun()} | {error, term()}.
 keys(Sup) when is_pid(Sup) ->
     keys(tid(Sup));
 keys(TID) ->
     Server = libp2p_swarm_sup:server(TID),
     gen_server:call(Server, keys).
 
--spec network_id(ets:tab() | pid(), binary()) -> true.
+-spec network_id(ets:tab() | pid() | atom(), binary() ) -> true.
 network_id(Sup, NetworkID) when is_pid(Sup) ->
     network_id(tid(Sup), NetworkID);
 network_id(TID, NetworkID) ->
     ets:insert(TID, {network_id, NetworkID}).
 
--spec network_id(ets:tab() | pid()) -> binary() | undefined.
+-spec network_id(ets:tab() | pid() | atom()) -> binary() | undefined.
 network_id(Sup) when is_pid(Sup) ->
     network_id(tid(Sup));
 network_id(TID) ->
@@ -153,7 +153,7 @@ network_id(TID) ->
     end.
 
 %% @doc get the peerbook db handle for a swarm
--spec peerbook(ets:tab() | pid()) -> libp2p_peerbook:peerbook() | false.
+-spec peerbook(ets:tab() | pid() | atom()) -> libp2p_peerbook:peerbook() | false.
 peerbook(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook(TID) ->
@@ -162,21 +162,21 @@ peerbook(TID) ->
         [] -> false
     end.
 
--spec store_peerbook(ets:tab() | pid(), libp2p_peerbook:peerbook()) -> true.
+-spec store_peerbook(ets:tab() | pid() | atom(), libp2p_peerbook:peerbook()) -> true.
 store_peerbook(Sup, Handle) when is_pid(Sup) ->
     store_peerbook(tid(Sup), Handle);
 store_peerbook(TID, Handle) ->
     ets:insert(TID, {peerbook_db, Handle}).
 
 %% @doc Get the peerbook pid for a swarm.
--spec peerbook_pid(ets:tab() | pid()) -> pid().
+-spec peerbook_pid(ets:tab() | pid() | atom()) -> pid().
 peerbook_pid(Sup) when is_pid(Sup) ->
     peerbook(tid(Sup));
 peerbook_pid(TID) ->
-    libp2p_swarm_sup:peerbook(TID).
+    libp2p_peerbook_sup:peerbook(TID).
 
 %% @doc Get the cache for a swarm.
--spec cache(ets:tab() | pid()) -> pid().
+-spec cache(ets:tab() | pid() | atom()) -> pid().
 cache(Sup) when is_pid(Sup) ->
     cache(tid(Sup));
 cache(TID) ->
@@ -192,7 +192,7 @@ opts(TID) ->
 
 %% @doc Get a list of libp2p_session addresses and pids for all open
 %% sessions to remote peers.
--spec sessions(ets:tab() | pid()) -> [{string(), pid()}].
+-spec sessions(ets:tab() | pid() | atom()) -> [{string(), pid()}].
 sessions(Sup) when is_pid(Sup) ->
     sessions(tid(Sup));
 sessions(TID) ->
@@ -245,18 +245,19 @@ listen(TID, Addr) ->
                             % with confusing messages.
                             {error, Error};
                         {error, Error} ->
-                            lager:error("Failed to start listener on ~p: ~p", [ListenAddr, Error]),
                             {error, Error}
                     end
             end;
         {error, Reason} -> {error, Reason}
     end.
 
--spec listen_addrs(pid() | ets:tab()) -> [string()].
+-spec listen_addrs(pid() | ets:tab() | atom()) -> [string()].
 listen_addrs(Sup) when is_pid(Sup) ->
     listen_addrs(tid(Sup));
 listen_addrs(TID) ->
     libp2p_config:listen_addrs(TID).
+
+
 
 %% @private Register a session wih the swarm. This is used in
 %% start_server_session to get an accepted connection to be registered
@@ -267,7 +268,7 @@ register_session(Sup, SessionPid) ->
     gen_server:cast(Server, {register, libp2p_config:session(), SessionPid}).
 
 %% @private Register a session wih the swarm. This is used in `listen' a
-%% started connection to be registered and monitored by the sware
+%% started connection to be registered and monitored by the swarm
 %% server.
 -spec register_listener(pid(), pid()) -> ok.
 register_listener(Sup, SessionPid) ->
@@ -305,7 +306,6 @@ dial(Sup, Addr, Path) when is_pid(Sup) ->
     dial(Sup, Addr, Path, [], ?CONNECT_TIMEOUT);
 dial(TID, Addr, Path) ->
     dial(swarm(TID), Addr, Path).
-
 
 -spec dial(pid() | ets:tab(), string(), string(), connect_opts(), pos_integer())
           -> {ok, libp2p_connection:connection()} | {error, term()}.

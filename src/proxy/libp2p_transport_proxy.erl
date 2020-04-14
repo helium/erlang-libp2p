@@ -65,8 +65,8 @@ connect_to(Pid, MAddr, Options, Timeout, TID, PAddress, AAddress) ->
         {id, ID}
     ],
     case libp2p_proxy:dial_framed_stream(Swarm, PAddress, Args) of
-        {error, Reason} ->
-            lager:error("failed to dial proxy server ~p ~p", [PAddress, Reason]),
+        {error, _Reason} ->
+            lager:error("failed to dial proxy server ~p ~p", [PAddress, _Reason]),
             {error, fail_dial_proxy};
         {ok, Stream} ->
             erlang:monitor(process, Stream),

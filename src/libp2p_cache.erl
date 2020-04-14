@@ -80,11 +80,14 @@ init([TID]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_auxiliary_sup:register_cache(TID),
     SwarmName = libp2p_swarm:name(TID),
-    DataDir = libp2p_config:base_dir(TID),
-    Opts = [{file, filename:join([DataDir, SwarmName, "cache.dets"])}],
+    FileName = libp2p_config:swarm_dir(TID, [SwarmName, "cache.dets"]),
+    Opts = [{file, FileName}],
     {ok, Dets} = dets:open_file(SwarmName, Opts),
     _ = migrate(Dets),
     {ok, #state{dets=Dets}}.
+
+
+
 
 handle_call({insert, Key, Value}, _From, #state{dets=Dets}=State) ->
     Result = dets:insert(Dets, {Key, Value}),

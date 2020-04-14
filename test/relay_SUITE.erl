@@ -45,6 +45,7 @@ init_per_testcase(TestCase, Config) ->
 %% @end
 %%--------------------------------------------------------------------
 end_per_testcase(_, _Config) ->
+    meck:unload(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -58,11 +59,15 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [
-        {libp2p_nat, [{enabled, false}]}
-    ],
+        {libp2p_nat, [{enabled, false}]},
+        {libp2p_peerbook, [{peer_time, 4000},
+                           {notify_time, 5000}]}
+        ],
+
     Version = "relaytest/1.0.0",
 
-    {ok, ASwarm} = libp2p_swarm:start(relay_basic_a, SwarmOpts),
+    ASwarmName = relay_basic_a,
+    {ok, ASwarm} = libp2p_swarm:start(ASwarmName, SwarmOpts),
     ok = libp2p_swarm:listen(ASwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         ASwarm,
@@ -70,7 +75,8 @@ basic(_Config) ->
         {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), ASwarm]}
     ),
 
-    {ok, BSwarm} = libp2p_swarm:start(relay_basic_b, SwarmOpts),
+    BSwarmName = relay_basic_b,
+    {ok, BSwarm} = libp2p_swarm:start(BSwarmName, SwarmOpts),
     ok = libp2p_swarm:listen(BSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         BSwarm,
@@ -78,7 +84,8 @@ basic(_Config) ->
         {libp2p_framed_stream, server, [libp2p_stream_relay_test, self(), BSwarm]}
     ),
 
-    {ok, CSwarm} = libp2p_swarm:start(relay_basic_c, SwarmOpts),
+    CSwarmName = relay_basic_c,
+    {ok, CSwarm} = libp2p_swarm:start(CSwarmName, SwarmOpts),
     ok = libp2p_swarm:listen(CSwarm, "/ip4/0.0.0.0/tcp/0"),
     libp2p_swarm:add_stream_handler(
         CSwarm,
@@ -137,12 +144,12 @@ basic(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 100, 250),
 
 
     % Testing relay address
     [ACircuitAddress] = get_relay_addresses(ASwarm),
-    ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
+    ct:pal("Swarm A Circuit Address ~p", [ACircuitAddress]),
 
     % wait for C to get A's relay address gossiped to it
     ok = test_util:wait_until(
@@ -154,7 +161,7 @@ basic(_Config) ->
                     false
             end
         end,
-        100,
+        150,
         250
     ),
 
@@ -167,17 +174,19 @@ basic(_Config) ->
     ),
 
     ok = libp2p_swarm:stop(BSwarm),
+
     % wait for A to remove its relay address in C
     ok = test_util:wait_until(
         fun() ->
             case libp2p_peerbook:get(libp2p_swarm:peerbook(CSwarm), libp2p_swarm:pubkey_bin(ASwarm)) of
                 {ok, PeerBookEntry} ->
+                    lager:debug("peerbook listen addrs ~p", [libp2p_peer:listen_addrs(PeerBookEntry)]),
                     not lists:member(ACircuitAddress, libp2p_peer:listen_addrs(PeerBookEntry));
                 _ ->
                     false
             end
         end,
-        100,
+        150,
         250
     ),
 

@@ -60,8 +60,8 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
                                  libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
                                  Session),
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:register_session(PeerBook, Session, Identify),
-    libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]),
+    libp2p_peerbook:register_session(PeerBook, libp2p_identify:pubkey_bin(Identify)),
+    libp2p_peerbook:put(PeerBook, libp2p_identify:peer(Identify)),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
@@ -100,6 +100,7 @@ handle_cast(Msg, State) ->
 
 
 terminate(Reason, #state{tid=TID}) ->
+    lager:debug("swarm ~p terminating with reason ~p", [TID, Reason]),
     lists:foreach(fun({Addr, Pid}) ->
                           libp2p_config:remove_session(TID, Addr),
                           catch libp2p_session:close(Pid, Reason, infinity)

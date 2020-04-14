@@ -71,6 +71,7 @@ invalid_key_exchange(_Config) ->
         {libp2p_framed_stream, server, [libp2p_secure_framed_stream_echo_test, self(), ServerSwarm, {secured, ServerSwarm}]}
     ),
 
+
     {ok, ClientSwarm} = libp2p_swarm:start(insecure_client_test, SwarmOpts),
     ok = libp2p_swarm:listen(ClientSwarm, "/ip4/0.0.0.0/tcp/0"),
 

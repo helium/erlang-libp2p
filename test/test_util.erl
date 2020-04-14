@@ -24,10 +24,13 @@ setup() ->
 setup_swarms(0, _Opts, Acc) ->
     Acc;
 setup_swarms(N, Opts, Acc) ->
+    BaseDir = proplists:get_value(base_dir, Opts),
     setup_swarms(N - 1, Opts,
                  [begin
                       Name = list_to_atom("swarm" ++ integer_to_list(erlang:unique_integer([monotonic]))),
-                      NewOpts = [{libp2p_nat, [{enabled, false}]} | Opts],
+                      NewOpts = [{libp2p_nat, [{enabled, false}]},
+                                 {data_dir, filename:join(BaseDir, atom_to_list(Name))}
+                          | Opts],
                       {ok, Pid} = libp2p_swarm:start(Name, NewOpts),
                       ok = libp2p_swarm:listen(Pid, "/ip4/0.0.0.0/tcp/0"),
                       Pid
@@ -102,7 +105,7 @@ await_gossip_group(Swarm, Swarms) ->
       fun() ->
               GroupAddrs = sets:from_list(libp2p_group_gossip:connected_addrs(GossipGroup, all)),
               sets:is_subset(ExpectedAddrs, GroupAddrs)
-      end).
+      end, 150, 250).
 
 await_gossip_groups(Swarms) ->
     lists:foreach(fun(S) ->

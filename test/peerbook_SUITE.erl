@@ -9,14 +9,6 @@
 
 all() ->
     [
-     accessor_test,
-     bad_peer_test,
-     put_test,
-     gossip_test,
-     network_id_gossip_test,
-     stale_test,
-     blacklist_test,
-     association_test
     ].
 
 
