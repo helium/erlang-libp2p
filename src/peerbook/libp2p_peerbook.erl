@@ -1,10 +1,13 @@
 -module(libp2p_peerbook).
 
 -export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
--export([keys/1, values/1, put/2, put/3, get/2,
-         random/1, random/2, refresh/2, is_key/2, remove/2, stale_time/1,
+-export([keys/1, values/1,
+         put/2, put/3, get/2,
+         random/1, random/2, random/3, random/4,
+         refresh/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
-         register_session/3, unregister_session/2, blacklist_listen_addr/3,
+         register_session/3, unregister_session/2,
+         blacklist_listen_addr/3,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/3, init_gossip_data/1]).
@@ -147,12 +150,15 @@ get(#peerbook{tid=TID}=Handle, ID) ->
     end.
 
 random(Peerbook) ->
-    random(Peerbook, [], 5).
+    random(Peerbook, [], fun(_Peer) -> true end, 15).
 
 random(Peerbook, Exclude) ->
-    random(Peerbook, Exclude, 5).
+    random(Peerbook, Exclude, fun(_Peer) -> true end, 15).
 
-random(Peerbook=#peerbook{store=Store}, Exclude, Tries) ->
+random(Peerbook, Exclude, Pred) ->
+    random(Peerbook, Exclude, Pred, 15).
+
+random(Peerbook=#peerbook{store=Store}, Exclude, Pred, Tries) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
     {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} = rocksdb:iterator_move(Iterator, first),
     {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
@@ -194,9 +200,14 @@ random(Peerbook=#peerbook{store=Store}, Exclude, Tries) ->
                             %% use unsafe coming off the disk
                             try libp2p_peer:decode_unsafe(Bin) of
                                 Peer ->
-                                    rocksdb:iterator_close(Iterator),
-                                    {Addr, Peer}
-                            catch
+                                    case Pred(Peer) of
+                                        true ->
+                                            rocksdb:iterator_close(Iterator),
+                                            {Addr, Peer};
+                                        _ ->
+                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                    end
+                             catch
                                 _:_ ->
                                     RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
                             end
