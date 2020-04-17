@@ -31,9 +31,6 @@
 
 -record(state, {
     tid :: ets:tab() | undefined,
-    peers = [] :: [libp2p_peer:peer()],
-    peer_index = 1,
-    flap_count = 0,
     address :: string() | undefined,
     stream :: pid() | undefined,
     retrying = make_ref() :: reference(),
@@ -44,8 +41,8 @@
 
 -define(FLAP_LIMIT, 3).
 -define(BANLIST_TIMEOUT, timer:minutes(5)).
+-define(BANLIST_LIMIT, 20).
 -define(MAX_RELAY_DURATION, timer:minutes(90)).
--define(MAX_PEERS, 500).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -135,33 +132,15 @@ handle_cast(stop_relay, #state{stream=Pid, address=Address, tid=TID}=State) when
 handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
     {noreply, State};
-handle_cast(init_relay, #state{tid=TID, stream=undefined}=State0) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    PeerBook = libp2p_swarm:peerbook(TID),
-    Peers = case State0#state.peers of
-                [] ->
-                    ok = libp2p_peerbook:join_notify(PeerBook, self()),
-                    lager:debug("joined peerbook ~p notifications", [PeerBook]),
-                    libp2p_peerbook:values(PeerBook);
-                _ ->
-                    State0#state.peers
-            end,
-    SortedPeers = sort_peers(Peers, SwarmPubKeyBin, State0),
-    case SortedPeers of
-        [] ->
-            {noreply, retry(State0)};
-        _ ->
-            State = State0#state{peers=SortedPeers, peer_index=rand:uniform(length(SortedPeers))},
-            case init_relay(State) of
-                {ok, Pid} ->
-                    _ = erlang:monitor(process, Pid),
-                    lager:info("relay started successfully with ~p", [Pid]),
-                    {noreply, add_flap(State#state{stream=Pid, address=undefined})};
-                _Error ->
-                    lager:warning("could not initiate relay ~p", [_Error]),
-                    {noreply, next_peer(retry(State))}
-            end
+handle_cast(init_relay, #state{stream = undefined} = State) ->
+    case init_relay(State) of
+        {ok, Pid} ->
+            _ = erlang:monitor(process, Pid),
+            lager:info("relay started successfully with ~p", [Pid]),
+            {noreply, State#state{stream=Pid, address=undefined}};
+        _Error ->
+            lager:warning("could not initiate relay ~p", [_Error]),
+            {noreply, retry(State)}
     end;
 handle_cast(init_relay,  #state{stream=Pid}=State) when is_pid(Pid) ->
     lager:info("requested to init relay but we already have one @ ~p", [Pid]),
@@ -170,26 +149,15 @@ handle_cast(_Msg, State) ->
     lager:warning("rcvd unknown cast msg: ~p", [_Msg]),
     {noreply, State}.
 
-handle_info({new_peers, NewPeers}, #state{tid=TID, stream=Pid, peers=Peers}=State) when is_pid(Pid) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    PeerBook = libp2p_swarm:peerbook(TID),
-    MergedPeers = sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State),
-    {noreply, State#state{peers=MergedPeers, peer_index=rand:uniform(length(MergedPeers))}};
-handle_info({new_peers, NewPeers}, #state{tid=TID, peers=Peers}=State) ->
-    Swarm = libp2p_swarm:swarm(TID),
-    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
-    PeerBook = libp2p_swarm:peerbook(TID),
-    {noreply, State#state{peers=sort_peers(merge_peers(NewPeers, Peers, PeerBook), SwarmPubKeyBin, State)}};
 handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
         {ok, Pid} ->
             _ = erlang:monitor(process, Pid),
             lager:info("relay started successfully with ~p", [Pid]),
-            {noreply, add_flap(State#state{stream=Pid, address=undefined})};
+            {noreply, State#state{stream=Pid, address=undefined}};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
-            {noreply, next_peer(retry(State))}
+            {noreply, retry(State)}
     end;
 handle_info({'DOWN', _Ref, process, Pid, Reason}, #state{tid=TID, stream=Pid, address=Address}=State) ->
     lager:info("Relay session with address ~p closed with reason ~p", [Address, Reason]),
@@ -247,74 +215,22 @@ get_relay_server(Swarm) ->
             {error, swarm_down}
     end.
 
--spec init_relay(state()) -> {ok, pid()} | {error, any()} | ignore.
-init_relay(#state{peers=[]}) ->
-    {error, no_peer};
-init_relay(#state{tid=TID}=State) ->
+-spec init_relay(state()) ->
+                        {ok, pid()} | {error, any()} | ignore.
+init_relay(#state{tid = TID, banlist = Banlist}) ->
     Swarm = libp2p_swarm:swarm(TID),
+    SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
+    Peerbook = libp2p_swarm:peerbook(Swarm),
+
     lager:debug("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
-    Peer = lists:nth(State#state.peer_index, State#state.peers),
-    Address = libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer)),
-    lager:info("initiating relay with peer ~p (~b/~b)", [Address, State#state.peer_index, length(State#state.peers)]),
-    libp2p_relay:dial_framed_stream(Swarm, Address, []).
-
--spec sort_peers([libp2p_peer:peer()], libp2p_crypto:pubkey_bin(), #state{}) -> [libp2p_peer:peer()].
-sort_peers(Peers0, SwarmPubKeyBin, State) ->
-    Peers1 = lists:filter(fun(Peer) ->
-        libp2p_peer:pubkey_bin(Peer) /= SwarmPubKeyBin andalso
-        libp2p_peer:has_public_ip(Peer) andalso
-        not lists:member(libp2p_peer:pubkey_bin(Peer), State#state.banlist)
-    end, Peers0),
-    lists:sublist(lists:sort(fun sort_peers_fun/2, shuffle(Peers1)), ?MAX_PEERS).
-
--spec sort_peers_fun(libp2p_peer:peer(), libp2p_peer:peer()) -> boolean().
-sort_peers_fun(A, B) ->
-    TypeA = libp2p_peer:nat_type(A),
-    TypeB= libp2p_peer:nat_type(B),
-    LengthA = erlang:length(libp2p_peer:connected_peers(A)),
-    LengthB = erlang:length(libp2p_peer:connected_peers(B)),
-    case {TypeA, TypeB} of
-        {X, X} ->
-            LengthA < LengthB;
-        {none, _} ->
-            true;
-        {_, none} ->
-            false;
-        {static, _} ->
-            true;
-        {_, static} ->
-            false;
-        _ ->
-            true
-    end.
-
-shuffle(List) ->
-    element(2, lists:unzip(lists:sort([{rand:uniform(), E} || E <- List]))).
-
-%% merge new peers into old peers based on their address
-merge_peers(NewPeers, OldPeers, PeerBook) ->
-    StaleTime = libp2p_peerbook:stale_time(PeerBook),
-    Peers = maps:values(maps:merge(maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- OldPeers]),
-                                   maps:from_list([{libp2p_peer:pubkey_bin(P), P} || P <- NewPeers]))),
-    lists:filter(fun(P) -> not libp2p_peer:is_stale(P, StaleTime) end, Peers).
-
--spec next_peer(state()) -> state().
-next_peer(State = #state{peers=Peers, peer_index=PeerIndex}) ->
-    case PeerIndex + 1 > length(Peers) of
-        true when Peers == [] ->
-            State#state{peer_index=1};
-        true ->
-            State#state{peer_index=rand:uniform(length(Peers))};
+    case libp2p_peerbook:random(Peerbook,[SwarmPubKeyBin | Banlist],
+                                fun libp2p_peer:has_public_ip/1) of
+        {Address, _Peer} ->
+            lager:info("initiating relay with peer ~p (~b/~b)", [Address]),
+            Address1 = libp2p_crypto:pubkey_bin_to_p2p(Address),
+            libp2p_relay:dial_framed_stream(Swarm, Address1, []);
         false ->
-            State#state{peer_index=PeerIndex +1}
-    end.
-
-add_flap(State = #state{flap_count=Flaps}) ->
-    case Flaps + 1 >= ?FLAP_LIMIT of
-        true ->
-            next_peer(State#state{flap_count=0});
-        false ->
-            State#state{flap_count=Flaps+1}
+            {error, retry}
     end.
 
 banlist(Address, State=#state{banlist=Banlist}) ->
@@ -325,6 +241,13 @@ banlist(Address, State=#state{banlist=Banlist}) ->
             State;
         false ->
             erlang:send_after(?BANLIST_TIMEOUT, self(), {unbanlist, PeerAddr}),
-            %% restrict the length of the banlist to 1/3 of all the available peers
-            State#state{banlist=lists:sublist([PeerAddr|Banlist], length(State#state.peers) div 3)}
+            BanList1 =
+                case length(Banlist) >= ?BANLIST_LIMIT of
+                    true ->
+                        [_H | T] = Banlist,
+                        T ++ [Address];
+                    false ->
+                        Banlist ++ [Address]
+                end,
+            State#state{banlist=BanList1}
     end.
