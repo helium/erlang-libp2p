@@ -226,7 +226,7 @@ init_relay(#state{tid = TID, banlist = Banlist}) ->
     case libp2p_peerbook:random(Peerbook,[SwarmPubKeyBin | Banlist],
                                 fun(P) ->
                                         libp2p_peer:has_public_ip(P) andalso
-                                            not libp2p_peer:is_stale(P, timer:minutes(15))
+                                            not libp2p_peer:is_stale(P, timer:minutes(45))
                                 end, 100) of
         {Address, _Peer} ->
             lager:info("initiating relay with peer ~p (~b/~b)", [Address]),
