@@ -158,7 +158,7 @@ random(Peerbook, Exclude) ->
 random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
-random(Peerbook=#peerbook{store=Store}, Exclude, Pred, Tries) ->
+random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude, Pred, Tries) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
     {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} = rocksdb:iterator_move(Iterator, first),
     {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
@@ -200,12 +200,17 @@ random(Peerbook=#peerbook{store=Store}, Exclude, Pred, Tries) ->
                             %% use unsafe coming off the disk
                             try libp2p_peer:decode_unsafe(Bin) of
                                 Peer ->
-                                    case Pred(Peer) of
+                                    case libp2p_peer:is_stale(Peer, StaleTime) of
                                         true ->
-                                            rocksdb:iterator_close(Iterator),
-                                            {Addr, Peer};
-                                        _ ->
-                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                                        false ->
+                                            case Pred(Peer) of
+                                                true ->
+                                                    rocksdb:iterator_close(Iterator),
+                                                    {Addr, Peer};
+                                                _ ->
+                                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                            end
                                     end
                              catch
                                 _:_ ->
