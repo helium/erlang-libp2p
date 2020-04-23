@@ -134,9 +134,9 @@ handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
 
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
-handle_cast({request_target, inbound, WorkerPid}, State=#state{}) ->
+handle_cast({request_target, inbound, WorkerPid, _Ref}, State=#state{}) ->
     {noreply, stop_inbound_worker(WorkerPid, State)};
-handle_cast({request_target, peerbook, WorkerPid}, State=#state{tid=TID}) ->
+handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) ->
     LocalAddr = libp2p_swarm:pubkey_bin(TID),
     PeerList = case libp2p_swarm:peerbook(TID) of
                    false ->
@@ -152,15 +152,15 @@ handle_cast({request_target, peerbook, WorkerPid}, State=#state{tid=TID}) ->
                                  []
                        end
                end,
-    {noreply, assign_target(WorkerPid, PeerList, State)};
-handle_cast({request_target, seed, WorkerPid}, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
+    {noreply, assign_target(WorkerPid, Ref, PeerList, State)};
+handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
     {CurrentAddrs, _} = lists:unzip(connections(all, State)),
     LocalAddr = libp2p_swarm:p2p_address(TID),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
                                              sets:from_list(ExcludedAddrs))),
-    {noreply, assign_target(WorkerPid, TargetAddrs, State)};
+    {noreply, assign_target(WorkerPid, Ref, TargetAddrs, State)};
 handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
     %% use a fun to generate the send data for each gossip peer
     %% this can be helpful to send a unique random subset of data to each peer
@@ -298,27 +298,39 @@ connections(Kind, #state{workers=Workers}) ->
                         Acc
                 end, [], Workers).
 
-assign_target(WorkerPid, TargetAddrs, State=#state{workers=Workers}) ->
+assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers}) ->
     case length(TargetAddrs) of
         0 ->
-            case lookup_worker(WorkerPid, #worker.pid, State) of
-                #worker{kind=seed, target=SelectedAddr} when SelectedAddr /= undefined ->
+            %% the ref is stable across restarts, so use that as the lookup key
+            case lookup_worker(WorkerRef, #worker.ref, State) of
+                Worker=#worker{kind=seed, target=SelectedAddr, pid=StoredWorkerPid} when SelectedAddr /= undefined ->
                     %% don't give up on the seed nodes in case we're entirely offline
                     %% we need at least one connection to bootstrap the swarm
                     ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
-                    libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec});
+                    libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
+                    %% check if this worker got restarted
+                    case WorkerPid /= StoredWorkerPid of
+                        true ->
+                            NewWorkers = lists:keyreplace(WorkerRef, #worker.ref, Workers,
+                                                          Worker#worker{pid=WorkerPid}),
+                            State#state{workers=NewWorkers};
+                        false ->
+                            State
+                    end;
                 _ ->
-                    ok
-            end,
-            State;
+                    State
+            end;
         _ ->
             SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
             ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
-            case lookup_worker(WorkerPid, #worker.pid, State) of
+            %% the ref is stable across restarts, so use that as the lookup key
+            case lookup_worker(WorkerRef, #worker.ref, State) of
                 Worker=#worker{} ->
-                    NewWorkers = lists:keyreplace(WorkerPid, #worker.pid, Workers,
-                                                  Worker#worker{target=SelectedAddr}),
+                    %% since we have to update the worker here anyway, update the worker pid as well
+                    %% so we handle restarts smoothly
+                    NewWorkers = lists:keyreplace(WorkerRef, #worker.ref, Workers,
+                                                  Worker#worker{target=SelectedAddr, pid=WorkerPid}),
                     State#state{workers=NewWorkers};
                 _ ->
                     State
@@ -350,7 +362,7 @@ start_inbound_worker(Target, StreamPid, #state{tid=TID, sup=Sup}) ->
                         WorkerSup,
                         #{ id => Ref,
                            start => {libp2p_group_worker, start_link,
-                                     [inbound, StreamPid, self(), ?GROUP_ID, TID]},
+                                     [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID]},
                            restart => temporary
                          }),
     #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}.
@@ -374,7 +386,7 @@ start_worker(Kind, #state{tid=TID, sup=Sup}) ->
                         WorkerSup,
                         #{ id => Ref,
                            start => {libp2p_group_worker, start_link,
-                                     [Kind, self(), ?GROUP_ID, TID]},
+                                     [Ref, Kind, self(), ?GROUP_ID, TID]},
                            restart => transient
                          }),
     #worker{kind=Kind, pid=WorkerPid, target=undefined, ref=Ref}.
