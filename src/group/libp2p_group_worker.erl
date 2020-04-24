@@ -7,7 +7,7 @@
 -export_type([stream_client_spec/0]).
 
 %% API
--export([start_link/4, start_link/5,
+-export([start_link/5, start_link/6,
          assign_target/2, clear_target/1,
          assign_stream/2, send/3, send_ack/3, close/1]).
 
@@ -32,7 +32,8 @@
 -type target() :: {MAddr::string(), Spec::stream_client_spec()}.
 
 -record(data,
-        { tid :: ets:tab(),
+        { ref :: reference(),
+          tid :: ets:tab(),
           kind :: atom() | pos_integer(),
           group_id :: string(),
           server :: pid(),
@@ -107,34 +108,34 @@ info(Pid) ->
 %% gen_statem
 %%
 
--spec start_link(atom(), pid(), string(), ets:tab()) ->
+-spec start_link(reference(), atom(), pid(), string(), ets:tab()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Kind, Server, GroupID, TID) ->
-    gen_statem:start_link(?MODULE, [Kind, Server, GroupID, TID], []).
+start_link(Ref, Kind, Server, GroupID, TID) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID, TID], []).
 
--spec start_link(atom(), Stream::pid(), Server::pid(), string(), ets:tab()) ->
+-spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), ets:tab()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Kind, StreamPid, Server, GroupID, TID) ->
-    gen_statem:start_link(?MODULE, [Kind, StreamPid, Server, GroupID, TID], []).
+start_link(Ref, Kind, StreamPid, Server, GroupID, TID) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server, GroupID, TID], []).
 
 callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Kind, StreamPid, Server, GroupID, TID]) ->
+init([Ref, Kind, StreamPid, Server, GroupID, TID]) ->
     process_flag(trap_exit, true),
     {ok, connected,
-     update_metadata(#data{tid=TID, server=Server, kind=Kind, group_id=GroupID,
+     update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
                           connect_retry_backoff=init_connect_retry_backoff()}),
     {next_event, info, {assign_stream, StreamPid}}};
-init([Kind, Server, GroupID, TID]) ->
+init([Ref, Kind, Server, GroupID, TID]) ->
     process_flag(trap_exit, true),
     {ok, targeting,
-     update_metadata(#data{tid=TID, server=Server, kind=Kind, group_id=GroupID,
+     update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
                           connect_retry_backoff=init_connect_retry_backoff()}),
      ?TRIGGER_TARGETING}.
@@ -145,7 +146,7 @@ targeting(cast, {assign_target, Target}, Data=#data{}) ->
     {next_state, connecting, cancel_targeting_timer(Data#data{target=Target}),
      ?TRIGGER_CONNECT_RETRY};
 targeting(info, targeting_timeout, Data=#data{}) ->
-    libp2p_group_server:request_target(Data#data.server, Data#data.kind, self()),
+    libp2p_group_server:request_target(Data#data.server, Data#data.kind, self(), Data#data.ref),
     {keep_state, start_targeting_timer(Data)};
 targeting(info, close, Data=#data{}) ->
     {next_state, closing, cancel_targeting_timer(Data)};

@@ -21,6 +21,7 @@
        { target :: string(),
          index :: pos_integer(),
          pid :: pid() | self,
+         ref :: reference(),
          ready = false :: boolean(),
          in_flight = 0 :: non_neg_integer(),
          connects = 0 :: non_neg_integer(),
@@ -197,7 +198,7 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
-handle_cast({request_target, Index, WorkerPid}, State=#state{tid=TID}) ->
+handle_cast({request_target, Index, WorkerPid, _WorkerRef}, State=#state{tid=TID}) ->
     {Target, NewState} = case lookup_worker(Index, State) of
                              Worker = #worker{target=T, pid=OldPid} when WorkerPid /= OldPid ->
                                  lager:info("Worker for index ~p changed from ~p to ~p", [Index, OldPid, WorkerPid]),
@@ -393,18 +394,19 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index
                       %% Dispatch a send_ready since there is no group
                       %% worker for self to do so
                       libp2p_group_server:send_ready(self(), Addr, SelfIndex, true),
-                      #worker{target=Addr, index=Index, pid=self};
+                      #worker{target=Addr, index=Index, pid=self, ref=make_ref()};
                   ({Index, Addr}) ->
+                      Ref = make_ref(),
                       {ok, WorkerPid} = supervisor:start_child(
                                           WorkerSup,
-                                          #{ id => make_ref(),
+                                          #{ id => Ref,
                                              start => {libp2p_group_worker, start_link,
-                                                       [Index, self(), GroupID, TID]},
+                                                       [Ref, Index, self(), GroupID, TID]},
                                              restart => transient
                                            }),
                       %% sync on the mailbox having been flushed.
                       sys:get_status(WorkerPid),
-                      #worker{target=Addr, index=Index, pid=WorkerPid}
+                      #worker{target=Addr, index=Index, pid=WorkerPid, ref=Ref}
               end, lists:zip(lists:seq(1, length(TargetAddrs)), TargetAddrs)).
 
 is_ready_worker(Index, Ready, State=#state{}) ->
