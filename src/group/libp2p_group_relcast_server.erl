@@ -314,7 +314,7 @@ handle_cast({handle_data, Index, Msgs}, State=#state{self_index=_SelfIndex}) ->
                     {noreply, dispatch_next_messages(State)};
                 %% store it as a canary
                 false ->
-                    Pending = maps:put(Index, PMsgs, State#state.pending),
+                    Pending = maps:put(Index, lists:reverse(PMsgs), State#state.pending),
                     {noreply, dispatch_next_messages(State#state{store = RC,
                                                                  pending = Pending})}
             end;
