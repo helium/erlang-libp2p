@@ -88,8 +88,7 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
             false -> lists:filter(fun libp2p_peer:verify/1, PeerList0)
         end,
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
-    %% XXX uncomment this to reject any peers publishing RFC1918 addresses once the network has transitioned over
-    AllowRFC1918 = true, %% is_rfc1918_allowed(TID),
+    AllowRFC1918 = is_rfc1918_allowed(TID),
     NewPeers = lists:foldl(
                  fun(NewPeer, Acc) ->
                          NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
