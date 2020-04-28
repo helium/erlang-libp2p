@@ -332,8 +332,6 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
-
-%% the any here is because we had to do bad things to the typesystem
 -spec handle_gossip_data(pid(), binary() | [libp2p_peer:peer()], peerbook()) -> noreply.
 handle_gossip_data(_StreamPid, DecodedList, Handle) ->
     ?MODULE:put(Handle, DecodedList, true),
