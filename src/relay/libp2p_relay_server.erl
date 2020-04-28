@@ -229,8 +229,8 @@ init_relay(#state{tid = TID, banlist = Banlist}) ->
                                             not libp2p_peer:is_stale(P, timer:minutes(45))
                                 end, 100) of
         {Address, _Peer} ->
-            lager:info("initiating relay with peer ~p (~b/~b)", [Address]),
             Address1 = libp2p_crypto:pubkey_bin_to_p2p(Address),
+            lager:info("initiating relay with peer ~p", [Address1]),
             libp2p_relay:dial_framed_stream(Swarm, Address1, []);
         false ->
             {error, retry}
