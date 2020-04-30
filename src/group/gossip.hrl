@@ -1,0 +1,4 @@
+-define(GROUP_PATH_V1, "gossip/1.0.0").
+-define(GROUP_PATH_V2, "gossip/1.0.2").
+-define(GROUP_DEFAULT_PATH, ?GROUP_PATH_V1).
+-define(SUPPORTED_GOSSIP_PATHS, [?GROUP_PATH_V2, ?GROUP_PATH_V1]).

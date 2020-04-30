@@ -12,7 +12,7 @@
 
 -export_type([handler/0, connection_kind/0]).
 
--export([add_handler/3, remove_handler/2, send/3, connected_addrs/2]).
+-export([add_handler/3, remove_handler/2, send/3, connected_addrs/2, connected_pids/2]).
 
 -spec add_handler(pid(), string(), handler()) -> ok.
 add_handler(Pid, Key, Handler) ->
@@ -29,6 +29,10 @@ remove_handler(Pid, Key) ->
 send(Pid, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
     gen_server:cast(Pid, {send, Key, Data}).
 
--spec connected_addrs(pid(), connection_kind() | all) -> [{MAddr::string(), Pid::pid()}].
+-spec connected_addrs(pid(), connection_kind() | all) -> [MAddr::string()].
 connected_addrs(Pid, WorkerKind) ->
     gen_server:call(Pid, {connected_addrs, WorkerKind}, infinity).
+
+-spec connected_pids(Pid::pid(), connection_kind() | all) -> [pid()].
+connected_pids(Pid, WorkerKind) ->
+    gen_server:call(Pid, {connected_pids, WorkerKind}, infinity).

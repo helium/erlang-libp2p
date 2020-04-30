@@ -60,7 +60,7 @@ init(server, Connection, [Path, AckModule, AckState | _]) ->
                           [error_logger_lager_h:format_reason(Exit)]),
             {stop, normal}
     end;
-init(client, Connection, [AckRef, AckModule, AckState | _]) ->
+init(client, Connection, [_Path, AckRef, AckModule, AckState | _]) ->
     libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.

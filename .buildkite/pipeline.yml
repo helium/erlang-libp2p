@@ -4,3 +4,5 @@ steps:
     name: ":hammer: build"
     agents:
       queue: "erlang"
+    artifact_paths:
+      - "artifacts/*"
