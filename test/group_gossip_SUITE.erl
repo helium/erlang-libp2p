@@ -7,13 +7,19 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([connection_test/1, gossip_test/1, seed_test/1]).
+-export([forwards_compat_gossip_test/1, backwards_compat_gossip_test/1]).
+-export([same_path_gossip_test1/1, same_path_gossip_test2/1]).
 -export([init_gossip_data/1, handle_gossip_data/3]).
 
 all() ->
     [
-      connection_test
-    , gossip_test
-    , seed_test
+%%      connection_test
+%%    , gossip_test
+%%    , seed_test
+%%     forwards_compat_gossip_test
+%%     , backwards_compat_gossip_test
+%%     , same_path_gossip_test1
+      same_path_gossip_test2
     ].
 
 
@@ -36,6 +42,45 @@ init_per_testcase(seed_test = TestCase, Config) ->
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
     [{swarms, [S1, S2]} | Config];
+
+
+init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test;
+                                         TestCase ==  backwards_compat_gossip_test;
+                                         TestCase == same_path_gossip_test1;
+                                         TestCase == same_path_gossip_test2 ->
+
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+
+    [S1] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_protocols, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config0)}
+                                     ]),
+
+    [S2] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_protocols, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config0)}
+                                     ]),
+
+    [S3] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_protocols, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config0)}
+                                     ]),
+
+    [S4] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_protocols, ["gossip/1.0.2"]}  ]},
+                                       {base_dir, ?config(base_dir, Config0)}
+                                     ]),
+
+    [{swarms, [S1, S2, S3, S4]} | Config];
+
 init_per_testcase(TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     Swarms = test_util:setup_swarms(2, [
@@ -112,6 +157,130 @@ gossip_test(Config) ->
     end,
 
     ok.
+
+
+forwards_compat_gossip_test(Config) ->
+    %% S1 ( gossip/1.0.0 ) will dial S2 ( gossip/1.0.2 / gossip/1.0.0 )
+    %% S1 will gossip to S2
+    timer:sleep(1000),
+
+    [S1, S2, _S3, _S4] = ?config(swarms, Config),
+
+    S1Group = libp2p_swarm:gossip_group(S1),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
+
+    test_util:connect_swarms(S1, S2),
+
+    test_util:await_gossip_groups([S1, S2]),
+
+    S2Group = libp2p_swarm:gossip_group(S2),
+    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    ok.
+
+backwards_compat_gossip_test(Config) ->
+    %% S2 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S1 ( gossip/1.0.0 )
+    %% S1 will gossip to S2, gossip/1.0.0 will be the negotiated path
+    timer:sleep(1000),
+
+    [S1, S2, _S3, _S4] = ?config(swarms, Config),
+
+    S2Group = libp2p_swarm:gossip_group(S2),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
+
+    test_util:connect_swarms(S2, S1),
+
+    test_util:await_gossip_groups([S1, S2]),
+
+    S1Group = libp2p_swarm:gossip_group(S1),
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    ok.
+
+
+same_path_gossip_test1(Config) ->
+    %% S1 ( gossip/1.0.0 ) will connect to S3 ( gossip/1.0.0 )
+    %% S1 will gossip to S3, gossip/1.0.0 will be the negotiated path
+    timer:sleep(1000),
+
+    [S1, _S2, S3, _S4] = ?config(swarms, Config),
+
+    S1Group = libp2p_swarm:gossip_group(S1),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
+
+    test_util:connect_swarms(S1, S3),
+
+    test_util:await_gossip_groups([S1, S3]),
+
+    S3Group = libp2p_swarm:gossip_group(S3),
+    libp2p_group_gossip:send(S3Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    ok.
+
+
+same_path_gossip_test2(Config) ->
+    %% S2 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S4 ( gossip/1.0.2 )
+    %% S4 will gossip to S2, gossip/1.0.2 will be the negotiated path
+    timer:sleep(1000),
+
+    [_S1, S2, _S3, S4] = ?config(swarms, Config),
+
+    S2Group = libp2p_swarm:gossip_group(S2),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
+
+    test_util:connect_swarms(S2, S4),
+
+    test_util:await_gossip_groups([S2, S4]),
+
+    S4Group = libp2p_swarm:gossip_group(S4),
+    libp2p_group_gossip:send(S4Group, "gossip/1.0.2", <<"hello its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    ok.
+
+
+%%gossip_test(Config) ->
+%%    timer:sleep(1000),
+%%
+%%    Swarms = [S1, S2] = ?config(swarms, Config),
+%%
+%%    S1Group = libp2p_swarm:gossip_group(S1),
+%%    libp2p_group_gossip:add_handler(S1Group, "gossip_test", {?MODULE, self()}),
+%%
+%%    test_util:connect_swarms(S1, S2),
+%%
+%%    test_util:await_gossip_groups(Swarms),
+%%
+%%    S2Group = libp2p_swarm:gossip_group(S2),
+%%    libp2p_group_gossip:send(S2Group, "gossip_test", <<"hello">>),
+%%
+%%    receive
+%%        {handle_gossip_data, <<"hello">>} -> ok
+%%    after 5000 -> error(timeout)
+%%    end,
+%%
+%%    ok.
+
 
 seed_test(Config) ->
     [S1, S2] = ?config(swarms, Config),

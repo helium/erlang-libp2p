@@ -82,15 +82,21 @@ handle_data(_, Data, State=#state{handler_module=HandlerModule,
 
 
 apply_path_encode(?GROUP_PATH_V1, Data)->
+    lager:info("not compressing..",[]),
     Data;
 apply_path_encode(?GROUP_PATH_V2, Data)->
+    lager:info("yay compressing..",[]),
     zlib:compress(Data);
 apply_path_encode(_, Data)->
+    lager:info("not compressing..",[]),
     Data.
 apply_path_decode(?GROUP_PATH_V1, Data)->
+    lager:info("not decompressing..",[]),
     Data;
 apply_path_decode(?GROUP_PATH_V2, Data)->
+    lager:info("yay decompressing..",[]),
     zlib:uncompress(Data);
 apply_path_decode(_, Data)->
+    lager:info("not compressing..",[]),
     Data.
 
