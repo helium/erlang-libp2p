@@ -44,8 +44,6 @@ server(Connection, Path, _TID, Args) ->
 init(server, Connection, [Path, AckModule, AckState | _]) ->
     %% Catch errors from the handler module since the handling group
     %% may have already stopped or crashed.
-    lager:info("INITIATING SERVER WITH ~p ~p ~p",[Path, AckModule, AckState]),
-
     case (catch AckModule:accept_stream(AckState, self(), Path)) of
         {ok, AckRef} ->
             libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
@@ -62,8 +60,7 @@ init(server, Connection, [Path, AckModule, AckState | _]) ->
                           [error_logger_lager_h:format_reason(Exit)]),
             {stop, normal}
     end;
-init(client, Connection, [AckRef, AckModule, AckState | _]) ->
-    lager:info("INITIATING CLIENT WITH ~p ~p ~p",[AckRef, AckModule, AckState]),
+init(client, Connection, [_Path, AckRef, AckModule, AckState | _]) ->
     libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
@@ -72,7 +69,6 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
     case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{messages=Bin, seqs=Seq} when Bin /= [] ->
             %% Inbound request to handle a message
-            lager:info("ACK MODULE ~p",[AckModule]),
             AckModule:handle_data(AckState, AckRef, lists:zip(Seq, Bin)),
             {noreply, State};
         #libp2p_ack_frame_pb{seqs=Seq, reset=Reset} ->
