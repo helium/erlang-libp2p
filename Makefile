@@ -12,6 +12,13 @@ else
 MAKE="make"
 endif
 
+ifeq ($(BUILDKITE), true)
+  # get branch name and replace any forward slashes it may contain
+  CIBRANCH=$(subst /,-,$(BUILDKITE_BRANCH))
+else
+  CIBRANCH=$(shell git rev-parse --abbrev-ref HEAD | sed 's/\//-/')
+endif
+
 compile:
 	$(REBAR) compile
 
@@ -28,7 +35,8 @@ test:
 	$(REBAR) as test do eunit,ct
 
 ci:
-	$(REBAR) as test do eunit,ct,cover && $(REBAR) do xref, dialyzer
+	($(REBAR) do ct || (mkdir -p artifacts; tar --exclude='./_build/test/lib' --exclude='./_build/test/plugins' -czf artifacts/$(CIBRANCH).tar.gz _build/test; false))
+	$(REBAR) do eunit,xref,dialyzer,cover
 	$(REBAR) covertool generate
 	codecov --required -f _build/test/covertool/libp2p.covertool.xml
 
