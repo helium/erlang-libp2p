@@ -29,7 +29,8 @@
          workers=[] :: [#worker{}],
          handlers=#{} :: #{string() => libp2p_group_gossip:handler()},
          drop_timeout :: pos_integer(),
-         drop_timer :: reference()
+         drop_timer :: reference(),
+         supported_protocols :: [string()]
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
@@ -86,6 +87,8 @@ init([Sup, TID]) ->
         end,
     InboundCount = get_opt(Opts, inbound_connections, ?DEFAULT_MAX_INBOUND_CONNECTIONS),
     DropTimeOut = get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
+    SupportedProtocols = get_opt(Opts, supported_gossip_protocols, ?SUPPORTED_GOSSIP_PATHS),
+    lager:debug("Supported gossip protocols: ~p:", [SupportedProtocols]),
 
     self() ! start_workers,
     {ok, update_metadata(#state{sup=Sup, tid=TID,
@@ -94,7 +97,8 @@ init([Sup, TID]) ->
                                 peerbook_connections=PeerBookCount,
                                 seednode_connections=SeedNodeCount,
                                 drop_timeout=DropTimeOut,
-                                drop_timer=schedule_drop_timer(DropTimeOut)})}.
+                                drop_timer=schedule_drop_timer(DropTimeOut),
+                                supported_protocols=SupportedProtocols})}.
 
 handle_call({accept_stream, _Session, _StreamPid}, _From, State=#state{workers=[]}) ->
     {reply, {error, not_ready}, State};
@@ -294,7 +298,7 @@ connections(Kind, #state{workers=Workers}) ->
                         Acc
                 end, [], Workers).
 
-assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers}) ->
+assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, supported_protocols = SupportedProtocols}) ->
     case length(TargetAddrs) of
         0 ->
             %% the ref is stable across restarts, so use that as the lookup key
@@ -302,7 +306,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers}) 
                 Worker=#worker{kind=seed, target=SelectedAddr, pid=StoredWorkerPid} when SelectedAddr /= undefined ->
                     %% don't give up on the seed nodes in case we're entirely offline
                     %% we need at least one connection to bootstrap the swarm
-                    ClientSpec = {?SUPPORTED_GOSSIP_PATHS, {libp2p_gossip_stream, [?MODULE, self()]}},
+                    ClientSpec = {SupportedProtocols, {libp2p_gossip_stream, [?MODULE, self()]}},
                     libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
                     %% check if this worker got restarted
                     case WorkerPid /= StoredWorkerPid of
@@ -318,7 +322,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers}) 
             end;
         _ ->
             SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
-            ClientSpec = {?SUPPORTED_GOSSIP_PATHS, {libp2p_gossip_stream, [?MODULE, self()]}},
+            ClientSpec = {SupportedProtocols, {libp2p_gossip_stream, [?MODULE, self()]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
             case lookup_worker(WorkerRef, #worker.ref, State) of

@@ -562,8 +562,7 @@ dial(TID, Peer, Module, Args, SupportedProtocols) ->
             Dial([Protocol | Rest]) ->
                 case do_dial(TID, Peer, Module, Args, Protocol) of
                         {ok, Stream} ->
-                            lager:debug("dialing group worker stream successful,
-                                            stream pid: ~p, protocol version: ~p", [Stream, Protocol]),
+                            lager:debug("dialing group worker stream successful, stream pid: ~p, protocol version: ~p", [Stream, Protocol]),
                             {ok, Stream, Protocol};
                         {error, protocol_unsupported} ->
                             lager:debug("dialing group worker stream failed with protocol version: ~p, trying next supported protocol version",[Protocol]),
