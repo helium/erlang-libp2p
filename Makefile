@@ -25,7 +25,7 @@ cover:
 	$(REBAR) cover
 
 test:
-	$(REBAR) as test do ct --suite test/group_relcast_SUITE
+	$(REBAR) as test do eunit,ct
 
 ci:
 	$(REBAR) as test do eunit,ct,cover && $(REBAR) do xref, dialyzer

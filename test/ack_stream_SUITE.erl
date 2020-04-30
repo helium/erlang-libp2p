@@ -16,7 +16,7 @@ setup_swarms(HandleDataResponse, Config) ->
     libp2p_swarm:add_stream_handler(S2, "serve_ack_frame",
                                     {libp2p_ack_stream, server, [?MODULE, {self(), HandleDataResponse}]}),
     Connection = test_util:dial(S1, S2, "serve_ack_frame"),
-    {ok, Stream} = libp2p_ack_stream:client(Connection, [client, ?MODULE, self()]),
+    {ok, Stream} = libp2p_ack_stream:client(Connection, [undefined, client, ?MODULE, self()]),
     [{swarms, Swarms}, {client, Stream} | Config].
 
 init_per_testcase(ack_test=TestCase, Config) ->

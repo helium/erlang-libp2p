@@ -43,7 +43,6 @@ server(Connection, _Path, _TID, Args) ->
 init(server, Connection, [HandlerModule, HandlerState]) ->
    init(server, Connection, [undefined, HandlerModule, HandlerState]);
 init(server, Connection, [Path, HandlerModule, HandlerState]) ->
-    lager:info("*** INITIATING ~p SERVER WITH ~p ~p ~p",[?MODULE, Path, HandlerModule, HandlerState]),
     {ok, Session} = libp2p_connection:session(Connection),
     %% Catch errors from the handler module in accepting a stream. The
     %% most common occurence is during shutdown of a swarm where
@@ -67,7 +66,6 @@ init(server, Connection, [Path, HandlerModule, HandlerState]) ->
 init(client, Connection, [HandlerModule, HandlerState]) ->
     init(client, Connection, [undefined, HandlerModule, HandlerState]);
 init(client, Connection, [Path, HandlerModule, HandlerState]) ->
-    lager:info("*** INITIATING ~p CLIENT WITH ~p ~p ~p",[?MODULE, Path, HandlerModule, HandlerState]),
     {ok, #state{connection=Connection,
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
