@@ -208,7 +208,7 @@ handle_cast({request_target, Index, WorkerPid, _WorkerRef}, State=#state{tid=TID
                end,
     Path = lists:flatten([?GROUP_PATH_BASE, State#state.group_id, "/",
                           libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(TID))]),
-    ClientSpec = {Path, {libp2p_ack_stream, [Index, ?MODULE, self(),
+    ClientSpec = {[Path], {libp2p_ack_stream, [Index, ?MODULE, self(),
                                              {secured, libp2p_swarm:swarm(TID)},
                                              {keys, State#state.group_keys}]}},
     libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),

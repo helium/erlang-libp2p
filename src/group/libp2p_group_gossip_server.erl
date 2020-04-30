@@ -3,6 +3,8 @@
 -behaviour(gen_server).
 -behavior(libp2p_gossip_stream).
 
+-include("gossip.hrl").
+
 %% API
 -export([start_link/2]).
 %% gen_server
@@ -36,6 +38,8 @@
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 -define(GROUP_ID, "gossip").
 -define(GROUP_PATH, "gossip/1.0.0").
+
+
 
 %% API
 %%
@@ -118,6 +122,9 @@ handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
             try M:handle_gossip_data(StreamPid, ListOrData, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
+                    %% TODO - need to work out how to deal with encode and send below - we dont have a path/protocol at this point and
+                    %%        this is sending directly via the framed stream and not the worker
+                    %%        maybe just send replies like this raw, no compression - default to gossip 1.0.0 path
                     case (catch libp2p_gossip_stream:encode(Key, Reply)) of
                         {'EXIT', Error} ->
                             lager:warning("Error encoding gossip data ~p", [Error]);
@@ -169,12 +176,7 @@ handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
                           Data = Fun(),
                           %% Catch errors encoding the given arguments to avoid a bad key or
                           %% value taking down the gossip server
-                          case (catch libp2p_gossip_stream:encode(Key, Data)) of
-                              {'EXIT', Error} ->
-                                  lager:warning("Error encoding gossip data ~p", [Error]);
-                              Msg ->
-                                  libp2p_group_worker:send(Pid, Key, Msg)
-                          end
+                          libp2p_group_worker:send(Pid, Key, Data, true)
                   end, Pids),
     {noreply, State};
 
@@ -182,14 +184,9 @@ handle_cast({send, Key, Data}, State=#state{}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
     %% Catch errors encoding the given arguments to avoid a bad key or
     %% value taking down the gossip server
-    case (catch libp2p_gossip_stream:encode(Key, Data)) of
-        {'EXIT', Error} ->
-            lager:warning("Error encoding gossip data ~p", [Error]);
-        Msg ->
-            lists:foreach(fun(Pid) ->
-                                  libp2p_group_worker:send(Pid, Key, Msg)
-                          end, Pids)
-    end,
+    lists:foreach(fun(Pid) ->
+                          libp2p_group_worker:send(Pid, Key, Data, true)
+                  end, Pids),
     {noreply, State};
 handle_cast({send_ready, _target, _Ref, false}, State=#state{}) ->
     %% Ignore any not ready messages from group workers. The gossip
@@ -206,9 +203,8 @@ handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
                                                  Acc#state{handlers=maps:remove(Key, Acc#state.handlers)};
                                              ok ->
                                                  Acc;
-                                             {send, Data} ->
-                                                 Msg = libp2p_gossip_stream:encode(Key, Data),
-                                                 libp2p_group_worker:send(WorkerPid, send_ready, Msg),
+                                             {send, Msg} ->
+                                                 libp2p_group_worker:send(WorkerPid, send_ready, Msg, true),
                                                  Acc
                                          end
                                  end, State, State#state.handlers),
@@ -306,7 +302,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers}) 
                 Worker=#worker{kind=seed, target=SelectedAddr, pid=StoredWorkerPid} when SelectedAddr /= undefined ->
                     %% don't give up on the seed nodes in case we're entirely offline
                     %% we need at least one connection to bootstrap the swarm
-                    ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
+                    ClientSpec = {?SUPPORTED_GOSSIP_PATHS, {libp2p_gossip_stream, [?MODULE, self()]}},
                     libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
                     %% check if this worker got restarted
                     case WorkerPid /= StoredWorkerPid of
@@ -322,7 +318,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers}) 
             end;
         _ ->
             SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
-            ClientSpec = {?GROUP_PATH, {libp2p_gossip_stream, [?MODULE, self()]}},
+            ClientSpec = {?SUPPORTED_GOSSIP_PATHS, {libp2p_gossip_stream, [?MODULE, self()]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
             case lookup_worker(WorkerRef, #worker.ref, State) of

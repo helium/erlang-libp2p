@@ -9,7 +9,7 @@
 %% API
 -export([start_link/5, start_link/6,
          assign_target/2, clear_target/1,
-         assign_stream/2, send/3, send_ack/3, close/1]).
+         assign_stream/2, send/3, send/4, send_ack/3, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -47,7 +47,8 @@
           connect_retry_backoff :: backoff:backoff(),
           connect_retry_cancel_timer=undefined :: undefined | reference(),
           %% Stream we're managing
-          stream_pid=undefined :: undefined | pid()
+          stream_pid=undefined :: undefined | pid(),
+          worker_protocol=undefined :: undefined | atom()
         }).
 
 %% API
@@ -82,6 +83,15 @@ assign_stream(Pid, StreamPid) ->
 -spec send(pid(), term(), any()) -> ok.
 send(Pid, Ref, Data) ->
     gen_statem:cast(Pid, {send, Ref, Data}).
+
+%% @doc Sends a given `Data' binary on it's stream asynchronously and if required encode the msg first. The given `Ref' is
+%% used to indicate the send result to the server for the worker.
+%%
+%% @see libp2p_group_server:send_result/4
+-spec send(pid(), term(), any(), boolean()) -> ok.
+send(Pid, Ref, Data, DoEncode) ->
+    gen_statem:cast(Pid, {send, Ref, Data, DoEncode}).
+
 
 %% @doc Changes the group worker state to `closing' state. Closing
 %% means that a newly assigned stream is still accepted but the worker
@@ -179,11 +189,14 @@ connecting(cast, {assign_target, Target}, Data=#data{}) ->
      ?TRIGGER_CONNECT_RETRY};
 connecting(info, close, Data=#data{}) ->
     {next_state, closing, cancel_connect_retry_timer(Data)};
-connecting(info, {assign_stream, StreamPid}, Data=#data{target={MAddr, _}}) ->
+connecting(info, {assign_stream, StreamPid}, Data0) ->
+    connecting(info, {assign_stream, StreamPid, undefined}, Data0);
+connecting(info, {assign_stream, StreamPid, Protocol}, Data0=#data{target={MAddr, _}}) ->
     %% Stream assignment can come in from an externally accepted
     %% stream or our own connct_pid. Either way we try to handle the
     %% assignment and leave pending connects in place to avoid
     %% killing the resulting stream assignemt of too quick.
+    Data = Data0#data{worker_protocol = Protocol},
     case handle_assign_stream(StreamPid, Data) of
         {ok, NewData} ->
             lager:debug("Assigning stream for ~p", [MAddr]),
@@ -214,7 +227,7 @@ connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
      cancel_connect_retry_timer(Data#data{connect_pid=kill_pid(Data#data.connect_pid)}),
      ?TRIGGER_TARGETING};
 connecting(info, connect_retry_timeout, Data=#data{tid=TID,
-                                                   target={MAddr, {Path, {M, A}}},
+                                                   target={MAddr, {SupportedProtocols, {M, A}}},
                                                    connect_pid=ConnectPid}) ->
     %% When the retry timeout fires we kill any exisitng connect_pid
     %% (just to be sure, this should not be needed). Then we spin up
@@ -230,12 +243,13 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
     case is_max_connect_retry_timer(Data) of
         false ->
             Parent = self(),
+            %% NOTE: why spawn the connect off ?  Why does it matter if the worker is blocked for a bit whilst connecting ?
             Pid = erlang:spawn_link(fun() ->
-                case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
+                case dial(TID, MAddr, M, A, SupportedProtocols) of
                     {error, Error} ->
                         Parent ! {connect_error, Error};
-                    {ok, StreamPid} ->
-                        Parent ! {assign_stream, StreamPid}
+                    {ok, StreamPid, AcceptedProtocol} ->
+                        Parent ! {assign_stream, StreamPid, AcceptedProtocol}
                 end
             end),
             {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
@@ -332,20 +346,21 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     end.
 
 
-handle_event(cast, {send, Ref, _Bin}, #data{server=Server, stream_pid=undefined}) ->
+handle_event(cast, {send, Ref, _Msg}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-handle_event(cast, {send, Ref, Bin}, Data = #data{server=Server, stream_pid=StreamPid}) ->
-    Result = libp2p_framed_stream:send(StreamPid, Bin),
-    libp2p_group_server:send_result(Server, Ref, Result),
-    case Result of
-        {error, _Reason} ->
-            %lager:info("send failed with reason ~p", [Result]),
-            {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
-             ?TRIGGER_CONNECT_RETRY};
-        _ ->
-            keep_state_and_data
+handle_event(cast, {send, Ref, Msg}, Data = #data{server=Server, stream_pid=StreamPid}) ->
+    handle_send(StreamPid, Server, Ref, Msg, Data);
+handle_event(cast, {send, Ref, Msg, false}, Data = #data{server=Server, stream_pid=StreamPid}) ->
+    handle_send(StreamPid, Server, Ref, Msg, Data);
+handle_event(cast, {send, Ref, Msg, true}, Data = #data{server=Server, stream_pid=StreamPid, worker_protocol = Protocol}) ->
+    case (catch libp2p_gossip_stream:encode(Ref, Msg, Protocol)) of
+        {'EXIT', Error} ->
+            lager:warning("Error encoding gossip data ~p", [Error]),
+            keep_state_and_data;
+        Bin ->
+            handle_send(StreamPid, Server, Ref, Bin, Data)
     end;
 handle_event(cast, clear_target, #data{}) ->
     %% ignore (handled in all states but `closing')
@@ -406,6 +421,17 @@ handle_event(EventType, Msg, #data{}) ->
 %% Utilities
 %%
 
+handle_send(StreamPid, Server, Ref, Bin, Data)->
+    Result = libp2p_framed_stream:send(StreamPid, Bin),
+    libp2p_group_server:send_result(Server, Ref, Result),
+    case Result of
+        {error, _Reason} ->
+            %lager:info("send failed with reason ~p", [Result]),
+            {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
+             ?TRIGGER_CONNECT_RETRY};
+        _ ->
+            keep_state_and_data
+    end.
 
 init_targeting_backoff() ->
     backoff:type(backoff:init(?MIN_TARGETING_RETRY_TIMEOUT,
@@ -485,7 +511,7 @@ is_max_connect_retry_timer(Data=#data{}) ->
 
 update_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
-update_stream(undefined, #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
+update_stream(undefined,  #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
     catch unlink(Pid),
     libp2p_framed_stream:close(Pid),
     libp2p_group_server:send_ready(Server, MAddr, Kind, false),
@@ -526,3 +552,33 @@ update_metadata(Data=#data{}) ->
        {group_id, Data#data.group_id}
       ]),
     Data.
+
+dial(TID, Peer, Module, Args, SupportedProtocols) ->
+    DialFun =
+        fun
+            Dial([])->
+                lager:debug("dialing group worker stream failed, no compatible protocols versions",[]),
+                {error, no_supported_paths};
+            Dial([Protocol | Rest]) ->
+                case do_dial(TID, Peer, Module, Args, Protocol) of
+                        {ok, Stream} ->
+                            lager:debug("dialing group worker stream successful,
+                                            stream pid: ~p, protocol version: ~p", [Stream, Protocol]),
+                            {ok, Stream, Protocol};
+                        {error, protocol_unsupported} ->
+                            lager:debug("dialing group worker stream failed with protocol version: ~p, trying next supported protocol version",[Protocol]),
+                            Dial(Rest);
+                        {error, Reason} ->
+                            lager:debug("dialing group worker stream failed: ~p",[Reason]),
+                            {error, Reason}
+                end
+        end,
+    DialFun(SupportedProtocols).
+
+
+do_dial(TID, Peer, Module, Args, Protocol)->
+    libp2p_swarm:dial_framed_stream(TID,
+                                    Peer,
+                                    Protocol,
+                                    Module,
+                                    [Protocol | Args]).
