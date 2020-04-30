@@ -89,8 +89,8 @@ send(Pid, Ref, Data) ->
 %%
 %% @see libp2p_group_server:send_result/4
 -spec send(pid(), term(), any(), boolean()) -> ok.
-send(Pid, Ref, Data, DoEncode) ->
-    gen_statem:cast(Pid, {send, Ref, Data, DoEncode}).
+send(Pid, Ref, Data, MaybeEncode) ->
+    gen_statem:cast(Pid, {send, Ref, Data, MaybeEncode}).
 
 
 %% @doc Changes the group worker state to `closing' state. Closing
@@ -214,10 +214,10 @@ connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     {keep_state, start_connect_retry_timer(Data)};
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
-    {keep_state, Data#data{connect_pid=undefined}};
+    {keep_state, Data#data{connect_pid=undefined, worker_protocol=undefined}};
 connecting(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect pid crashed for some other reason. Treat like a connect error
-    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined})};
+    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined, worker_protocol=undefined})};
 connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
     %% We could end up in a retry timeout with no target when this
     %% worker was assigned a stream without a target, and that stream
