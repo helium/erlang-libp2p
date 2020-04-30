@@ -13,13 +13,13 @@
 
 all() ->
     [
-%%      connection_test
-%%    , gossip_test
-%%    , seed_test
-%%     forwards_compat_gossip_test
-%%     , backwards_compat_gossip_test
-%%     , same_path_gossip_test1
-      same_path_gossip_test2
+      connection_test
+    , gossip_test
+    , seed_test
+    , forwards_compat_gossip_test
+    , backwards_compat_gossip_test
+    , same_path_gossip_test1
+    , same_path_gossip_test2
     ].
 
 
