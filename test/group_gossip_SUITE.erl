@@ -51,12 +51,6 @@ init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test
 
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
 
-    [S1] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 1},
-                                                              {peer_cache_timeout, 100},
-                                                              {supported_gossip_protocols, ["gossip/1.0.0"]}  ]},
-                                       {base_dir, ?config(base_dir, Config0)}
-                                     ]),
 
     [S2] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
@@ -64,6 +58,14 @@ init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test
                                                               {supported_gossip_protocols, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
+
+    [S1] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_protocols, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config0)}
+                                     ]),
+
 
     [S3] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
@@ -75,7 +77,7 @@ init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test
     [S4] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
-                                                              {supported_gossip_protocols, ["gossip/1.0.2"]}  ]},
+                                                              {supported_gossip_protocols, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
@@ -166,15 +168,23 @@ forwards_compat_gossip_test(Config) ->
 
     [S1, S2, _S3, _S4] = ?config(swarms, Config),
 
+    %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
     libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S1, S2),
+    %% add handlers for S2
+    S2Group = libp2p_swarm:gossip_group(S2),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
+    %% connect the swarms
+    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
+    %% I dont know why this is !!!
+    test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 
-    S2Group = libp2p_swarm:gossip_group(S2),
-    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    %% send the msg from S1 to S2
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
@@ -185,21 +195,28 @@ forwards_compat_gossip_test(Config) ->
 
 backwards_compat_gossip_test(Config) ->
     %% S2 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S1 ( gossip/1.0.0 )
-    %% S1 will gossip to S2, gossip/1.0.0 will be the negotiated path
+    %% S2 will gossip to S1, gossip/1.0.0 will be the negotiated path
     timer:sleep(1000),
 
     [S1, S2, _S3, _S4] = ?config(swarms, Config),
 
+    %% add handlers for S2
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S2, S1),
-
-    test_util:await_gossip_groups([S1, S2]),
-
+    %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
+
+    %% connect the swarms
+    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
+    %% I dont know why this is !!!
+    test_util:connect_swarms(S1, S2),
+    test_util:await_gossip_groups([S2, S1]),
+
+    %% send the msg from S2 to Sq
+    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
@@ -211,19 +228,26 @@ backwards_compat_gossip_test(Config) ->
 
 same_path_gossip_test1(Config) ->
     %% S1 ( gossip/1.0.0 ) will connect to S3 ( gossip/1.0.0 )
-    %% S1 will gossip to S3, gossip/1.0.0 will be the negotiated path
+    %% S3 will gossip to S3, gossip/1.0.0 will be the negotiated path
     timer:sleep(1000),
 
     [S1, _S2, S3, _S4] = ?config(swarms, Config),
 
+    %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
     libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S1, S3),
+    %% add handlers for S3
+    S3Group = libp2p_swarm:gossip_group(S3),
+    libp2p_group_gossip:add_handler(S3Group, "gossip/1.0.0", {?MODULE, self()}),
 
+    %% connect the swarms
+    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
+    %% I dont know why this is !!!
+    test_util:connect_swarms(S1, S3),
     test_util:await_gossip_groups([S1, S3]),
 
-    S3Group = libp2p_swarm:gossip_group(S3),
+    %% send the msg from S3 to S1
     libp2p_group_gossip:send(S3Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
 
     receive
@@ -241,14 +265,23 @@ same_path_gossip_test2(Config) ->
 
     [_S1, S2, _S3, S4] = ?config(swarms, Config),
 
+    %% add handlers for S2
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
+    %% add handlers for S4
+    S4Group = libp2p_swarm:gossip_group(S4),
+    libp2p_group_gossip:add_handler(S4Group, "gossip/1.0.2", {?MODULE, self()}),
+    libp2p_group_gossip:add_handler(S4Group, "gossip/1.0.0", {?MODULE, self()}),
+
+    %% connect the swarms
+    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
+    %% I dont know why this is !!!
     test_util:connect_swarms(S2, S4),
-
     test_util:await_gossip_groups([S2, S4]),
 
-    S4Group = libp2p_swarm:gossip_group(S4),
+    %% send the msg from S4 to S2
     libp2p_group_gossip:send(S4Group, "gossip/1.0.2", <<"hello its me you're looking for">>),
 
     receive
@@ -257,29 +290,6 @@ same_path_gossip_test2(Config) ->
     end,
 
     ok.
-
-
-%%gossip_test(Config) ->
-%%    timer:sleep(1000),
-%%
-%%    Swarms = [S1, S2] = ?config(swarms, Config),
-%%
-%%    S1Group = libp2p_swarm:gossip_group(S1),
-%%    libp2p_group_gossip:add_handler(S1Group, "gossip_test", {?MODULE, self()}),
-%%
-%%    test_util:connect_swarms(S1, S2),
-%%
-%%    test_util:await_gossip_groups(Swarms),
-%%
-%%    S2Group = libp2p_swarm:gossip_group(S2),
-%%    libp2p_group_gossip:send(S2Group, "gossip_test", <<"hello">>),
-%%
-%%    receive
-%%        {handle_gossip_data, <<"hello">>} -> ok
-%%    after 5000 -> error(timeout)
-%%    end,
-%%
-%%    ok.
 
 
 seed_test(Config) ->
