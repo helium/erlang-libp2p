@@ -168,9 +168,6 @@ forwards_compat_gossip_test(Config) ->
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    %% connect the swarms
-    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
-    %% I dont know why this is !!!
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 
@@ -219,9 +216,6 @@ backwards_compat_gossip_test(Config) ->
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    %% connect the swarms
-    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
-    %% I dont know why this is !!!
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 
@@ -268,9 +262,6 @@ same_path_gossip_test1(Config) ->
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    %% connect the swarms
-    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
-    %% I dont know why this is !!!
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 
@@ -320,9 +311,6 @@ same_path_gossip_test2(Config) ->
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    %% connect the swarms
-    %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
-    %% I dont know why this is !!!
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 

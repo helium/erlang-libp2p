@@ -78,7 +78,7 @@ peerbook(TID) ->
 %%====================================================================
 init([Name, Opts]) ->
     inert:start(),
-    TID = ets:new(Name, [public, ordered_set, named_table, {read_concurrency, true}]),
+    TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {?SUP, self()}),
     ets:insert(TID, {?NAME, Name}),
     ets:insert(TID, {?OPTS, Opts}),
