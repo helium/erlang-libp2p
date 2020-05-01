@@ -9,7 +9,7 @@
 %% API
 -export([start_link/5, start_link/7,
          assign_target/2, clear_target/1,
-         assign_stream/2, send/3, send/4, send_ack/3, close/1]).
+         assign_stream/2, assign_stream/3, send/4, send_ack/3, close/1]).
 
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, terminate/3]).
@@ -76,13 +76,14 @@ assign_stream(Pid, StreamPid) ->
     Pid ! {assign_stream, StreamPid},
     ok.
 
-%% @doc Sends a given `Data' binary on it's stream asynchronously. The given `Ref' is
-%% used to indicate the send result to the server for the worker.
-%%
-%% @see libp2p_group_server:send_result/3
--spec send(pid(), term(), any()) -> ok.
-send(Pid, Ref, Data) ->
-    gen_statem:cast(Pid, {send, Ref, Data}).
+%% @doc Assigns the given stream to the worker. This does _not_ update
+%% the target of the worker but moves the worker to the `connected'
+%% state and uses it to send data.
+%% This also updates the path of the given worker
+-spec assign_stream(pid(), StreamPid::pid(), Path::string()) -> ok.
+assign_stream(Pid, StreamPid, Path) ->
+    Pid ! {assign_stream, StreamPid, Path},
+    ok.
 
 %% @doc Sends a given `Data' binary on it's stream asynchronously and if required encode the msg first. The given `Ref' is
 %% used to indicate the send result to the server for the worker.
@@ -166,6 +167,12 @@ targeting(info, {assign_stream, StreamPid}, Data=#data{}) ->
         {ok, NewData} -> {next_state, connected, cancel_targeting_timer(NewData)};
         _ -> keep_state_and_data
     end;
+targeting(info, {assign_stream, StreamPid, Path}, Data0=#data{}) ->
+    Data = Data0#data{worker_path = Path},
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} -> {next_state, connected, cancel_targeting_timer(NewData)};
+        _ -> {keep_state, Data}
+    end;
 
 targeting(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
@@ -190,23 +197,34 @@ connecting(cast, {assign_target, Target}, Data=#data{}) ->
      ?TRIGGER_CONNECT_RETRY};
 connecting(info, close, Data=#data{}) ->
     {next_state, closing, cancel_connect_retry_timer(Data)};
-connecting(info, {assign_stream, StreamPid}, Data0) ->
-    connecting(info, {assign_stream, StreamPid, undefined}, Data0);
-connecting(info, {assign_stream, StreamPid, Path}, Data0=#data{target={MAddr, _}}) ->
-    %% Stream assignment can come in from an externally accepted
-    %% stream or our own connct_pid. Either way we try to handle the
-    %% assignment and leave pending connects in place to avoid
-    %% killing the resulting stream assignemt of too quick.
-    Data = Data0#data{worker_path = Path},
+
+%% Stream assignment can come in from an externally accepted
+%% stream or our own connect_pid. Either way we try to handle the
+%% assignment and leave pending connects in place to avoid
+%% killing the resulting stream assignemt of too quick.
+%% If a path is specified we update the worker to use it
+connecting(info, {assign_stream, StreamPid}, Data=#data{target={MAddr, _}}) ->
     case handle_assign_stream(StreamPid, Data) of
         {ok, NewData} ->
-            lager:debug("Assigning stream for ~p", [MAddr]),
+            lager:debug("Assigning stream without path update for ~p", [MAddr]),
             {next_state, connected,
              %% Go the the connected state but delay the reset of the
              %% backoff until we've been in the connected state for
              %% some period of time.
              delayed_cancel_connect_retry_timer(stop_connect_retry_timer(NewData))};
-        _ -> keep_state_and_data
+        _ -> {keep_state, Data}
+    end;
+connecting(info, {assign_stream, StreamPid, Path}, Data0=#data{target={MAddr, _}}) ->
+    Data = Data0#data{worker_path = Path},
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} ->
+            lager:debug("Assigning stream with path ~p for ~p", [Path, MAddr]),
+            {next_state, connected,
+             %% Go the the connected state but delay the reset of the
+             %% backoff until we've been in the connected state for
+             %% some period of time.
+             delayed_cancel_connect_retry_timer(stop_connect_retry_timer(NewData))};
+        _ -> {keep_state, Data}
     end;
 connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     %% On a connect error we kick of the retry timer, which will fire
@@ -215,10 +233,10 @@ connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     {keep_state, start_connect_retry_timer(Data)};
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
-    {keep_state, Data#data{connect_pid=undefined, worker_path=undefined}};
+    {keep_state, Data#data{connect_pid=undefined}};
 connecting(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect pid crashed for some other reason. Treat like a connect error
-    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined, worker_path=undefined})};
+    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined})};
 connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
     %% We could end up in a retry timeout with no target when this
     %% worker was assigned a stream without a target, and that stream
@@ -272,6 +290,15 @@ connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
         {ok, NewData} -> {keep_state, NewData};
         _ -> keep_state_and_data
     end;
+connected(info, {assign_stream, StreamPid, Path}, Data0=#data{}) ->
+    %% A new stream assignment came in. We stay in this state
+    %% regardless of whether we accept the new stream or not.
+    %% but in this case we need to update the Path
+    Data = Data0#data{worker_path = Path},
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} -> {keep_state, NewData};
+        _ -> {keep_state, Data}
+    end;
 connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, target={MAddr, _}}) ->
     %% The stream we're using died. Let's go back to connecting, but
     %% do not trigger a connect retry right away, (re-)start the
@@ -322,6 +349,13 @@ closing(info, {assign_stream, StreamPid}, Data=#data{}) ->
         {ok, NewData} -> {keep_state, NewData};
         _ -> keep_state_and_data
     end;
+closing(info, {assign_stream, StreamPid, Path}, Data0=#data{}) ->
+    %% same as above but in this case we should update the path
+    Data = Data0#data{worker_path = Path},
+    case handle_assign_stream(StreamPid, Data) of
+        {ok, NewData} -> {keep_state, NewData};
+        _ -> {keep_state, Data}
+    end;
 
 closing(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
@@ -346,13 +380,10 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
     end.
 
 
-handle_event(cast, {send, Ref, _Msg}, #data{server=Server, stream_pid=undefined}) ->
+handle_event(cast, {send, Ref, _Msg, _MaybeEncode}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
-handle_event(cast, {send, Ref, Msg}, Data = #data{server=Server, stream_pid=StreamPid}) ->
-    lager:debug("gossip sending: ~p",[Msg]),
-    handle_send(StreamPid, Server, Ref, Msg, Data);
 handle_event(cast, {send, Ref, Msg, false}, Data = #data{server=Server, stream_pid=StreamPid}) ->
     lager:debug("gossip sending: ~p",[Msg]),
     handle_send(StreamPid, Server, Ref, Msg, Data);
@@ -557,7 +588,7 @@ update_metadata(Data=#data{}) ->
     Data.
 
 dial(TID, Peer, Module, Args, SupportedPaths) ->
-    lager:debug("*** Swarm ~p is dialing peer ~p with paths ~p",[TID, Peer, SupportedPaths]),
+    lager:debug("Swarm ~p is dialing peer ~p with paths ~p",[TID, Peer, SupportedPaths]),
     DialFun =
         fun
             Dial([])->

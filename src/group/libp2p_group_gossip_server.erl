@@ -123,9 +123,9 @@ handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
             try M:handle_gossip_data(StreamPid, ListOrData, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
-                    %% TODO - need to work out how to deal with encode and send below - we dont have a path at this point and
-                    %%        this is sending directly via the framed stream and not the worker
-                    %%        maybe just send replies like this raw, no compression - default to gossip 1.0.0 path
+                    %% TODO - Sure we are handling replies below correctly ?  What if we have two peers connected on gossip/1.0.2 or above ???
+                    %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
+                    %%        As such we need to encode at this point, and send raw..no encoding actions
                     case (catch libp2p_gossip_stream:encode(Key, Reply)) of
                         {'EXIT', Error} ->
                             lager:warning("Error encoding gossip data ~p", [Error]);
@@ -266,7 +266,7 @@ handle_info({handle_identify, {From, StreamPid, Path}, {ok, Identify}}, State=#s
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
         #worker{pid=Worker} ->
-            libp2p_group_worker:assign_stream(Worker, StreamPid),
+            libp2p_group_worker:assign_stream(Worker, StreamPid, Path),
             gen_server:reply(From, ok),
             {noreply, State}
     end;

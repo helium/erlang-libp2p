@@ -27,6 +27,7 @@
 %% API
 %%
 encode(Key, Data) ->
+    %% replies are routed via encode/2 from the gossip server
     lager:debug("gossip encoding, no path: ~p",[]),
     Msg = #libp2p_gossip_frame_pb{key=Key, data=Data},
     libp2p_gossip_pb:encode_msg(Msg).
@@ -43,8 +44,6 @@ client(Connection, Args) ->
 server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
-init(server, Connection, [HandlerModule, HandlerState]) ->
-   init(server, Connection, [undefined, HandlerModule, HandlerState]);
 init(server, Connection, [Path, HandlerModule, HandlerState]) ->
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
@@ -67,8 +66,6 @@ init(server, Connection, [Path, HandlerModule, HandlerState]) ->
                           [error_logger_lager_h:format_reason(Exit)]),
             {stop, normal}
     end;
-init(client, Connection, [HandlerModule, HandlerState]) ->
-    init(client, Connection, [undefined, HandlerModule, HandlerState]);
 init(client, Connection, [Path, HandlerModule, HandlerState]) ->
     lager:debug("initiating client with path ~p", [Path]),
     {ok, #state{connection=Connection,
