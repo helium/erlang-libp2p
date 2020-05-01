@@ -49,39 +49,7 @@ init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test
                                          TestCase == same_path_gossip_test1;
                                          TestCase == same_path_gossip_test2 ->
 
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-
-
-    [S2] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 1},
-                                                              {peer_cache_timeout, 100},
-                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
-                                       {base_dir, ?config(base_dir, Config0)}
-                                     ]),
-
-    [S1] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 1},
-                                                              {peer_cache_timeout, 100},
-                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
-                                       {base_dir, ?config(base_dir, Config0)}
-                                     ]),
-
-
-    [S3] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 1},
-                                                              {peer_cache_timeout, 100},
-                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
-                                       {base_dir, ?config(base_dir, Config0)}
-                                     ]),
-
-    [S4] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 1},
-                                                              {peer_cache_timeout, 100},
-                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
-                                       {base_dir, ?config(base_dir, Config0)}
-                                     ]),
-
-    [{swarms, [S1, S2, S3, S4]} | Config];
+    test_util:init_base_dir_config(?MODULE, TestCase, Config);
 
 init_per_testcase(TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
@@ -93,6 +61,11 @@ init_per_testcase(TestCase, Config) ->
                                         {base_dir, ?config(base_dir, Config0)} ]),
     [{swarms, Swarms} | Config].
 
+end_per_testcase(_TestCase, _Config) when _TestCase == forwards_compat_gossip_test;
+                                         _TestCase ==  backwards_compat_gossip_test;
+                                         _TestCase == same_path_gossip_test1;
+                                         _TestCase == same_path_gossip_test2 ->
+    ok;
 end_per_testcase(_, Config) ->
     Swarms = ?config(swarms, Config),
     test_util:teardown_swarms(Swarms).
@@ -162,11 +135,29 @@ gossip_test(Config) ->
 
 
 forwards_compat_gossip_test(Config) ->
+    %% NOTE: declaring swarms in test here as the order of declaration matters
+    %% the first swarm declared will be the one to dial, so this test declares in the order it requires
+    %% keep the swarm declarations here until this is worked out
     %% S1 ( gossip/1.0.0 ) will dial S2 ( gossip/1.0.2 / gossip/1.0.0 )
     %% S1 will gossip to S2
+    [S1] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+    [S2] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+
+
     timer:sleep(1000),
 
-    [S1, S2, _S3, _S4] = ?config(swarms, Config),
 
     %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
@@ -191,104 +182,159 @@ forwards_compat_gossip_test(Config) ->
     after 5000 -> error(timeout)
     end,
 
+    test_util:teardown_swarms([S1,S2]),
     ok.
 
 backwards_compat_gossip_test(Config) ->
-    %% S2 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S1 ( gossip/1.0.0 )
-    %% S2 will gossip to S1, gossip/1.0.0 will be the negotiated path
+    %% NOTE: declaring swarms in test here as the order of declaration matters
+    %% the first swarm declared will be the one to dial, so this test declares in the order it requires
+    %% keep the swarm declarations here until this is worked out
+
+    %% S1 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S2 ( gossip/1.0.0 )
+    %% S1 will gossip to S2, gossip/1.0.0 will be the negotiated path
+
+    [S1] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+    [S2] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+
     timer:sleep(1000),
 
-    [S1, S2, _S3, _S4] = ?config(swarms, Config),
+    %% add handlers for S2
+    S1Group = libp2p_swarm:gossip_group(S1),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.2", {?MODULE, self()}),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
     %% add handlers for S2
     S2Group = libp2p_swarm:gossip_group(S2),
-    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
-
-    %% add handlers for S1
-    S1Group = libp2p_swarm:gossip_group(S1),
-    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
     %% connect the swarms
     %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
     %% I dont know why this is !!!
     test_util:connect_swarms(S1, S2),
-    test_util:await_gossip_groups([S2, S1]),
+    test_util:await_gossip_groups([S1, S2]),
 
     %% send the msg from S2 to Sq
-    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
+    test_util:teardown_swarms([S1,S2]),
     ok.
 
 
 same_path_gossip_test1(Config) ->
-    %% S1 ( gossip/1.0.0 ) will connect to S3 ( gossip/1.0.0 )
-    %% S3 will gossip to S3, gossip/1.0.0 will be the negotiated path
-    timer:sleep(1000),
+    %% NOTE: declaring swarms in test here as the order of declaration matters
+    %% the first swarm declared will be the one to dial, so this test declares in the order it requires
+    %% keep the swarm declarations here until this is worked out
+    %% S1 ( gossip/1.0.0 ) will connect to S2 ( gossip/1.0.0 )
+    %% S2 will gossip to S3, gossip/1.0.0 will be the negotiated path
 
-    [S1, _S2, S3, _S4] = ?config(swarms, Config),
+    [S1] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+    [S2] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+    timer:sleep(1000),
 
     %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
     libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    %% add handlers for S3
-    S3Group = libp2p_swarm:gossip_group(S3),
-    libp2p_group_gossip:add_handler(S3Group, "gossip/1.0.0", {?MODULE, self()}),
+    %% add handlers for S2
+    S2Group = libp2p_swarm:gossip_group(S2),
+    libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
     %% connect the swarms
     %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
     %% I dont know why this is !!!
-    test_util:connect_swarms(S1, S3),
-    test_util:await_gossip_groups([S1, S3]),
+    test_util:connect_swarms(S1, S2),
+    test_util:await_gossip_groups([S1, S2]),
 
     %% send the msg from S3 to S1
-    libp2p_group_gossip:send(S3Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
+    test_util:teardown_swarms([S1,S2]),
     ok.
 
 
 same_path_gossip_test2(Config) ->
-    %% S2 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S4 ( gossip/1.0.2 )
-    %% S4 will gossip to S2, gossip/1.0.2 will be the negotiated path
+    %% NOTE: declaring swarms in test here as the order of declaration matters
+    %% the first swarm declared will be the one to dial, so this test declares in the order it requires
+    %% keep the swarm declarations here until this is worked out
+    %% S1 ( gossip/1.0.2 / gossip/1.0.0 ) will connect to S2 ( gossip/1.0.2 )
+    %% S2 will gossip to S1, gossip/1.0.2 will be the negotiated path
+
+    [S1] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+    [S2] = test_util:setup_swarms(1, [
+                                       {libp2p_group_gossip, [{peerbook_connections, 1},
+                                                              {peer_cache_timeout, 100},
+                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                       {base_dir, ?config(base_dir, Config)}
+                                     ]),
+
+
     timer:sleep(1000),
 
-    [_S1, S2, _S3, S4] = ?config(swarms, Config),
+    %% add handlers for S1
+    S1Group = libp2p_swarm:gossip_group(S1),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.2", {?MODULE, self()}),
+    libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
     %% add handlers for S2
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    %% add handlers for S4
-    S4Group = libp2p_swarm:gossip_group(S4),
-    libp2p_group_gossip:add_handler(S4Group, "gossip/1.0.2", {?MODULE, self()}),
-    libp2p_group_gossip:add_handler(S4Group, "gossip/1.0.0", {?MODULE, self()}),
-
     %% connect the swarms
     %% when connecting swarms, the gossip dialer will always be that swarm with the oldest protocol
     %% I dont know why this is !!!
-    test_util:connect_swarms(S2, S4),
-    test_util:await_gossip_groups([S2, S4]),
+    test_util:connect_swarms(S1, S2),
+    test_util:await_gossip_groups([S1, S2]),
 
-    %% send the msg from S4 to S2
-    libp2p_group_gossip:send(S4Group, "gossip/1.0.2", <<"hello its me you're looking for">>),
+    %% send the msg from S1 to S2
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.2", <<"hello its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
+    test_util:teardown_swarms([S1,S2]),
     ok.
 
 
