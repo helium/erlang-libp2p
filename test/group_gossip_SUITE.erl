@@ -172,10 +172,18 @@ forwards_compat_gossip_test(Config) ->
     test_util:await_gossip_groups([S1, S2]),
 
     %% send the msg from S1 to S2
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
-        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+        {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    %% send the msg from S2 to S1
+    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
@@ -219,11 +227,19 @@ backwards_compat_gossip_test(Config) ->
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 
-    %% send the msg from S2 to Sq
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    %% send the msg from S1 to S2
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
-        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+        {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    %% send the msg from S2 to S1
+    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
@@ -265,11 +281,19 @@ same_path_gossip_test1(Config) ->
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
 
-    %% send the msg from S3 to S1
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello its me you're looking for">>),
+    %% send the msg from S1 to S2
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
-        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+        {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    %% send the msg from S2 to S1
+    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
@@ -315,10 +339,18 @@ same_path_gossip_test2(Config) ->
     test_util:await_gossip_groups([S1, S2]),
 
     %% send the msg from S1 to S2
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.2", <<"hello its me you're looking for">>),
+    libp2p_group_gossip:send(S1Group, "gossip/1.0.2", <<"hello S2, its me you're looking for">>),
 
     receive
-        {handle_gossip_data, <<"hello its me you're looking for">>} -> ok
+        {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
+    after 5000 -> error(timeout)
+    end,
+
+    %% send the msg from S2 to S1
+    libp2p_group_gossip:send(S2Group, "gossip/1.0.2", <<"hello S1, its me you're looking for">>),
+
+    receive
+        {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
     after 5000 -> error(timeout)
     end,
 
