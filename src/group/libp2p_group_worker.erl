@@ -584,4 +584,4 @@ do_dial(TID, Peer, Module, Args, Path)->
                                     Peer,
                                     Path,
                                     Module,
-                                    Args).
+                                    [Path | Args]).

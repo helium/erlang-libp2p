@@ -339,7 +339,7 @@ dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) when is_pid(
                 {error, Error} ->
                     {error, Error};
                 {ok, SessionPid} ->
-                    libp2p_session:dial_framed_stream(Path, SessionPid, Module, [Path | Args])
+                    libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args)
             end;
         _Swarm when is_pid(_Swarm) ->
             case libp2p_transport_p2p:p2p_addr(Addr) of
@@ -350,7 +350,7 @@ dial_framed_stream(Sup, Addr, Path, Options, Timeout, Module, Args) when is_pid(
                         {error, Error} ->
                             {error, Error};
                         {ok, SessionPid} ->
-                            libp2p_session:dial_framed_stream(Path, SessionPid, Module, [Path | Args] ++ [{secure_peer, libp2p_crypto:p2p_to_pubkey_bin(Addr)}])
+                            libp2p_session:dial_framed_stream(Path, SessionPid, Module, Args ++ [{secure_peer, libp2p_crypto:p2p_to_pubkey_bin(Addr)}])
                     end
             end
     end;

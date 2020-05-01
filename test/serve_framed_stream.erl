@@ -54,11 +54,11 @@ server(Connection, Path, _TID, Args) ->
 init(server, Connection, [Path, Parent, Callbacks]) ->
     Parent ! {hello_server, self()},
     {ok, init_callbacks(Callbacks, #state{connection=Connection, path=Path, parent=Parent})};
-init(client, Connection, [Path]) ->
-    {ok, #state{connection=Connection, path=Path}};
-init(client, Connection, [Path, Parent]) ->
+init(client, Connection, []) ->
+    {ok, #state{connection=Connection}};
+init(client, Connection, [Parent]) ->
     Parent ! {hello_client, self()},
-    {ok, #state{connection=Connection, path=Path}}.
+    {ok, #state{connection=Connection}}.
 
 
 handle_data(_, Data, State=#state{}) ->
