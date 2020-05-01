@@ -39,7 +39,7 @@ server(Connection, _Path, _TID, Args) ->
 %% ------------------------------------------------------------------
 init(server, _Conn, [_, Echo|_]) ->
     {ok, #state{echo=Echo}};
-init(client, _Conn, [_Path, Echo|_]) ->
+init(client, _Conn, [Echo|_]) ->
     {ok, #state{echo=Echo}}.
 
 handle_data(server, Data, #state{echo=Echo}=State) ->
