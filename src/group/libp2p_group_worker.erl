@@ -7,7 +7,7 @@
 -export_type([stream_client_spec/0]).
 
 %% API
--export([start_link/5, start_link/6,
+-export([start_link/5, start_link/7,
          assign_target/2, clear_target/1,
          assign_stream/2, send/3, send/4, send_ack/3, close/1]).
 
@@ -48,7 +48,7 @@
           connect_retry_cancel_timer=undefined :: undefined | reference(),
           %% Stream we're managing
           stream_pid=undefined :: undefined | pid(),
-          worker_protocol=undefined :: undefined | atom()
+          worker_path=undefined :: undefined | atom()
         }).
 
 %% API
@@ -125,22 +125,23 @@ info(Pid) ->
 start_link(Ref, Kind, Server, GroupID, TID) ->
     gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID, TID], []).
 
--spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), ets:tab()) ->
+-spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), ets:tab(), string()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Ref, Kind, StreamPid, Server, GroupID, TID) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server, GroupID, TID], []).
+start_link(Ref, Kind, StreamPid, Server, GroupID, TID, Path) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server, GroupID, TID, Path], []).
 
 callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Ref, Kind, StreamPid, Server, GroupID, TID]) ->
+init([Ref, Kind, StreamPid, Server, GroupID, TID, Path]) ->
     process_flag(trap_exit, true),
     {ok, connected,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
-                          connect_retry_backoff=init_connect_retry_backoff()}),
+                          connect_retry_backoff=init_connect_retry_backoff(),
+                          worker_path = Path}),
     {next_event, info, {assign_stream, StreamPid}}};
 init([Ref, Kind, Server, GroupID, TID]) ->
     process_flag(trap_exit, true),
@@ -191,12 +192,12 @@ connecting(info, close, Data=#data{}) ->
     {next_state, closing, cancel_connect_retry_timer(Data)};
 connecting(info, {assign_stream, StreamPid}, Data0) ->
     connecting(info, {assign_stream, StreamPid, undefined}, Data0);
-connecting(info, {assign_stream, StreamPid, Protocol}, Data0=#data{target={MAddr, _}}) ->
+connecting(info, {assign_stream, StreamPid, Path}, Data0=#data{target={MAddr, _}}) ->
     %% Stream assignment can come in from an externally accepted
     %% stream or our own connct_pid. Either way we try to handle the
     %% assignment and leave pending connects in place to avoid
     %% killing the resulting stream assignemt of too quick.
-    Data = Data0#data{worker_protocol = Protocol},
+    Data = Data0#data{worker_path = Path},
     case handle_assign_stream(StreamPid, Data) of
         {ok, NewData} ->
             lager:debug("Assigning stream for ~p", [MAddr]),
@@ -214,10 +215,10 @@ connecting(info, {connect_error, Error}, Data=#data{target={MAddr, _}}) ->
     {keep_state, start_connect_retry_timer(Data)};
 connecting(info, {'EXIT', ConnectPid, killed}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect_pid was killed by us. Ignore
-    {keep_state, Data#data{connect_pid=undefined, worker_protocol=undefined}};
+    {keep_state, Data#data{connect_pid=undefined, worker_path=undefined}};
 connecting(info, {'EXIT', ConnectPid, _Reason}, Data=#data{connect_pid=ConnectPid}) ->
     %% The connect pid crashed for some other reason. Treat like a connect error
-    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined, worker_protocol=undefined})};
+    {keep_state, start_connect_retry_timer(Data#data{connect_pid=undefined, worker_path=undefined})};
 connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
     %% We could end up in a retry timeout with no target when this
     %% worker was assigned a stream without a target, and that stream
@@ -227,7 +228,7 @@ connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
      cancel_connect_retry_timer(Data#data{connect_pid=kill_pid(Data#data.connect_pid)}),
      ?TRIGGER_TARGETING};
 connecting(info, connect_retry_timeout, Data=#data{tid=TID,
-                                                   target={MAddr, {SupportedProtocols, {M, A}}},
+                                                   target={MAddr, {SupportedPaths, {M, A}}},
                                                    connect_pid=ConnectPid}) ->
     %% When the retry timeout fires we kill any exisitng connect_pid
     %% (just to be sure, this should not be needed). Then we spin up
@@ -245,11 +246,11 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
             Parent = self(),
             %% NOTE: why spawn the connect off ?  Why does it matter if the worker is blocked for a bit whilst connecting ?
             Pid = erlang:spawn_link(fun() ->
-                case dial(TID, MAddr, M, A, SupportedProtocols) of
+                case dial(TID, MAddr, M, A, SupportedPaths) of
                     {error, Error} ->
                         Parent ! {connect_error, Error};
-                    {ok, StreamPid, AcceptedProtocol} ->
-                        Parent ! {assign_stream, StreamPid, AcceptedProtocol}
+                    {ok, StreamPid, AcceptedPath} ->
+                        Parent ! {assign_stream, StreamPid, AcceptedPath}
                 end
             end),
             {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
@@ -264,7 +265,6 @@ connecting(EventType, Msg, Data) ->
 %%
 %% Connectd - The worker has an assigned stream
 %%
-
 connected(info, {assign_stream, StreamPid}, Data=#data{}) ->
     %% A new stream assignment came in. We stay in this state
     %% regardless of whether we accept the new stream or not.
@@ -351,11 +351,14 @@ handle_event(cast, {send, Ref, _Msg}, #data{server=Server, stream_pid=undefined}
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 handle_event(cast, {send, Ref, Msg}, Data = #data{server=Server, stream_pid=StreamPid}) ->
+    lager:debug("gossip sending: ~p",[Msg]),
     handle_send(StreamPid, Server, Ref, Msg, Data);
 handle_event(cast, {send, Ref, Msg, false}, Data = #data{server=Server, stream_pid=StreamPid}) ->
+    lager:debug("gossip sending: ~p",[Msg]),
     handle_send(StreamPid, Server, Ref, Msg, Data);
-handle_event(cast, {send, Ref, Msg, true}, Data = #data{server=Server, stream_pid=StreamPid, worker_protocol = Protocol}) ->
-    case (catch libp2p_gossip_stream:encode(Ref, Msg, Protocol)) of
+handle_event(cast, {send, Ref, Msg, true}, Data = #data{server=Server, stream_pid=StreamPid, worker_path = Path}) ->
+    lager:debug("gossip sending via path ~p: ~p",[Path, Msg]),
+    case (catch libp2p_gossip_stream:encode(Ref, Msg, Path)) of
         {'EXIT', Error} ->
             lager:warning("Error encoding gossip data ~p", [Error]),
             keep_state_and_data;
@@ -553,31 +556,32 @@ update_metadata(Data=#data{}) ->
       ]),
     Data.
 
-dial(TID, Peer, Module, Args, SupportedProtocols) ->
+dial(TID, Peer, Module, Args, SupportedPaths) ->
+    lager:debug("*** Swarm ~p is dialing peer ~p with paths ~p",[TID, Peer, SupportedPaths]),
     DialFun =
         fun
             Dial([])->
-                lager:debug("dialing group worker stream failed, no compatible protocols versions",[]),
+                lager:debug("dialing group worker stream failed, no compatible paths versions",[]),
                 {error, no_supported_paths};
-            Dial([Protocol | Rest]) ->
-                case do_dial(TID, Peer, Module, Args, Protocol) of
+            Dial([Path | Rest]) ->
+                case do_dial(TID, Peer, Module, Args, Path) of
                         {ok, Stream} ->
-                            lager:debug("dialing group worker stream successful, stream pid: ~p, protocol version: ~p", [Stream, Protocol]),
-                            {ok, Stream, Protocol};
+                            lager:debug("dialing group worker stream successful, stream pid: ~p, path version: ~p", [Stream, Path]),
+                            {ok, Stream, Path};
                         {error, protocol_unsupported} ->
-                            lager:debug("dialing group worker stream failed with protocol version: ~p, trying next supported protocol version",[Protocol]),
+                            lager:debug("dialing group worker stream failed with path version: ~p, trying next supported path version",[Path]),
                             Dial(Rest);
                         {error, Reason} ->
                             lager:debug("dialing group worker stream failed: ~p",[Reason]),
                             {error, Reason}
                 end
         end,
-    DialFun(SupportedProtocols).
+    DialFun(SupportedPaths).
 
 
-do_dial(TID, Peer, Module, Args, Protocol)->
+do_dial(TID, Peer, Module, Args, Path)->
     libp2p_swarm:dial_framed_stream(TID,
                                     Peer,
-                                    Protocol,
+                                    Path,
                                     Module,
-                                    [Protocol | Args]).
+                                    Args).
