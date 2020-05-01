@@ -55,14 +55,14 @@ init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test
     [S2] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
-                                                              {supported_gossip_protocols, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
     [S1] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
-                                                              {supported_gossip_protocols, ["gossip/1.0.0"]}  ]},
+                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
@@ -70,14 +70,14 @@ init_per_testcase(TestCase, Config) when TestCase == forwards_compat_gossip_test
     [S3] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
-                                                              {supported_gossip_protocols, ["gossip/1.0.0"]}  ]},
+                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
     [S4] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
-                                                              {supported_gossip_protocols, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
+                                                              {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
 
