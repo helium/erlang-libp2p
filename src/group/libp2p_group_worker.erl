@@ -3,7 +3,7 @@
 -behaviour(gen_statem).
 -behavior(libp2p_info).
 
--type stream_client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
+-type stream_client_spec() :: {[Path::string()], {Module::atom(), Args::[any()]}}.
 -export_type([stream_client_spec/0]).
 
 %% API
@@ -587,6 +587,10 @@ update_metadata(Data=#data{}) ->
       ]),
     Data.
 
+-spec dial(TID::ets:tid(), Peer::string(), Module::atom(),
+            Args::[any()], SupportedPaths::[string()])->
+                    {'ok', StreamPid::pid(), Path::string()} |
+                    {'error', any()}.
 dial(TID, Peer, Module, Args, SupportedPaths) ->
     lager:debug("Swarm ~p is dialing peer ~p with paths ~p",[TID, Peer, SupportedPaths]),
     DialFun =
@@ -609,7 +613,10 @@ dial(TID, Peer, Module, Args, SupportedPaths) ->
         end,
     DialFun(SupportedPaths).
 
-
+-spec do_dial(TID::ets:tid(), Peer::string(), Module::atom(),
+            Args::[any()], Path::string())->
+                    {'ok', StreamPid::pid()} |
+                    {'error', any()}.
 do_dial(TID, Peer, Module, Args, Path)->
     libp2p_swarm:dial_framed_stream(TID,
                                     Peer,
