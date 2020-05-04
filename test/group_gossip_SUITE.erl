@@ -13,11 +13,11 @@
 
 all() ->
     [
-%%      connection_test
-%%    , gossip_test
-%%    , seed_test
-    forwards_compat_gossip_test
+      connection_test
+    , gossip_test
+    , seed_test
     , backwards_compat_gossip_test
+    , forwards_compat_gossip_test
     , same_path_gossip_test1
     , same_path_gossip_test2
     ].
@@ -122,13 +122,14 @@ gossip_test(Config) ->
     test_util:connect_swarms(S1, S2),
 
     test_util:await_gossip_groups(Swarms),
+    test_util:await_gossip_streams(Swarms),
 
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:send(S2Group, "gossip_test", <<"hello">>),
 
     receive
         {handle_gossip_data, <<"hello">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     ok.
@@ -170,13 +171,14 @@ forwards_compat_gossip_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
+    test_util:await_gossip_streams([S1, S2]),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     %% send the msg from S2 to S1
@@ -184,7 +186,7 @@ forwards_compat_gossip_test(Config) ->
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     test_util:teardown_swarms([S1,S2]),
@@ -213,26 +215,28 @@ backwards_compat_gossip_test(Config) ->
                                      ]),
 
 
-    timer:sleep(1000),
-
     %% add handlers for S2
     S1Group = libp2p_swarm:gossip_group(S1),
+    ct:pal("S1 group: ~p", [S1Group]),
     libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.0", {?MODULE, self()}),
 
+
     %% add handlers for S2
     S2Group = libp2p_swarm:gossip_group(S2),
+    ct:pal("S2 group: ~p", [S2Group]),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
+    test_util:await_gossip_streams([S1, S2]),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     %% send the msg from S2 to S1
@@ -240,7 +244,7 @@ backwards_compat_gossip_test(Config) ->
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     test_util:teardown_swarms([S1,S2]),
@@ -280,13 +284,14 @@ same_path_gossip_test1(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
+    test_util:await_gossip_streams([S1, S2]),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     %% send the msg from S2 to S1
@@ -294,7 +299,7 @@ same_path_gossip_test1(Config) ->
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     test_util:teardown_swarms([S1,S2]),
@@ -337,13 +342,14 @@ same_path_gossip_test2(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:await_gossip_groups([S1, S2]),
+    test_util:await_gossip_streams([S1, S2]),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.2", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     %% send the msg from S2 to S1
@@ -351,7 +357,7 @@ same_path_gossip_test2(Config) ->
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
-    after 8000 -> error(timeout)
+    after 5000 -> error(timeout)
     end,
 
     test_util:teardown_swarms([S1,S2]),

@@ -3,7 +3,7 @@
 -behaviour(gen_statem).
 -behavior(libp2p_info).
 
--type stream_client_spec() :: {Path::string(), {Module::atom(), Args::[any()]}}.
+-type stream_client_spec() :: {[Path::string()], {Module::atom(), Args::[any()]}}.
 -export_type([stream_client_spec/0]).
 
 %% API
@@ -382,6 +382,7 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
 
 handle_event(cast, {send, Ref, _Msg, _MaybeEncode}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
+    lager:debug("attempted to send msg ~p but no stream",[_Msg]),
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 handle_event(cast, {send, Ref, Msg, false}, Data = #data{server=Server, stream_pid=StreamPid}) ->
@@ -587,6 +588,10 @@ update_metadata(Data=#data{}) ->
       ]),
     Data.
 
+-spec dial(TID::ets:tid(), Peer::string(), Module::atom(),
+            Args::[any()], SupportedPaths::[string()])->
+                    {'ok', StreamPid::pid(), Path::string()} |
+                    {'error', any()}.
 dial(TID, Peer, Module, Args, SupportedPaths) ->
     lager:debug("Swarm ~p is dialing peer ~p with paths ~p",[TID, Peer, SupportedPaths]),
     DialFun =
@@ -609,7 +614,10 @@ dial(TID, Peer, Module, Args, SupportedPaths) ->
         end,
     DialFun(SupportedPaths).
 
-
+-spec do_dial(TID::ets:tid(), Peer::string(), Module::atom(),
+            Args::[any()], Path::string())->
+                    {'ok', StreamPid::pid()} |
+                    {'error', any()}.
 do_dial(TID, Peer, Module, Args, Path)->
     libp2p_swarm:dial_framed_stream(TID,
                                     Peer,

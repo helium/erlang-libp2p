@@ -35,7 +35,8 @@ test:
 	$(REBAR) as test do eunit,ct
 
 ci:
-	$(REBAR) as test do cover && $(REBAR) do xref, dialyzer && ($(REBAR) do eunit,ct || (mkdir -p artifacts; tar --exclude='./_build/test/lib' --exclude='./_build/test/plugins' -czf artifacts/$(CIBRANCH).tar.gz _build/test; false))
+	($(REBAR) do eunit,ct || (mkdir -p artifacts; tar --exclude='./_build/test/lib' --exclude='./_build/test/plugins' -czf artifacts/$(CIBRANCH).tar.gz _build/test; false))
+	$(REBAR) do xref,dialyzer,cover
 	$(REBAR) covertool generate
 	codecov --required -f _build/test/covertool/libp2p.covertool.xml
 

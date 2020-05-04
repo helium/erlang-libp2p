@@ -105,6 +105,10 @@ handle_call({accept_stream, Session, StreamPid, Path}, From, State=#state{}) ->
 handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
     {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
     {reply, Addrs, State};
+handle_call({connected_pids, Kind}, _From, State=#state{}) ->
+    {_Addrs, Pids} = lists:unzip(connections(Kind, State)),
+    {reply, Pids, State};
+
 handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
     {reply, ok, State#state{handlers=maps:remove(Key, Handlers)}};
 
@@ -183,8 +187,7 @@ handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
 
 handle_cast({send, Key, Data}, State=#state{}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
-    %% Catch errors encoding the given arguments to avoid a bad key or
-    %% value taking down the gossip server
+    lager:debug("sending data via connection pids: ~p",[Pids]),
     lists:foreach(fun(Pid) ->
                           libp2p_group_worker:send(Pid, Key, Data, true)
                   end, Pids),
