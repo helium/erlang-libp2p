@@ -286,7 +286,7 @@ add_connection_handler(TID, Key, {ServerMF, ClientMF}) ->
     libp2p_config:insert_connection_handler(TID, {Key, ServerMF, ClientMF}),
     ok.
 
--spec connect(pid(), string()) -> {ok, pid()} | {error, term()}.
+-spec connect(pid() | ets:tab(), string()) -> {ok, pid()} | {error, term()}.
 connect(Sup, Addr) ->
     connect(Sup, Addr, [], ?CONNECT_TIMEOUT).
 
