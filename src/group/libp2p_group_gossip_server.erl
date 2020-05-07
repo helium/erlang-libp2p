@@ -127,7 +127,6 @@ handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
             try M:handle_gossip_data(StreamPid, ListOrData, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
-                    %% TODO - Sure we are handling replies below correctly ?  What if we have two peers connected on gossip/1.0.2 or above ???
                     %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
                     %%        As such we need to encode at this point, and send raw..no encoding actions
                     case (catch libp2p_gossip_stream:encode(Key, Reply)) of
