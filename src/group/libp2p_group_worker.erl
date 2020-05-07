@@ -25,7 +25,6 @@
 -define(MIN_CONNECT_RETRY_TIMEOUT, 5000).
 -define(MAX_CONNECT_RETRY_TIMEOUT, 20000).
 -define(CONNECT_RETRY_CANCEL_TIMEOUT, 10000).
-
 -define(MIN_TARGETING_RETRY_TIMEOUT, 1000).
 -define(MAX_TARGETING_RETRY_TIMEOUT, 10000).
 
@@ -137,14 +136,16 @@ callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
 init([Ref, Kind, StreamPid, Server, GroupID, TID, Path]) ->
+    lager:debug("starting group worker of kind: ~p for path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
     process_flag(trap_exit, true),
     {ok, connected,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
                           connect_retry_backoff=init_connect_retry_backoff(),
                           worker_path = Path}),
-    {next_event, info, {assign_stream, StreamPid}}};
+    {next_event, info, {assign_stream, StreamPid, Path}}};
 init([Ref, Kind, Server, GroupID, TID]) ->
+    lager:debug("starting group worker of kind: ~p",[Kind]),
     process_flag(trap_exit, true),
     {ok, targeting,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
@@ -218,7 +219,7 @@ connecting(info, {assign_stream, StreamPid, Path}, Data0=#data{target={MAddr, _}
     Data = Data0#data{worker_path = Path},
     case handle_assign_stream(StreamPid, Data) of
         {ok, NewData} ->
-            lager:debug("Assigning stream with path ~p for ~p", [Path, MAddr]),
+            lager:debug("Assigning stream with pid ~p and path ~p for ~p", [StreamPid, Path, MAddr]),
             {next_state, connected,
              %% Go the the connected state but delay the reset of the
              %% backoff until we've been in the connected state for
@@ -326,7 +327,6 @@ connected(info, close, Data=#data{}) ->
 connected(info, connect_retry_cancel_timeout, Data=#data{}) ->
     lager:debug("Cancel connect retry backoff in connected"),
     {keep_state, cancel_connect_retry_timer(Data)};
-
 connected(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
 
