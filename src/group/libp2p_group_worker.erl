@@ -322,8 +322,8 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
             lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            libp2p_framed_stream:close(StreamPid),
-            false;
+            libp2p_framed_stream:close(_CurrentStreamPid),
+            {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})};
         _ ->
             %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
             %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
