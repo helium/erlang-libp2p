@@ -373,9 +373,9 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
-            %% lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
-            %%              [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-            %%               _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+             lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
+                          [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
+                           _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
             {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
     end.
 
@@ -386,10 +386,10 @@ handle_event(cast, {send, Ref, _Msg, _MaybeEncode}, #data{server=Server, stream_
     libp2p_group_server:send_result(Server, Ref, {error, not_connected}),
     keep_state_and_data;
 handle_event(cast, {send, Ref, Msg, false}, Data = #data{server=Server, stream_pid=StreamPid}) ->
-    lager:debug("gossip sending: ~p",[Msg]),
+    lager:debug("gossip sending on stream ~p: ~p",[StreamPid, Msg]),
     handle_send(StreamPid, Server, Ref, Msg, Data);
 handle_event(cast, {send, Ref, Msg, true}, Data = #data{server=Server, stream_pid=StreamPid, worker_path = Path}) ->
-    lager:debug("gossip sending via path ~p: ~p",[Path, Msg]),
+    lager:debug("gossip sending on stream ~p with path ~p: ~p",[StreamPid, Path, Msg]),
     case (catch libp2p_gossip_stream:encode(Ref, Msg, Path)) of
         {'EXIT', Error} ->
             lager:warning("Error encoding gossip data ~p", [Error]),
@@ -461,10 +461,11 @@ handle_send(StreamPid, Server, Ref, Bin, Data)->
     libp2p_group_server:send_result(Server, Ref, Result),
     case Result of
         {error, _Reason} ->
-            %lager:info("send failed with reason ~p", [Result]),
+            lager:debug("send via stream ~p failed with reason ~p", [StreamPid, Result]),
             {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},
              ?TRIGGER_CONNECT_RETRY};
         _ ->
+            lager:debug("send via stream ~p successful", [StreamPid]),
             keep_state_and_data
     end.
 
