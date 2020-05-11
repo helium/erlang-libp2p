@@ -158,6 +158,7 @@ handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) -
                            {Addr, _} ->
                                [Addr];
                            false ->
+                               lager:debug("cannot get target as no peers",[]),
                                []
                        catch _:_ ->
                                  []
