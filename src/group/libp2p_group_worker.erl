@@ -21,7 +21,6 @@
 -define(SERVER, ?MODULE).
 -define(TRIGGER_TARGETING, {next_event, info, targeting_timeout}).
 -define(TRIGGER_CONNECT_RETRY, {next_event, info, connect_retry_timeout}).
-
 -define(MIN_CONNECT_RETRY_TIMEOUT, 5000).
 -define(MAX_CONNECT_RETRY_TIMEOUT, 20000).
 -define(CONNECT_RETRY_CANCEL_TIMEOUT, 10000).

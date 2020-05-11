@@ -155,10 +155,7 @@ forwards_compat_gossip_test(Config) ->
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
-
-
     timer:sleep(1000),
-
 
     %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
@@ -169,9 +166,8 @@ forwards_compat_gossip_test(Config) ->
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S1, S2),
-    test_util:await_gossip_groups([S1, S2]),
-    test_util:await_gossip_streams([S1, S2]),
+    %% connect the swarms and wait until they are fully ready
+    connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
@@ -214,8 +210,9 @@ backwards_compat_gossip_test(Config) ->
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
+    timer:sleep(1000),
 
-    %% add handlers for S2
+    %% add handlers for S1
     S1Group = libp2p_swarm:gossip_group(S1),
     ct:pal("S1 group: ~p", [S1Group]),
     libp2p_group_gossip:add_handler(S1Group, "gossip/1.0.2", {?MODULE, self()}),
@@ -227,9 +224,8 @@ backwards_compat_gossip_test(Config) ->
     ct:pal("S2 group: ~p", [S2Group]),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S1, S2),
-    test_util:await_gossip_groups([S1, S2]),
-    test_util:await_gossip_streams([S1, S2]),
+    %% connect the swarms and wait until they are fully ready
+    connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
@@ -282,9 +278,8 @@ same_path_gossip_test1(Config) ->
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S1, S2),
-    test_util:await_gossip_groups([S1, S2]),
-    test_util:await_gossip_streams([S1, S2]),
+    %% connect the swarms and wait until they are fully ready
+    connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
@@ -340,9 +335,8 @@ same_path_gossip_test2(Config) ->
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.2", {?MODULE, self()}),
     libp2p_group_gossip:add_handler(S2Group, "gossip/1.0.0", {?MODULE, self()}),
 
-    test_util:connect_swarms(S1, S2),
-    test_util:await_gossip_groups([S1, S2]),
-    test_util:await_gossip_streams([S1, S2]),
+    %% connect the swarms and wait until they are fully ready
+    connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
     libp2p_group_gossip:send(S1Group, "gossip/1.0.2", <<"hello S2, its me you're looking for">>),
@@ -394,3 +388,15 @@ get_peer(Swarm) ->
     Addr = libp2p_swarm:pubkey_bin(Swarm),
     {ok, Peer} = libp2p_peerbook:get(PeerBook, Addr),
     Peer.
+
+connect_await_ready(S1, S2)->
+    %% setup peerbook entries for S1 to point to S2
+    S1PeerBook = libp2p_swarm:peerbook(S1),
+    libp2p_peerbook:put(S1PeerBook, [get_peer(S2)]),
+    %% Verify that S1 finds out about S2
+    ok = test_util:wait_until(fun() ->
+                                      libp2p_peerbook:is_key(S1PeerBook, libp2p_swarm:pubkey_bin(S2))
+                              end),
+    %% wait until we are fully connected
+    test_util:await_gossip_groups([S1, S2]),
+    test_util:await_gossip_streams([S1, S2]).

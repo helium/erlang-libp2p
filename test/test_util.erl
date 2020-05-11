@@ -125,7 +125,7 @@ await_gossip_streams(Swarm) ->
               catch _:_ ->
                  false
               end
-      end, 800, 250).
+      end, 400, 250).
 
 
 
