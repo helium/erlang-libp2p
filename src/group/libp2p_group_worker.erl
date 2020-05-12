@@ -256,14 +256,15 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
                         %% such as when we are gossiped a new peer from an already connected peer
                         %% the dial above would have first performed this connection and then proceeded to dial a stream
                         %% If we dont perform the connect here then we will end up never connecting to gossiped peers with an address with a lower lex order
-                        lager:debug("(~p) peer ~p will not dial a stream to remote peer ~p, but will establish a connection to it if not already done...",[Parent, LocalAddr, MAddr]),
+                        lager:debug("(~p) peer ~p will not dial a stream to remote peer ~p, but will establish a connection to it if not already active...",[Parent, LocalAddr, MAddr]),
                         libp2p_transport:connect_to(MAddr, [], ?CONNECT_TIMEOUT, TID)
                 end
             end),
             {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
         true ->
             lager:debug("max connect retries exceeded, going back to targeting"),
-            {next_state, targeting, cancel_connect_retry_timer(Data), ?TRIGGER_TARGETING}
+            libp2p_group_server:clear_target(Data#data.server, Data#data.kind, self(), Data#data.ref),
+            {next_state, targeting, cancel_connect_retry_timer(Data#data{target = undefined}), ?TRIGGER_TARGETING}
     end;
 connecting(EventType, Msg, Data) ->
     handle_event(EventType, Msg, Data).
