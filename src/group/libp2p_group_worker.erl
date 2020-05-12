@@ -28,6 +28,7 @@
 
 -define(MIN_TARGETING_RETRY_TIMEOUT, 1000).
 -define(MAX_TARGETING_RETRY_TIMEOUT, 10000).
+-define(CONNECT_TIMEOUT, 5000).
 
 -type target() :: {MAddr::string(), Spec::stream_client_spec()}.
 
@@ -231,11 +232,32 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
         false ->
             Parent = self(),
             Pid = erlang:spawn_link(fun() ->
-                case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
-                    {error, Error} ->
-                        Parent ! {connect_error, Error};
-                    {ok, StreamPid} ->
-                        Parent ! {assign_stream, StreamPid}
+                LocalAddr = libp2p_swarm:p2p_address(TID),
+                %% its possible that after exchanging identities two peers will be assigned each other as a target
+                %% and end up dialing each other at pretty much the same time
+                %% resulting in streams being assigned for the first dial, followed by a second set of streams for the second dial
+                %% there is/was then a coin toss ( see handle_assign_stream ) as to which streams win ( we dont want two streams between the same set of peers )
+                %% both peers could get opposite sides of the coin and end up with both streams streams being closed by opposite peers
+                %% to avoid this we will only have one side perform the dialing based on a decision around data available on both ends
+                %% as such, we lexicographically compare the local peer addr with that of the remote peers addr
+                %% peer with highest order gets to do the stream dial
+                case LocalAddr > MAddr of
+                    true ->
+                        lager:debug("(~p) peer ~p will dial a stream to remote peer ~p", [Parent, LocalAddr, MAddr]),
+                        case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
+                            {error, Error} ->
+                                Parent ! {connect_error, Error};
+                            {ok, StreamPid} ->
+                                Parent ! {assign_stream, StreamPid}
+                        end;
+                false ->
+                        %% if our local peer is not performing the dial, we will attempt to connect to the remote peer
+                        %% this is to handle scenarios where we were hoping to dial a peer to which we had not yet connected
+                        %% such as when we are gossiped a new peer from an already connected peer
+                        %% the dial above would have first performed this connection and then proceeded to dial a stream
+                        %% If we dont perform the connect here then we will end up never connecting to gossiped peers with an address with a lower lex order
+                        lager:debug("(~p) peer ~p will not dial a stream to remote peer ~p, but will establish a connection to it if not already done...",[Parent, LocalAddr, MAddr]),
+                        libp2p_transport:connect_to(MAddr, [], ?CONNECT_TIMEOUT, TID)
                 end
             end),
             {keep_state, stop_connect_retry_timer(Data#data{connect_pid=Pid})};
