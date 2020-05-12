@@ -102,6 +102,7 @@ gossip_test(Config) ->
     test_util:connect_swarms(S1, S2),
 
     test_util:await_gossip_groups(Swarms),
+    test_util:await_gossip_streams(Swarms),
 
     S2Group = libp2p_swarm:gossip_group(S2),
     libp2p_group_gossip:send(S2Group, "gossip_test", <<"hello">>),

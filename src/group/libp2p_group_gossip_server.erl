@@ -100,6 +100,9 @@ handle_call({accept_stream, Session, StreamPid}, From, State=#state{}) ->
 handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
     {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
     {reply, Addrs, State};
+handle_call({connected_pids, Kind}, _From, State=#state{}) ->
+    {_Addrs, Pids} = lists:unzip(connections(Kind, State)),
+    {reply, Pids, State};
 handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
     {reply, ok, State#state{handlers=maps:remove(Key, Handlers)}};
 
