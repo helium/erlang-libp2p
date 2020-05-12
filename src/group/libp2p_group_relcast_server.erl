@@ -213,6 +213,18 @@ handle_cast({request_target, Index, WorkerPid, _WorkerRef}, State=#state{tid=TID
                                              {keys, State#state.group_keys}]}},
     libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),
     {noreply, NewState};
+handle_cast({clear_target, _Kind, _WorkerPid, Ref}, State=#state{workers = Workers}) ->
+    lager:debug("clearing target for worker ~p ", [_WorkerPid]),
+    %% the ref is stable across restarts, so use that as the lookup key
+    case lookup_worker(Ref, #worker.ref, State) of
+        Worker=#worker{} ->
+            %% TODO - should the pid be set to undefined along with target ?
+            NewWorkers = lists:keyreplace(Ref, #worker.ref, Workers,
+                                          Worker#worker{target=undefined}),
+            State#state{workers=NewWorkers};
+        _ ->
+            State
+    end;
 handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
     {noreply, State};
 handle_cast({handle_input, _Msg}, State=#state{store=Bad}) when Bad == not_started orelse
