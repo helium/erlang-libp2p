@@ -214,7 +214,7 @@ connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
     {next_state, targeting,
      cancel_connect_retry_timer(Data#data{connect_pid=kill_pid(Data#data.connect_pid)}),
      ?TRIGGER_TARGETING};
-connecting(info, connect_retry_timeout, Data=#data{tid=TID,
+connecting(info, connect_retry_timeout, Data=#data{tid=TID, kind=Kind,
                                                    target={MAddr, {Path, {M, A}}},
                                                    connect_pid=ConnectPid}) ->
     %% When the retry timeout fires we kill any exisitng connect_pid
@@ -241,7 +241,8 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
                 %% to avoid this we will only have one side perform the dialing based on a decision around data available on both ends
                 %% as such, we lexicographically compare the local peer addr with that of the remote peers addr
                 %% peer with highest order gets to do the stream dial
-                case LocalAddr > MAddr of
+                %% NOTE for relcast we always dial - relcast passes in an integer index as the Kind field, so if kind is an integer we always dial
+                case LocalAddr > MAddr orelse is_integer(Kind) of
                     true ->
                         lager:debug("(~p) peer ~p will dial a stream to remote peer ~p", [Parent, LocalAddr, MAddr]),
                         case libp2p_swarm:dial_framed_stream(TID, MAddr, Path, M, A) of
