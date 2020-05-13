@@ -201,7 +201,7 @@ connecting(info, close, Data=#data{}) ->
 %% Stream assignment can come in from an externally accepted
 %% stream or our own connect_pid. Either way we try to handle the
 %% assignment and leave pending connects in place to avoid
-%% killing the resulting stream assignemt of too quick.
+%% killing the resulting stream assignment off too quickly.
 %% If a path is specified we update the worker to use it
 connecting(info, {assign_stream, StreamPid}, Data=#data{target={MAddr, _}}) ->
     case handle_assign_stream(StreamPid, Data) of

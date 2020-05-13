@@ -31,6 +31,7 @@ encode(Key, Data) ->
     lager:debug("gossip encoding, no path: ~p",[]),
     Msg = #libp2p_gossip_frame_pb{key=Key, data=Data},
     libp2p_gossip_pb:encode_msg(Msg).
+
 encode(Key, Data, Path) ->
     lager:debug("gossip encoding for path: ~p",[Path]),
     Msg = #libp2p_gossip_frame_pb{key=Key, data=apply_path_encode(Path, Data)},
