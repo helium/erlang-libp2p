@@ -208,7 +208,7 @@ handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
                                              ok ->
                                                  Acc;
                                              {send, Msg} ->
-                                                 libp2p_group_worker:send(WorkerPid, send_ready, Msg, true),
+                                                 libp2p_group_worker:send(WorkerPid, Key, Msg, true),
                                                  Acc
                                          end
                                  end, State, State#state.handlers),
