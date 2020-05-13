@@ -264,7 +264,7 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
             Parent = self(),
             %% NOTE: why spawn the connect off ?  Why does it matter if the worker is blocked for a bit whilst connecting ?
             Pid = erlang:spawn_link(fun() ->
-                case dial(TID, MAddr, M, A, SupportedPaths) of
+                case dial(Parent, TID, MAddr, M, A, SupportedPaths) of
                     {error, Error} ->
                         Parent ! {connect_error, Error};
                     {ok, StreamPid, AcceptedPath} ->
@@ -588,27 +588,27 @@ update_metadata(Data=#data{}) ->
       ]),
     Data.
 
--spec dial(TID::ets:tid(), Peer::string(), Module::atom(),
+-spec dial(Parent::pid(), TID::ets:tid(), Peer::string(), Module::atom(),
             Args::[any()], SupportedPaths::[string()])->
                     {'ok', StreamPid::pid(), Path::string()} |
                     {'error', any()}.
-dial(TID, Peer, Module, Args, SupportedPaths) ->
-    lager:debug("Swarm ~p is dialing peer ~p with paths ~p",[TID, Peer, SupportedPaths]),
+dial(Parent, TID, Peer, Module, Args, SupportedPaths) ->
+    lager:debug("(~p) Swarm ~p is dialing peer ~p with paths ~p",[Parent, TID, Peer, SupportedPaths]),
     DialFun =
         fun
             Dial([])->
-                lager:debug("dialing group worker stream failed, no compatible paths versions",[]),
+                lager:debug("(~p) dialing group worker stream failed, no compatible paths versions",[Parent]),
                 {error, no_supported_paths};
             Dial([Path | Rest]) ->
                 case do_dial(TID, Peer, Module, Args, Path) of
                         {ok, Stream} ->
-                            lager:debug("dialing group worker stream successful, stream pid: ~p, path version: ~p", [Stream, Path]),
+                            lager:debug("(~p) dialing group worker stream successful, stream pid: ~p, path version: ~p", [Parent, Stream, Path]),
                             {ok, Stream, Path};
                         {error, protocol_unsupported} ->
-                            lager:debug("dialing group worker stream failed with path version: ~p, trying next supported path version",[Path]),
+                            lager:debug("(~p) dialing group worker stream failed with path version: ~p, trying next supported path version",[Parent, Path]),
                             Dial(Rest);
                         {error, Reason} ->
-                            lager:debug("dialing group worker stream failed: ~p",[Reason]),
+                            lager:debug("(~p) dialing group worker stream failed: ~p",[Parent, Reason]),
                             {error, Reason}
                 end
         end,

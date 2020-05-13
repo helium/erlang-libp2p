@@ -202,11 +202,10 @@ backwards_compat_gossip_test(Config) ->
                                                               {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
-
+    %% S2 represents an old swarm, so dont specifiy the gossip protocol in the config let it use default
     [S2] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
-                                                              {peer_cache_timeout, 100},
-                                                              {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
+                                                              {peer_cache_timeout, 100}  ]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
