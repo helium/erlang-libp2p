@@ -192,7 +192,7 @@ handle_cast({send, Key, Data}, State=#state{}) ->
                           libp2p_group_worker:send(Pid, Key, Data, true)
                   end, Pids),
     {noreply, State};
-handle_cast({send_ready, _target, _Ref, false}, State=#state{}) ->
+handle_cast({send_ready, _Target, _Ref, false}, State=#state{}) ->
     %% Ignore any not ready messages from group workers. The gossip
     %% server only reacts to ready messages by sending initial
     %% gossip_data.
