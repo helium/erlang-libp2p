@@ -51,14 +51,14 @@ reg_name(TID)->
 %% libp2p_gossip_stream
 %%
 
-handle_data(Pid, StreamPid, Key, Bin) ->
+handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
     %% experimentally move decoding out to the caller
     ListOrData =
         case Key of
             "peer" ->
-                libp2p_peer:decode_list(Bin);
+                {Path, libp2p_peer:decode_list(Bin)};
             _ ->
-                Bin
+                {Path, Bin}
         end,
     gen_server:cast(Pid, {handle_data, StreamPid, Key, ListOrData}).
 
@@ -117,7 +117,7 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
+handle_cast({handle_data, StreamPid, Key, {Path, ListOrData}}, State=#state{}) ->
     %% Incoming message from a gossip stream for a given key
     case maps:find(Key, State#state.handlers) of
         error -> {noreply, State};
@@ -129,7 +129,7 @@ handle_cast({handle_data, StreamPid, Key, ListOrData}, State=#state{}) ->
                     %% handler wants to reply
                     %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
                     %%        As such we need to encode at this point, and send raw..no encoding actions
-                    case (catch libp2p_gossip_stream:encode(Key, Reply)) of
+                    case (catch libp2p_gossip_stream:encode(Key, Reply, Path)) of
                         {'EXIT', Error} ->
                             lager:warning("Error encoding gossip data ~p", [Error]);
                         ReplyMsg ->
