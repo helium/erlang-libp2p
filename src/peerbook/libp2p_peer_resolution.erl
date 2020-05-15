@@ -15,7 +15,7 @@
 -spec resolve(pid(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
 resolve(GossipGroup, PK, Ts) ->
     lager:debug("ARP request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
-    libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY, 
+    libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
                              libp2p_peer_resolution_pb:encode_msg(
                                #libp2p_peer_resolution_msg_pb{
                                   msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}})),
