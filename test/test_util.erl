@@ -1,12 +1,13 @@
 -module(test_util).
 
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -define(BASE_TMP_DIR, "./_build/test/tmp").
 -define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
 
 -export([setup/0, setup_swarms/1, setup_swarms/2, teardown_swarms/1,
-         connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1,
+         connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1, await_gossip_streams/1,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1,
          init_base_dir_config/3,
          tmp_dir/0, tmp_dir/1,
@@ -108,6 +109,25 @@ await_gossip_groups(Swarms) ->
     lists:foreach(fun(S) ->
                           ok = await_gossip_group(S, Swarms)
                   end, Swarms).
+
+await_gossip_streams(Swarms) when is_list(Swarms)->
+    lists:foreach(fun(S) ->
+                          ok = await_gossip_streams(S)
+                  end, Swarms);
+
+await_gossip_streams(Swarm) ->
+    GossipGroup = libp2p_swarm:gossip_group(Swarm),
+    GroupPids = libp2p_group_gossip:connected_pids(GossipGroup, all),
+    test_util:wait_until(
+      fun() ->
+              try
+                lists:all(fun(Pid)-> connected == erlang:element(1, sys:get_state(Pid)) end, GroupPids)
+              catch _:_ ->
+                 false
+              end
+      end, 400, 250).
+
+
 
 nonl([$\n|T]) -> nonl(T);
 nonl([H|T]) -> [H|nonl(T)];
