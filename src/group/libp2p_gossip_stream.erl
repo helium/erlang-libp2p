@@ -21,7 +21,9 @@
         { connection :: libp2p_connection:connection(),
           handler_module :: atom(),
           handler_state :: any(),
-          path :: any()
+          path :: any(),
+          global_bloom :: forgetful_bloom:bloom(),
+          local_bloom :: forgetful_bloom:bloom()
         }).
 
 %% API
@@ -45,7 +47,7 @@ client(Connection, Args) ->
 server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
-init(server, Connection, [Path, HandlerModule, HandlerState]) ->
+init(server, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
     %% Catch errors from the handler module in accepting a stream. The
@@ -53,9 +55,13 @@ init(server, Connection, [Path, HandlerModule, HandlerState]) ->
     %% ordering of the shutdown will cause the accept below to crash
     %% noisily in the logs. This catch avoids that noise
     case (catch HandlerModule:accept_stream(HandlerState, Session, self(), Path)) of
-        ok -> {ok, #state{connection=Connection,
+        ok ->
+            {ok, LocalBloom} = forgetful_bloom:new_for_fp_rate(1000, 1.0e-7, 3, 1000),
+            {ok, #state{connection=Connection,
                           handler_module=HandlerModule,
                           handler_state=HandlerState,
+                          global_bloom=Bloom,
+                          local_bloom=LocalBloom,
                           path=Path}};
         {error, too_many} ->
             {stop, normal};
@@ -67,21 +73,36 @@ init(server, Connection, [Path, HandlerModule, HandlerState]) ->
                           [error_logger_lager_h:format_reason(Exit)]),
             {stop, normal}
     end;
-init(client, Connection, [Path, HandlerModule, HandlerState]) ->
+init(client, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
     lager:debug("initiating client with path ~p", [Path]),
+    {ok, LocalBloom} = forgetful_bloom:new_for_fp_rate(1000, 1.0e-7, 3, 1000),
     {ok, #state{connection=Connection,
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
+                global_bloom=Bloom,
+                local_bloom=LocalBloom,
                 path=Path}}.
 
 handle_data(_, Data, State=#state{handler_module=HandlerModule,
                                   handler_state=HandlerState,
+                                  local_bloom=LocalBloom,
+                                  global_bloom=GlobalBloom,
                                   path=Path}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
         libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
     lager:debug("gossip received for handler ~p and key ~p via path ~p with payload ~p",[HandlerModule, Key, Path, Bin]),
-    ok = HandlerModule:handle_data(HandlerState, self(), Key,
-                                   {Path, apply_path_decode(Path, Bin)}),
+    Decoded = apply_path_decode(Path, Bin),
+    %% use or here because we don't want to short circuit
+    case forgetful_bloom:set(LocalBloom, {Key, Decoded}) or forgetful_bloom:set(GlobalBloom, {Key, Decoded}) of
+        true ->
+            %% TODO this might mess with ARP
+            %% either we've already sent this to this peer, they've sent it to us, or 
+            %% someone else has sent it to us. In any case there's no need to handle it.
+            ok;
+        false ->
+            ok = HandlerModule:handle_data(HandlerState, self(), Key,
+                                           {Path, Decoded})
+    end,
     {noreply, State}.
 
 
