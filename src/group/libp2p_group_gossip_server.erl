@@ -30,7 +30,8 @@
          handlers=#{} :: #{string() => libp2p_group_gossip:handler()},
          drop_timeout :: pos_integer(),
          drop_timer :: reference(),
-         supported_paths :: [string()]
+         supported_paths :: [string()],
+         seen_messages :: forgetful_bloom:bloom()
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
@@ -90,11 +91,13 @@ init([Sup, TID]) ->
     lager:debug("Supported gossip paths: ~p:", [SupportedPaths]),
 
     self() ! start_workers,
+    {ok, Bloom} = forgetful_bloom:new_for_fp_rate(1000, 1.0e-7, 3, 1000),
     {ok, update_metadata(#state{sup=Sup, tid=TID,
                                 seed_nodes=SeedNodes,
                                 max_inbound_connections=InboundCount,
                                 peerbook_connections=PeerBookCount,
                                 seednode_connections=SeedNodeCount,
+                                seen_messages=Bloom,
                                 drop_timeout=DropTimeOut,
                                 drop_timer=schedule_drop_timer(DropTimeOut),
                                 supported_paths=SupportedPaths})}.
@@ -201,8 +204,10 @@ handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
                   end, Pids),
     {noreply, State};
 
-handle_cast({send, Key, Data}, State=#state{}) ->
+handle_cast({send, Key, Data}, State=#state{seen_messages=Bloom}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
+    %% track we've seen this now
+    forgetful_bloom:set(Bloom, {Key, Data}),
     lager:debug("sending data via connection pids: ~p",[Pids]),
     lists:foreach(fun(Pid) ->
                           libp2p_group_worker:send(Pid, Key, Data, true)
@@ -240,13 +245,14 @@ handle_cast(Msg, State) ->
 
 handle_info(start_workers, State=#state{tid=TID, seednode_connections=SeedCount,
                                         peerbook_connections=PeerCount,
+                                        seen_messages=Bloom,
                                         supported_paths = SupportedPaths}) ->
     PeerBookWorkers = [start_worker(peerbook, State) || _ <- lists:seq(1, PeerCount)],
     SeedWorkers = [start_worker(seed, State) || _ <- lists:seq(1, SeedCount)],
 
     GossipAddFun = fun(Path) ->
                         libp2p_swarm:add_stream_handler(TID, Path,
-                                                        {libp2p_gossip_stream, server, [Path, ?MODULE, self()]})
+                                                        {libp2p_gossip_stream, server, [Path, ?MODULE, self(), Bloom]})
                    end,
     lists:foreach(GossipAddFun, SupportedPaths),
     {noreply, State#state{workers=SeedWorkers ++ PeerBookWorkers}};
@@ -324,7 +330,7 @@ connections(Kind, #state{workers=Workers}) ->
                         Acc
                 end, [], Workers).
 
-assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, supported_paths = SupportedPaths}) ->
+assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, seen_messages=Bloom, supported_paths = SupportedPaths}) ->
     case length(TargetAddrs) of
         0 ->
             %% the ref is stable across restarts, so use that as the lookup key
@@ -332,7 +338,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                 Worker=#worker{kind=seed, target=SelectedAddr, pid=StoredWorkerPid} when SelectedAddr /= undefined ->
                     %% don't give up on the seed nodes in case we're entirely offline
                     %% we need at least one connection to bootstrap the swarm
-                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self()]}},
+                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), Bloom]}},
                     libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
                     %% check if this worker got restarted
                     case WorkerPid /= StoredWorkerPid of
@@ -348,7 +354,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
             end;
         _ ->
             SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
-            ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self()]}},
+            ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), Bloom]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
             case lookup_worker(WorkerRef, #worker.ref, State) of
