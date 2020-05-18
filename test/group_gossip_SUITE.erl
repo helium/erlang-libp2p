@@ -389,13 +389,7 @@ get_peer(Swarm) ->
     Peer.
 
 connect_await_ready(S1, S2)->
-    %% setup peerbook entries for S1 to point to S2
-    S1PeerBook = libp2p_swarm:peerbook(S1),
-    libp2p_peerbook:put(S1PeerBook, [get_peer(S2)]),
-    %% Verify that S1 finds out about S2
-    ok = test_util:wait_until(fun() ->
-                                      libp2p_peerbook:is_key(S1PeerBook, libp2p_swarm:pubkey_bin(S2))
-                              end),
+    test_util:connect_swarms(S1, S2),
     %% wait until we are fully connected
     test_util:await_gossip_groups([S1, S2]),
     test_util:await_gossip_streams([S1, S2]).
