@@ -155,9 +155,9 @@ handle_cast({clear_target, _Kind, _WorkerPid, Ref}, State=#state{workers = Worke
             %% TODO - should the pid be set to undefined along with target ?
             NewWorkers = lists:keyreplace(Ref, #worker.ref, Workers,
                                           Worker#worker{target=undefined}),
-            State#state{workers=NewWorkers};
+            {noreply, State#state{workers=NewWorkers}};
         _ ->
-            State
+            {noreply, State}
     end;
 handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) ->
     LocalAddr = libp2p_swarm:pubkey_bin(TID),
