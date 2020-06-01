@@ -64,11 +64,16 @@ dial_self(Config) ->
         ,[{echo, self()}]
     ),
     timer:sleep(100),
-    {error, [{Address, dialing_self}]} = libp2p_swarm:dial_framed_stream(
+    %% You can get a dialing_self from any of the listen addresses
+    %% that were attempted
+    {error, Errors} = libp2p_swarm:dial_framed_stream(
         Swarm
         ,libp2p_swarm:p2p_address(Swarm)
         ,Version
         ,libp2p_stream_proxy_test
         ,[{echo, self()}]
     ),
+    true = lists:all(fun({_, dialing_self}) -> true;
+                        (_) -> false
+                     end, Errors),
     ok.
