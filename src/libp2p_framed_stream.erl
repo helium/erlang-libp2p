@@ -427,7 +427,7 @@ handle_recv_result({ok, Data}, State=#state{exchanged=false, secured=true,
     end;
 handle_recv_result({ok, EncryptedData}, State=#state{exchanged=true, secured=true,
                                                      rcv_nonce=Nonce}) ->
-    case enacl:aead_chacha20poly1305_decrypt(State#state.rcv_key, Nonce, <<>>, EncryptedData) of
+    case enacl:aead_chacha20poly1305_ietf_decrypt(EncryptedData, <<>>, <<Nonce:96/integer-unsigned-little>>, State#state.rcv_key) of
         {error, _Reason} ->
             lager:warning("error decrypting packet ~p ~p", [_Reason, EncryptedData]),
             {noreply, handle_fdset(State#state{rcv_nonce=Nonce+1})};
@@ -513,13 +513,13 @@ send_key(Data, #state{send_pid=SendPid}=State) ->
 -spec handle_resp_send(send_result_action(), binary(), non_neg_integer(), #state{}) -> #state{}.
 handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=true,
                                                      send_nonce=Nonce, connection=Conn}) ->
-    case enacl:aead_chacha20poly1305_encrypt(State#state.send_key, Nonce, <<>>, Data) of
-        {error, _Reason} ->
-            libp2p_connection:close(Conn),
-            lager:warning("failed to encrypt ~p : ~p", [{Nonce, Data}, _Reason]),
-            State;
+    try enacl:aead_chacha20poly1305_ietf_encrypt(Data, <<>>, <<Nonce:96/integer-unsigned-little>>, State#state.send_key) of
         EncryptedData ->
             handle_resp_send_inner(Action, EncryptedData, Timeout, State#state{send_nonce=Nonce+1})
+    catch What:Why ->
+            libp2p_connection:close(Conn),
+            lager:warning("failed to encrypt : ~p ~p", [What, Why]),
+            State
     end;
 handle_resp_send(Action, Data, Timeout, State=#state{}) ->
     handle_resp_send_inner(Action, Data, Timeout, State).

@@ -99,13 +99,13 @@ handle_data(client, Data, #state{exchanged=false, pub_key=ClientPK, priv_key=Cli
             {stop, failed_bin_to_term, State}
     end;
 handle_data(_Type, EncryptedData, #state{exchanged=true, rcv_key=RcvKey, nonce=Nonce, echo=Echo}=State) ->
-    Data = enacl:aead_chacha20poly1305_decrypt(RcvKey, Nonce, <<>>, EncryptedData),
+    Data = enacl:aead_chacha20poly1305_ietf_decrypt(EncryptedData, <<>>, <<Nonce:96/integer-unsigned-little>>, RcvKey),
     ct:pal("~p got data ~p = ~p", [_Type, EncryptedData, Data]),
     Echo ! {echo, server, Data},
     {noreply, State#state{nonce=Nonce+1}}.
 
 handle_info(_Type, {send, Data}, #state{exchanged=true, send_key=SendKey, nonce=Nonce}=State) ->
-    EncryptedData = enacl:aead_chacha20poly1305_encrypt(SendKey, Nonce, <<>>, Data),
+    EncryptedData = enacl:aead_chacha20poly1305_ietf_encrypt(Data, <<>>, <<Nonce:96/integer-unsigned-little>>, SendKey),
     ct:pal("~p got send ~p = ~p", [_Type, Data, EncryptedData]),
     {noreply, State#state{nonce=Nonce+1}, EncryptedData};
 handle_info(_Type, _Msg, State) ->
