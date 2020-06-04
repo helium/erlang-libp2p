@@ -64,6 +64,7 @@ acknowledge(#connection{module=Module, state=State}, Ref) ->
 
 -spec close(connection()) -> ok.
 close(#connection{module=Module, state=State}) ->
+    lager:info("calling close ~p", [Module]),
     Module:close(State).
 
 -spec close_state(connection()) -> close_state().

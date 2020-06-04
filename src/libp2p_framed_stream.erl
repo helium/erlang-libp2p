@@ -325,6 +325,7 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
     unlink(SendPid),
     erlang:exit(SendPid, kill),
     catch libp2p_connection:fdclr(Connection),
+    lager:info("stream closing terminate ~p", []),
     catch libp2p_connection:close(Connection),
     ok.
 

@@ -35,7 +35,8 @@
           recv_state=#recv_state{} :: #recv_state{},
           send_state=#send_state{} :: #send_state{},
           idle_timeout :: pos_integer() | infinity,
-          idle_timer=make_ref() :: reference()
+          idle_timer=make_ref() :: reference(),
+          debug_stream = false :: boolean()
          }).
 
 -type from() :: {pid(), term()}.
@@ -56,7 +57,8 @@
 -export([init/1, callback_mode/0, handle_event/4, terminate/3]).
 
 % API
--export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2]).
+-export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2,
+         debug/1]).
 % libp2p_connection
 -export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2,
@@ -67,7 +69,6 @@
 open_stream(Session, TID, StreamID) ->
     % We're opening a stream (client)
     gen_statem:start_link(?MODULE, {Session, TID, StreamID, ?SYN}, []).
-
 
 receive_stream(Session, TID, StreamID) ->
     % We're receiving/accepting a stream (server)
@@ -98,6 +99,9 @@ update_window(Ref, Flags, Header) ->
 
 receive_data(Ref, Data) ->
     gen_statem:cast(Ref, {incoming_data, Data}).
+
+debug(Pid) ->
+    gen_statem:cast(Pid, debug).
 
 % libp2p_connection
 %
@@ -232,7 +236,7 @@ handle_event(cast, {update_window, Flags, _}, _, Data=#state{}) when ?FLAG_IS_SE
             {keep_state, Data#state{close_state=pending}};
         false ->
             %% No more data to deliver, shut down
-            lager:debug("Remote end closed and no more receivable data, stopping"),
+            lager:notice("Remote end closed and no more receivable data, stopping"),
             {stop, normal, notify_inert(Data)}
     end;
 handle_event(cast, {update_window, Flags, _}, connecting, Data=#state{}) when ?FLAG_IS_SET(Flags, ?ACK) ->
@@ -281,7 +285,7 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data0=#state{}) when ?
         % Check if we still have any cached data for future recvs
         true -> {keep_state, Data};
         false ->
-            lager:debug("Remote closed and no receivable data; closing"),
+            lager:notice("Remote closed and no receivable data; closing"),
             {stop, normal, notify_inert(Data)}
     end;
 handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
@@ -292,10 +296,12 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
 %
 handle_event({call, From}, close, _State, Data=#state{}) when ?REMOTE_CLOSED(Data) ->
     % Remote already closed previously
+    lager:notice("stopped close"),
     {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close, _State, Data=#state{}) ->
     % Send RST
     catch close_send(Data),
+    lager:notice("stopped close 2: ~p ~p", [Data#state.addr_info, erlang:process_info(self(), [current_stacktrace])]),
     {stop_and_reply, normal, {reply, From, ok}, notify_inert(Data)};
 handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
     {keep_state_and_data, {reply, From, CloseState}};
@@ -303,20 +309,23 @@ handle_event({call, From}, close_state, _, #state{close_state=CloseState}) ->
 %% Idle
 %%
 handle_event(info, timeout_idle, _State, Data=#state{}) ->
-    lager:debug("Closing stream due to inactivity"),
+    lager:notice("Closing stream due to inactivity"),
     %% send close to other side to let them know we're going away.
     catch close_send(Data),
     %% notify any waiters that this stream is going away.
     {stop, normal, notify_inert(Data)};
 handle_event(cast, {set_idle_timeout, Timeout}, _State, Data=#state{}) ->
     {keep_state, kick_idle_timer(Data#state{idle_timeout=Timeout})};
-
+handle_event(cast, debug, _State, Data=#state{debug_stream = Debug}) ->
+    {keep_state, Data#state{debug_stream = not Debug}};
 
 % Info
 %
 handle_event(info, {'DOWN', _, process, Pid, _}, _State, Data=#state{session = Pid})  ->
+    lager:notice("stopped DOWN"),
     {stop, normal, Data};
 handle_event(info, {'EXIT', Pid, normal}, _State, Data=#state{handler=Pid})  ->
+    lager:notice("stopped EXIT"),
     {stop, normal, Data};
 handle_event(info, {'EXIT', Pid, Reason}, _State, Data=#state{handler=Pid}) ->
     lager:warning("Multistream server ~p exited with reason ~p", [Pid, Reason]),
