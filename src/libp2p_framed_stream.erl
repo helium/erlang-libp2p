@@ -13,8 +13,8 @@
 %% libp2p_info
 -export([info/1]).
 
--define(RECV_TIMEOUT, 5000).
--define(SEND_TIMEOUT, 5000).
+-define(RECV_TIMEOUT, 45000).
+-define(SEND_TIMEOUT, 45000).
 
 -type response() :: binary().
 -type handle_data_result() ::
@@ -330,7 +330,7 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
     ok.
 
 call(Pid, Cmd) ->
-    call(Pid, Cmd, 5000).
+    call(Pid, Cmd, 46000).
 
 call(Pid, Cmd, Timeout) ->
     try
