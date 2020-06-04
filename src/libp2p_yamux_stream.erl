@@ -321,8 +321,8 @@ handle_event(cast, debug, _State, Data=#state{debug_stream = Debug}) ->
 
 % Info
 %
-handle_event(info, {'DOWN', _, process, Pid, _}, _State, Data=#state{session = Pid})  ->
-    lager:notice("stopped DOWN"),
+handle_event(info, {'DOWN', _, process, Pid, Reason}, _State, Data=#state{session = Pid})  ->
+    lager:notice("stopped DOWN ~p ~p", [Pid, Reason]),
     {stop, normal, Data};
 handle_event(info, {'EXIT', Pid, normal}, _State, Data=#state{handler=Pid})  ->
     lager:notice("stopped EXIT"),
