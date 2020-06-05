@@ -41,7 +41,7 @@
 -export([start_link/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 
 %% libp2p_connection
--export([send/3, recv/3, acknowledge/2, addr_info/1,
+-export([send/3, recv/3, unrecv/2, acknowledge/2, addr_info/1,
          close/1, close_state/1, controlling_process/2,
          session/1, fdset/1, socket/1, fdclr/1, monitor/1,
          set_idle_timeout/2
@@ -160,6 +160,10 @@ send(#tcp_state{socket=Socket, transport=Transport}, Data, _Timeout) ->
 -spec recv(tcp_state(), non_neg_integer(), pos_integer()) -> {ok, binary()} | {error, term()}.
 recv(#tcp_state{socket=Socket, transport=Transport}, Length, Timeout) ->
     Transport:recv(Socket, Length, Timeout).
+
+-spec unrecv(tcp_state(), iodata()) -> ok.
+unrecv(#tcp_state{socket=Socket}, Data) ->
+    gen_tcp:unrecv(Socket, Data).
 
 -spec close(tcp_state()) -> ok.
 close(#tcp_state{socket=Socket, transport=Transport}) ->

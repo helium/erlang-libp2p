@@ -379,11 +379,15 @@ recv(Connection, Timeout) ->
         {error, Error} -> {error, Error};
         {ok, <<Size:32/little-unsigned-integer>>} ->
             %% TODO: Limit max message size we're willing to
-            %% TODO if we read the prefix length, but time out on the payload, we should handle this?
             case libp2p_connection:recv(Connection, Size, Timeout) of
                 {ok, Data} when byte_size(Data) == Size -> {ok, Data};
                 {ok, _Data} -> {error, frame_size_mismatch};
-                {error, Error} -> {error, Error}
+                {error, timeout} ->
+                    %% the underlying buffer didn't have everything in time, so put the length prefix back in
+                    %% the buffer
+                    libp2p_connection:unrecv(Connection, <<Size:32/integer-unsigned-little>>),
+                    {error, payload_timeout};
+                {error, Error} ->{error, Error}
             end
     end.
 
@@ -402,7 +406,11 @@ dispatch_handle_data(Kind, Bin, State=#state{module=Module}) ->
             {noreply, handle_fdset(handle_resp_send({stop, Reason}, Response, State#state{state=ModuleState}))}
     end.
 
-
+handle_recv_result({error, payload_timeout}, State) ->
+    %% we have pending data, but it's not complete
+    %% schedule another fdset so we can check again later
+    libp2p_connection:fdset(State#state.connection),
+    {noreply, State};
 handle_recv_result({error, timeout}, State) ->
     {noreply, State};
 handle_recv_result({error, closed}, State) ->
