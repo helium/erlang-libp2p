@@ -68,13 +68,13 @@ error(Req) ->
 -ifdef(TEST).
 
 create_test() ->
-    ?assertEqual(#libp2p_relay_resp_pb{address="123", error=undefined}, create("123")),
+    ?assertEqual(#libp2p_relay_resp_pb{address="123", error=""}, create("123")),
     ?assertEqual(#libp2p_relay_resp_pb{address="123", error="error"}, create("123", "error")).
 
 get_test() ->
     Resp = create("123"),
     ?assertEqual("123", address(Resp)),
-    ?assertEqual(undefined, ?MODULE:error(Resp)),
+    ?assertEqual("", ?MODULE:error(Resp)),
 
     Error = create("123", "error"),
     ?assertEqual("123", address(Error)),
