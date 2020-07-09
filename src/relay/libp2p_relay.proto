@@ -1,34 +1,35 @@
 // See doc/relay.md for more info
+syntax = "proto3";
 
 // Request to initiate relay
 message relay_req {
-    required string address = 1; // address of the requester
+    string address = 1; // address of the requester
 }
 
 // Response from relay server
 message relay_resp {
-    optional string address = 1; // p2p-circuit address
-    optional string error = 2; // error
+    string address = 1; // p2p-circuit address
+    string error = 2; // error
 }
 
 // Bridge messages are used to transmit the address of A and B nodes
 
 // Bridge from Client node to R (Relay)
 message relay_bridge_cr {
-    required string server = 1;
-    required string client = 2;
+    string server = 1;
+    string client = 2;
 }
 
 // Bridge from node R (Relay) to Server node
 message relay_bridge_rs {
-    required string server = 1;
-    required string client = 2;
+    string server = 1;
+    string client = 2;
 }
 
 // Bridge from Server node to Client node
 message relay_bridge_sc {
-    required string server = 1;
-    required string client = 2;
+    string server = 1;
+    string client = 2;
 }
 
 // Ping-Pong message to detect connection failure
