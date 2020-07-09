@@ -33,12 +33,12 @@ message relay_bridge_sc {
 
 // Ping-Pong message to detect connection failure
 message relay_ping {
-    uint32 seq = 1;
+    required uint32 seq = 1;
     enum Direction {
         PING = 1;
         PONG = 2;
     }
-    Direction direction = 2;
+    required Direction direction = 2;
 }
 
 message relay_envelope {
