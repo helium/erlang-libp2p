@@ -241,7 +241,7 @@ handle_client_data(Bin, State) ->
 handle_client_data({resp, Resp}, _Env, #state{swarm=Swarm}=State) ->
     Address = libp2p_relay_resp:address(Resp),
     case libp2p_relay_resp:error(Resp) of
-        undefined ->
+        "" ->
             % Relay Step 3: Client A receives a relay response from server R
             % with p2p-circuit address and inserts it as a new listener to get
             % broadcasted by peerbook
