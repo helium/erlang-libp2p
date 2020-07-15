@@ -509,10 +509,10 @@ message_receive(Header=#header{flags=Flags, stream_id=StreamID, type=Type, lengt
         {ok, Pid} ->
             case Type of
                 ?UPDATE ->
-                    %Handle an inbound stream window update
+                    %% Handle an inbound stream window update
                     libp2p_yamux_stream:update_window(Pid, Flags, Header);
                 _ ->
-                    % Read data and hand of to the stream
+                    %% Read data and hand off to the stream
                     case libp2p_connection:recv(Connection, Length) of
                         {error, Reason} ->
                             lager:warning("Failed to read data for ~p: ~p", [StreamID, Reason]),

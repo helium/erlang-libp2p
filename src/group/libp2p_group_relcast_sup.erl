@@ -14,7 +14,9 @@ start_link(TID, GroupID, Args) ->
     supervisor:start_link(?MODULE, [TID, GroupID, Args]).
 
 init([TID, GroupID, Args]) ->
-    SupFlags = #{strategy => one_for_all},
+    SupFlags = #{strategy => one_for_all,
+                 intensity => 0,
+                 period =>1},
     ChildSpecs =
         [
          #{ id => ?WORKERS,
@@ -23,6 +25,7 @@ init([TID, GroupID, Args]) ->
           },
          #{ id => server,
             start => {libp2p_group_relcast_server, start_link, [TID, GroupID, Args, self()]},
+            shutdown => 60000,
             restart => transient
           }
         ],

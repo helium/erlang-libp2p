@@ -101,6 +101,7 @@ init([TID, GroupID, Args, Sup]) ->
             %% we have to start relcast async because it might
             %% make a call to the process starting this process
             %% in its handler
+            lager:info("init relcast start ~p ~p", [SelfIndex, DataDir]),
             self() ! {start_relcast, Handler, HandlerArgs, RelcastArgs, SelfIndex, Addrs},
             {ok, update_metadata(#state{sup=Sup, tid=TID,
                                         group_id=GroupID,
@@ -258,6 +259,7 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
     %% We don't handle another defer here so it falls through to an
     %% unhandled cast below.
     %% Delete the outbound message for the given index
+    lager:info("ack ~p ~p", [Index, Seq]),
     {ok, RC} = relcast:ack(Index, Seq, State#state.store),
     NewRelcast = case Reset of
                      true ->
@@ -268,6 +270,7 @@ handle_cast({handle_ack, Index, Seq, Reset}, State=#state{self_index=_SelfIndex}
                  end,
     Worker = lookup_worker(Index, State),
     InFlight = relcast:in_flight(Index, NewRelcast),
+    lager:info("post-ack inflight ~p", [InFlight]),
     State1 = update_worker(Worker#worker{in_flight=InFlight, last_ack=erlang:system_time(second)}, State),
     {noreply, dispatch_next_messages(State1#state{store=NewRelcast})};
 handle_cast({handle_data, Index, Msgs}, State=#state{self_index=_SelfIndex}) ->
@@ -357,7 +360,7 @@ handle_info(force_close, State=#state{}) ->
     %% down the group by exiting the supervisor.
     spawn(fun() ->
                   lager:info("removing group for force_close timeout"),
-                  libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
+                  libp2p_group_mgr:remove_group(State#state.tid, State#state.group_id)
           end),
     {noreply, State#state{close_state=closing}};
 handle_info(inbound_tick, State = #state{store=Store}) ->
@@ -377,11 +380,14 @@ handle_info(Msg, State) ->
 
 
 terminate(_, #state{close_state=closing, store=Store}) ->
+    lager:info("stop 1"),
     relcast:stop(lite, Store);
 terminate(_Reason, #state{store=Whatever}) when Whatever == cannot_start orelse
                                                 Whatever == not_started ->
+    lager:info("stop 2"),
     ok;
 terminate(Reason, #state{store=Store}) ->
+    lager:info("stop ~p 3", [self()]),
     relcast:stop(Reason, Store).
 
 %% Internal
