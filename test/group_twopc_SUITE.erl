@@ -101,7 +101,7 @@ msg_loss_test(Config) ->
                        {FollowerS2, Follower2G, Follower2Args}])
           end),
 
-    L = fun Loop(1500) ->
+    L = fun Loop(5000) ->
                 ok;
             Loop(N) ->
                 case N of 3 -> Restarter ! go; _ -> ok end,
