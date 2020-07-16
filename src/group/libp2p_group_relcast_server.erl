@@ -357,7 +357,8 @@ handle_info(force_close, State=#state{}) ->
     %% down the group by exiting the supervisor.
     spawn(fun() ->
                   lager:info("removing group for force_close timeout"),
-                  libp2p_group_mgr:remove_group(State#state.tid, State#state.group_id)
+                  Mgr = libp2p_group_mgr:remove_group(State#state.tid),
+                  libp2p_group_mgr:remove_group(Mgr, State#state.group_id)
           end),
     {noreply, State#state{close_state=closing}};
 handle_info(inbound_tick, State = #state{store=Store}) ->
