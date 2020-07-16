@@ -68,6 +68,7 @@
          negotiated_nat=false :: boolean()
         }).
 
+-define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
 
 %% libp2p_transport
 %%
@@ -597,8 +598,9 @@ listen_on(Addr, TID) ->
                     Cache = libp2p_swarm:cache(TID),
                     ok = libp2p_cache:insert(Cache, {tcp_local_listen_addrs, Type}, ListenAddrs),
 
+                    MaxTCPConnections = application:get_env(libp2p, max_tcp_connections, ?DEFAULT_MAX_TCP_CONNECTIONS),
                     ChildSpec = ranch:child_spec(ListenAddrs,
-                                                 ranch_tcp, [{socket, Socket}],
+                                                 ranch_tcp, [{socket, Socket}, {max_connections, MaxTCPConnections}],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
