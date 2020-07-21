@@ -23,7 +23,7 @@ open(Pid) ->
 
 -spec close(pid()) -> ok.
 close(Pid) ->
-    try close(Pid, normal, 5000) of
+    try close(Pid, normal, 15000) of
         Res -> Res
     catch
         exit:timeout ->

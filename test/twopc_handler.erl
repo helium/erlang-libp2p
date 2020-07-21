@@ -88,7 +88,10 @@ handle_message(Msg0, _Index, State=#state{val = Val,
             {State#state{val = CommitVal, prep_val = undefined},
              [{unicast, Leader, term_to_binary({commit_ack, CommitVal})}]};
         {commit, CommitVal} when CommitVal =< Val -> % late resend?
-            ignore
+            ignore;
+        Else ->
+            lager:error("bad message ~p", [Else]),
+            error({noooooo, Else, Val, PrepVal})
     end.
 
 handle_command({set_val, From, Val}, #state{leader = self} = State) ->
@@ -100,6 +103,8 @@ handle_command({set_val, Val}, #state{} = State) ->
     {reply, {error, not_leader}, [], State};
 handle_command(stop, #state{} = State) ->
     lager:info("stopping ~p", [State]),
+    %% this didn't work
+    %% foo = application:get_env(libp2p, glorp, bar),
     {reply, ok, [{stop, 1}], State}.
 
 callback_message(_, _, _) ->

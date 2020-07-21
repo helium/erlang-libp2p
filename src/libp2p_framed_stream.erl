@@ -323,7 +323,7 @@ terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, mod
         false -> ok
     end,
     unlink(SendPid),
-    erlang:exit(SendPid, kill),
+    erlang:exit(SendPid, shutdown),
     catch libp2p_connection:fdclr(Connection),
     catch libp2p_connection:close(Connection),
     ok.

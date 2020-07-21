@@ -233,12 +233,13 @@ fdset(#tcp_state{socket=Socket}=State) ->
                                 Return;
                             {'DOWN', Ref, process, Pid, Reason} ->
                                 {error, Reason}
-                    after 5000 ->
-                              %% client process wedged, kill it
-                              erlang:demonitor(Ref, [flush]),
-                              erlang:exit(Pid, kill),
-                              erlang:put(fdset_pid, undefined),
-                              fdset(State)
+                    after 15000 ->
+                            lager:info("killing timedout ~p", [Pid]),
+                            %% client process wedged, kill it
+                            erlang:demonitor(Ref, [flush]),
+                            erlang:exit(Pid, kill),
+                            erlang:put(fdset_pid, undefined),
+                            fdset(State)
                     end;
                 false ->
                     erlang:put(fdset_pid, undefined),
@@ -274,12 +275,13 @@ fdclr(#tcp_state{socket=Socket}) ->
                             {'DOWN', Ref, process, Pid, Reason} ->
                                 erlang:put(fdset_pid, undefined),
                                 {error, Reason}
-                    after 5000 ->
-                              %% client process wedged, kill it
-                              erlang:demonitor(Ref, [flush]),
-                              erlang:exit(Pid, kill),
-                              erlang:put(fdset_pid, undefined),
-                              ok
+                    after 15000 ->
+                            lager:info("killing timedout ~p", [Pid]),
+                            %% client process wedged, kill it
+                            erlang:demonitor(Ref, [flush]),
+                            erlang:exit(Pid, kill),
+                            erlang:put(fdset_pid, undefined),
+                            ok
                     end;
                 false ->
                     erlang:put(fdset_pid, undefined),

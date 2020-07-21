@@ -90,10 +90,10 @@ msg_loss_test(Config) ->
                                          fun() ->
                                                  erlang:is_process_alive(Group) == false
                                          end, 50, 10),
-                                  timer:sleep(200),
+                                  timer:sleep(100),
                                   {ok, Replacement} =
                                       libp2p_swarm:add_group(Swarm, "twopc", libp2p_group_relcast, Args),
-                                  timer:sleep(125),
+                                  timer:sleep(200),
                                   Groups1 = lists:delete(E, Groups),
                                   Restart([{Swarm, Replacement, Args} | Groups1])
                           end

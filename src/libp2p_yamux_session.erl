@@ -292,7 +292,7 @@ terminate(_Reason, #state{connection=Connection, send_pid=SendPid}) ->
     end,
     case SendPid of
         undefined -> ok;
-        _ -> erlang:exit(SendPid, kill)
+        _ -> erlang:exit(SendPid, shutdown)
     end.
 
 

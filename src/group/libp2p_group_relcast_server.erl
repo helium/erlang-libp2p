@@ -12,8 +12,10 @@
          send_ack/4,
          info/1,
          handle_command/2]).
+
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+
 %% libp2p_ack_stream
 -export([handle_data/3, handle_ack/4, accept_stream/3]).
 
@@ -360,10 +362,9 @@ handle_info(force_close, State=#state{}) ->
     %% down the group by exiting the supervisor.
     spawn(fun() ->
                   lager:info("removing group for force_close timeout"),
-                  Mgr = libp2p_group_mgr:remove_group(State#state.tid),
-                  libp2p_group_mgr:remove_group(Mgr, State#state.group_id)
+                  libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
           end),
-    {noreply, State#state{close_state=closing}};
+    {stop, normal, State#state{close_state=closing}};
 handle_info(inbound_tick, State = #state{store=Store}) ->
     case relcast:process_inbound(Store) of
         {ok, Acks, Store1} ->
@@ -381,14 +382,14 @@ handle_info(Msg, State) ->
 
 
 terminate(_, #state{close_state=closing, store=Store}) ->
-    lager:info("stop 1"),
+    lager:info("YYYY stop 1"),
     relcast:stop(lite, Store);
 terminate(_Reason, #state{store=Whatever}) when Whatever == cannot_start orelse
                                                 Whatever == not_started ->
-    lager:info("stop 2"),
+    lager:info("YYYY stop 2"),
     ok;
 terminate(Reason, #state{store=Store}) ->
-    lager:info("stop ~p 3", [self()]),
+    lager:info("YYYY stop ~p 3", [self()]),
     relcast:stop(Reason, Store).
 
 %% Internal

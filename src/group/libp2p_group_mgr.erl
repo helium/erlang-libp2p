@@ -69,12 +69,12 @@ handle_call({add_group, GroupID, Module, Args}, _From,
                 lager:info("trying to add running group: ~p", [GroupID]),
                 {ok, Pid};
             false ->
-                lager:info("newly starting group: ~p", [GroupID]),
+                lager:info("newly starting group: ~p ~p", [Module, GroupID]),
                 GroupSup = libp2p_swarm_group_sup:sup(TID),
                 ChildSpec = #{ id => GroupID,
                                start => {Module, start_link, [TID, GroupID, Args]},
                                restart => transient,
-                               shutdown => 5000,
+                               shutdown => 60000,
                                type => supervisor },
                 case supervisor:start_child(GroupSup, ChildSpec) of
                     {error, Error} -> {error, Error};
@@ -86,10 +86,17 @@ handle_call({add_group, GroupID, Module, Args}, _From,
     {reply, Reply, State};
 handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
     case libp2p_config:lookup_group(TID, GroupID) of
-        {ok, _Pid} ->
-            lager:info("removing group ~p", [GroupID]),
+        {ok, Pid} ->
+            lager:info("removing group ~p ~p", [GroupID, Pid]),
             GroupSup = libp2p_swarm_group_sup:sup(TID),
-            _ = supervisor:terminate_child(GroupSup, GroupID),
+            [_, {server, SPid, _, _}] = CH = supervisor:which_children(Pid),
+            lager:info("kids ~p", [CH]),
+            _Ref = erlang:monitor(process, SPid),
+            ok = supervisor:terminate_child(GroupSup, GroupID),
+            receive Msg -> lager:info("GGG ~p", [Msg])
+            after 150000 ->
+                    lager:warning("child didn't shut down right")
+            end,
             _ = supervisor:delete_child(GroupSup, GroupID),
             _ = libp2p_config:remove_group(TID, GroupID);
         false ->

@@ -136,7 +136,6 @@ callback_mode() -> state_functions.
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
 init([Ref, Kind, StreamPid, Server, GroupID, TID, Path]) ->
     lager:debug("starting group worker of kind: ~p for path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
-    process_flag(trap_exit, true),
     {ok, connected,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
@@ -145,7 +144,6 @@ init([Ref, Kind, StreamPid, Server, GroupID, TID, Path]) ->
     {next_event, info, {assign_stream, StreamPid, Path}}};
 init([Ref, Kind, Server, GroupID, TID]) ->
     lager:debug("starting group worker of kind: ~p",[Kind]),
-    process_flag(trap_exit, true),
     {ok, targeting,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
@@ -552,9 +550,13 @@ update_stream(undefined,  #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, se
     libp2p_group_server:send_ready(Server, MAddr, Kind, false),
     undefined;
 update_stream(StreamPid, #data{stream_pid=undefined, target={MAddr, _}, kind=Kind, server=Server}) ->
-    link(StreamPid),
-    libp2p_group_server:send_ready(Server, MAddr, Kind, true),
-    StreamPid;
+    try
+        link(StreamPid),
+        libp2p_group_server:send_ready(Server, MAddr, Kind, true),
+        StreamPid
+    catch _:_ ->
+            undefined
+    end;
 update_stream(StreamPid, #data{stream_pid=StreamPid}) ->
     StreamPid;
 update_stream(StreamPid, #data{stream_pid=Pid, target={MAddr, _}, server=Server, kind=Kind}) ->
@@ -570,7 +572,7 @@ kill_pid(undefined) ->
     undefined;
 kill_pid(Pid) ->
     erlang:unlink(Pid),
-    erlang:exit(Pid, kill),
+    erlang:exit(Pid, shutdown),
     Pid.
 
 -spec update_metadata(#data{}) -> #data{}.
