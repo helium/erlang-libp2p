@@ -1,6 +1,6 @@
 -module(libp2p_peerbook).
 
--export([start_link/2, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
+-export([start_link/2, stop/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1,
          put/2, put/3, get/2,
          random/1, random/2, random/3, random/4,
@@ -348,6 +348,9 @@ init_gossip_data(Peerbook) ->
 start_link(TID, SigFun) ->
     gen_server:start_link(reg_name(TID), ?MODULE, [TID, SigFun], [{hibernate_after, 5000}]).
 
+stop(TID) ->
+    gen_server:call(reg_name(TID), stop, infinity).
+
 reg_name(TID)->
     {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
@@ -398,6 +401,8 @@ init([TID, SigFun]) ->
 
 handle_call(update_this_peer, _From, State) ->
     {reply, update_this_peer(State), State};
+handle_call(stop, _From, State) ->
+    {stop, ok, normal, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
