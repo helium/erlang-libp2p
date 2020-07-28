@@ -11,7 +11,7 @@
          listen_socket/0, lookup_listen_socket/2, lookup_listen_socket_by_addr/2, insert_listen_socket/4, remove_listen_socket/2, listen_sockets/1,
          lookup_connection_handlers/1, insert_connection_handler/2,
          lookup_stream_handlers/1, insert_stream_handler/2, remove_stream_handler/2,
-         insert_group/3, lookup_group/2, remove_group/2,
+         insert_group/3, lookup_group/2, remove_group/2, all_groups/1,
          insert_relay/2, lookup_relay/1, remove_relay/1,
          insert_relay_stream/3, lookup_relay_stream/2, remove_relay_stream/2,
          insert_relay_sessions/3, lookup_relay_sessions/2, remove_relay_sessions/2,
@@ -323,6 +323,11 @@ lookup_group(TID, GroupID) ->
 -spec remove_group(ets:tab(), string()) -> true.
 remove_group(TID, GroupID) ->
     remove_pid(TID, ?GROUP, GroupID).
+
+-spec all_groups(ets:tab()) -> [{string(), pid()}].
+all_groups(TID) ->
+    ets:match(TID, {{group, '$1'}, '$2'}).
+
 
 %%
 %% Relay

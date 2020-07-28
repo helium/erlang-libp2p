@@ -7,7 +7,9 @@
 -define(BASE_TMP_DIR_TEMPLATE, "XXXXXXXXXX").
 
 -export([setup/0, setup_swarms/1, setup_swarms/2, teardown_swarms/1,
-         connect_swarms/2, disconnect_swarms/2, await_gossip_groups/1, await_gossip_streams/1,
+         connect_swarms/2, disconnect_swarms/2,
+         await_gossip_groups/1, await_gossip_groups/2,
+         await_gossip_streams/1, await_gossip_streams/2,
          wait_until/1, wait_until/3, rm_rf/1, dial/3, dial_framed_stream/5, nonl/1,
          init_base_dir_config/3,
          tmp_dir/0, tmp_dir/1,
@@ -17,8 +19,8 @@ setup() ->
     application:ensure_all_started(ranch),
     application:set_env(lager, error_logger_flush_queue, false),
     application:ensure_all_started(lager),
-    lager:set_loglevel(lager_console_backend, debug),
-    lager:set_loglevel({lager_file_backend, "log/console.log"}, debug),
+    lager:set_loglevel(lager_console_backend, info),
+    lager:set_loglevel({lager_file_backend, "log/console.log"}, info),
     application:ensure_all_started(throttle),
     ok.
 
@@ -42,7 +44,7 @@ setup_swarms(Opts) ->
     setup_swarms(2, Opts).
 
 teardown_swarms(Swarms) ->
-    lists:map(fun libp2p_swarm:stop/1, Swarms).
+    lists:map(fun(S) -> catch libp2p_swarm:stop(S) end, Swarms).
 
 connect_swarms(Source, Target) ->
     [TargetAddr | _] = libp2p_swarm:listen_addrs(Target),
@@ -94,7 +96,8 @@ dial_framed_stream(FromSwarm, ToSwarm, Name, Module, Args) ->
     Stream.
 
 
-await_gossip_group(Swarm, Swarms) ->
+await_gossip_group(Swarm, Swarms, Timeout0) ->
+    Timeout = Timeout0 * 10,
     ExpectedAddrs = sets:from_list(lists:delete(
                                      libp2p_swarm:p2p_address(Swarm),
                                      [libp2p_swarm:p2p_address(S) || S <- Swarms])),
@@ -103,19 +106,28 @@ await_gossip_group(Swarm, Swarms) ->
       fun() ->
               GroupAddrs = sets:from_list(libp2p_group_gossip:connected_addrs(GossipGroup, all)),
               sets:is_subset(ExpectedAddrs, GroupAddrs)
-      end).
+      end, Timeout, 100).
 
 await_gossip_groups(Swarms) ->
+    await_gossip_groups(Swarms, 30).
+
+await_gossip_groups(Swarms, Timeout) ->
     lists:foreach(fun(S) ->
-                          ok = await_gossip_group(S, Swarms)
+                          ok = await_gossip_group(S, Swarms, Timeout)
                   end, Swarms).
 
-await_gossip_streams(Swarms) when is_list(Swarms)->
-    lists:foreach(fun(S) ->
-                          ok = await_gossip_streams(S)
-                  end, Swarms);
+await_gossip_streams(Swarms) ->
+    await_gossip_streams(Swarms, 30).
 
-await_gossip_streams(Swarm) ->
+await_gossip_streams(Swarms, Timeout) when is_list(Swarms) ->
+    lists:foreach(fun(S) ->
+                          ok = await_gossip_stream(S, Timeout)
+                  end, Swarms);
+await_gossip_streams(Swarm, Timeout) ->
+    await_gossip_streams([Swarm], Timeout).
+
+await_gossip_stream(Swarm, Timeout0) ->
+    Timeout = Timeout0 * 10,
     GossipGroup = libp2p_swarm:gossip_group(Swarm),
     GroupPids = libp2p_group_gossip:connected_pids(GossipGroup, all),
     test_util:wait_until(
@@ -125,7 +137,7 @@ await_gossip_streams(Swarm) ->
               catch _:_ ->
                  false
               end
-      end, 400, 250).
+      end, Timeout, 100).
 
 
 
