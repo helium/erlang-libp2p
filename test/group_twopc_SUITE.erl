@@ -32,8 +32,8 @@ msg_loss_test(Config) ->
     test_util:connect_swarms(LeaderS, FollowerS1),
     test_util:connect_swarms(LeaderS, FollowerS2),
 
-    test_util:await_gossip_groups(Swarms, 35),
-    test_util:await_gossip_streams(Swarms, 35),
+    test_util:await_gossip_groups(Swarms, 45),
+    test_util:await_gossip_streams(Swarms, 45),
 
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
@@ -56,9 +56,12 @@ msg_loss_test(Config) ->
 
     Runner = self(),
     Restarter =
-        spawn(
+        spawn_link(
           fun() ->
                   receive go -> ok end,
+                  link(Follower1G),
+                  link(Follower2G),
+
                   fun Restart(Groups) ->
                           receive
                               stop ->
@@ -82,9 +85,9 @@ msg_loss_test(Config) ->
                                   end
                           after 0 ->
                                   E = {Swarm, Group, Args} = lists:nth(rand:uniform(length(Groups)), Groups),
-
+                                  unlink(Group),
                                   case rand:uniform(2) of
-                                      0 ->
+                                      1 ->
                                           ok = libp2p_group_relcast:handle_command(Group, stop);
                                       2 ->
                                           ok = libp2p_swarm:remove_group(Swarm, "twopc")
@@ -99,10 +102,11 @@ msg_loss_test(Config) ->
                                   after 10000 ->
                                           error(group_timeout)
                                   end,
-                                  timer:sleep(1000),
+                                  timer:sleep(100),
                                   {ok, Replacement} =
                                       libp2p_swarm:add_group(Swarm, "twopc", libp2p_group_relcast, Args),
-                                  timer:sleep(50),
+                                  link(Replacement),
+                                  timer:sleep(100),
                                   Groups1 = lists:delete(E, Groups),
                                   Restart([{Swarm, Replacement, Args} | Groups1])
                           end
@@ -110,7 +114,7 @@ msg_loss_test(Config) ->
                        {FollowerS2, Follower2G, Follower2Args}])
           end),
 
-    L = fun Loop(250) ->
+    L = fun Loop(100) ->
                 ok;
             Loop(N) ->
                 case N of 3 -> Restarter ! go; _ -> ok end,
