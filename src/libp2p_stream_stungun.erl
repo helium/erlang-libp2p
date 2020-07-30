@@ -66,7 +66,7 @@ init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
             %% trying from an unrelated IP we can't distinguish Find
             %% an entry in the peerbook for a peer not connected to
             %% the target that we can use to distinguish
-            case find_verifier(TID, libp2p_swarm:pubkey_bin(TID), find_p2p_addr(TID, SessionPid)) of
+            case find_verifier(TID, find_p2p_addr(TID, SessionPid)) of
                 {ok, VerifierAddr} ->
                     lager:debug("selected verifier to dial ~p for ~p", [VerifierAddr, ObservedAddr]),
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
@@ -169,27 +169,25 @@ find_p2p_addr(TID, SessionPid, Retries) ->
         _ -> {error, not_found}
     end.
 
-%% @private Find a peer in the peerbook who is connected to the
-%% given FromAddr but _not_ connected to the given TargetAddr
--spec find_verifier(ets:tab(), binary(), {error, not_found} | {ok, string()} | string())
+%% @private Find a peer in the peerbook who is connected to this node but
+%% but isn't the TargetAddr
+-spec find_verifier(ets:tab(), {error, not_found} | {ok, string()} | string())
                    -> {ok, string()} | {error, not_found}.
-find_verifier(_TID, _, {error, not_found}) ->
+find_verifier(_TID, {error, not_found}) ->
     {error, not_found};
-find_verifier(TID, FromAddr, {ok, TargetAddr}) ->
-    find_verifier(TID, FromAddr, TargetAddr);
-find_verifier(TID, FromAddr, TargetAddr) ->
-    lager:debug("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
+find_verifier(TID, {ok, TargetAddr}) ->
+    find_verifier(TID, TargetAddr);
+find_verifier(TID, TargetAddr) ->
     PeerBook = libp2p_swarm:peerbook(TID),
     TargetCryptoAddr = libp2p_crypto:p2p_to_pubkey_bin(TargetAddr),
     lager:debug("Target crypto addr ~p", [TargetCryptoAddr]),
-    %% Gets the peers connected to the given FromAddr
-    FromConnected = libp2p_peerbook:sessions(PeerBook),
-    lager:debug("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(F) || F <- FromConnected]]),
+    Connected = libp2p_peerbook:sessions(PeerBook),
+    lager:debug("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(Pr) || Pr <- Connected]]),
     case lists:filter(fun(P) ->
                               %% Get the entry for the connected peer
                               {ok, Peer} = libp2p_peerbook:get(PeerBook, P),
                               not (libp2p_peer:pubkey_bin(Peer) == TargetCryptoAddr)
-                      end, FromConnected) of
+                      end, Connected) of
         [] -> {error, not_found};
         Candidates ->
             Candidate = lists:nth(rand:uniform(length(Candidates)), Candidates),
