@@ -50,7 +50,7 @@ from_map(Map, SigFun) ->
                        end, maps:get(associations, Map, [])),
     Peer = #libp2p_peer_pb{pubkey=maps:get(pubkey, Map),
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
-                           connected = maps:get(connected, Map),
+                           connected = maps:get(connected, Map, []),
                            nat_type=maps:get(nat_type, Map),
                            network_id=maps:get(network_id, Map, <<>>),
                            timestamp=Timestamp,
@@ -376,6 +376,7 @@ decode_list(Bin) ->
 %% @doc Decodes a given binary into a peer.
 -spec decode(binary()) -> peer().
 decode(Bin) when byte_size(Bin) > ?MAX_PEER_SIZE ->
+    lager:warning("local peer too large: ~p bytes", [byte_size(Bin)]),
     error(peer_too_large);
 decode(Bin) ->
     Msg = decode_unsafe(Bin),

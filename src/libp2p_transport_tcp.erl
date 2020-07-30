@@ -443,8 +443,8 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
         {ok, ObservedAddr} ->
             {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
             %% choose a random connected peer to do stungun with
-            {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
-            case [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)] of
+            case [libp2p_crypto:pubkey_bin_to_p2p(P)
+                  || P <- libp2p_peerbook:sessions(libp2p_swarm:peerbook(TID))] of
                 [] ->
                     %% no connected peers
                     {noreply, State};

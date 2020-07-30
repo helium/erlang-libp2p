@@ -252,15 +252,13 @@ gossip_test(Config) ->
     %% The S2 entry in S1 should end up containing the address of S1
     %% as a connected peer
     ok = test_util:wait_until(fun() ->
-                                      {ok, S2PeerInfo} = libp2p_peerbook:get(S1PeerBook, S2Addr),
-                                      lists:member(S1Addr, libp2p_peer:connected_peers(S2PeerInfo))
+                                      lists:member(S1Addr, libp2p_peerbook:sessions(S2PeerBook))
                               end),
 
     %% and the S1 entry in S2 should end up containing the address of
     %% S2 as a connected peer
     ok = test_util:wait_until(fun() ->
-                                      {ok, S1PeerInfo} = libp2p_peerbook:get(S2PeerBook, S1Addr),
-                                      lists:member(S2Addr, libp2p_peer:connected_peers(S1PeerInfo))
+                                      lists:member(S2Addr, libp2p_peerbook:sessions(S1PeerBook))
                               end),
 
     %% Close the session by terminating the swarm
@@ -268,8 +266,7 @@ gossip_test(Config) ->
 
     %% After the session closes S1 should no longer have S2 as a connected peer
     ok = test_util:wait_until(fun() ->
-                                      {ok, S1Info} = libp2p_peerbook:get(S1PeerBook, S1Addr),
-                                      [] == libp2p_peer:connected_peers(S1Info)
+                                      [] == libp2p_peerbook:sessions(S1PeerBook)
                               end),
 
     ok.

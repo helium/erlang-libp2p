@@ -8,6 +8,7 @@
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2,
          blacklist_listen_addr/3,
+         sessions/1,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/3, init_gossip_data/1]).
@@ -41,7 +42,7 @@
           notify_time :: pos_integer(),
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
-          sessions=#{} :: #{libp2p_crypto:pubkey_bin() => pid()},
+          sessions=#{} :: #{pid => libp2p_crypto:pubkey_bin()},
           sigfun :: fun((binary()) -> binary()),
           metadata_fun :: fun(() -> map()),
           metadata = #{} :: map(),
@@ -129,6 +130,10 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
     % Notify group of new peers
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers}),
     ok.
+
+-spec sessions(peerbook()) -> [libp2p_crypto:pubkey_bin()].
+sessions(#peerbook{tid=TID}) ->
+    gen_server:call(libp2p_swarm:peerbook_pid(TID), sessions, 15000).
 
 -spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook{tid=TID}=Handle, ID) ->
@@ -428,6 +433,8 @@ init([TID, SigFun]) ->
 
 handle_call(update_this_peer, _From, State) ->
     {reply, update_this_peer(State), State};
+handle_call(sessions, _From, #state{sessions = Sessions} = State) ->
+    {reply, maps:values(Sessions), State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
@@ -475,10 +482,7 @@ handle_info(notify_timeout, State=#state{}) ->
 handle_info(gossip_peers_timeout, State=#state{peerbook=Handle, tid=TID}) ->
     %% A peer is eligilble for gossiping if it is dialable and has a
     %% minimum number of outbound connections.
-    IsEligibleGossipPeer = fun(Peer) ->
-                                   libp2p_peer:is_dialable(Peer)
-                                       andalso length(libp2p_peer:connected_peers(Peer)) >= 5
-                           end,
+    IsEligibleGossipPeer = fun(Peer) -> libp2p_peer:is_dialable(Peer) end,
     %% TODO longer term use peer updates to update the elegible peers list and avoid folding the peerbook at all
     EligiblePeerKeys = fold_peers(fun(_, Peer, Acc) ->
                                           case IsEligibleGossipPeer(Peer) of
@@ -518,7 +522,6 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                           filter_rfc1918_addresses(ListenAddrs0)
                   end,
     NetworkID = libp2p_swarm:network_id(TID),
-    ConnectedAddrs = maps:values(State#state.sessions),
     %% Copy data from current peer
     case CurrentPeer of
         undefined ->
@@ -528,7 +531,6 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     end,
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
-                            connected => ConnectedAddrs,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
@@ -588,8 +590,7 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
                                %% check the peer has some interesting information
-                               case has_useful_listen_addrs(Peer, State) orelse
-                                    libp2p_peer:connected_peers(Peer) /= [] of
+                               case has_useful_listen_addrs(Peer, State) of
                                    false -> Acc;
                                    true ->
                                        case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
