@@ -48,37 +48,43 @@ match_protocols(_) ->
 -spec connect_to(string(), libp2p_swarm:connect_opts(), pos_integer(), ets:tab())
                 -> {ok, pid()} | {error, term()}.
 connect_to(MAddr, UserOptions, Timeout, TID) ->
-    case p2p_addr(MAddr) of
-        {ok, Addr} ->
-            Peerbook = libp2p_swarm:peerbook(TID),
-            Result = case libp2p_peerbook:get(Peerbook, Addr) of
-                {ok, PeerInfo} ->
-                    ListenAddrs = libp2p_peer:cleared_listen_addrs(PeerInfo),
-                    case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
-                        {ok, _, SessionPid} ->
-                            libp2p_config:insert_session(TID, MAddr, SessionPid),
-                            {ok, SessionPid};
-                        {error, not_found} ->
-                            SortedListenAddrs = libp2p_transport:sort_addrs(TID, ListenAddrs),
-                            case connect_to_listen_addr(SortedListenAddrs, UserOptions, Timeout, TID, []) of
-                                {ok, SessionPid}->
+    Aliases = application:get_env(libp2p, node_aliases, []),
+    case lists:keyfind(MAddr, 1, Aliases) of
+        {MAddr, AliasAddr} ->
+            libp2p_transport:connect_to(AliasAddr, UserOptions, Timeout, TID);
+        false ->
+            case p2p_addr(MAddr) of
+                {ok, Addr} ->
+                    Peerbook = libp2p_swarm:peerbook(TID),
+                    Result = case libp2p_peerbook:get(Peerbook, Addr) of
+                                 {ok, PeerInfo} ->
+                                     ListenAddrs = libp2p_peer:cleared_listen_addrs(PeerInfo),
+                                     case libp2p_transport:find_session(ListenAddrs, UserOptions, TID) of
+                                         {ok, _, SessionPid} ->
+                                             libp2p_config:insert_session(TID, MAddr, SessionPid),
+                                             {ok, SessionPid};
+                                         {error, not_found} ->
+                                             SortedListenAddrs = libp2p_transport:sort_addrs(TID, ListenAddrs),
+                                             case connect_to_listen_addr(SortedListenAddrs, UserOptions, Timeout, TID, []) of
+                                                 {ok, SessionPid}->
                                     libp2p_config:insert_session(TID, MAddr, SessionPid),
-                                    {ok, SessionPid};
-                                {error, Error} -> {error, Error}
-                            end;
-                        {error, Error} -> {error, Error}
-                    end;
+                                                     {ok, SessionPid};
+                                                 {error, Error} -> {error, Error}
+                                             end;
+                                         {error, Error} -> {error, Error}
+                                     end;
+                                 {error, Reason} -> {error, Reason}
+                             end,
+                    case Result of
+                        {error, _} ->
+                            %% try a refresh of the peer
+                            libp2p_peerbook:refresh(Peerbook, Addr);
+                        _ ->
+                            ok
+                    end,
+                    Result;
                 {error, Reason} -> {error, Reason}
-            end,
-            case Result of
-                {error, _} ->
-                    %% try a refresh of the peer
-                    libp2p_peerbook:refresh(Peerbook, Addr);
-                _ ->
-                    ok
-            end,
-            Result;
-        {error, Reason} -> {error, Reason}
+            end
     end.
 
 -spec connect_to_listen_addr([string()], libp2p_swarm:connect_opts(), pos_integer(), ets:tab(), [{string(), term()}])
