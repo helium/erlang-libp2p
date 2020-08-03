@@ -34,8 +34,6 @@
           nat_type = unknown :: libp2p_peer:nat_type(),
           peer_time :: pos_integer(),
           peer_timer :: undefined | reference(),
-          gossip_peers_timer=make_ref() :: reference(),
-          gossip_peers_timeout :: pos_integer(),
           gossip_group :: undefined | pid(),
           notify_group :: atom(),
           notify_time :: pos_integer(),
@@ -61,9 +59,6 @@
 %% number of recently updated peerbook entries we should regossip to our
 %% gossip peers
 -define(DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT, 100).
-%% Default timeout for selecting eligible gossip peers. Set to 30
-%% minutes (in milliseconds)
--define(DEFAULT_GOSSIP_PEERS_TIMEOUT, 30 * 60 * 1000).
 
 -ifdef(TEST).
 -define(DEFAULT_PEERBOOK_ALLOW_RFC1918, true).
@@ -210,7 +205,7 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude, Pred, Tri
                                                     {Addr, Peer};
                                                 _ ->
                                                     RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
-                                            end
+                                           end
                                     end
                              catch
                                 _:_ ->
@@ -340,31 +335,11 @@ handle_gossip_data(_StreamPid, DecodedList, Handle) ->
     noreply.
 
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
-init_gossip_data(Handle=#peerbook{tid=TID}) ->
-    [{_, EligiblePeerKeys}] = ets:lookup(TID, peerbook_eligible_gossip_peers),
-    case EligiblePeerKeys of
-        [] ->
-            ok;
-        _ ->
-            SelectPeer = fun F(0) ->
-                                 {error, not_found};
-                             F(Try) ->
-                                 %% Pick a random peer from the set of eligilble peers
-                                 SelectedPeerKey = lists:nth(rand:uniform(length(EligiblePeerKeys)),
-                                                             EligiblePeerKeys),
-                                 case get(Handle, SelectedPeerKey) of
-                                     {ok, P} -> {ok, P};
-                                     {error, _} -> F(Try-1)
-                                 end
-                         end,
-            %% Try 10 times to pick a random peer that is actually
-            %% available in the peerbook
-            case SelectPeer(10) of
-                {ok, Peer} -> {send, libp2p_peer:encode_list([Peer])};
-                {error, not_found} -> ok
-            end
+init_gossip_data(Peerbook) ->
+    case random(Peerbook, [], fun eligible_gossip_peer/1) of
+        {ok, Peer} -> {send, libp2p_peer:encode_list([Peer])};
+        false -> ok
     end.
-
 
 %%
 %% gen_server
@@ -383,17 +358,14 @@ init([TID, SigFun]) ->
     SwarmName = libp2p_swarm:name(TID),
     Group = group_create(SwarmName),
     Opts = libp2p_swarm:opts(TID),
-    ets:insert(TID, {peerbook_eligible_gossip_peers, []}),
 
     CFOpts = application:get_env(rocksdb, global_opts, []),
 
     StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
     PeerTime = libp2p_config:get_opt(Opts, [?MODULE, peer_time], ?DEFAULT_PEER_TIME),
     NotifyTime = libp2p_config:get_opt(Opts, [?MODULE, notify_time], ?DEFAULT_NOTIFY_TIME),
-    GossipPeersTimeout = libp2p_config:get_opt(Opts, [?MODULE, gossip_peers_timeout], ?DEFAULT_GOSSIP_PEERS_TIMEOUT),
     MetaDataFun = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_peerbook, signed_metadata_fun],
                                         fun() -> #{} end),
-    self() ! gossip_peers_timeout,
     case libp2p_swarm:peerbook(TID) of
         false ->
             ok = rocksdb:repair(DataDir, []), % This is just in case DB gets corrupted
@@ -411,8 +383,7 @@ init([TID, SigFun]) ->
                              #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
                                     peer_time=PeerTime, notify_time=NotifyTime,
                                     gossip_group=GossipGroup,
-                                    metadata_fun=MetaDataFun,
-                                    gossip_peers_timeout=GossipPeersTimeout}))}
+                                    metadata_fun=MetaDataFun}))}
             end;
         Handle ->
             %% we already got a handle in ETS
@@ -422,8 +393,7 @@ init([TID, SigFun]) ->
                      #state{peerbook = Handle, tid=TID, notify_group=Group, sigfun=SigFun,
                             peer_time=PeerTime, notify_time=NotifyTime,
                             gossip_group=GossipGroup,
-                            metadata_fun=MetaDataFun,
-                            gossip_peers_timeout=GossipPeersTimeout}))}
+                            metadata_fun=MetaDataFun}))}
     end.
 
 handle_call(update_this_peer, _From, State) ->
@@ -472,23 +442,6 @@ handle_info(peer_timeout, State=#state{tid=TID}) ->
     {noreply, update_this_peer(NewPeer, get_async_signed_metadata(State))};
 handle_info(notify_timeout, State=#state{}) ->
     {noreply, notify_peers(State#state{notify_timer=undefined})};
-handle_info(gossip_peers_timeout, State=#state{peerbook=Handle, tid=TID}) ->
-    %% A peer is eligilble for gossiping if it is dialable and has a
-    %% minimum number of outbound connections.
-    IsEligibleGossipPeer = fun(Peer) ->
-                                   libp2p_peer:is_dialable(Peer)
-                                       andalso length(libp2p_peer:connected_peers(Peer)) >= 5
-                           end,
-    %% TODO longer term use peer updates to update the elegible peers list and avoid folding the peerbook at all
-    EligiblePeerKeys = fold_peers(fun(_, Peer, Acc) ->
-                                          case IsEligibleGossipPeer(Peer) of
-                                              true -> [libp2p_peer:pubkey_bin(Peer) | Acc];
-                                              false -> Acc
-                                       end
-                               end, [], Handle),
-    ets:insert(TID, {peerbook_eligible_gossip_peers, EligiblePeerKeys}),
-    NewTimer = erlang:send_after(State#state.gossip_peers_timeout, self(), gossip_peers_timeout),
-    {noreply, State#state{gossip_peers_timer=NewTimer}};
 
 handle_info(Msg, State) ->
     lager:warning("Unhandled info: ~p", [Msg]),
@@ -504,6 +457,11 @@ terminate(_Reason, _State) ->
 %%
 %% Internal
 %%
+
+eligible_gossip_peer(Peer) ->
+    Limit = application:get_env(libp2p, eligible_peer_connectedness, 3),
+    libp2p_peer:is_dialable(Peer)
+        andalso length(libp2p_peer:connected_peers(Peer)) >= Limit.
 
 -spec mk_this_peer(libp2p_peer:peer() | undefined, #state{}) -> {ok, libp2p_peer:peer()} | {error, term()}.
 mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
