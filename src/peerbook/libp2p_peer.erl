@@ -49,7 +49,7 @@ from_map(Map, SigFun) ->
                                {Type, #libp2p_association_list_pb{associations=AssocEntries}}
                        end, maps:get(associations, Map, [])),
     Connected0 = maps:get(connected, Map, []),
-    MaxConns = application:get_env(libp2p, max_connected_peers, 8),
+    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 8),
     Connected =
         case length(Connected0) =< MaxConns of
             true -> Connected0;
