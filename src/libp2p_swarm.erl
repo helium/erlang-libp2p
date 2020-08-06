@@ -68,9 +68,9 @@ stop(Sup) ->
     ets:insert(TID, {shutdown, true}),
     Ref = erlang:monitor(process, Sup),
     %% do normal stops for everything that owns a rocks or dets instance
-    ok = libp2p_cache:stop(TID),
-    ok = libp2p_peerbook:stop(TID),
-    ok = libp2p_group_mgr:stop_all(TID),
+    catch libp2p_cache:stop(TID),
+    catch libp2p_peerbook:stop(TID),
+    catch libp2p_group_mgr:stop_all(TID),
 
     %% simulate supervisor shutdown, this should probably be a simple_one_for_one
     exit(Sup, shutdown),
