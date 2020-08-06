@@ -48,9 +48,16 @@ from_map(Map, SigFun) ->
     Assocs = lists:map(fun({Type, AssocEntries}) ->
                                {Type, #libp2p_association_list_pb{associations=AssocEntries}}
                        end, maps:get(associations, Map, [])),
+    Connected0 = maps:get(connected, Map, []),
+    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 8),
+    Connected =
+        case length(Connected0) =< MaxConns of
+            true -> Connected0;
+            _ -> rand_sub(Connected0, MaxConns)
+        end,
     Peer = #libp2p_peer_pb{pubkey=maps:get(pubkey, Map),
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
-                           connected = maps:get(connected, Map),
+                           connected = Connected,
                            nat_type=maps:get(nat_type, Map),
                            network_id=maps:get(network_id, Map, <<>>),
                            timestamp=Timestamp,
@@ -58,6 +65,9 @@ from_map(Map, SigFun) ->
                            signed_metadata=encode_map(maps:get(signed_metadata, Map, #{}))
                           },
     sign_peer(Peer, SigFun).
+
+rand_sub(L, N) ->
+    lists:sublist(element(2, lists:unzip(lists:sort([{rand:uniform(), I} || I <- L]))), N).
 
 %% @doc Gets the public key for the given peer.
 -spec pubkey_bin(peer()) -> libp2p_crypto:pubkey_bin().
@@ -376,6 +386,7 @@ decode_list(Bin) ->
 %% @doc Decodes a given binary into a peer.
 -spec decode(binary()) -> peer().
 decode(Bin) when byte_size(Bin) > ?MAX_PEER_SIZE ->
+    lager:warning("local peer too large: ~p bytes", [byte_size(Bin)]),
     error(peer_too_large);
 decode(Bin) ->
     Msg = decode_unsafe(Bin),
