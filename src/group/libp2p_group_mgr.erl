@@ -46,7 +46,7 @@ remove_group(Mgr, GroupID) ->
     gen_server:call(Mgr, {remove_group, GroupID}, infinity).
 
 stop_all(TID) ->
-    gen_server:call(reg_name(TID), stop_all, infinity).
+    gen_server:call(element(2, reg_name(TID)), stop_all, infinity).
 
 %% not implemented
 force_gc(Mgr) ->
