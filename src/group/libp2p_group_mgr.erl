@@ -115,13 +115,27 @@ handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
     end,
     {reply, ok, State};
 handle_call(stop_all, _From,  #state{tid = TID} = State) ->
-    Groups = libp2p_config:all_groups(TID),
-    [begin
-         Server = libp2p_group_relcast_sup:server(Pid),
-         libp2p_group_relcast_server:stop(Server),
-         _ = libp2p_config:remove_group(TID, ID)
-     end
-     || {ID, Pid} <- Groups],
+    case libp2p_config:all_groups(TID) of
+        [] -> ok;
+        Groups ->
+            {_, Last} = lists:last(Groups),
+            LastServer = libp2p_group_relcast_sup:server(Last),
+            Ref = erlang:monitor(process, LastServer),
+            [begin
+                 Server = libp2p_group_relcast_sup:server(Pid),
+                 libp2p_group_relcast_server:stop(Server),
+                 _ = libp2p_config:remove_group(TID, ID)
+             end
+             || {ID, Pid} <- Groups],
+            receive
+                {'DOWN', Ref, process, LastServer, _} ->
+                    ok
+                    %% wait a max of 30s for the rocks-owning server to
+                    %% gracefully shutdown
+            after 30000 ->
+                    ok
+            end
+    end,
     {reply, ok, State};
 handle_call(force_gc, _From, #state{group_deletion_predicate = Predicate,
                                     storage_dir = Dir} = State) ->
