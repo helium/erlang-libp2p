@@ -24,7 +24,7 @@ init([TID, GroupID, Args]) ->
          #{ id => ?WORKERS,
             start => {libp2p_group_worker_sup, start_link, []},
             type => supervisor,
-            retart => transient
+            restart => transient
           },
          #{ id => server,
             start => {libp2p_group_relcast_server, start_link, [TID, GroupID, Args, self()]},
