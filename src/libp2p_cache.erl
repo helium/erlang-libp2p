@@ -12,6 +12,7 @@
 %% ------------------------------------------------------------------
 -export([
     start_link/1,
+    stop/1,
     insert/3,
     lookup/2, lookup/3,
     delete/2
@@ -43,20 +44,16 @@
 start_link(TID) ->
     gen_server:start_link(reg_name(TID), ?MODULE, [TID], []).
 
+stop(TID) ->
+    gen_server:call(element(2, reg_name(TID)), stop, infinity).
+
 reg_name(TID)->
     {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
+
 -spec insert(pid(), any(), any()) -> ok | {error, any()}.
 insert(Pid, Key, Value) ->
     gen_server:call(Pid, {insert, Key, Value}, 30000).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec lookup(pid(), any()) -> undefined | any().
 lookup(Pid, Key) ->
     lookup(Pid, Key, undefined).
@@ -65,10 +62,6 @@ lookup(Pid, Key) ->
 lookup(Pid, Key, Default) ->
     gen_server:call(Pid, {lookup, Key, Default}).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% @end
-%%--------------------------------------------------------------------
 -spec delete(pid(), any()) -> ok | {error, any()}.
 delete(Pid, Key) ->
     gen_server:call(Pid, {delete, Key}).
@@ -99,6 +92,8 @@ handle_call({lookup, Key, Default}, _From, #state{dets=Dets}=State) ->
 handle_call({delete, Key}, _From, #state{dets=Dets}=State) ->
     Result = dets:delete(Dets, Key),
     {reply, Result, State};
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(_Msg, _From, State) ->
     lager:warning("rcvd unknown call msg: ~p from: ~p", [_Msg, _From]),
     {reply, ok, State}.

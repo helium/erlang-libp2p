@@ -8,6 +8,7 @@
          mgr/1,
          add_group/4,
          remove_group/2,
+         stop_all/1,
          force_gc/1
         ]).
 
@@ -43,6 +44,9 @@ add_group(Mgr, GroupID, Module, Args) ->
 
 remove_group(Mgr, GroupID) ->
     gen_server:call(Mgr, {remove_group, GroupID}, infinity).
+
+stop_all(TID) ->
+    gen_server:call(element(2, reg_name(TID)), stop_all, infinity).
 
 %% not implemented
 force_gc(Mgr) ->
@@ -86,14 +90,51 @@ handle_call({add_group, GroupID, Module, Args}, _From,
     {reply, Reply, State};
 handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
     case libp2p_config:lookup_group(TID, GroupID) of
-        {ok, _Pid} ->
-            lager:info("removing group ~p", [GroupID]),
+        {ok, Pid} ->
+            Server = libp2p_group_relcast_sup:server(Pid),
+            lager:info("removing group ~p ~p  ~p", [GroupID, Pid, Server]),
+            Ref = erlang:monitor(process, Server),
             GroupSup = libp2p_swarm_group_sup:sup(TID),
+            libp2p_group_relcast_server:stop(Server),
+            receive
+                {'DOWN', Ref, process, Server, _} ->
+                    lager:info("got down from ~p", [Server]),
+                    ok
+            %% wait a max of 30s for the rocks-owning server to
+            %% gracefully shutdown
+            after 30000 ->
+                    ok
+            end,
+            %% then stop the sup and the workers, and maybe kill the
+            %% server if it's still hung
             _ = supervisor:terminate_child(GroupSup, GroupID),
             _ = supervisor:delete_child(GroupSup, GroupID),
             _ = libp2p_config:remove_group(TID, GroupID);
         false ->
             lager:warning("removing missing group ~p", [GroupID])
+    end,
+    {reply, ok, State};
+handle_call(stop_all, _From,  #state{tid = TID} = State) ->
+    case libp2p_config:all_groups(TID) of
+        [] -> ok;
+        Groups ->
+            {_, Last} = lists:last(Groups),
+            LastServer = libp2p_group_relcast_sup:server(Last),
+            Ref = erlang:monitor(process, LastServer),
+            [begin
+                 Server = libp2p_group_relcast_sup:server(Pid),
+                 libp2p_group_relcast_server:stop(Server),
+                 _ = libp2p_config:remove_group(TID, ID)
+             end
+             || {ID, Pid} <- Groups],
+            receive
+                {'DOWN', Ref, process, LastServer, _} ->
+                    ok
+                    %% wait a max of 30s for the rocks-owning server to
+                    %% gracefully shutdown
+            after 30000 ->
+                    ok
+            end
     end,
     {reply, ok, State};
 handle_call(force_gc, _From, #state{group_deletion_predicate = Predicate,

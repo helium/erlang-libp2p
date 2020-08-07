@@ -11,6 +11,7 @@
          handle_input/2,
          send_ack/4,
          info/1,
+         stop/1,
          handle_command/2]).
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -62,6 +63,9 @@ send_ack(Pid, Index, Seq, Reset) ->
 
 info(Pid) ->
     catch gen_server:call(Pid, info).
+
+stop(Pid) ->
+    gen_server:cast(Pid, stop).
 
 handle_command(Pid, Msg) ->
     gen_server:call(Pid, {handle_command, Msg}, 30000).
@@ -190,6 +194,8 @@ handle_call({handle_command, Msg}, _From, State=#state{store=Relcast}) ->
     case relcast:command(Msg, Relcast) of
         {Reply, NewRelcast} ->
             {reply, Reply, dispatch_next_messages(State#state{store=NewRelcast})};
+        {stop, Reply, 0, NewRelcast} ->
+            {stop, normal, Reply, NewRelcast};
         {stop, Reply, Timeout, NewRelcast} ->
             erlang:send_after(Timeout, self(), force_close),
             {reply, Reply, dispatch_next_messages(State#state{store=NewRelcast})}
@@ -287,13 +293,12 @@ handle_cast({handle_data, Index, Msgs}, State=#state{self_index=_SelfIndex}) ->
                   case relcast:deliver(Seq, Msg, Index, RC) of
                       full ->
                           {full, RC, [{Seq, Msg}]};
-
-                  {ok, NewRC} ->
-                      NewRC;
-                  %% just keep looping, I guess, it kind of doesn't matter?
-                  {stop, Timeout, NewRC} ->
-                      erlang:send_after(Timeout, self(), force_close),
-                      NewRC
+                      {ok, NewRC} ->
+                          NewRC;
+                      %% just keep looping, I guess, it kind of doesn't matter?
+                      {stop, Timeout, NewRC} ->
+                          erlang:send_after(Timeout, self(), force_close),
+                          NewRC
                   end
           end,
           State#state.store,
@@ -321,6 +326,8 @@ handle_cast({handle_data, Index, Msgs}, State=#state{self_index=_SelfIndex}) ->
         RC ->
             {noreply, dispatch_next_messages(State#state{store = RC})}
     end;
+handle_cast(stop, State) ->
+    {stop, normal, State};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
@@ -359,7 +366,7 @@ handle_info(force_close, State=#state{}) ->
                   lager:info("removing group for force_close timeout"),
                   libp2p_swarm:remove_group(State#state.tid, State#state.group_id)
           end),
-    {noreply, State#state{close_state=closing}};
+    {stop, normal, State#state{close_state=closing}};
 handle_info(inbound_tick, State = #state{store=Store}) ->
     case relcast:process_inbound(Store) of
         {ok, Acks, Store1} ->
@@ -376,8 +383,6 @@ handle_info(Msg, State) ->
     {noreply, State}.
 
 
-terminate(_, #state{close_state=closing, store=Store}) ->
-    relcast:stop(lite, Store);
 terminate(_Reason, #state{store=Whatever}) when Whatever == cannot_start orelse
                                                 Whatever == not_started ->
     ok;
