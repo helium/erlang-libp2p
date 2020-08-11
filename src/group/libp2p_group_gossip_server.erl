@@ -63,7 +63,7 @@ handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
     gen_server:cast(Pid, {handle_data, StreamPid, Key, ListOrData}).
 
 accept_stream(Pid, SessionPid, StreamPid, Path) ->
-    gen_server:call(Pid, {accept_stream, SessionPid, StreamPid, Path}).
+    gen_server:call(Pid, {accept_stream, SessionPid, StreamPid, Path}, 30000).
 
 
 %% gen_server
