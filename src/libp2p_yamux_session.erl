@@ -24,7 +24,8 @@
 
 -record(ident,
        { identify=undefined :: libp2p_identify:identify() | undefined,
-         pid=undefined :: pid() | undefined,
+         pid :: pid() | undefined,
+         ref :: reference() | undefined,
          waiters=[] :: [term()]
        }).
 
@@ -209,13 +210,14 @@ handle_info({identify, Handler, HandlerData}, State=#state{ident=#ident{identify
     Handler ! {handle_identify, HandlerData, {ok, I}},
     {noreply, State};
 handle_info({identify, Handler, HandlerData}, State=#state{ident=Ident=#ident{pid=undefined}, tid=TID}) ->
-    Pid = libp2p_stream_identify:dial_spawn(self(), TID, self()),
-    NewIdent=Ident#ident{waiters=[{Handler, HandlerData} | Ident#ident.waiters], pid=Pid},
+    {Pid, Ref} = libp2p_stream_identify:dial_spawn(self(), TID, self()),
+    NewIdent=Ident#ident{waiters=[{Handler, HandlerData} | Ident#ident.waiters], pid=Pid, ref=Ref},
     {noreply, State#state{ident=NewIdent}};
 handle_info({identify, Handler, HandlerData}, State=#state{ident=Ident=#ident{}}) ->
     NewIdent=Ident#ident{waiters=[{Handler, HandlerData} | Ident#ident.waiters]},
     {noreply, State#state{ident=NewIdent}};
-handle_info({handle_identify, _Session, Response}, State=#state{ident=Ident=#ident{}}) ->
+
+handle_info({handle_identify, _Session, Response}, State=#state{ident=Ident=#ident{ref=Ref}}) ->
     lists:foreach(fun({Handler, HandlerData}) ->
                           Handler ! {handle_identify, HandlerData, Response}
                   end, Ident#ident.waiters),
@@ -223,7 +225,17 @@ handle_info({handle_identify, _Session, Response}, State=#state{ident=Ident=#ide
                       {ok, I} -> I;
                       {error, _} -> undefined
                   end,
+    erlang:demonitor(Ref, [flush]),
     {noreply, State#state{ident=Ident#ident{pid=undefined, waiters=[], identify=NewIdentify}}};
+handle_info({'DOWN', _Ref, process, _Pid, normal}, State) ->
+    lager:debug("ident dial down normal, should be ok"),
+    {noreply, State};
+handle_info({'DOWN', Ref, process, Pid, Reason},
+            #state{ident = #ident{pid = Pid, ref = Ref} = Ident } = State) ->
+    lists:foreach(fun({Handler, HandlerData}) ->
+                          Handler ! {handle_identify, HandlerData, {error, Reason}}
+                  end, Ident#ident.waiters),
+    {noreply, State#state{ident=Ident#ident{pid=undefined, waiters=[], identify=undefined}}};
 
 handle_info(Msg, State) ->
     lager:warning("Unhandled message: ~p", [Msg]),
