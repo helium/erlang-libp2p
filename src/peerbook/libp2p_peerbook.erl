@@ -337,7 +337,7 @@ handle_gossip_data(_StreamPid, DecodedList, Handle) ->
 -spec init_gossip_data(peerbook()) -> libp2p_group_gossip_handler:init_result().
 init_gossip_data(Peerbook) ->
     case random(Peerbook, [], fun eligible_gossip_peer/1, 500) of
-        {ok, Peer} -> {send, libp2p_peer:encode_list([Peer])};
+        {_Addr, Peer} -> {send, libp2p_peer:encode_list([Peer])};
         false -> ok
     end.
 
