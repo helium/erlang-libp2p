@@ -16,11 +16,11 @@
 
 -spec add_handler(pid(), string(), handler()) -> ok.
 add_handler(Pid, Key, Handler) ->
-    gen_server:cast(Pid, {add_handler, Key, Handler}).
+    gen_server:cast(Pid, {add_handler, Key, Handler}, 45000).
 
 -spec remove_handler(pid(), string()) -> ok.
 remove_handler(Pid, Key) ->
-    gen_server:call(Pid, {remove_handler, Key}, 3000).
+    gen_server:call(Pid, {remove_handler, Key}, 45000).
 
 %% @doc Send the given data to all members of the group for the given
 %% gossip key. The implementation of the group determines the strategy
