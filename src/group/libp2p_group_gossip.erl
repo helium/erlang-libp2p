@@ -16,7 +16,7 @@
 
 -spec add_handler(pid(), string(), handler()) -> ok.
 add_handler(Pid, Key, Handler) ->
-    gen_server:cast(Pid, {add_handler, Key, Handler}, 45000).
+    gen_server:cast(Pid, {add_handler, Key, Handler}).
 
 -spec remove_handler(pid(), string()) -> ok.
 remove_handler(Pid, Key) ->
