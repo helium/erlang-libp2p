@@ -66,6 +66,22 @@
 -define(DEFAULT_PEERBOOK_ALLOW_RFC1918, false).
 -endif.
 
+-if(?OTP_RELEASE > 22).
+-define(PG_START, pg:start_link(?MODULE)).
+-define(PG_CREATE(_Group), ok).
+-define(PG_JOIN(Group, Pid), pg:join(?MODULE, Group, Pid)).
+-define(PG_MEMBERS(Group), pg:get_members(?MODULE, Group)).
+-define(PG_LEAVE(Group, Pid), pg:leave(?MODULE, Group, Pid)).
+-define(PG_DELETE(Group), pg:leave(?MODULE, Group, pg:get_members(Group))).
+-else.
+-define(PG_START, ok).
+-define(PG_CREATE(Group), pg2:create(Group)).
+-define(PG_JOIN(Group, Pid), pg2:join(Group, Pid)).
+-define(PG_MEMBERS(Group), pg2:get_members(Group)).
+-define(PG_LEAVE(Group, Pid), pg2:leave(Group, Pid)).
+-define(PG_DELETE(Group), pg2:delete(Group)).
+-endif.
+
 %%
 %% API
 %%
@@ -355,6 +371,7 @@ reg_name(TID)->
     {local,libp2p_swarm:reg_name_from_tid(TID, ?MODULE)}.
 
 init([TID, SigFun]) ->
+    ?PG_START,
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_peerbook(TID),
     DataDir = libp2p_config:swarm_dir(TID, [peerbook]),
@@ -600,7 +617,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
                           gossip_group=GossipGroup, tid=TID}) ->
     %% Notify to local interested parties
     PeerList = maps:values(NotifyPeers),
-    [Pid ! {new_peers, PeerList} || Pid <- pg2:get_members(NotifyGroup)],
+    [Pid ! {new_peers, PeerList} || Pid <- ?PG_MEMBERS(NotifyGroup)],
 
     case GossipGroup of
         undefined ->
@@ -697,14 +714,14 @@ delete_peer(ID, #peerbook{store=Store}) ->
 -spec group_create(atom()) -> atom().
 group_create(SwarmName) ->
     Name = list_to_atom(filename:join(SwarmName, peerbook)),
-    ok = pg2:create(Name),
+    ok = ?PG_CREATE(Name),
     Name.
 
 group_join(Group, Pid) ->
     %% only allow a pid to join once
-    case lists:member(Pid, pg2:get_members(Group)) of
+    case lists:member(Pid, ?PG_MEMBERS(Group)) of
         false ->
-            ok = pg2:join(Group, Pid);
+            ok = ?PG_JOIN(Group, Pid);
         true ->
             ok
     end.
