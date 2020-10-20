@@ -195,7 +195,7 @@ handle_call({handle_command, Msg}, _From, State=#state{store=Relcast}) ->
         {Reply, NewRelcast} ->
             {reply, Reply, dispatch_next_messages(State#state{store=NewRelcast})};
         {stop, Reply, 0, NewRelcast} ->
-            {stop, normal, Reply, NewRelcast};
+            {stop, normal, Reply, State#state{store=NewRelcast}};
         {stop, Reply, Timeout, NewRelcast} ->
             erlang:send_after(Timeout, self(), force_close),
             {reply, Reply, dispatch_next_messages(State#state{store=NewRelcast})}
