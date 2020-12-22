@@ -350,8 +350,8 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     %% check if this worker got restarted
                     case WorkerPid /= StoredWorkerPid of
                         true ->
-                            NewWorkers = lists:keyreplace(WorkerRef, #worker.ref, Workers,
-                                                          Worker#worker{pid=WorkerPid}),
+                            SeedMap = maps:get(seed, Workers),
+                            NewWorkers = Workers#{seed => SeedMap#{WorkerRef => Worker#worker{pid=WorkerPid}}},
                             State#state{workers=NewWorkers};
                         false ->
                             State
