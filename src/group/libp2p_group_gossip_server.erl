@@ -88,8 +88,8 @@ init([Sup, TID]) ->
     SupportedPaths = get_opt(Opts, supported_gossip_paths, ?SUPPORTED_GOSSIP_PATHS),
     lager:debug("Supported gossip paths: ~p:", [SupportedPaths]),
 
-    self() ! start_workers,
-    {ok, update_metadata(#state{sup=Sup, tid=TID,
+    self() ! {start_workers, Sup},
+    {ok, update_metadata(#state{tid=TID,
                                 seed_nodes=SeedNodes,
                                 max_inbound_connections=InboundCount,
                                 peerbook_connections=PeerBookCount,
@@ -228,9 +228,12 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-handle_info(start_workers, State=#state{tid=TID, seednode_connections=SeedCount,
-                                        peerbook_connections=PeerCount,
-                                        supported_paths = SupportedPaths}) ->
+handle_info({start_workers, Sup},
+            State0 = #state{tid=TID, seednode_connections=SeedCount,
+                            peerbook_connections=PeerCount,
+                            supported_paths = SupportedPaths}) ->
+    WorkerSup = libp2p_group_gossip_sup:workers(Sup),
+    State = State0#state{sup = WorkerSup},
     PeerBookWorkers =
         lists:foldl(
           fun(_, Acc) ->
@@ -452,8 +455,7 @@ count_workers(Kind, #state{workers=Workers}) ->
     maps:size(KindMap).
 
 -spec start_inbound_worker(string(), pid(), string(), #state{}) ->  #worker{}.
-start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sup=Sup}) ->
-    WorkerSup = libp2p_group_gossip_sup:workers(Sup),
+start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sup=WorkerSup}) ->
     Ref = make_ref(),
     {ok, WorkerPid} = supervisor:start_child(
                         WorkerSup,
@@ -469,8 +471,7 @@ stop_inbound_worker(StreamRef, State) ->
     case lookup_worker(inbound, StreamRef, State) of
         Worker = #worker{ref = Ref} ->
             spawn(fun() ->
-                          WorkerSup = libp2p_group_gossip_sup:workers(State#state.sup),
-                          supervisor:terminate_child(WorkerSup, Ref)
+                          supervisor:terminate_child(State#state.sup, Ref)
                   end),
             remove_worker(Worker, State);
         _ ->
@@ -479,8 +480,7 @@ stop_inbound_worker(StreamRef, State) ->
     end.
 
 -spec start_worker(atom(), #state{}) -> #worker{}.
-start_worker(Kind, #state{tid=TID, sup=Sup}) ->
-    WorkerSup = libp2p_group_gossip_sup:workers(Sup),
+start_worker(Kind, #state{tid=TID, sup=WorkerSup}) ->
     Ref = make_ref(),
     {ok, WorkerPid} = supervisor:start_child(
                         WorkerSup,
