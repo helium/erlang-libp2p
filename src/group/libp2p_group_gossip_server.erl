@@ -31,7 +31,8 @@
          handlers=#{} :: #{string() => libp2p_group_gossip:handler()},
          drop_timeout :: pos_integer(),
          drop_timer :: reference(),
-         supported_paths :: [string()]
+         supported_paths :: [string()],
+         sidejob_sup :: atom()
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
@@ -76,6 +77,7 @@ init([Sup, TID]) ->
     erlang:process_flag(trap_exit, true),
     libp2p_swarm_sup:register_gossip_group(TID),
     Opts = libp2p_swarm:opts(TID),
+    SideJobRegName = list_to_atom(atom_to_list(libp2p_swarm_sidejob_sup) ++ "_" ++ atom_to_list(TID)),
     PeerBookCount = get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
     SeedNodes = get_opt(Opts, seed_nodes, []),
     SeedNodeCount =
@@ -98,6 +100,7 @@ init([Sup, TID]) ->
                                 seednode_connections=SeedNodeCount,
                                 drop_timeout=DropTimeOut,
                                 drop_timer=schedule_drop_timer(DropTimeOut),
+                                sidejob_sup = SideJobRegName,
                                 supported_paths=SupportedPaths})}.
 
 handle_call({accept_stream, _Session, _StreamPid, _Path}, _From, State=#state{workers=Workers})
@@ -482,22 +485,19 @@ count_workers(Kind, #state{workers=Workers}) ->
     maps:size(KindMap).
 
 -spec start_inbound_worker(string(), pid(), string(), #state{}) ->  #worker{}.
-start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sup=WorkerSup}) ->
+start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=WorkerSup}) ->
     Ref = make_ref(),
-    {ok, WorkerPid} = supervisor:start_child(
+    {ok, WorkerPid} = sidejob_supervisor:start_child(
                         WorkerSup,
-                        #{ id => Ref,
-                           start => {libp2p_group_worker, start_link,
-                                     [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID, Path]},
-                           restart => temporary
-                         }),
+                        libp2p_group_worker, start_link,
+                        [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID, Path]),
     #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}.
 
 -spec stop_inbound_worker(pid(), #state{}) -> #state{}.
 stop_inbound_worker(StreamRef, State) ->
     case lookup_worker(inbound, StreamRef, State) of
-        Worker = #worker{ref = Ref} ->
-            supervisor:terminate_child(State#state.sup, Ref),
+        Worker = #worker{pid = Pid} ->
+            exit(Pid, shutdown),
             remove_worker(Worker, State);
         _ ->
             lager:info("trying to stop worker with unknown ref ~p", [StreamRef]),
@@ -505,15 +505,12 @@ stop_inbound_worker(StreamRef, State) ->
     end.
 
 -spec start_worker(atom(), #state{}) -> #worker{}.
-start_worker(Kind, #state{tid=TID, sup=WorkerSup}) ->
+start_worker(Kind, #state{tid=TID, sidejob_sup = WorkerSup}) ->
     Ref = make_ref(),
-    {ok, WorkerPid} = supervisor:start_child(
+    {ok, WorkerPid} = sidejob_supervisor:start_child(
                         WorkerSup,
-                        #{ id => Ref,
-                           start => {libp2p_group_worker, start_link,
-                                     [Ref, Kind, self(), ?GROUP_ID, TID]},
-                           restart => transient
-                         }),
+                        libp2p_group_worker, start_link,
+                        [Ref, Kind, self(), ?GROUP_ID, TID]),
     #worker{kind=Kind, pid=WorkerPid, target=undefined, ref=Ref}.
 
 -spec get_opt(libp2p_config:opts(), atom(), any()) -> any().

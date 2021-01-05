@@ -33,7 +33,8 @@
                   backoff,
                   relcast,
                   libp2p_crypto,
-                  throttle
+                  throttle,
+                  sidejob
                  ]},
   {env,[]},
 
