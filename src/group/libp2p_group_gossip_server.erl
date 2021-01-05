@@ -10,7 +10,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_gossip_stream
--export([accept_stream/4, handle_data/4]).
+-export([accept_stream/4, handle_identify/4, handle_data/4]).
 
 -record(worker,
        { target :: string() | undefined,
@@ -64,8 +64,10 @@ handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
     gen_server:cast(Pid, {handle_data, StreamPid, Key, ListOrData}).
 
 accept_stream(Pid, SessionPid, StreamPid, Path) ->
-    gen_server:call(Pid, {accept_stream, SessionPid, StreamPid, Path}, 45000).
+    gen_server:call(Pid, {accept_stream, SessionPid, StreamPid, Path}, 15000).
 
+handle_identify(Pid, StreamPid, Path, Identify) ->
+    gen_server:call(Pid, {handle_identify, StreamPid, Path, Identify}, 15000).
 
 %% gen_server
 %%
@@ -100,19 +102,43 @@ init([Sup, TID]) ->
 
 handle_call({accept_stream, _Session, _StreamPid, _Path}, _From, State=#state{workers=Workers})
   when map_size(Workers) == 0 ->
-    {reply, {error, not_ready}, State#state{}};
-handle_call({accept_stream, Session, StreamPid, Path}, From, State=#state{}) ->
+    {reply, {error, not_ready}, State};
+handle_call({accept_stream, Session, StreamPid, Path}, From, State) ->
     libp2p_session:identify(Session, self(), {From, StreamPid, Path}),
     {noreply, State};
-handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
+handle_call({connected_addrs, Kind}, _From, State) ->
     {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
     {reply, Addrs, State};
-handle_call({connected_pids, Kind}, _From, State=#state{}) ->
+handle_call({connected_pids, Kind}, _From, State) ->
     {_Addrs, Pids} = lists:unzip(connections(Kind, State)),
     {reply, Pids, State};
 
 handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
     {reply, ok, State#state{handlers=maps:remove(Key, Handlers)}};
+
+handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
+            _From, State) ->
+    Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
+    %% Check if we already have a worker for this target
+    case lookup_worker_by_target(Target, State) of
+        %% If not, we we check if we can accept a random inbound
+        %% connection and start a worker for the inbound stream if ok
+        false ->
+            case count_workers(inbound, State) > State#state.max_inbound_connections of
+                true ->
+                    lager:debug("Too many inbound workers: ~p",
+                                [State#state.max_inbound_connections]),
+                    {reply, {error, too_many}, State};
+                false ->
+                    Worker = start_inbound_worker(Target, StreamPid, Path, State),
+                    {reply, ok, add_worker(Worker, State)}
+            end;
+        %% There's an existing worker for the given address, re-assign
+        %% the worker the new stream.
+        #worker{pid=Worker} ->
+            libp2p_group_worker:assign_stream(Worker, StreamPid, Path),
+            {reply, ok, State}
+    end;
 
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
@@ -378,6 +404,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
 drop_target(Worker=#worker{pid=WorkerPid, ref = Ref, kind = Kind},
             State=#state{workers=Workers}) ->
     libp2p_group_worker:clear_target(WorkerPid),
+    lager:info("dropping target for ~p ~p", [Kind, WorkerPid]),
     KindMap = maps:get(Kind, Workers, #{}),
     NewWorkers = Workers#{Kind => KindMap#{Ref => Worker#worker{target = undefined}}},
     State#state{workers=NewWorkers}.
@@ -470,12 +497,10 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sup=WorkerSup}) ->
 stop_inbound_worker(StreamRef, State) ->
     case lookup_worker(inbound, StreamRef, State) of
         Worker = #worker{ref = Ref} ->
-            spawn(fun() ->
-                          supervisor:terminate_child(State#state.sup, Ref)
-                  end),
+            supervisor:terminate_child(State#state.sup, Ref),
             remove_worker(Worker, State);
         _ ->
-            lager:warning("trying to stop worker with unknown ref ~p", [StreamRef]),
+            lager:info("trying to stop worker with unknown ref ~p", [StreamRef]),
             State
     end.
 

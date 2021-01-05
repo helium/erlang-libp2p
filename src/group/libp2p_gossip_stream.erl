@@ -52,20 +52,27 @@ init(server, Connection, [Path, HandlerModule, HandlerState]) ->
     %% most common occurence is during shutdown of a swarm where
     %% ordering of the shutdown will cause the accept below to crash
     %% noisily in the logs. This catch avoids that noise
-    case (catch HandlerModule:accept_stream(HandlerState, Session, self(), Path)) of
-        ok -> {ok, #state{connection=Connection,
-                          handler_module=HandlerModule,
-                          handler_state=HandlerState,
-                          path=Path}};
-        {error, too_many} ->
-            {stop, normal};
-        {error, Reason} ->
-            lager:warning("Stopping on accept stream error: ~p", [Reason]),
-            {stop, {error, Reason}};
-        Exit={'EXIT', _} ->
-            lager:warning("Stopping on accept_stream exit: ~s",
-                          [error_logger_lager_h:format_reason(Exit)]),
-            {stop, normal}
+    libp2p_session:identify(Session, self(), {ignore, self(), Path}),
+    receive
+        {handle_identify, {_, _, _}, {ok, _Identify} = Reply} ->
+            case (catch HandlerModule:handle_identify(HandlerState, self(), Path, Reply)) of
+                ok -> {ok, #state{connection=Connection,
+                                  handler_module=HandlerModule,
+                                  handler_state=HandlerState,
+                                  path=Path}};
+                {error, too_many} ->
+                    {stop, normal};
+                {error, Reason} ->
+                    lager:warning("Stopping on accept stream error: ~p", [Reason]),
+                    {stop, {error, Reason}};
+                Exit={'EXIT', _} ->
+                    lager:warning("Stopping on accept_stream exit: ~s",
+                                  [error_logger_lager_h:format_reason(Exit)]),
+                    {stop, normal}
+            end;
+        Reason -> {stop, {error, Reason}}
+    after 15000 ->
+            {stop, {error, identify_timeout}}
     end;
 init(client, Connection, [Path, HandlerModule, HandlerState]) ->
     lager:debug("initiating client with path ~p", [Path]),
