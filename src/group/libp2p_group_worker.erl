@@ -369,7 +369,7 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
             lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            libp2p_framed_stream:close(StreamPid),
+            catch libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
              lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
@@ -548,7 +548,7 @@ update_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
 update_stream(undefined,  #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
     catch unlink(Pid),
-    libp2p_framed_stream:close(Pid),
+    catch libp2p_framed_stream:close(Pid),
     libp2p_group_server:send_ready(Server, MAddr, Kind, false),
     undefined;
 update_stream(StreamPid, #data{stream_pid=undefined, target={MAddr, _}, kind=Kind, server=Server}) ->
@@ -560,7 +560,7 @@ update_stream(StreamPid, #data{stream_pid=StreamPid}) ->
 update_stream(StreamPid, #data{stream_pid=Pid, target={MAddr, _}, server=Server, kind=Kind}) ->
     link(StreamPid),
     catch unlink(Pid),
-    libp2p_framed_stream:close(Pid),
+    catch libp2p_framed_stream:close(Pid),
     %% we have a new stream, re-advertise our ready status
     libp2p_group_server:send_ready(Server, MAddr, Kind, true),
     StreamPid.
