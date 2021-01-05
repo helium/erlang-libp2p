@@ -497,16 +497,16 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=Worker
 stop_inbound_worker(StreamRef, Pid, State) ->
     case lookup_worker(inbound, StreamRef, State) of
         Worker = #worker{pid = Pid} ->
-            exit(Pid, normal),
+            exit(Pid, shutdown),
             remove_worker(Worker, State);
         Worker = #worker{pid = OtherPid} ->
             lager:info("pid mixup got ~p ref ~p", [Pid, OtherPid]),
-            exit(Pid, normal),
-            exit(OtherPid, normal),
+            exit(Pid, shutdown),
+            exit(OtherPid, shutdown),
             remove_worker(Worker, State);
         _ ->
-            lager:info("trying to stop worker with unknown ref ~p", [StreamRef]),
-            exit(Pid, normal),
+            lager:info("trying to stop worker with unknown ref ~p pid ~p", [StreamRef, Pid]),
+            exit(Pid, shutdown),
             State
     end.
 
