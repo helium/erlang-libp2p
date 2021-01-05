@@ -177,8 +177,8 @@ handle_cast({handle_data, StreamPid, Key, {Path, ListOrData}}, State=#state{}) -
     {noreply, State};
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
-handle_cast({request_target, inbound, _WorkerPid, Ref}, State=#state{}) ->
-    {noreply, stop_inbound_worker(Ref, State)};
+handle_cast({request_target, inbound, WorkerPid, Ref}, State=#state{}) ->
+    {noreply, stop_inbound_worker(Ref, WorkerPid, State)};
 handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) ->
     LocalAddr = libp2p_swarm:pubkey_bin(TID),
     PeerList = case libp2p_swarm:peerbook(TID) of
@@ -493,14 +493,20 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=Worker
                         [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID, Path]),
     #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}.
 
--spec stop_inbound_worker(pid(), #state{}) -> #state{}.
-stop_inbound_worker(StreamRef, State) ->
+-spec stop_inbound_worker(reference(), pid(), #state{}) -> #state{}.
+stop_inbound_worker(StreamRef, Pid, State) ->
     case lookup_worker(inbound, StreamRef, State) of
         Worker = #worker{pid = Pid} ->
-            exit(Pid, shutdown),
+            exit(Pid, normal),
+            remove_worker(Worker, State);
+        Worker = #worker{pid = OtherPid} ->
+            lager:info("pid mixup got ~p ref ~p", [Pid, OtherPid]),
+            exit(Pid, normal),
+            exit(OtherPid, normal),
             remove_worker(Worker, State);
         _ ->
             lager:info("trying to stop worker with unknown ref ~p", [StreamRef]),
+            exit(Pid, normal),
             State
     end.
 
