@@ -191,7 +191,10 @@ fdset_loop(Socket, Parent, Count) ->
                 {error, _R} ->
                     true
             end,
-    receive {Ref, clear} ->
+    receive 
+        {'DOWN', _Ref, process, Parent, _Reason} ->
+            ok;
+        {Ref, clear} ->
                 Parent ! {Ref, ok};
             {Ref, fdset} ->
                 Parent ! {Ref, {error, already_fdset}}
@@ -202,7 +205,9 @@ fdset_loop(Socket, Parent, Count) ->
                       fdset_loop(Socket, Parent, Count);
                   true ->
                       Parent ! {inert_read, Count, Socket},
-                      receive {Ref, fdset} ->
+                      receive {'DOWN', _Ref, process, Parent, _Reason} ->
+                                  ok;
+                              {Ref, fdset} ->
                                   Parent ! {Ref, ok},
                                   fdset_loop(Socket, Parent, Count + 1);
                               {Ref, clear} ->
@@ -218,7 +223,8 @@ fdset(#tcp_state{socket=Socket}=State) ->
     Parent = self(),
     case erlang:get(fdset_pid) of
         undefined ->
-            Pid = spawn(fun() ->
+            Pid = erlang:spawn(fun() ->
+                erlang:monitor(process, Parent),
                                 fdset_loop(Socket, Parent, 1)
                         end),
             erlang:put(fdset_pid, Pid),
