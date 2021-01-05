@@ -224,9 +224,9 @@ fdset(#tcp_state{socket=Socket}=State) ->
     case erlang:get(fdset_pid) of
         undefined ->
             Pid = erlang:spawn(fun() ->
-                erlang:monitor(process, Parent),
-                                fdset_loop(Socket, Parent, 1)
-                        end),
+                                   erlang:monitor(process, Parent),
+                                   fdset_loop(Socket, Parent, 1)
+                               end),
             erlang:put(fdset_pid, Pid),
             ok;
         Pid ->
