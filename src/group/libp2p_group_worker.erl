@@ -302,6 +302,7 @@ connected(info, {assign_stream, StreamPid, Path}, Data0=#data{}) ->
 connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, kind=inbound}) ->
     %% don't try to reconnect inbound streams, it never seems to work
     lager:info("stream ~p exited with reason ~p", [StreamPid, Reason]),
+    libp2p_group_server:request_target(Data#data.server, Data#data.kind, self(), Data#data.ref),
     {next_state, closing, Data};
 connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, target={MAddr, _}}) ->
     %% The stream we're using died. Let's go back to connecting, but

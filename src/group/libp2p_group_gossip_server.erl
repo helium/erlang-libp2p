@@ -150,10 +150,10 @@ handle_call(Msg, _From, State) ->
 
 handle_cast({handle_data, StreamPid, Key, {Path, ListOrData}}, State=#state{}) ->
     %% Incoming message from a gossip stream for a given key
-    spawn(fun() ->
-                  case maps:find(Key, State#state.handlers) of
-                      error -> {noreply, State};
-                      {ok, {M, S}} ->
+    case maps:find(Key, State#state.handlers) of
+        error -> ok;
+        {ok, {M, S}} ->
+            spawn(fun() ->
                           %% Catch the callback response. This avoids a crash in the
                           %% handler taking down the gossip_server itself.
                           try M:handle_gossip_data(StreamPid, ListOrData, S) of
@@ -172,8 +172,8 @@ handle_cast({handle_data, StreamPid, Key, {Path, ListOrData}}, State=#state{}) -
                           catch _:_ ->
                                   ok
                           end
-                  end
-          end),
+                  end)
+    end,
     {noreply, State};
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
@@ -205,7 +205,7 @@ handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_n
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
                                              sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(WorkerPid, Ref, TargetAddrs, State)};
-handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
+handle_cast({send, Key, Fun}, State) when is_function(Fun, 0) ->
     %% use a fun to generate the send data for each gossip peer
     %% this can be helpful to send a unique random subset of data to each peer
     {_, Pids} = lists:unzip(connections(all, State)),
