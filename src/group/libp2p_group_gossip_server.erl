@@ -205,27 +205,29 @@ handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_n
     TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
                                              sets:from_list(ExcludedAddrs))),
     {noreply, assign_target(WorkerPid, Ref, TargetAddrs, State)};
-handle_cast({send, Key, Fun}, State) when is_function(Fun, 0) ->
+handle_cast({send, Key, Fun}, State) when is_function(Fun, 1) ->
     %% use a fun to generate the send data for each gossip peer
     %% this can be helpful to send a unique random subset of data to each peer
-    {_, Pids} = lists:unzip(connections(all, State)),
+
+    %% find out what kind of connection we are dealing with and pass that type to the fun
+    {_, SeedPids} = lists:unzip(connections(seed, State)),
+    {_, PeerbookPids} = lists:unzip(connections(peerbook, State)),
+    {_, InboundPids} = lists:unzip(connections(inbound, State)),
     spawn(fun() ->
-                  lists:foreach(
-                    fun(Pid) ->
-                            Data = Fun(),
-                            %% Catch errors encoding the given arguments to avoid a bad key or
-                            %% value taking down the gossip server
-                            libp2p_group_worker:send(Pid, Key, Data, true)
-                    end, Pids)
+                  [ libp2p_group_worker:send(Pid, Key, Fun(seed), true) || Pid <- SeedPids ],
+                  [ libp2p_group_worker:send(Pid, Key, Fun(peerbook), true) || Pid <- PeerbookPids ],
+                  [ libp2p_group_worker:send(Pid, Key, Fun(inbound), true) || Pid <- InboundPids ]
           end),
     {noreply, State};
 
 handle_cast({send, Key, Data}, State=#state{}) ->
     {_, Pids} = lists:unzip(connections(all, State)),
     lager:debug("sending data via connection pids: ~p",[Pids]),
-    lists:foreach(fun(Pid) ->
-                          libp2p_group_worker:send(Pid, Key, Data, true)
-                  end, Pids),
+    spawn(fun() ->
+                  lists:foreach(fun(Pid) ->
+                                        libp2p_group_worker:send(Pid, Key, Data, true)
+                                end, Pids)
+          end),
     {noreply, State};
 handle_cast({send_ready, _Target, _Ref, false}, State=#state{}) ->
     %% Ignore any not ready messages from group workers. The gossip

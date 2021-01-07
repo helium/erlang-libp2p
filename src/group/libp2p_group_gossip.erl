@@ -25,7 +25,7 @@ remove_handler(Pid, Key) ->
 %% @doc Send the given data to all members of the group for the given
 %% gossip key. The implementation of the group determines the strategy
 %% used for delivery. Delivery is best effort.
--spec send(pid(), string(), iodata() | fun(() -> iodata())) -> ok.
+-spec send(pid(), string(), iodata() | fun((connection_kind()) -> iodata())) -> ok.
 send(Pid, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
     gen_server:cast(Pid, {send, Key, Data}).
 
