@@ -48,6 +48,9 @@ start(Name) when is_atom(Name) ->
 -spec start(atom(), swarm_opts()) -> {ok, pid()} | ignore | {error, term()}.
 start(Name, Opts)  ->
     RegName = list_to_atom(atom_to_list(libp2p_swarm_sup) ++ "_" ++ atom_to_list(Name)),
+    SideJobRegName = list_to_atom(atom_to_list(libp2p_swarm_sidejob_sup) ++ "_" ++ atom_to_list(Name)),
+    {ok, _} = application:ensure_all_started(sidejob),
+    sidejob:new_resource(SideJobRegName, sidejob_supervisor, application:get_env(libp2p, sidejob_limit, 10000)),
     case supervisor:start_link({local,RegName}, libp2p_swarm_sup, [Name, Opts]) of
         {ok, Pid} ->
             unlink(Pid),

@@ -6,7 +6,7 @@
         { tid :: ets:tab(),
           sig_fun :: libp2p_crypto:sig_fun(),
           ecdh_fun :: libp2p_crypto:ecdh_fun(),
-          monitors=[] :: [{pid(), {reference(), atom()}}]
+          monitors=#{} :: #{pid() => {reference(), atom()}}
          }).
 
 -export([start_link/3, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -112,17 +112,17 @@ terminate(Reason, #state{tid=TID}) ->
 
 -spec add_monitor(atom(), pid(), #state{}) -> #state{}.
 add_monitor(Kind, Pid, State=#state{monitors=Monitors}) ->
-    Value = case lists:keyfind(Pid, 1, Monitors) of
-                false -> {erlang:monitor(process, Pid), Kind};
-                {Pid, {MonitorRef, Kind}} -> {MonitorRef, Kind}
+    Value = case maps:find(Pid, Monitors) of
+                error -> {erlang:monitor(process, Pid), Kind};
+                {ok, {MonitorRef, Kind}} -> {MonitorRef, Kind}
             end,
-    State#state{monitors=lists:keystore(Pid, 1, Monitors, {Pid, Value})}.
+    State#state{monitors=Monitors#{Pid => Value}}.
 
 -spec remove_monitor(reference(), pid(), #state{}) -> #state{}.
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
-    case lists:keytake(Pid, 1, Monitors) of
-        false -> State;
-        {value, {Pid, {MonitorRef, _}}, NewMonitors} ->
+    case maps:find(Pid, Monitors) of
+        error -> State;
+        {ok, {MonitorRef, _}} ->
             libp2p_config:remove_pid(TID, Pid),
-            State#state{monitors=NewMonitors}
+            State#state{monitors=maps:remove(Pid, Monitors)}
     end.

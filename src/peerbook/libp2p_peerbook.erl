@@ -609,7 +609,10 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
             Opts = libp2p_swarm:opts(TID),
             PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
-            SendFun = fun() ->
+            SendFun = fun(seed) ->
+                              %% send everything to the seed nodes
+                              libp2p_peer:encode_list(PeerList);
+                         (_Type) ->
                               {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
                               libp2p_peer:encode_list(RandomNPeers)
                       end,
