@@ -10,7 +10,7 @@
 
 
 -export_type([connection_handler/0]).
--export([start_link/2, for_addr/2, sort_addrs/2, connect_to/4, find_session/3,
+-export([start_link/2, for_addr/2, sort_addrs/2, sort_addrs_with_keys/2, connect_to/4, find_session/3,
          start_client_session/3, start_server_session/3]).
 
 
@@ -63,8 +63,8 @@ for_addr(TID, Addr) ->
 %% 4 = rfc1918 IPs (private/local IPs), 5 = Proxy transport
 %% @end
 %%--------------------------------------------------------------------
--spec sort_addrs(ets:tab(), [string()]) -> [string()].
-sort_addrs(TID, Addrs) ->
+-spec sort_addrs_with_keys(ets:tab(), [string()]) -> [{non_neg_integer(), string()}].
+sort_addrs_with_keys(TID, Addrs) ->
     TransportAddrsFun = fun(Transport) ->
         Matched = lists:filter(fun(Addr) ->
             case Transport:match_addr(Addr, TID) of
@@ -81,9 +81,12 @@ sort_addrs(TID, Addrs) ->
         [],
         libp2p_config:lookup_transports(TID)
     ),
-    {_, SortedAddrLists} = lists:unzip(lists:keysort(1, Transports)),
-    SortedAddrLists.
+    lists:keysort(1, Transports).
 
+-spec sort_addrs(ets:tab(), [string()]) -> [string()].
+sort_addrs(TID, Addrs) ->
+    {_, SortedAddrLists} = lists:unzip(sort_addrs_with_keys(TID, Addrs)),
+    SortedAddrLists.
 
 %% @doc Connect through a transport service. This is a convenience
 %% function that verifies the given multiaddr, finds the right
