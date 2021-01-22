@@ -225,7 +225,17 @@ init_relay(#state{tid = TID, banlist = Banlist}) ->
     lager:debug("init relay for swarm ~p", [libp2p_swarm:name(Swarm)]),
     case libp2p_peerbook:random(Peerbook,[SwarmPubKeyBin | Banlist],
                                 fun(P) ->
-                                        libp2p_peer:has_public_ip(P) andalso
+                                        %% this is complex and restrictive, but there's a hard to
+                                        %% track down bug in the relay logic that sometimes allows
+                                        %% ipv4 addresses to be listed within the listen addrs.
+                                        %% this can cause relay establishment problems because the
+                                        %% relays only work if they're in the correct order, which
+                                        %% is impossible to guarantee.  so we work around by
+                                        %% narrowing the relay pool to stuff that we know is likely
+                                        %% to work, or to at least fail immediately.
+                                        ListenAddrs = libp2p_peer:listen_addrs(P),
+                                        length(ListenAddrs) == 1 andalso
+                                            libp2p_transport_tcp:is_public(hd(ListenAddrs)) andalso
                                             not libp2p_peer:is_stale(P, timer:minutes(45))
                                 end, 100) of
         {Address, _Peer} ->
