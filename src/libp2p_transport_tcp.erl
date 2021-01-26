@@ -64,7 +64,7 @@
         {
          tid :: ets:tab(),
          stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
-         observed_addrs=sets:new() :: sets:set(string()),
+         observed_addrs=sets:new() :: sets:set({string(), string()}),
          negotiated_nat=false :: boolean()
         }).
 
@@ -526,9 +526,11 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
             lager:debug("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
+            %% remove any observed addresses
+            [ true = libp2p_config:remove_listener(TID, MultiAddr) || MultiAddr <- distinct_observed_addrs(State#state.observed_addrs) ],
             libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
             %% TODO if the nat type has resolved to 'none' here we should change it to static
-            {noreply, State#state{negotiated_nat=true}};
+            {noreply, State#state{negotiated_nat=true, observed_addrs=sets:new()}};
         _ ->
             {noreply, State}
     end;
@@ -845,6 +847,9 @@ distinct_observed_addrs(Addrs) ->
     lists:usort(DistinctAddresses).
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
+record_observed_addr(_, _, State=#state{negotiated_nat=true}) ->
+    %% we have a upnp address, do nothing
+    State;
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
     lager:notice("recording observed address ~p ~p", [PeerAddr, ObservedAddr]),
     case is_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs) of
