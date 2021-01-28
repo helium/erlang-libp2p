@@ -187,20 +187,22 @@ add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
 %%--------------------------------------------------------------------
 -spec retry_matrix(integer()) -> list().
 retry_matrix(Port) ->
+    %% matrix is reversed because tries count down to 0
     [
-        {0, Port},
-        {60*60*24, Port},
-        {60*60, Port},
-        {0, increment_port(Port)},
-        {0, random_port(Port)},
-        {60*60*24, increment_port(Port)},
-        {60*60*24, random_port(Port)},
+        {60*60, random_port(Port)},
         {60*60, increment_port(Port)},
-        {60*60, random_port(Port)}
+        {60*60*24, random_port(Port)},
+        {60*60*24, increment_port(Port)},
+        {0, random_port(Port)},
+        {0, increment_port(Port)},
+        {60*60, Port},
+        {60*60*24, Port},
+        {0, Port}
     ].
 
 -spec retry_matrix(integer(), integer()) -> {integer(), integer()}.
 retry_matrix(Try, Port) ->
+    %% matrix is reversed because tries count down to 0
     lists:nth(Try, retry_matrix(Port)).
 
 %%--------------------------------------------------------------------
@@ -240,6 +242,13 @@ nat_map_test() ->
     ?assertEqual({{67,128,3,4}, 1234}, maybe_apply_nat_map({{192,168,1,10}, 1234})),
     ?assertEqual({{67,128,3,99}, 4567}, maybe_apply_nat_map({{192,168,1,10}, 4567})),
     ?assertEqual({{67,128,3,4}, 1111}, maybe_apply_nat_map({{192,168,1,11}, 4567})),
+    ok.
+
+retry_matrix_test() ->
+    ?assertEqual({0, 1234}, retry_matrix(9, 1234)),
+    ?assertEqual({86400, 1234}, retry_matrix(8, 1234)),
+    ?assertEqual({3600, 1234}, retry_matrix(7, 1234)),
+    ?assertEqual({0, 1235}, retry_matrix(6, 1234)),
     ok.
 
 -endif.
