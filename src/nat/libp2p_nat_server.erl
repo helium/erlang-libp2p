@@ -116,7 +116,7 @@ handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, 
         {error, _Reason} ->
             ok = remove_multi_addr(TID, ExtAddr0, ExtPort0),
             lager:warning("failed to renew lease for port ~p: ~p", [{IntPort, ExtPort0}, _Reason]),
-            {stop, renew_failed}
+            {stop, renew_failed, State}
     end;
 handle_info({'DOWN', _Ref, process, TransportPid, Reason}, #state{internal_port=IntPort, external_port=ExtPort}=State) ->
     lager:warning("tcp transport ~p went down: ~p cleaning up", [TransportPid, Reason]),
