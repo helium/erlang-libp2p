@@ -544,7 +544,8 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
     end;
 handle_info(no_nat, State) ->
     {noreply, State#state{negotiated_nat = false}};
-handle_info({'DOWN', _Ref, process, Pid, _Reason}, State=#state{nat_server = {_NatRef, NatPid}}) when Pid == NatPid ->
+handle_info({'DOWN', Ref, process, Pid, _Reason}, State=#state{nat_server = {NatRef, NatPid}})
+  when Pid == NatPid andalso Ref == NatRef ->
     {noreply, State#state{nat_server = undefined, negotiated_nat = false}};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
     %% check if this is a listen socket pid
