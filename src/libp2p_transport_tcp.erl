@@ -542,6 +542,8 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
             lager:warning("no listener detected for ~p", [InternalAddr]),
             {noreply, State}
     end;
+handle_info(no_nat, State) ->
+    {noreply, State#state{negotiated_nat = false}};
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State=#state{nat_server = {_NatRef, NatPid}}) when Pid == NatPid ->
     {noreply, State#state{nat_server = undefined, negotiated_nat = false}};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
