@@ -65,7 +65,8 @@
          tid :: ets:tab(),
          stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
          observed_addrs=sets:new() :: sets:set({string(), string()}),
-         negotiated_nat=false :: boolean()
+         negotiated_nat=false :: boolean(),
+         nat_server :: undefined | {reference(), pid()}
         }).
 
 -define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
@@ -529,11 +530,23 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
             %% remove any observed addresses
             [ true = libp2p_config:remove_listener(TID, MultiAddr) || MultiAddr <- distinct_observed_addrs(State#state.observed_addrs) ],
             libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
+            %% monitor the nat server, so we can unset this if it crashes
+            {ok, Pid} = libp2p_config:lookup_nat(TID),
+            Ref = erlang:monitor(process, Pid),
+
             %% TODO if the nat type has resolved to 'none' here we should change it to static
-            {noreply, State#state{negotiated_nat=true, observed_addrs=sets:new()}};
+            {noreply, State#state{negotiated_nat = true,
+                                  observed_addrs = sets:new(),
+                                  nat_server = {Ref, Pid}}};
         _ ->
+            lager:warning("no listener detected for ~p", [InternalAddr]),
             {noreply, State}
     end;
+handle_info(no_nat, State) ->
+    {noreply, State#state{negotiated_nat = false}};
+handle_info({'DOWN', Ref, process, Pid, _Reason}, State=#state{nat_server = {NatRef, NatPid}})
+  when Pid == NatPid andalso Ref == NatRef ->
+    {noreply, State#state{nat_server = undefined, negotiated_nat = false}};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
     %% check if this is a listen socket pid
     case libp2p_config:lookup_listen_socket(TID, Pid) of
