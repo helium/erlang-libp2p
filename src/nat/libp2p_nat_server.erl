@@ -117,7 +117,8 @@ handle_info(renew, #state{tid=TID, transport_tcp=Pid, internal_address=IntAddr, 
             %% this might lead to a period of undialability
             ok = remove_multi_addr(TID, ExtAddr0, ExtPort0),
             lager:warning("failed to renew lease for port ~p: ~p", [{IntPort, ExtPort0}, _Reason]),
-            _ = erlang:send_after(5000, self(), renew),
+            Pid ! no_nat,
+            _ = erlang:send_after(timer:minutes(5), self(), renew),
             {noreply, State}
     end;
 handle_info({'DOWN', _Ref, process, TransportPid, Reason}, #state{internal_port=IntPort, external_port=ExtPort}=State) ->
