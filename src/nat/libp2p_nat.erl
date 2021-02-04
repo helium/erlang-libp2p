@@ -80,7 +80,7 @@ add_port_mapping(InternalPort, ExternalPort) ->
     try
         case nat:discover() of
             {ok, Context} ->
-                MaxRetry = erlang:length(retry_matrix(ExternalPort)),
+                MaxRetry = erlang:length(retry_matrix(Context, ExternalPort)),
                 add_port_mapping(Context, InternalPort, ExternalPort, MaxRetry);
             no_nat ->
                 {error, no_nat}
@@ -163,7 +163,7 @@ discovery_filter(MultiAddr) ->
 add_port_mapping(_Context, _InternalPort, _ExternalPort, 0) ->
     {error, too_many_retries};
 add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
-    {Lease0, ExternalPort1} = retry_matrix(Retry, ExternalPort0),
+    {Lease0, ExternalPort1} = retry_matrix(Context, Retry, ExternalPort0),
     case nat:add_port_mapping(Context, tcp, InternalPort, ExternalPort1, Lease0) of
         {ok, Since, InternalPort, ExternalPort2, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
@@ -185,25 +185,29 @@ add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
 %% @doc
 %% @end
 %%--------------------------------------------------------------------
--spec retry_matrix(integer()) -> list().
-retry_matrix(Port) ->
+-spec retry_matrix(nat:nat_ctx(), integer()) -> list().
+retry_matrix({Type, _}=_Context, Port) ->
     %% matrix is reversed because tries count down to 0
     [
         {60*60, random_port(Port)},
         {60*60, increment_port(Port)},
         {60*60*24, random_port(Port)},
-        {60*60*24, increment_port(Port)},
-        {0, random_port(Port)},
-        {0, increment_port(Port)},
+        {60*60*24, increment_port(Port)}
+    ] ++
+    %% infinite leases are not supported in nat-pmp
+    [{0, random_port(Port)} || Type /= natpmp ] ++
+    [{0, increment_port(Port)} || Type /= natpmp ] ++
+    [
         {60*60, Port},
-        {60*60*24, Port},
-        {0, Port}
-    ].
+        {60*60*24, Port}
+    ] ++
+    %% infinite leases are not supported in nat-pmp
+    [{0, Port} || Type /= natpmp ].
 
--spec retry_matrix(integer(), integer()) -> {integer(), integer()}.
-retry_matrix(Try, Port) ->
+-spec retry_matrix(nat:nat_ctx(), integer(), integer()) -> {integer(), integer()}.
+retry_matrix(Context, Try, Port) ->
     %% matrix is reversed because tries count down to 0
-    lists:nth(Try, retry_matrix(Port)).
+    lists:nth(Try, retry_matrix(Context, Port)).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -245,10 +249,23 @@ nat_map_test() ->
     ok.
 
 retry_matrix_test() ->
-    ?assertEqual({0, 1234}, retry_matrix(9, 1234)),
-    ?assertEqual({86400, 1234}, retry_matrix(8, 1234)),
-    ?assertEqual({3600, 1234}, retry_matrix(7, 1234)),
-    ?assertEqual({0, 1235}, retry_matrix(6, 1234)),
+    UPNPContext = {natupnp_v2, any},
+    PMPContext = {natpmp, any},
+    UPNPMatrix = retry_matrix(UPNPContext, 1234),
+    PMPMatrix = retry_matrix(PMPContext, 1234),
+
+    %% upnp allows infinite leases and we try those first
+    ?assertEqual({0, 1234}, retry_matrix(UPNPContext, erlang:length(UPNPMatrix), 1234)),
+    ?assertEqual({86400, 1234}, retry_matrix(UPNPContext, erlang:length(UPNPMatrix) - 1, 1234)),
+    ?assertEqual({3600, 1234}, retry_matrix(UPNPContext, erlang:length(UPNPMatrix) - 2, 1234)),
+    ?assertEqual({0, 1235}, retry_matrix(UPNPContext, erlang:length(UPNPMatrix) - 3, 1234)),
+
+    %% PMP does not allow infinite leases, so start with 1 day
+    ?assertEqual({86400, 1234}, retry_matrix(PMPContext, erlang:length(PMPMatrix), 1234)),
+    ?assertEqual({3600, 1234}, retry_matrix(PMPContext, erlang:length(PMPMatrix) - 1, 1234)),
+
+    %% assert no infinite times exist in the PMP matrix at all
+    ?assertNot(lists:any(fun(T) -> T == 0 end, element(1, lists:unzip(PMPMatrix)))),
     ok.
 
 -endif.
