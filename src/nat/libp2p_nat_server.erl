@@ -149,6 +149,7 @@ get_port_from_cache(TID, IntPort) ->
     Cache = libp2p_swarm:cache(TID),
     try libp2p_cache:lookup(Cache, ?CACHE_KEY) of
         undefined -> IntPort;
+        0 -> IntPort; %% 0 is not valid
         P ->
             lager:info("got port from cache ~p", [P]),
             P
@@ -196,6 +197,8 @@ delete_mapping(IntPort, ExtPort) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec update_cache(ets:tab(), non_neg_integer()) -> ok.
+update_cache(_TID, 0) ->
+    ok; %% 0 is not valid
 update_cache(TID, Port) ->
     Cache = libp2p_swarm:cache(TID),
     spawn(fun() ->
