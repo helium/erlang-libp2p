@@ -133,8 +133,10 @@ handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
                                 [State#state.max_inbound_connections]),
                     {reply, {error, too_many}, State};
                 false ->
-                    Worker = start_inbound_worker(Target, StreamPid, Path, State),
-                    {reply, ok, add_worker(Worker, State)}
+                    case start_inbound_worker(Target, StreamPid, Path, State) of
+                        {ok, Worker} -> {reply, ok, add_worker(Worker, State)};
+                        {error, overload} -> {reply, {error, too_many}, State}
+                    end
             end;
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
@@ -489,11 +491,15 @@ count_workers(Kind, #state{workers=Workers}) ->
 -spec start_inbound_worker(string(), pid(), string(), #state{}) ->  #worker{}.
 start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=WorkerSup}) ->
     Ref = make_ref(),
-    {ok, WorkerPid} = sidejob_supervisor:start_child(
-                        WorkerSup,
-                        libp2p_group_worker, start_link,
-                        [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID, Path]),
-    #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}.
+    case sidejob_supervisor:start_child(
+           WorkerSup,
+           libp2p_group_worker, start_link,
+           [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID, Path]) of
+        {ok, WorkerPid} ->
+            {ok, #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}};
+        {error, overload} ->
+            {error, overload}
+    end.
 
 -spec stop_inbound_worker(reference(), pid(), #state{}) -> #state{}.
 stop_inbound_worker(StreamRef, Pid, State) ->
