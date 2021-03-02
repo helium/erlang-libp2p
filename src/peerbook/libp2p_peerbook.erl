@@ -160,15 +160,19 @@ get(#peerbook{tid=TID}=Handle, ID) ->
             end
     end.
 
+-spec random(peerbook()) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
 random(Peerbook) ->
     random(Peerbook, [], fun(_Peer) -> true end, 15).
 
+-spec random(peerbook(), [libp2p_crypto:pubkey_bin()]) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
 random(Peerbook, Exclude) ->
     random(Peerbook, Exclude, fun(_Peer) -> true end, 15).
 
+-spec random(peerbook(), [libp2p_crypto:pubkey_bin()], fun((libp2p_peer:peer()) -> boolean())) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
 random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
+-spec random(peerbook(), [libp2p_crypto:pubkey_bin()], fun((libp2p_peer:peer()) -> boolean()), non_neg_integer()) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
 random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
     Exclude = lists:map(fun rev/1, Exclude0),
     {ok, Iterator} = rocksdb:iterator(Store, []),
@@ -201,7 +205,7 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude0, Pred, Tr
                     false;
                 RandLoop({error, iterator_closed}, T) ->
                     %% start completely over because our iterator is bad
-                    random(Peerbook, Exclude0, T - 1);
+                    random(Peerbook, Exclude0, Pred, T - 1);
                 RandLoop({error, _} = _E, T) ->
                     RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
                 RandLoop({ok, Addr, Bin}, T) ->
