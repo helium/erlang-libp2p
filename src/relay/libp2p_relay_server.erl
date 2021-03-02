@@ -134,10 +134,13 @@ handle_cast(stop_relay, State) ->
     {noreply, State};
 handle_cast(init_relay, #state{stream = undefined} = State) ->
     case init_relay(State) of
-        {ok, Pid} ->
+        {ok, Pid, Address} ->
             _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfully with ~p", [Pid]),
-            {noreply, State#state{stream=Pid, address=undefined}};
+            lager:info("relay started successfully with ~p", [Address]),
+            {noreply, State#state{stream=Pid}};
+        {error, Reason, Address} ->
+            lager:warning("could not initiate relay with ~p ~p", [Address, Reason]),
+            {noreply, retry(banlist(Address, State))};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             {noreply, retry(State)}
@@ -151,10 +154,13 @@ handle_cast(_Msg, State) ->
 
 handle_info(retry, #state{stream=undefined}=State) ->
     case init_relay(State) of
-        {ok, Pid} ->
+        {ok, Pid, Address} ->
             _ = erlang:monitor(process, Pid),
-            lager:info("relay started successfully with ~p", [Pid]),
-            {noreply, State#state{stream=Pid, address=undefined}};
+            lager:info("relay started successfully with ~p", [Address]),
+            {noreply, State#state{stream=Pid}};
+        {error, Reason, Address} ->
+            lager:warning("could not initiate relay with ~p ~p", [Address, Reason]),
+            {noreply, retry(banlist(Address, State))};
         _Error ->
             lager:warning("could not initiate relay ~p", [_Error]),
             {noreply, retry(State)}
@@ -216,7 +222,7 @@ get_relay_server(Swarm) ->
     end.
 
 -spec init_relay(state()) ->
-                        {ok, pid()} | {error, any()} | ignore.
+                        {ok, pid(), string()} | {error, retry} | {error, any(), string()} | ignore.
 init_relay(#state{tid = TID, banlist = Banlist}) ->
     Swarm = libp2p_swarm:swarm(TID),
     SwarmPubKeyBin = libp2p_swarm:pubkey_bin(Swarm),
@@ -231,7 +237,12 @@ init_relay(#state{tid = TID, banlist = Banlist}) ->
         {Address, _Peer} ->
             Address1 = libp2p_crypto:pubkey_bin_to_p2p(Address),
             lager:info("initiating relay with peer ~p", [Address1]),
-            libp2p_relay:dial_framed_stream(Swarm, Address1, []);
+            case libp2p_relay:dial_framed_stream(Swarm, Address1, []) of
+                {ok, Pid} ->
+                    {ok, Pid, Address1};
+                {error, Reason} ->
+                    {error, Reason, Address1}
+            end;
         false ->
             {error, retry}
     end.
@@ -240,8 +251,13 @@ banlist(undefined, State) ->
     %% relay failed before we found out the address
     State;
 banlist(Address, State=#state{banlist=Banlist}) ->
-    {ok, {RAddress, _SAddress}} = libp2p_relay:p2p_circuit(Address),
-    PeerAddr = libp2p_crypto:p2p_to_pubkey_bin(RAddress),
+    PeerAddr = case libp2p_relay:is_p2p_circuit(Address) of
+                   true ->
+                       {ok, {RAddress, _SAddress}} = libp2p_relay:p2p_circuit(Address),
+                       libp2p_crypto:p2p_to_pubkey_bin(RAddress);
+                   false ->
+                       libp2p_crypto:p2p_to_pubkey_bin(Address)
+               end,
     case lists:member(PeerAddr, Banlist) of
         true ->
             State;
