@@ -236,6 +236,9 @@ init_relay(#state{tid = TID, banlist = Banlist}) ->
             {error, retry}
     end.
 
+banlist(undefined, State) ->
+    %% relay failed before we found out the address
+    State;
 banlist(Address, State=#state{banlist=Banlist}) ->
     {ok, {RAddress, _SAddress}} = libp2p_relay:p2p_circuit(Address),
     PeerAddr = libp2p_crypto:p2p_to_pubkey_bin(RAddress),
