@@ -169,7 +169,8 @@ random(Peerbook, Exclude) ->
 random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
-random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude, Pred, Tries) ->
+random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
+    Exclude = lists:map(fun rev/1, Exclude0),
     {ok, Iterator} = rocksdb:iterator(Store, []),
     {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} = rocksdb:iterator_move(Iterator, first),
     {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
@@ -185,7 +186,7 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude, Pred, Tri
                 false ->
                     %% use unsafe coming off the disk
                     try libp2p_peer:decode_unsafe(FirstPeer) of
-                        Peer -> {FirstAddr, Peer}
+                        Peer -> {rev(FirstAddr), Peer}
                     catch
                         _:_ ->
                             %% only peer we have is junk
@@ -200,7 +201,7 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude, Pred, Tri
                     false;
                 RandLoop({error, iterator_closed}, T) ->
                     %% start completely over because our iterator is bad
-                    random(Peerbook, Exclude, T - 1);
+                    random(Peerbook, Exclude0, T - 1);
                 RandLoop({error, _} = _E, T) ->
                     RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
                 RandLoop({ok, Addr, Bin}, T) ->
@@ -218,7 +219,7 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude, Pred, Tri
                                             case Pred(Peer) of
                                                 true ->
                                                     rocksdb:iterator_close(Iterator),
-                                                    {Addr, Peer};
+                                                    {rev(Addr), Peer};
                                                 _ ->
                                                     RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
                                            end
@@ -395,6 +396,24 @@ init([TID, SigFun]) ->
                 {ok, DB} ->
                     %% compact the DB on open, just in case
                     rocksdb:compact_range(DB, undefined, undefined, []),
+                    {ok, Iterator} = rocksdb:iterator(DB, []),
+                    {ok, FirstAddr, FirstPeer} = rocksdb:iterator_move(Iterator, first),
+                    try libp2p_crypto:bin_to_pubkey(rev(FirstAddr)) of
+                        _ -> ok
+                    catch _:_ ->
+                              %% legacy byte order, convert it
+                              {ok, Batch} = rocksdb:batch(),
+                              ok = rocksdb:batch_put(Batch, rev(FirstAddr), FirstPeer),
+                              ok = rocksdb:batch_delete(Batch, FirstAddr),
+                              fun FixLoop({ok, K, V}) ->
+                                      ok = rocksdb:batch_put(Batch, rev(K), V),
+                                      ok = rocksdb:batch_delete(Batch, K),
+                                      FixLoop(rocksdb:iterator_move(Iterator, next));
+                                  FixLoop(_) ->
+                                      ok
+                              end(rocksdb:iterator_move(Iterator, next)),
+                              ok = rocksdb:write_batch(DB, Batch, [])
+                    end,
                     Handle = #peerbook{store=DB, tid=TID, stale_time=StaleTime},
                     GossipGroup = install_gossip_handler(TID, Handle),
                     libp2p_swarm:store_peerbook(TID, Handle),
@@ -643,7 +662,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
 unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
-    case rocksdb:get(Store, ID, []) of
+    case rocksdb:get(Store, rev(ID), []) of
         {ok, Bin} ->
             %% I think that it's OK to use unsafe here for performance, this was validated on
             %% storage.  disk corruption will result in a crash anyway.
@@ -682,7 +701,7 @@ fold_peers(Fun, Acc0, #peerbook{tid=TID, store=Store, stale_time=StaleTime}) ->
                  case libp2p_peer:is_stale(Peer, StaleTime)
                      orelse not libp2p_peer:network_id_allowable(Peer, NetworkID) of
                      true -> Acc;
-                     false -> Fun(Key, Peer, Acc)
+                     false -> Fun(rev(Key), Peer, Acc)
                  end
          end, Acc0).
 
@@ -690,11 +709,11 @@ fold(Iterator, {error, _}, _Fun, Acc) ->
     rocksdb:iterator_close(Iterator),
     Acc;
 fold(Iterator, {ok, Key, Value}, Fun, Acc) ->
-    fold(Iterator, rocksdb:iterator_move(Iterator, next), Fun, Fun(Key, Value, Acc)).
+    fold(Iterator, rocksdb:iterator_move(Iterator, next), Fun, Fun(rev(Key), Value, Acc)).
 
 -spec fetch_keys(peerbook()) -> [libp2p_crypto:pubkey_bin()].
 fetch_keys(State=#peerbook{}) ->
-    fold_peers(fun(Key, _, Acc) -> [Key | Acc] end, [], State).
+    fold_peers(fun(Key, _, Acc) -> [rev(Key) | Acc] end, [], State).
 
 -spec fetch_peers(peerbook()) -> [libp2p_peer:peer()].
 fetch_peers(State=#peerbook{}) ->
@@ -702,14 +721,15 @@ fetch_peers(State=#peerbook{}) ->
 
 -spec store_peer(libp2p_peer:peer(), peerbook()) -> ok | {error, term()}.
 store_peer(Peer, #peerbook{store=Store}) ->
-    case rocksdb:put(Store, libp2p_peer:pubkey_bin(Peer), libp2p_peer:encode(Peer), []) of
+    %% reverse pubkeys so they're easier to randomly select
+    case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
         ok -> ok
     end.
 
 -spec delete_peer(libp2p_crypto:pubkey_bin(), peerbook()) -> ok.
 delete_peer(ID, #peerbook{store=Store}) ->
-    rocksdb:delete(Store, ID, []).
+    rocksdb:delete(Store, rev(ID), []).
 
 -spec group_create(atom()) -> atom().
 group_create(SwarmName) ->
@@ -752,4 +772,9 @@ get_async_signed_metadata(State) ->
 is_rfc1918_allowed(TID) ->
     Opts = libp2p_swarm:opts(TID),
     libp2p_config:get_opt(Opts, [?MODULE, allow_rfc1918], ?DEFAULT_PEERBOOK_ALLOW_RFC1918).
+
+rev(Binary) ->
+   Size = erlang:bit_size(Binary),
+   <<X:Size/integer-little>> = Binary,
+   <<X:Size/integer-big>>.
 
