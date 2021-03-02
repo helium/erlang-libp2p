@@ -267,9 +267,9 @@ banlist(Address, State=#state{banlist=Banlist}) ->
                 case length(Banlist) >= ?BANLIST_LIMIT of
                     true ->
                         [_H | T] = Banlist,
-                        T ++ [Address];
+                        T ++ [PeerAddr];
                     false ->
-                        Banlist ++ [Address]
+                        Banlist ++ [PeerAddr]
                 end,
             State#state{banlist=BanList1}
     end.
