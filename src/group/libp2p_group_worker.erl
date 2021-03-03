@@ -369,12 +369,14 @@ handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
             lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
                         [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
                          _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            unlink(StreamPid),
             libp2p_framed_stream:close(StreamPid),
             false;
         _ ->
              lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
                           [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
                            _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
+            unlink(_CurrentStreamPid),
             {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
     end.
 
@@ -431,6 +433,8 @@ handle_event(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid
     %% by `connected'
     lager:debug("stream pid ~p exited with reason ~p", [StreamPid, _Reason]),
     {keep_state, Data#data{stream_pid=update_stream(undefined, Data)}};
+handle_event(info, {'EXIT', _Pid, _Reason}, Data) ->
+    {keep_state, Data};
 handle_event({call, From}, info, Data=#data{target={Target,_}, stream_pid=StreamPid}) ->
     Info = #{
              module => ?MODULE,
