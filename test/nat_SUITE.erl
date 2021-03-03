@@ -100,7 +100,7 @@ server(_Config) ->
 
     meck:new(nat, [no_link, passthrough]),
     meck:expect(nat, discover, fun() ->
-        {ok, context}
+        {ok, {natpmp, context}}
     end),
     meck:expect(nat, add_port_mapping, fun(_Context, tcp, _Port, _ExtPort, 0) ->
         {error, error};
