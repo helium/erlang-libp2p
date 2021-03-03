@@ -307,7 +307,7 @@ connect(TID, Addr, Options, Timeout) ->
 
 % Stream
 %
--spec dial(pid() | atom(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
+-spec dial(pid() | ets:tab(), string(), string()) -> {ok, libp2p_connection:connection()} | {error, term()}.
 dial(Sup, Addr, Path) when is_pid(Sup) ->
     dial(tid(Sup), Addr, Path);
 dial(TID, Addr, Path) ->
