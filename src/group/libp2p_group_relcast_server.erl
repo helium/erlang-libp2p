@@ -80,7 +80,9 @@ handle_ack(Pid, Ref, Seq, Reset) ->
     gen_server:cast(Pid, {handle_ack, Ref, Seq, Reset}).
 
 accept_stream(Pid, StreamPid, Path) ->
-    gen_server:call(Pid, {accept_stream, StreamPid, Path}).
+    Ref = erlang:monitor(process, Pid),
+    gen_server:cast(Pid, {accept_stream, Ref, StreamPid, Path}),
+    Ref.
 
 
 %% gen_server
@@ -138,18 +140,6 @@ handle_call({peek, ActorID}, _From, State = #state{store=Store}) ->
                 Msg
         end,
     {reply, Res, State};
-handle_call({accept_stream, _StreamPid, _Path}, _From, State=#state{workers=[]}) ->
-    {reply, {error, not_ready}, State};
-handle_call({accept_stream, StreamPid, Path}, _From, State=#state{}) ->
-    case lookup_worker(mk_multiaddr(Path), #worker.target, State) of
-        false ->
-            {reply, {error, not_found}, State};
-        #worker{pid=self} ->
-            {reply, {error, bad_arg}, State};
-        #worker{index=Index, pid=Worker} ->
-            libp2p_group_worker:assign_stream(Worker, StreamPid),
-            {reply, {ok, Index}, State}
-    end;
 handle_call(workers, _From, State=#state{workers=Workers}) ->
     Response = lists:map(fun(#worker{target=Addr, pid=Worker}) ->
                                  {Addr, Worker}
@@ -204,6 +194,21 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
+handle_cast({accept_stream, Ref, StreamPid, _Path}, State=#state{workers=[]}) ->
+    StreamPid ! {Ref, {error, not_ready}},
+    {noreply, State};
+handle_cast({accept_stream, Ref, StreamPid, Path}, State=#state{}) ->
+    Reply = case lookup_worker(mk_multiaddr(Path), #worker.target, State) of
+        false ->
+            {error, not_found};
+        #worker{pid=self} ->
+            {error, bad_arg};
+        #worker{index=Index, pid=Worker} ->
+            libp2p_group_worker:assign_stream(Worker, StreamPid),
+            {ok, Index}
+    end,
+    StreamPid ! {Ref, Reply},
+    {noreply, State};
 handle_cast({request_target, Index, WorkerPid, _WorkerRef}, State=#state{tid=TID}) ->
     {Target, NewState} = case lookup_worker(Index, State) of
                              Worker = #worker{target=T, pid=OldPid} when WorkerPid /= OldPid ->
