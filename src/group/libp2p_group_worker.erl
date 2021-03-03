@@ -588,7 +588,7 @@ update_metadata(Data=#data{}) ->
       ]),
     Data.
 
--spec dial(Parent::pid(), TID::ets:tid(), Peer::string(), Module::atom(),
+-spec dial(Parent::pid(), TID::ets:tab(), Peer::string(), Module::atom(),
             Args::[any()], SupportedPaths::[string()])->
                     {'ok', StreamPid::pid(), Path::string()} |
                     {'error', any()}.
@@ -614,7 +614,7 @@ dial(Parent, TID, Peer, Module, Args, SupportedPaths) ->
         end,
     DialFun(SupportedPaths).
 
--spec do_dial(TID::ets:tid(), Peer::string(), Module::atom(),
+-spec do_dial(TID::ets:tab(), Peer::string(), Module::atom(),
             Args::[any()], Path::string())->
                     {'ok', StreamPid::pid()} |
                     {'error', any()}.
