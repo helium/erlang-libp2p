@@ -52,8 +52,10 @@ ack_test(Config) ->
     ok.
 
 accept_stream({Pid, _}, StreamPid, Path) ->
+    Ref = make_ref(),
     Pid ! {accept_stream, StreamPid, Path},
-    {ok, {server, self()}}.
+    StreamPid ! {Ref, {ok, {server, self()}}},
+    Ref.
 
 handle_data({Pid, Response}, Ref, [{Seq, Bin}]) ->
     Pid ! {handle_data, Ref, Bin, Seq},
