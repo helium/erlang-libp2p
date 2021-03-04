@@ -152,14 +152,26 @@ maybe_apply_nat_map({IP, Port}) ->
 maybe_parse(IP) when is_tuple(IP), tuple_size(IP) == 4 ->
     IP;
 maybe_parse({IP, Port}) when is_tuple(IP), tuple_size(IP) == 4, is_integer(Port) ->
-    {IP, Port};
+    case Port of
+        0 ->
+            IP;
+        _ ->
+            {IP, Port}
+    end;
 maybe_parse(IPStr) when is_list(IPStr) ->
     {ok, IP} = inet:parse_ipv4_address(IPStr),
     IP;
 maybe_parse({IPStr, PortStr}) when is_list(IPStr), is_list(PortStr) ->
     {ok, IP} = inet:parse_ipv4_address(IPStr),
-    Port = list_to_integer(PortStr),
-    {IP, Port}.
+    try list_to_integer(PortStr) of
+        0 ->
+            IP;
+        Port ->
+            {IP, Port}
+    catch
+        _:_ ->
+            IP
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc
