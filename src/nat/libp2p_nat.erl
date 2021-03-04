@@ -127,18 +127,22 @@ renew_port_mapping(InternalPort, ExternalPort) ->
 %% @end
 %%--------------------------------------------------------------------
 maybe_apply_nat_map({IP, Port}) ->
-    Map = application:get_env(libp2p, nat_map, #{}),
+    Map0 = application:get_env(libp2p, nat_map, #{}),
+    Map = maps:fold(fun(K, V, Acc) ->
+                            try {maybe_parse(K), maybe_parse(V)} of
+                                {K2, V2} ->
+                                    maps:put(K2, V2, Acc)
+                            catch
+                                What:Why ->
+                                    lager:warning("invalid nat map: ~p ~p ~p", [K, V, {What, Why}]),
+                                Acc
+                            end
+                    end, #{}, Map0),
     case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
-        "none" ->
-            {IP, Port};
-        {"none", _} ->
-            {IP, Port};
-        {NewIP, 0} ->
-            {maybe_parse(NewIP), Port};
         {NewIP, NewPort} ->
-            {maybe_parse(NewIP), NewPort};
+            {NewIP, NewPort};
         NewIP ->
-            {maybe_parse(NewIP), Port}
+            {NewIP, Port}
     end.
 
 %% ------------------------------------------------------------------
@@ -147,9 +151,15 @@ maybe_apply_nat_map({IP, Port}) ->
 
 maybe_parse(IP) when is_tuple(IP), tuple_size(IP) == 4 ->
     IP;
+maybe_parse({IP, Port}) when is_tuple(IP), tuple_size(IP) == 4, is_integer(Port) ->
+    {IP, Port};
 maybe_parse(IPStr) when is_list(IPStr) ->
     {ok, IP} = inet:parse_ipv4_address(IPStr),
-    IP.
+    IP;
+maybe_parse({IPStr, PortStr}) when is_list(IPStr), is_list(PortStr) ->
+    {ok, IP} = inet:parse_ipv4_address(IPStr),
+    Port = list_to_integer(PortStr),
+    {IP, Port}.
 
 %%--------------------------------------------------------------------
 %% @doc
