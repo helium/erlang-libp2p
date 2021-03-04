@@ -129,15 +129,27 @@ renew_port_mapping(InternalPort, ExternalPort) ->
 maybe_apply_nat_map({IP, Port}) ->
     Map = application:get_env(libp2p, nat_map, #{}),
     case maps:get({IP, Port}, Map, maps:get(IP, Map, {IP, Port})) of
+        "none" ->
+            {IP, Port};
+        {"none", _} ->
+            {IP, Port};
+        {NewIP, 0} ->
+            {maybe_parse(NewIP), Port};
         {NewIP, NewPort} ->
-            {NewIP, NewPort};
+            {maybe_parse(NewIP), NewPort};
         NewIP ->
-            {NewIP, Port}
+            {maybe_parse(NewIP), Port}
     end.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+maybe_parse(IP) when is_tuple(IP), tuple_size(IP) == 4 ->
+    IP;
+maybe_parse(IPStr) when is_list(IPStr) ->
+    {ok, IP} = inet:parse_ipv4_address(IPStr),
+    IP.
 
 %%--------------------------------------------------------------------
 %% @doc
