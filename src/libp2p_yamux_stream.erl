@@ -316,8 +316,8 @@ handle_event(cast, {set_idle_timeout, Timeout}, _State, Data=#state{}) ->
 %
 handle_event(info, {'DOWN', _, process, Pid, _}, _State, Data=#state{session = Pid})  ->
     {stop, normal, Data};
-handle_event(info, {'EXIT', Pid, normal}, _State, Data=#state{handler=Pid})  ->
-    {stop, normal, Data};
+handle_event(info, {'EXIT', Pid, Reason}, _State, Data=#state{handler=Pid}) when Reason == normal; Reason == shutdown  ->
+    {stop, Reason, Data};
 handle_event(info, {'EXIT', Pid, Reason}, _State, Data=#state{handler=Pid}) ->
     lager:warning("Multistream server ~p exited with reason ~p", [Pid, Reason]),
     {stop, normal, Data};

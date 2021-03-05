@@ -899,11 +899,31 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                         true ->
                             lager:info("Saw ~p distinct observed addresses, assuming static NAT", [Limit + 1]),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
-                            libp2p_relay:init(libp2p_swarm:swarm(TID));
+                            libp2p_relay:init(libp2p_swarm:swarm(TID)),
+                            %% also check if we have a port forward from the same external port to our internal port
+                            %% as this is a common configuration
+                            ListenSockets = libp2p_config:listen_sockets(TID),
+                            %% find all the listen sockets for tcp and try to see if they have a 1:1 port mapping
+                            lists:foldl(fun({_Pid, MA, _Socket}, StateAcc) ->
+                                                case multiaddr:protocols(MA) of
+                                                    [{"ip4", _IP}, {"tcp", PortStr}] ->
+                                                        {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
+                                                        case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                                                            {ok, StunPid} ->
+                                                                %% TODO: Remove this once dial stops using start_link
+                                                                unlink(StunPid),
+                                                                erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                                                                StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
+                                                            _ ->
+                                                                StateAcc
+                                                        end;
+                                                    _ ->
+                                                        StateAcc
+                                                end
+                                        end, State#state{observed_addrs=ObservedAddresses}, ListenSockets);
                         false ->
-                            ok
-                    end,
-                    State#state{observed_addrs=ObservedAddresses}
+                            State#state{observed_addrs=ObservedAddresses}
+                    end
             end
     end.
 
