@@ -906,7 +906,10 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                             %% find all the listen sockets for tcp and try to see if they have a 1:1 port mapping
                             lists:foldl(fun({_Pid, MA, _Socket}, StateAcc) ->
                                                 case multiaddr:protocols(MA) of
-                                                    [{"ip4", _IP}, {"tcp", PortStr}] ->
+                                                    %% don't bother with port 0 listen sockets because it's
+                                                    %% unlikely that anyone would set up an external port map
+                                                    %% for a randomly assigned port
+                                                    [{"ip4", _IP}, {"tcp", PortStr}] when PortStr /= "0" ->
                                                         {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
                                                         case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                                                             {ok, StunPid} ->
