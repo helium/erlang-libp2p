@@ -3,8 +3,8 @@
 -export([get_opt/2, get_opt/3,
          base_dir/1, swarm_dir/2,
          insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3,
-         session/0, insert_session/3, lookup_session/2, lookup_session/3, remove_session/2,
-         lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1,
+         session/0, insert_session/3, insert_session/4, lookup_session/2, lookup_session/3, remove_session/2,
+         lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1, lookup_session_direction/2,
          insert_session_addr_info/3, lookup_session_addr_info/2,
          transport/0, insert_transport/3, lookup_transport/2, lookup_transports/1,
          listen_addrs/1, listener/0, lookup_listener/2, insert_listener/3, remove_listener/2,
@@ -22,6 +22,7 @@
 -define(STREAM_HANDLER, stream_handler).
 -define(TRANSPORT, transport).
 -define(SESSION, session).
+-define(SESSION_DIRECTION, session_direction).
 -define(LISTENER, listener).
 -define(LISTEN_SOCKET, listen_socket).
 -define(GROUP, group).
@@ -219,6 +220,11 @@ listen_sockets(TID) ->
 session() ->
     ?SESSION.
 
+-spec insert_session(ets:tab(), string(), pid(), inbound | outbound) -> true.
+insert_session(TID, Addr, Pid, Direction) ->
+    ets:insert(TID, {{?SESSION_DIRECTION, Pid}, Direction}),
+    insert_session(TID, Addr, Pid).
+
 -spec insert_session(ets:tab(), string(), pid()) -> true.
 insert_session(TID, Addr, Pid) ->
     insert_pid(TID, ?SESSION, Addr, Pid).
@@ -238,6 +244,12 @@ lookup_session(TID, Addr) ->
 
 -spec remove_session(ets:tab(), string()) -> true.
 remove_session(TID, Addr) ->
+    case lookup_session(TID, Addr) of
+        {ok, Pid} ->
+            ets:delete(TID, {?SESSION_DIRECTION, Pid});
+        _ ->
+            ok
+    end,
     remove_pid(TID, ?SESSION, Addr).
 
 -spec lookup_sessions(ets:tab()) -> [{term(), pid()}].
@@ -255,6 +267,10 @@ lookup_session_addrs(TID) ->
 -spec lookup_session_addr_info(ets:tab(), pid()) -> {ok, {string(), string()}} | false.
 lookup_session_addr_info(TID, Pid) ->
     lookup_addr_info(TID, ?SESSION, Pid).
+
+lookup_session_direction(TID, Pid) ->
+    [{{?SESSION_DIRECTION, Pid}, Direction}] = ets:lookup(TID, {?SESSION_DIRECTION, Pid}),
+    Direction.
 
 -spec insert_session_addr_info(ets:tab(), pid(), {string(), string()}) -> true.
 insert_session_addr_info(TID, Pid, AddrInfo) ->
