@@ -173,7 +173,7 @@ random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
 -spec random(peerbook(), [libp2p_crypto:pubkey_bin()], fun((libp2p_peer:peer()) -> boolean()), non_neg_integer()) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
-random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
+random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
     Exclude = lists:map(fun rev/1, Exclude0),
     {ok, Iterator} = rocksdb:iterator(Store, []),
     {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} = rocksdb:iterator_move(Iterator, first),
@@ -200,6 +200,7 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude0, Pred, Tr
         _ ->
             Offset = rand:uniform(Difference),
             SeekPoint = Start + Offset,
+            NetworkID = libp2p_swarm:network_id(TID),
             fun RandLoop(_, 0) ->
                     rocksdb:iterator_close(Iterator),
                     false;
@@ -220,7 +221,8 @@ random(Peerbook=#peerbook{store=Store, stale_time=StaleTime}, Exclude0, Pred, Tr
                                         true ->
                                             RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
                                         false ->
-                                            case Pred(Peer) of
+                                            case libp2p_peer:network_id_allowable(Peer, NetworkID)
+                                                andalso Pred(Peer) of
                                                 true ->
                                                     rocksdb:iterator_close(Iterator),
                                                     {rev(Addr), Peer};
