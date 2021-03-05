@@ -60,7 +60,7 @@ init(server, Connection, ["/dial/"++Path, _, TID]) ->
                                   [TxnID] ->
                                       {ObservedAddr0, PortStr0};
                                   [Port, TxnID] ->
-                                      {"/ip4"++IP++"/tcp/"++Port, Port}
+                                      {"/ip4/"++IP++"/tcp/"++Port, Port}
                               end,
     {ok, SessionPid} = libp2p_connection:session(Connection),
     %% first, try with the unique dial option, so we can check if the
@@ -190,11 +190,10 @@ find_verifier(_TID, _, {error, not_found}) ->
 find_verifier(TID, FromAddr, {ok, TargetAddr}) ->
     find_verifier(TID, FromAddr, TargetAddr);
 find_verifier(TID, FromAddr, TargetAddr) ->
-    lager:debug("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
+    lager:debug("finding peer for ~p not connected to ~p", [TargetAddr, libp2p_crypto:pubkey_bin_to_p2p(FromAddr)]),
     PeerBook = libp2p_swarm:peerbook(TID),
     {ok, FromEntry} = libp2p_peerbook:get(PeerBook, FromAddr),
     TargetCryptoAddr = libp2p_crypto:p2p_to_pubkey_bin(TargetAddr),
-    lager:debug("Target crypto addr ~p", [TargetCryptoAddr]),
     %% Gets the peers connected to the given FromAddr
     FromConnected = libp2p_peer:connected_peers(FromEntry),
     lager:debug("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(F) || F <- FromConnected]]),

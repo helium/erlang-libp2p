@@ -911,12 +911,15 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                                                     %% for a randomly assigned port
                                                     [{"ip4", _IP}, {"tcp", PortStr}] when PortStr /= "0" ->
                                                         {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
+                                                        [{"ip4", IP}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
+                                                        ObservedAddr1 = "/ip4/"++IP++"/tcp/"++PortStr,
                                                         case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                                                             {ok, StunPid} ->
+                                                                lager:debug("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
                                                                 %% TODO: Remove this once dial stops using start_link
                                                                 unlink(StunPid),
                                                                 erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-                                                                StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
+                                                                StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
                                                             _ ->
                                                                 StateAcc
                                                         end;
