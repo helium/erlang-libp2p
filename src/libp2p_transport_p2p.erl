@@ -67,7 +67,7 @@ connect_to(MAddr, UserOptions, Timeout, TID) ->
                                              SortedListenAddrs = libp2p_transport:sort_addrs(TID, ListenAddrs),
                                              case connect_to_listen_addr(SortedListenAddrs, UserOptions, Timeout, TID, []) of
                                                  {ok, SessionPid}->
-                                    libp2p_config:insert_session(TID, MAddr, SessionPid),
+                                                     libp2p_config:insert_session(TID, MAddr, SessionPid),
                                                      {ok, SessionPid};
                                                  {error, Error} -> {error, Error}
                                              end;
