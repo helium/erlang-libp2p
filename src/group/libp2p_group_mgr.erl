@@ -22,6 +22,7 @@
         {
          tid :: term(),
          group_deletion_predicate :: fun((string()) -> boolean()),
+         servers = #{},
          storage_dir :: string()
         }).
 
@@ -66,12 +67,12 @@ init([TID, Predicate]) ->
                 storage_dir = Dir}}.
 
 handle_call({add_group, GroupID, Module, Args}, _From,
-            #state{tid = TID} = State) ->
-    Reply =
+            #state{tid = TID, servers = Servers} = State) ->
+    {Reply, State1} =
         case libp2p_config:lookup_group(TID, GroupID) of
             {ok, Pid} ->
                 lager:info("trying to add running group: ~p", [GroupID]),
-                {ok, Pid};
+                {{ok, Pid}, State};
             false ->
                 lager:info("newly starting group: ~p", [GroupID]),
                 GroupSup = libp2p_swarm_group_sup:sup(TID),
@@ -81,23 +82,26 @@ handle_call({add_group, GroupID, Module, Args}, _From,
                                shutdown => 5000,
                                type => supervisor },
                 case supervisor:start_child(GroupSup, ChildSpec) of
-                    {error, Error} -> {error, Error};
+                    {error, Error} -> {{error, Error}, State};
                     {ok, GroupPid} ->
                         libp2p_config:insert_group(TID, GroupID, GroupPid),
-                        {ok, GroupPid}
+                        Server = libp2p_group_relcast_sup:server(GroupPid),
+                        Ref = erlang:monitor(process, Server),
+                        Servers1 = Servers#{Server => {GroupID, Ref}},
+                        {{ok, GroupPid}, State#state{servers = Servers1}}
                 end
         end,
-    {reply, Reply, State};
-handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
+    {reply, Reply, State1};
+handle_call({remove_group, GroupID}, _From,
+            #state{tid = TID, servers = Servers} = State) ->
     case libp2p_config:lookup_group(TID, GroupID) of
         {ok, Pid} ->
             Server = libp2p_group_relcast_sup:server(Pid),
             lager:info("removing group ~p ~p  ~p", [GroupID, Pid, Server]),
-            Ref = erlang:monitor(process, Server),
             GroupSup = libp2p_swarm_group_sup:sup(TID),
             libp2p_group_relcast_server:stop(Server),
             receive
-                {'DOWN', Ref, process, Server, _} ->
+                {'DOWN', _Ref, process, Server, _} ->
                     lager:info("got down from ~p", [Server]),
                     ok
             %% wait a max of 30s for the rocks-owning server to
@@ -109,26 +113,27 @@ handle_call({remove_group, GroupID}, _From, #state{tid = TID} = State) ->
             %% server if it's still hung
             _ = supervisor:terminate_child(GroupSup, GroupID),
             _ = supervisor:delete_child(GroupSup, GroupID),
-            _ = libp2p_config:remove_group(TID, GroupID);
+            _ = libp2p_config:remove_group(TID, GroupID),
+            Servers1 = maps:remove(Server, Servers),
+            {reply, ok, State#state{servers = Servers1}};
         false ->
-            lager:warning("removing missing group ~p", [GroupID])
-    end,
-    {reply, ok, State};
+            lager:warning("removing missing group ~p", [GroupID]),
+            {reply, ok, State}
+        end;
 handle_call(stop_all, _From,  #state{tid = TID} = State) ->
     case libp2p_config:all_groups(TID) of
         [] -> ok;
         Groups ->
-            {_, Last} = lists:last(Groups),
+            [_, Last] = lists:last(Groups),
             LastServer = libp2p_group_relcast_sup:server(Last),
-            Ref = erlang:monitor(process, LastServer),
             [begin
                  Server = libp2p_group_relcast_sup:server(Pid),
                  libp2p_group_relcast_server:stop(Server),
                  _ = libp2p_config:remove_group(TID, ID)
              end
-             || {ID, Pid} <- Groups],
+             || [ID, Pid] <- Groups],
             receive
-                {'DOWN', Ref, process, LastServer, _} ->
+                {'DOWN', _Ref, process, LastServer, _} ->
                     ok
                     %% wait a max of 30s for the rocks-owning server to
                     %% gracefully shutdown
@@ -156,6 +161,30 @@ handle_info(gc_tick, #state{group_deletion_predicate = Predicate,
     Timeout = application:get_env(libp2p, group_gc_tick, timer:seconds(30)),
     erlang:send_after(Timeout, self(), gc_tick),
     {noreply, State};
+handle_info({'DOWN', _Ref, process, Server, _},
+            #state{servers = Servers, tid = TID} = State) ->
+    case maps:find(Server, Servers) of
+        {ok, {ID, _StoredRef}} ->
+            case libp2p_config:lookup_group(TID, ID) of
+                {ok, _Sup} ->
+                    lager:info("saw DOWN from ~p ~p", [ID, Server]),
+                    GroupSup = libp2p_swarm_group_sup:sup(TID),
+                    %% then stop the sup and the workers, and maybe kill the
+                    %% server if it's still hung
+                    _ = supervisor:terminate_child(GroupSup, ID),
+                    _ = supervisor:delete_child(GroupSup, ID),
+                    _ = libp2p_config:remove_group(TID, ID),
+                    Servers1 = maps:remove(Server, Servers),
+                    {noreply, State#state{servers = Servers1}};
+                false ->
+                    lager:info("saw DOWN from missing server ~p", [ID]),
+                    Servers1 = maps:remove(Server, Servers),
+                    {noreply, State#state{servers = Servers1}}
+            end;
+        error ->
+            lager:info("saw DOWN from unknown server ~p", [Server]),
+            {noreply, State}
+    end;
 handle_info(_Info, State) ->
     lager:warning("unexpected message ~p", [_Info]),
     {noreply, State}.
