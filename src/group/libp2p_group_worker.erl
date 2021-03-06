@@ -135,7 +135,7 @@ callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
 init([Ref, Kind, StreamPid, Server, GroupID, TID, Path]) ->
-    lager:debug("starting group worker of kind: ~p for path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
+    lager:debug("starting group worker of kind ~p and path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
     process_flag(trap_exit, true),
     {ok, connected,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
@@ -362,24 +362,34 @@ closing(EventType, Msg, Data) ->
 
 handle_assign_stream(StreamPid, Data=#data{stream_pid=undefined}) ->
     {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})};
-handle_assign_stream(StreamPid, Data=#data{stream_pid=_CurrentStreamPid}) ->
-    %% If send_pid known we have an existing stream. Do not replace.
-    case rand:uniform(2) of
-        1 ->
-            lager:debug("Loser stream ~p (addr_info ~p) to assigned stream ~p (addr_info ~p)",
-                        [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-                         _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            unlink(StreamPid),
-            libp2p_framed_stream:close(StreamPid),
-            false;
-        _ ->
-             lager:debug("Lucky winner stream ~p (addr_info ~p) overriding existing stream ~p (addr_info ~p)",
-                          [StreamPid, libp2p_framed_stream:addr_info(StreamPid),
-                           _CurrentStreamPid, libp2p_framed_stream:addr_info(_CurrentStreamPid)]),
-            unlink(_CurrentStreamPid),
-            {ok, update_metadata(Data#data{stream_pid=update_stream(StreamPid, Data)})}
-    end.
-
+handle_assign_stream(StreamPid, #data{tid=TID, stream_pid=CurrentStreamPid,
+                                      kind=Kind, target = {MAddr, _}}=Data) ->
+    lager:debug("handling second stream for target ~p", [MAddr]),
+    LocalPeerMAddr = libp2p_swarm:p2p_address(TID),
+    TaggedStreams =
+        case Kind of
+            outbound ->
+                %% The existing stream is an outbound stream so the new stream must be an inbound stream from a remote dialer
+                lager:debug("local outbound stream: ~p, inbound: ~p", [CurrentStreamPid, StreamPid]),
+                #{outbound_stream => CurrentStreamPid, inbound_stream => StreamPid};
+            _ ->
+                %% The existing stream is an inbound stream so the new stream must be an outgoing stream, a local dialer
+                lager:debug("local outbound stream: ~p, inbound: ~p", [StreamPid, CurrentStreamPid]),
+                #{outbound_stream => StreamPid, inbound_stream => CurrentStreamPid}
+        end,
+    %% If local peer's multiaddr is greater lexicographically, then we pick the stream where he is the dialer
+    %% otherwise we pick the other stream which will be where he has received an inbound connection
+    %% NOTE: MAddr here will be the multi addr of the remote peer
+    {WinnerStream, LoserStream} =
+        case LocalPeerMAddr > MAddr of
+            true ->
+                lager:debug("keeping local outgoing stream and dropping inbound", []),
+                {maps:get(outbound_stream, TaggedStreams), maps:get(inbound_stream, TaggedStreams)};
+            false ->
+                lager:debug("dropping local outgoing stream and switching to inbound", []),
+                {maps:get(inbound_stream, TaggedStreams), maps:get(outbound_stream, TaggedStreams)}
+        end,
+    handle_stream_winner_loser(CurrentStreamPid, WinnerStream, LoserStream, Data).
 
 handle_event(cast, {send, Ref, _Msg, _MaybeEncode}, #data{server=Server, stream_pid=undefined}) ->
     %% Trying to send while not connected to a stream
@@ -458,6 +468,15 @@ handle_event(EventType, Msg, #data{}) ->
 %%
 %% Utilities
 %%
+
+handle_stream_winner_loser(CurrentStream, WinnerStream, LoserStream, Data) when CurrentStream /= WinnerStream->
+    unlink(LoserStream),
+    libp2p_framed_stream:close(LoserStream),
+    {ok, update_metadata(Data#data{stream_pid=update_stream(WinnerStream, Data)})};
+handle_stream_winner_loser(_CurrentStream, _WinnerStream, LoserStream, _Data) ->
+    unlink(LoserStream),
+    libp2p_framed_stream:close(LoserStream),
+    false.
 
 handle_send(StreamPid, Server, Ref, Bin, Data)->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
