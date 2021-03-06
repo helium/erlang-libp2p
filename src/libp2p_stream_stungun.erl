@@ -6,7 +6,7 @@
 -export_type([txn_id/0]).
 
 %% API
--export([mk_stun_txn/0, dial/5]).
+-export([mk_stun_txn/0, mk_stun_txn/1, dial/5]).
 %% libp2p_framed_stream
 -export([client/2, server/4, init/3, handle_data/3]).
 
@@ -31,6 +31,12 @@ mk_stun_txn() ->
     PeerPath = lists:flatten(io_lib:format("stungun/1.0.0/dial/~b", [TxnID])),
     {PeerPath, TxnID}.
 
+-spec mk_stun_txn(pos_integer()) -> {string(), txn_id()}.
+mk_stun_txn(Port) ->
+    <<TxnID:96/integer-unsigned-little>> = crypto:strong_rand_bytes(12),
+    PeerPath = lists:flatten(io_lib:format("stungun/1.0.0/dial/~b/~b", [Port, TxnID])),
+    {PeerPath, TxnID}.
+
 -spec dial(ets:tab(), string(), string(), txn_id(), pid()) -> {ok, pid()} | {error, term()}.
 dial(TID, PeerAddr, PeerPath, TxnID, Handler) ->
     libp2p_swarm:dial_framed_stream(TID, PeerAddr, PeerPath, ?MODULE, [TxnID, Handler]).
@@ -47,14 +53,20 @@ server(Connection, Path, _TID, Args) ->
 
 init(client, _Connection, [TxnID, Handler]) ->
     {ok, #client_state{txn_id=TxnID, handler=Handler}};
-init(server, Connection, ["/dial/"++TxnID, _, TID]) ->
+init(server, Connection, ["/dial/"++Path, _, TID]) ->
+    {_, ObservedAddr0} = libp2p_connection:addr_info(Connection),
+    [{"ip4", IP}, {"tcp", PortStr0}] = multiaddr:protocols(ObservedAddr0),
+    {ObservedAddr, PortStr} = case string:tokens(Path, "/") of
+                                  [TxnID] ->
+                                      {ObservedAddr0, PortStr0};
+                                  [Port, TxnID] ->
+                                      {"/ip4/"++IP++"/tcp/"++Port, Port}
+                              end,
     {ok, SessionPid} = libp2p_connection:session(Connection),
-    {_, ObservedAddr} = libp2p_connection:addr_info(Connection),
     %% first, try with the unique dial option, so we can check if the
     %% peer has Full Cone or Restricted Cone NAT
     ReplyPath = reply_path(TxnID),
     lager:debug("stungun attempting dial back with unique session and port to ~p", [ObservedAddr]),
-    [{"ip4", IP}, {"tcp", PortStr}] = multiaddr:protocols(ObservedAddr),
     %case libp2p_swarm:dial(TID, ObservedAddr, ReplyPath,
                            %[{unique_session, true}, {unique_port, true}], 5000) of
     case gen_tcp:connect(IP, list_to_integer(PortStr), [binary, {active, false}], 5000) of
@@ -178,11 +190,10 @@ find_verifier(_TID, _, {error, not_found}) ->
 find_verifier(TID, FromAddr, {ok, TargetAddr}) ->
     find_verifier(TID, FromAddr, TargetAddr);
 find_verifier(TID, FromAddr, TargetAddr) ->
-    lager:debug("finding peer for ~p not connected to ~p", [TargetAddr, FromAddr]),
+    lager:debug("finding peer for ~p not connected to ~p", [TargetAddr, libp2p_crypto:pubkey_bin_to_p2p(FromAddr)]),
     PeerBook = libp2p_swarm:peerbook(TID),
     {ok, FromEntry} = libp2p_peerbook:get(PeerBook, FromAddr),
     TargetCryptoAddr = libp2p_crypto:p2p_to_pubkey_bin(TargetAddr),
-    lager:debug("Target crypto addr ~p", [TargetCryptoAddr]),
     %% Gets the peers connected to the given FromAddr
     FromConnected = libp2p_peer:connected_peers(FromEntry),
     lager:debug("Our peers: ~p", [[libp2p_crypto:pubkey_bin_to_p2p(F) || F <- FromConnected]]),
