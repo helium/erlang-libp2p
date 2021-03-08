@@ -152,7 +152,6 @@ handle_cast({clear_target, _Kind, _WorkerPid, Ref}, State=#state{workers = Worke
     %% the ref is stable across restarts, so use that as the lookup key
     case lookup_worker(Ref, #worker.ref, State) of
         Worker=#worker{} ->
-            %% TODO - should the pid be set to undefined along with target ?
             NewWorkers = lists:keyreplace(Ref, #worker.ref, Workers,
                                           Worker#worker{target=undefined}),
             {noreply, State#state{workers=NewWorkers}};
