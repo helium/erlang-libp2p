@@ -471,11 +471,11 @@ handle_event(EventType, Msg, #data{}) ->
 
 handle_stream_winner_loser(CurrentStream, WinnerStream, LoserStream, Data) when CurrentStream /= WinnerStream->
     unlink(LoserStream),
-    libp2p_framed_stream:close(LoserStream),
+    spawn(fun() -> libp2p_framed_stream:close(LoserStream) end),
     {ok, update_metadata(Data#data{stream_pid=update_stream(WinnerStream, Data)})};
 handle_stream_winner_loser(_CurrentStream, _WinnerStream, LoserStream, _Data) ->
     unlink(LoserStream),
-    libp2p_framed_stream:close(LoserStream),
+    spawn(fun() -> libp2p_framed_stream:close(LoserStream) end),
     false.
 
 handle_send(StreamPid, Server, Ref, Bin, Data)->
@@ -571,7 +571,7 @@ update_stream(undefined, #data{stream_pid=undefined}) ->
     undefined;
 update_stream(undefined,  #data{stream_pid=Pid, target={MAddr, _}, kind=Kind, server=Server}) ->
     catch unlink(Pid),
-    libp2p_framed_stream:close(Pid),
+    spawn(fun() -> libp2p_framed_stream:close(Pid) end),
     libp2p_group_server:send_ready(Server, MAddr, Kind, false),
     undefined;
 update_stream(StreamPid, #data{stream_pid=undefined, target={MAddr, _}, kind=Kind, server=Server}) ->
@@ -583,7 +583,7 @@ update_stream(StreamPid, #data{stream_pid=StreamPid}) ->
 update_stream(StreamPid, #data{stream_pid=Pid, target={MAddr, _}, server=Server, kind=Kind}) ->
     link(StreamPid),
     catch unlink(Pid),
-    libp2p_framed_stream:close(Pid),
+    spawn(fun() -> libp2p_framed_stream:close(Pid) end),
     %% we have a new stream, re-advertise our ready status
     libp2p_group_server:send_ready(Server, MAddr, Kind, true),
     StreamPid.
