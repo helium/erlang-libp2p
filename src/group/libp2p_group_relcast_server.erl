@@ -400,6 +400,7 @@ terminate(Reason, #state{store=Store}) ->
 -spec start_workers([string()], #state{}) -> [#worker{}].
 start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index=SelfIndex}) ->
     WorkerSup = libp2p_group_relcast_sup:workers(Sup),
+    DialOptions = application:get_env(libp2p, relcast_dial_options, []),
     lists:map(fun({Index, Addr}) when Index == SelfIndex ->
                       %% Dispatch a send_ready since there is no group
                       %% worker for self to do so
@@ -411,7 +412,7 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index
                                           WorkerSup,
                                           #{ id => Ref,
                                              start => {libp2p_group_worker, start_link,
-                                                       [Ref, Index, self(), GroupID, TID]},
+                                                       [Ref, Index, self(), GroupID, DialOptions, TID]},
                                              restart => transient
                                            }),
                       %% sync on the mailbox having been flushed.
