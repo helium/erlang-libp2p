@@ -396,11 +396,12 @@ stop_inbound_worker(StreamPid, State) ->
 start_worker(Kind, #state{tid=TID, sup=Sup}) ->
     WorkerSup = libp2p_group_gossip_sup:workers(Sup),
     Ref = make_ref(),
+    DialOptions = [],
     {ok, WorkerPid} = supervisor:start_child(
                         WorkerSup,
                         #{ id => Ref,
                            start => {libp2p_group_worker, start_link,
-                                     [Ref, Kind, self(), ?GROUP_ID, TID]},
+                                     [Ref, Kind, self(), ?GROUP_ID, DialOptions, TID]},
                            restart => transient
                          }),
     #worker{kind=Kind, pid=WorkerPid, target=undefined, ref=Ref}.
