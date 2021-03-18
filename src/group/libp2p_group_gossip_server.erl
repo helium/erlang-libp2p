@@ -376,7 +376,8 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sup=Sup}) ->
                         WorkerSup,
                         #{ id => Ref,
                            start => {libp2p_group_worker, start_link,
-                                     [Ref, inbound, StreamPid, self(), ?GROUP_ID, TID, Path]},
+                                     [Ref, inbound, StreamPid, self(),
+                                      ?GROUP_ID, [], TID, Path]},
                            restart => temporary
                          }),
     #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}.
