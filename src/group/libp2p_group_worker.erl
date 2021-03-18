@@ -7,7 +7,7 @@
 -export_type([stream_client_spec/0]).
 
 %% API
--export([start_link/6, start_link/7,
+-export([start_link/6, start_link/8,
          assign_target/2, clear_target/1,
          assign_stream/2, assign_stream/3, send/4, send_ack/3, close/1]).
 
@@ -123,14 +123,16 @@ info(Pid) ->
                         ignore |
                         {error, Error :: term()}.
 start_link(Ref, Kind, Server, GroupID, DialOptions, TID) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID, DialOptions, TID], []).
+    gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID,
+                                    DialOptions, TID], []).
 
--spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), ets:tab(), string()) ->
+-spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), [any()], ets:tab(), string()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Ref, Kind, StreamPid, Server, GroupID, TID, Path) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server, GroupID, TID, Path], []).
+start_link(Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server,
+                                    GroupID, DialOptions, TID, Path], []).
 
 callback_mode() -> state_functions.
 
@@ -145,13 +147,14 @@ init([Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path]) ->
                           dial_options=DialOptions,
                           worker_path = Path}),
     {next_event, info, {assign_stream, StreamPid, Path}}};
-init([Ref, Kind, Server, GroupID, TID]) ->
+init([Ref, Kind, Server, GroupID, DialOptions, TID]) ->
     lager:debug("starting group worker of kind: ~p",[Kind]),
     process_flag(trap_exit, true),
     {ok, targeting,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
-                          target_backoff=init_targeting_backoff(),
-                          connect_retry_backoff=init_connect_retry_backoff()}),
+                           target_backoff=init_targeting_backoff(),
+                           dial_options=DialOptions,
+                           connect_retry_backoff=init_connect_retry_backoff()}),
      ?TRIGGER_TARGETING}.
 
 targeting(cast, clear_target, Data=#data{}) ->
