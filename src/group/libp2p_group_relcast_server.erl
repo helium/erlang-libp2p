@@ -27,7 +27,8 @@
          in_flight = 0 :: non_neg_integer(),
          connects = 0 :: non_neg_integer(),
          last_take = unknown :: atom(),
-         last_ack = 0 :: non_neg_integer()
+         last_ack = 0 :: non_neg_integer(),
+         connected = false :: boolean()
        }).
 
 -record(state,
@@ -146,35 +147,22 @@ handle_call(workers, _From, State=#state{workers=Workers}) ->
                          end, Workers),
     {reply, Response, State};
 handle_call(info, _From, State=#state{group_id=GroupID, workers=Workers}) ->
-    AddWorkerInfo = fun(#worker{pid=self}, Map) ->
-                            maps:put(info, self, Map);
-                       (#worker{pid=Pid}, Map) ->
-                            maps:put(info, libp2p_group_worker:info(Pid), Map)
-                    end,
-    %QueueLen = fun(false) ->
-                       %0;
-                  %({_, Elements}) ->
-                       %length(Elements)
-               %end,
-    WorkerInfos = lists:foldl(fun(WorkerInfo=#worker{target=Target, index=Index, in_flight=InFlight, last_ack=LastAck, ready=Ready, connects=Connections, last_take=LastTake}, Acc) ->
-                                      %InKeys = QueueLen(lists:keyfind(Index, 1, State#state.in_keys)),
-                                      %OutKeys = QueueLen(lists:keyfind(Index, 1, State#state.out_keys)),
+    WorkerInfos = lists:foldl(fun(#worker{target=Target, index=Index, in_flight=InFlight, last_ack=LastAck, ready=Ready, connects=Connections, last_take=LastTake, connected=Connected}, Acc) ->
                                       maps:put(Index,
-                                               AddWorkerInfo(WorkerInfo,
-                                                             #{ index => Index,
-                                                                address => Target,
-                                                                in_flight => InFlight,
-                                                                last_ack => LastAck,
-                                                                connects => Connections,
-                                                                last_take => LastTake,
-                                                                ready => Ready}),
+                                               #{ index => Index,
+                                                  address => Target,
+                                                  in_flight => InFlight,
+                                                  last_ack => LastAck,
+                                                  connects => Connections,
+                                                  connected => Connected,
+                                                  last_take => LastTake,
+                                                  ready => Ready},
                                                Acc)
                               end, #{}, Workers),
     GroupInfo = #{
                   module => ?MODULE,
                   pid => self(),
                   group_id => GroupID,
-                  %handler => Handler,
                   worker_info => WorkerInfos
                  },
     {reply, GroupInfo, State};
@@ -213,9 +201,9 @@ handle_cast({request_target, Index, WorkerPid, _WorkerRef}, State=#state{tid=TID
     {Target, NewState} = case lookup_worker(Index, State) of
                              Worker = #worker{target=T, pid=OldPid} when WorkerPid /= OldPid ->
                                  lager:info("Worker for index ~p changed from ~p to ~p", [Index, OldPid, WorkerPid]),
-                                 {T, update_worker(Worker#worker{pid=WorkerPid}, State)};
-                             #worker{target=T} ->
-                                 {T, State}
+                                 {T, update_worker(Worker#worker{pid=WorkerPid, connected=false}, State)};
+                             Worker = #worker{target=T} ->
+                                 {T, update_worker(Worker#worker{connected=false}, State)}
                end,
     Path = lists:flatten([?GROUP_PATH_BASE, State#state.group_id, "/",
                           libp2p_crypto:bin_to_b58(libp2p_swarm:pubkey_bin(TID))]),
@@ -428,7 +416,7 @@ is_ready_worker(Index, Ready, State=#state{}) ->
 -spec ready_worker(pos_integer(), boolean(), #state{}) -> #state{}.
 ready_worker(Index, Ready, State=#state{}) ->
     case lookup_worker(Index, State) of
-        Worker=#worker{} -> update_worker(Worker#worker{ready=Ready, connects=inc_connects(Worker#worker.connects, Ready)}, State);
+        Worker=#worker{} -> update_worker(Worker#worker{ready=Ready, connected=Ready, connects=inc_connects(Worker#worker.connects, Ready)}, State);
         false -> State
     end.
 
