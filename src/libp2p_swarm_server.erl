@@ -6,6 +6,7 @@
         { tid :: ets:tab(),
           sig_fun :: libp2p_crypto:sig_fun(),
           ecdh_fun :: libp2p_crypto:ecdh_fun(),
+          pid_gc_monitor = make_ref() :: reference(),
           monitors=[] :: [{pid(), {reference(), atom()}}]
          }).
 
@@ -36,6 +37,8 @@ init([TID, SigFun, ECDHFun]) ->
     libp2p_swarm:add_stream_handler(TID, "identify/1.0.0",
                                     {libp2p_stream_identify, server, []}),
 
+    erlang:send_after(timer:minutes(5), self(), gc_pids),
+
     {ok, #state{tid=TID, sig_fun=SigFun, ecdh_fun=ECDHFun}}.
 
 handle_call(tid, _From, State=#state{tid=TID}) ->
@@ -47,6 +50,17 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
+handle_info(gc_pids, State=#state{tid=TID}) ->
+    Parent = self(),
+    {_Pid, Ref} = spawn_monitor(fun() ->
+                          libp2p_config:gc_pids(TID),
+                          Parent ! gc_pids_done
+                  end),
+    {noreply, State#state{pid_gc_monitor=Ref}};
+handle_info(gc_pids_done, State) ->
+    erlang:send_after(timer:minutes(5), self(), gc_pids),
+    erlang:demonitor(State#state.pid_gc_monitor, [flush]),
+    {noreply, State};
 handle_info({handle_identify, Session, {error, Error}}, State=#state{}) ->
     {_, PeerAddr} = libp2p_session:addr_info(State#state.tid, Session),
     lager:warning("ignoring session after failed identify ~p: ~p", [PeerAddr, Error]),
@@ -64,6 +78,9 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:register_session(PeerBook, Session, Identify),
     libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]),
+    {noreply, State};
+handle_info({'DOWN', MonitorRef, process, _Pid, _Reason}, State=#state{pid_gc_monitor=MonitorRef}) ->
+    erlang:send_after(timer:minutes(5), self(), gc_pids),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
