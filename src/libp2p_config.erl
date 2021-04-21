@@ -2,7 +2,7 @@
 
 -export([get_opt/2, get_opt/3,
          base_dir/1, swarm_dir/2,
-         insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3,
+         insert_pid/4, lookup_pid/3, lookup_pids/2, remove_pid/2, remove_pid/3, gc_pids/1,
          session/0, insert_session/3, insert_session/4, lookup_session/2, lookup_session/3, remove_session/2,
          lookup_sessions/1, lookup_session_addrs/2, lookup_session_addrs/1, lookup_session_direction/2,
          insert_session_addr_info/3, lookup_session_addr_info/2,
@@ -90,35 +90,66 @@ insert_pid(TID, Kind, Ref, Pid) ->
 -spec lookup_pid(ets:tab(), atom(), term()) -> {ok, pid()} | false.
 lookup_pid(TID, Kind, Ref) ->
     case ets:lookup(TID, {Kind, Ref}) of
-        [{_, Pid}] -> {ok, Pid};
+        [{_, Pid}] ->
+            case is_pid_deleted(TID, Kind, Pid) of
+                true ->
+                    false;
+                false ->
+                    {ok, Pid}
+            end;
         [] -> false
     end.
 
 -spec lookup_pids(ets:tab(), atom()) -> [{term(), pid()}].
 lookup_pids(TID, Kind) ->
-    [{Addr, Pid} || [Addr, Pid] <- ets:match(TID, {{Kind, '$1'}, '$2'})].
+    [{Addr, Pid} || [Addr, Pid] <- ets:match(TID, {{Kind, '$1'}, '$2'}), not is_pid_deleted(TID, Kind, Pid)].
 
 -spec lookup_addrs(ets:tab(), atom(), pid()) -> [string()].
 lookup_addrs(TID, Kind, Pid) ->
-    [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, Pid})].
+    [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, Pid}), not is_pid_deleted(TID, Kind, Pid)].
 
 -spec lookup_addrs(ets:tab(), atom()) -> [string()].
 lookup_addrs(TID, Kind) ->
-    [ Addr || [Addr] <- ets:match(TID, {{Kind, '$1'}, '_'})].
+    [ Addr || [Addr, Pid] <- ets:match(TID, {{Kind, '$1'}, '_'}), not is_pid_deleted(TID, Kind, Pid)].
 
 -spec remove_pid(ets:tab(), atom(), term()) -> true.
 remove_pid(TID, Kind, Ref) ->
-    ets:delete(TID, {Kind, Ref}).
+    ets:delete(TID, {Kind, Ref}),
+    ets:delete(TID, {?ADDR_INFO, Kind, Ref}).
 
 -spec remove_pid(ets:tab(), pid()) -> true.
 remove_pid(TID, Pid) ->
-    ets:match_delete(TID, {'_', Pid}).
+    ets:insert(TID, {{delete, Pid}, Pid}),
+    %spawn(fun() ->
+    %              ets:match_delete(TID, {'_', Pid}),
+    %              ets:match_delete(TID, {{?ADDR_INFO, '_', Pid}, '_'}),
+    %              ok
+    %      end),
+    true.
+
+is_pid_deleted(TID, Kind, Pid) ->
+    case ets:lookup(TID, {delete, Pid}) of
+        [] ->
+            false;
+        [_Res] ->
+            %% note we do not delete the {delete, Pid} key here
+            %% as there may be other Kinds we need to GC
+            ets:delete(TID, {?ADDR_INFO, Kind, Pid}),
+            ets:delete(TID, {Kind, Pid})
+    end.
 
 -spec lookup_handlers(ets:tab(), atom()) -> [{term(), any()}].
 lookup_handlers(TID, TableKey) ->
     [ {Key, Handler} ||
         [Key, Handler] <- ets:match(TID, {{TableKey, '$1'}, '$2'})].
 
+
+gc_pids(TID) ->
+    ToDelete = ets:match_object(TID, {{delete, '_'}, '_'}),
+    lists:foreach(fun({{delete, Pid}, Pid}) ->
+                  ets:match_delete(TID, {'_', Pid}),
+                  ets:match_delete(TID, {{?ADDR_INFO, '_', Pid}, '_'})
+                  end, ToDelete).
 
 %%
 %% Transports
@@ -286,13 +317,21 @@ insert_addr_info(TID, Kind, Pid, AddrInfo) ->
     %% Insert in the form that remove_pid understands to ensure that
     %% addr info gets removed for removed pids regardless of what kind
     %% of addr_info it is
-    ets:insert(TID, {{?ADDR_INFO, Kind, AddrInfo}, Pid}).
+    ets:insert(TID, {{?ADDR_INFO, Kind, Pid}, AddrInfo}).
 
 -spec lookup_addr_info(ets:tab(), atom(), pid()) -> {ok, {string(), string()}} | false.
 lookup_addr_info(TID, Kind, Pid) ->
-    case ets:match(TID, {{?ADDR_INFO, Kind, '$1'}, Pid}) of
-        [[AddrInfo]]  -> {ok, AddrInfo};
-        [] -> false
+    case ets:lookup(TID, {?ADDR_INFO, Kind, Pid}) of
+        [{_, AddrInfo}]  ->
+            case is_pid_deleted(TID, Kind, Pid) of
+                true ->
+                    false;
+                false ->
+                    {ok, AddrInfo}
+            end;
+        [] ->
+            lager:info("got nothing for ~p", [Pid]),
+            false
     end.
 
 
