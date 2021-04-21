@@ -240,6 +240,14 @@ fdset(#tcp_state{socket=Socket}=State) ->
                                 erlang:demonitor(Ref, [flush]),
                                 Return;
                             {'DOWN', Ref, process, Pid, Reason} ->
+                                %% flush any other response
+                                %% we might be racing with
+                                receive
+                                    {Ref, _} ->
+                                        ok
+                                after 0 ->
+                                          ok
+                                end,
                                 {error, Reason}
                     after 5000 ->
                               %% client process wedged, kill it
