@@ -66,7 +66,8 @@
          stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
          observed_addrs=sets:new() :: sets:set({string(), string()}),
          negotiated_nat=false :: boolean(),
-         nat_server :: undefined | {reference(), pid()}
+         nat_server :: undefined | {reference(), pid()},
+         stungun_timer = make_ref() :: reference()
         }).
 
 -define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
@@ -454,8 +455,8 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
             case [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)] of
                 [] ->
                     %% no connected peers
-                    erlang:send_after(30000, self(), stungun_retry),
-                    {noreply, State};
+                    Ref = erlang:send_after(30000, self(), stungun_retry),
+                    {noreply, State#state{stungun_timer=Ref}};
                 MyConnectedPeers ->
                     PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
                     lager:debug("retrying stungun with peer ~p", [PeerAddr]),
@@ -463,11 +464,12 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
                         {ok, StunPid} ->
                             %% TODO: Remove this once dial stops using start_link
                             unlink(StunPid),
+                            %% this timeout gets ignored if the txnid is cleared
                             erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
                             {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
                         _ ->
-                            erlang:send_after(30000, self(), stungun_retry),
-                            {noreply, State}
+                            Ref = erlang:send_after(30000, self(), stungun_retry),
+                            {noreply, State#state{stungun_timer=Ref}}
                     end
             end;
         error ->
@@ -495,6 +497,7 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     %% and we need to start a relay
                     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
                     libp2p_relay:init(libp2p_swarm:swarm(TID)),
+                    erlang:cancel_timer(State#state.stungun_timer),
                     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}}
             end;
         false ->
@@ -505,10 +508,10 @@ handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
             lager:debug("stungun timed out"),
-            erlang:send_after(30000, self(), stungun_retry),
+            Ref = erlang:send_after(30000, self(), stungun_retry),
             %% note we only remove the txnid here, because we can get multiple messages
             %% for this txnid
-            {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
+            {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns), stungun_timer=Ref}};
         false ->
             {noreply, State}
     end;
@@ -531,9 +534,11 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
                         false ->
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none)
                     end,
+                    erlang:cancel_timer(State#state.stungun_timer),
                     %% clear the txnid so the timeout won't fire
                     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
                 false ->
+                    %% don't clear the txnid so the stungun timeout will still be handled
                     lager:notice("unable to determine listener pid for ~p", [LocalAddr]),
                     {noreply, State}
             end
