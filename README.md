@@ -1,4 +1,4 @@
-[![Build Status](https://badge.buildkite.com/4d3f726086ce9603d8e3fab663ce396afff684db43feaf9356.svg?branch=master)](https://buildkite.com/helium/erlang-libp2p)
+[![CI](https://github.com/helium/erlang-libp2p/actions/workflows/ci.yml/badge.svg)](https://github.com/helium/erlang-libp2p/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/helium/erlang-libp2p/branch/master/graph/badge.svg)](https://codecov.io/gh/helium/erlang-libp2p)
 
 # Erlang Libp2p
