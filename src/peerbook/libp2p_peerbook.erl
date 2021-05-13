@@ -395,9 +395,8 @@ init([TID, SigFun]) ->
                                         fun() -> #{} end),
     case libp2p_swarm:peerbook(TID) of
         false ->
-            ok = rocksdb:repair(DataDir, []), % This is just in case DB gets corrupted
-            case rocksdb:open_with_ttl(DataDir, [{create_if_missing, true}] ++ CFOpts,
-                                       (2 * StaleTime) div 1000, false) of
+            %% ok = rocksdb:repair(DataDir, []), % This is just in case DB gets corrupted
+            case open_rocks(DataDir, CFOpts, (2 * StaleTime) div 1000) of
                 {error, Reason} -> {stop, Reason};
                 {ok, DB} ->
                     %% compact the DB on open, just in case
@@ -509,6 +508,35 @@ terminate(_Reason, _State) ->
 %%
 %% Internal
 %%
+
+open_rocks(DataDir, CFOpts0, TTL) ->
+    CFOpts = [{create_if_missing, true}] ++ CFOpts0,
+    open_rocks(DataDir, CFOpts, TTL, clean).
+
+open_rocks(DataDir, CFOpts, TTL, clean) ->
+    case rocksdb:open_with_ttl(DataDir, CFOpts, TTL, false) of
+        {error, {db_open,"Corruption:" ++ _Reason}} ->
+            case rocksdb:repair(DataDir, CFOpts) of
+                ok ->
+                    open_rocks(DataDir, CFOpts, TTL, repaired);
+                _ ->
+                    open_rocks(DataDir, CFOpts, TTL, clear)
+            end;
+        {ok, _DB} = OK -> OK
+    end;
+open_rocks(DataDir, CFOpts, TTL, repaired) ->
+    case rocksdb:open_with_ttl(DataDir, CFOpts, TTL, false) of
+        {error, _} ->
+            open_rocks(DataDir, CFOpts, TTL, clear);
+        {ok, _DB} = OK -> OK
+    end;
+open_rocks(DataDir, CFOpts, TTL, clear) ->
+    %% we've given up, start over
+    ok = rocksdb:destroy(DataDir, []),
+    case rocksdb:open_with_ttl(DataDir, CFOpts, TTL, false) of
+        {error, _} = E -> E;
+        {ok, _DB} = OK -> OK
+    end.
 
 eligible_gossip_peer(Peer) ->
     Limit = application:get_env(libp2p, eligible_peer_connectedness, 3),
