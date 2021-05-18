@@ -489,7 +489,7 @@ dispatch_next_messages(State) ->
                    [] ->
                        State;
                    Workers ->
-                       take_while([W || W <- Workers], State)
+                       take_while(shuffle(Workers), State)
                end,
     %% attempt to deliver some stuff in the pending queue
     maps:fold(
@@ -520,6 +520,8 @@ dispatch_next_messages(State) ->
               end
       end, NewState, NewState#state.pending).
 
+shuffle(List) ->
+    [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 -spec filter_ready_workers(#state{}) -> [#worker{}].
 filter_ready_workers(State=#state{}) ->
