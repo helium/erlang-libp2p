@@ -522,6 +522,8 @@ open_rocks(DataDir, CFOpts, TTL, clean) ->
                 _ ->
                     open_rocks(DataDir, CFOpts, TTL, clear)
             end;
+        {error, _} ->
+            open_rocks(DataDir, CFOpts, TTL, clear);
         {ok, _DB} = OK -> OK
     end;
 open_rocks(DataDir, CFOpts, TTL, repaired) ->
