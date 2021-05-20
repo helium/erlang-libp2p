@@ -406,7 +406,7 @@ start_workers(TargetAddrs, #state{sup=Sup, group_id=GroupID, tid=TID, self_index
                       %% sync on the mailbox having been flushed.
                       sys:get_status(WorkerPid),
                       #worker{target=Addr, index=Index, pid=WorkerPid, ref=Ref}
-              end, lists:zip(lists:seq(1, length(TargetAddrs)), TargetAddrs)).
+              end, shuffle(lists:zip(lists:seq(1, length(TargetAddrs)), TargetAddrs))).
 
 is_ready_worker(Index, Ready, State=#state{}) ->
     case lookup_worker(Index, State) of
