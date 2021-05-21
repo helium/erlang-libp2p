@@ -17,7 +17,7 @@
 
 -export_type([opt/0]).
 
--behviour(gen_server).
+-behavior(gen_server).
 -behavior(libp2p_group_gossip_handler).
 
 -record(peerbook, { tid :: ets:tab(),
