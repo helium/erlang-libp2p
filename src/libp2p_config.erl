@@ -145,11 +145,27 @@ lookup_handlers(TID, TableKey) ->
 
 
 gc_pids(TID) ->
-    ToDelete = ets:match_object(TID, {{delete, '_'}, '_'}),
-    lists:foreach(fun({{delete, Pid}, Pid}) ->
-                  ets:match_delete(TID, {'_', Pid}),
-                  ets:match_delete(TID, {{?ADDR_INFO, '_', Pid}, '_'})
-                  end, ToDelete).
+    %% Get the left side of ets keys `{Key, Pid}'
+    %% ets:fun2ms(fun({K, _}) when is_pid(element(2, K)) -> element(1, K) end).
+    KeySpec = [{{'$1','_'}, [{is_pid,{element,2,'$1'}}], [{element,1,'$1'}]}],
+    ExistingKeys = sets:to_list(sets:from_list(ets:select(TID, KeySpec))),
+
+    %% ets:fun2ms(fun({{delete, P}, P}) -> P end).
+    PidSpec = [{{{delete,'$1'},'$1'},[],['$1']}],
+    PidsToDelete = ets:select(TID, PidSpec),
+
+    %% ets:fun2ms(fun({K, _}) when element(1, K) == ?ADDR_INFO -> K end).
+    AddrInfoSpec = [{{'$1','_'},[{'==',{element,1,'$1'},?ADDR_INFO}],['$1']}],
+    AddrInfos = ets:select(TID, AddrInfoSpec),
+    PidsSet = sets:from_list(PidsToDelete),
+    AddrInfosToDelete = [Key || {{_, _, Pid} = Key, _} <- AddrInfos, sets:is_element(Pid, PidsSet)],
+
+    lists:foreach(fun(EtsKey) -> ets:delete(TID, EtsKey) end,
+                  [{Key, Pid} || Key <- ExistingKeys, Pid <- PidsToDelete]),
+
+    lists:foreach(fun(AddrInfo) -> ets:delete(TID, AddrInfo) end,
+                  AddrInfosToDelete).
+
 
 %%
 %% Transports
