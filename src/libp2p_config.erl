@@ -32,6 +32,7 @@
 -define(PROXY, proxy).
 -define(NAT, nat).
 -define(ADDR_INFO, addr_info).
+-define(DELETE, '____DELETE'). %% this should sort before all other keys
 
 
 -type handler() :: {atom(), atom()}.
@@ -119,20 +120,14 @@ remove_pid(TID, Kind, Ref) ->
 
 -spec remove_pid(ets:tab(), pid()) -> true.
 remove_pid(TID, Pid) ->
-    ets:insert(TID, {{delete, Pid}, Pid}),
-    %spawn(fun() ->
-    %              ets:match_delete(TID, {'_', Pid}),
-    %              ets:match_delete(TID, {{?ADDR_INFO, '_', Pid}, '_'}),
-    %              ok
-    %      end),
-    true.
+    ets:insert(TID, {{?DELETE, Pid}, Pid}).
 
 is_pid_deleted(TID, Kind, Pid) ->
-    case ets:lookup(TID, {delete, Pid}) of
+    case ets:lookup(TID, {?DELETE, Pid}) of
         [] ->
             false;
         [_Res] ->
-            %% note we do not delete the {delete, Pid} key here
+            %% note we do not delete the {?DELETE, Pid} key here
             %% as there may be other Kinds we need to GC
             ets:delete(TID, {?ADDR_INFO, Kind, Pid}),
             ets:delete(TID, {Kind, Pid})
@@ -145,27 +140,44 @@ lookup_handlers(TID, TableKey) ->
 
 
 gc_pids(TID) ->
-    %% Get the left side of ets keys `{Key, Pid}'
-    %% ets:fun2ms(fun({K, _}) when is_pid(element(2, K)) -> element(1, K) end).
-    KeySpec = [{{'$1','_'}, [{is_pid,{element,2,'$1'}}], [{element,1,'$1'}]}],
-    ExistingKeys = sets:to_list(sets:from_list(ets:select(TID, KeySpec))),
+    %% make continuations safe while deleting
+    ets:safe_fixtable(TID, true),
 
-    %% ets:fun2ms(fun({{delete, P}, P}) -> P end).
-    PidSpec = [{{{delete,'$1'},'$1'},[],['$1']}],
-    PidsToDelete = ets:select(TID, PidSpec),
+    %% because this table is an ordered set, we can traverse in a known order and we know we'll see the delete keys first
+    %% so we don't need to explicitly find them beforehand
+    {Matches, Continuation} = ets:select(TID, ets:fun2ms(fun({K, _}) when element(1, K) == addr_info -> K end) ++
+                                         ets:fun2ms(fun({_, V}=O) when is_pid(V) -> O end), 100),
 
-    %% ets:fun2ms(fun({K, _}) when element(1, K) == ?ADDR_INFO -> K end).
-    AddrInfoSpec = [{{'$1','_'},[{'==',{element,1,'$1'},?ADDR_INFO}],['$1']}],
-    AddrInfos = ets:select(TID, AddrInfoSpec),
-    PidsSet = sets:from_list(PidsToDelete),
-    AddrInfosToDelete = [Key || {{_, _, Pid} = Key, _} <- AddrInfos, sets:is_element(Pid, PidsSet)],
+    gc_loop(Matches, Continuation, TID, sets:new()).
 
-    lists:foreach(fun(EtsKey) -> ets:delete(TID, EtsKey) end,
-                  [{Key, Pid} || Key <- ExistingKeys, Pid <- PidsToDelete]),
-
-    lists:foreach(fun(AddrInfo) -> ets:delete(TID, AddrInfo) end,
-                  AddrInfosToDelete).
-
+gc_loop([], '$end_of_table', TID, _) ->
+    %% indicate we're done doing a destructive iteration
+    ets:safe_fixtable(TID, false),
+    ok;
+gc_loop([], Continuation, TID, Pids) ->
+    {Matches, NewContinuation} = ets:select(Continuation),
+    gc_loop(Matches, NewContinuation, TID, Pids);
+gc_loop([{{?DELETE, P}=Key, P}|Tail], Continuation, TID, Pids) ->
+    %% we know we can always delete this and add the pid to our set of
+    %% pids to be deleted
+    ets:delete(TID, Key),
+    gc_loop(Tail, Continuation, TID, sets:add_element(P, Pids));
+gc_loop([{Key, P}|Tail], Continuation, TID, Pids) when is_pid(P) ->
+    case sets:is_element(P, Pids) of
+        true ->
+            ets:delete(TID, Key);
+        false ->
+            ok
+    end,
+    gc_loop(Tail, Continuation, TID, Pids);
+gc_loop([{?ADDR_INFO, _, P}=Key|Tail], Continuation, TID, Pids) when is_pid(P) ->
+    case sets:is_element(P, Pids) of
+        true ->
+            ets:delete(TID, Key);
+        false ->
+            ok
+    end,
+    gc_loop(Tail, Continuation, TID, Pids).
 
 %%
 %% Transports
