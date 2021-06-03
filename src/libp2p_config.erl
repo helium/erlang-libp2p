@@ -166,7 +166,7 @@ gc_loop([{{?DELETE, P}=Key, P}|Tail], Continuation, TID, Pids) ->
     %% pids to be deleted
     ets:delete(TID, Key),
     gc_loop(Tail, Continuation, TID, sets:add_element(P, Pids));
-gc_loop([{Key, P}|Tail], Continuation, TID, Pids) when is_pid(P) ->
+gc_loop([{?SESSION_DIRECTION, P}=Key|Tail], Continuation, TID, Pids) when is_pid(P) ->
     case sets:is_element(P, Pids) of
         true ->
             ets:delete(TID, Key);
@@ -174,7 +174,7 @@ gc_loop([{Key, P}|Tail], Continuation, TID, Pids) when is_pid(P) ->
             ok
     end,
     gc_loop(Tail, Continuation, TID, Pids);
-gc_loop([{?SESSION_DIRECTION, P}=Key|Tail], Continuation, TID, Pids) when is_pid(P) ->
+gc_loop([{Key, P}|Tail], Continuation, TID, Pids) when is_pid(P) ->
     case sets:is_element(P, Pids) of
         true ->
             ets:delete(TID, Key);
