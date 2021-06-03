@@ -145,8 +145,12 @@ gc_pids(TID) ->
 
     %% because this table is an ordered set, we can traverse in a known order and we know we'll see the delete keys first
     %% so we don't need to explicitly find them beforehand
-    {Matches, Continuation} = ets:select(TID, ets:fun2ms(fun({K, _}) when element(1, K) == addr_info -> K end) ++
-                                         ets:fun2ms(fun({_, V}=O) when is_pid(V) -> O end), 100),
+    %% ets:fun2ms(fun({K, _}) when element(1, K) == addr_info -> K end) ++
+    %% ets:fun2ms(fun({K, _}) when element(1, K) == session_direction -> K end) ++
+    %% ets:fun2ms(fun({_, V}=O) when is_pid(V) -> O end)
+    {Matches, Continuation} = ets:select(TID, [{{'$1','_'},[{'==',{element,1,'$1'},addr_info}],['$1']},
+                                               {{'$1','_'},[{'==',{element,1,'$1'},session_direction}],['$1']},
+                                                {{'_','$1'},[{is_pid,'$1'}],['$_']}], 100),
 
     gc_loop(Matches, Continuation, TID, sets:new()).
 
@@ -163,6 +167,14 @@ gc_loop([{{?DELETE, P}=Key, P}|Tail], Continuation, TID, Pids) ->
     ets:delete(TID, Key),
     gc_loop(Tail, Continuation, TID, sets:add_element(P, Pids));
 gc_loop([{Key, P}|Tail], Continuation, TID, Pids) when is_pid(P) ->
+    case sets:is_element(P, Pids) of
+        true ->
+            ets:delete(TID, Key);
+        false ->
+            ok
+    end,
+    gc_loop(Tail, Continuation, TID, Pids);
+gc_loop([{?SESSION_DIRECTION, P}=Key|Tail], Continuation, TID, Pids) when is_pid(P) ->
     case sets:is_element(P, Pids) of
         true ->
             ets:delete(TID, Key);
