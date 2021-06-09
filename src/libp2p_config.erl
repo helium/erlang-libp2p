@@ -159,7 +159,11 @@ gc_loop([], '$end_of_table', TID, _) ->
     ets:safe_fixtable(TID, false),
     ok;
 gc_loop([], Continuation, TID, Pids) ->
-    {Matches, NewContinuation} = ets:select(Continuation),
+    {Matches, NewContinuation} =
+        case ets:select(Continuation) of
+            '$end_of_table' = End -> {[], End};
+            Res -> Res
+        end,
     gc_loop(Matches, NewContinuation, TID, Pids);
 gc_loop([{{?DELETE, P}=Key, P}|Tail], Continuation, TID, Pids) ->
     %% we know we can always delete this and add the pid to our set of
