@@ -3,7 +3,7 @@
 
 # Erlang Libp2p
 
-<a href="[doc/relay.md](https://helium.github.io/erlang-libp2p/)">DOCS</a>
+<a href="https://helium.github.io/erlang-libp2p/">DOCS</a>
 
 <a href="doc/relay.md">Relay Doc</a>
 
