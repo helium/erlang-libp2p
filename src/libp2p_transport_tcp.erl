@@ -67,6 +67,7 @@
          observed_addrs=sets:new() :: sets:set({string(), string()}),
          negotiated_nat=false :: boolean(),
          resolved_addresses = [],
+         nat_type = unknown,
          nat_server :: undefined | {reference(), pid()},
          stungun_timer = make_ref() :: reference()
         }).
@@ -514,6 +515,7 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     Peers = sets:to_list(State#state.observed_addrs),
                     {PeerAddr, ObservedAddr} = lists:nth(rand:uniform(length(Peers)), Peers),
                     NewState = attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
+                                                                                                  nat_type=NatType,
                                                                                                   resolved_addresses=[ResolvedAddr|State#state.resolved_addresses]}),
                     {noreply, NewState}
             end
@@ -542,15 +544,17 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
                     %% don't need to start relay here, stop any we already have
                     libp2p_relay_server:stop(libp2p_swarm:swarm(TID)),
                     %% if we didn't have an external address originally, set the NAT type to 'static'
-                    case State#state.negotiated_nat of
+                    NatType = case State#state.negotiated_nat of
                         true ->
-                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), static);
+                             static;
                         false ->
-                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none)
+                            none
                     end,
+                    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
                     erlang:cancel_timer(State#state.stungun_timer),
                     %% clear the txnid so the timeout won't fire
                     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
+                                          nat_type=NatType,
                                           resolved_addresses=[ObservedAddr|State#state.resolved_addresses]}};
                 false ->
                     %% don't clear the txnid so the stungun timeout will still be handled
@@ -568,9 +572,11 @@ handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID})
             %% monitor the nat server, so we can unset this if it crashes
             {ok, Pid} = libp2p_config:lookup_nat(TID),
             Ref = erlang:monitor(process, Pid),
+            %% if the nat type has resolved to 'none' here we should change it to static
+            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), static),
 
-            %% TODO if the nat type has resolved to 'none' here we should change it to static
             {noreply, State#state{negotiated_nat = true,
+                                  nat_type = static,
                                   observed_addrs = sets:new(),
                                   nat_server = {Ref, Pid}}};
         _ ->
@@ -581,7 +587,7 @@ handle_info(no_nat, State) ->
     {noreply, State#state{negotiated_nat = false}};
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State=#state{nat_server = {NatRef, NatPid}})
   when Pid == NatPid andalso Ref == NatRef ->
-    {noreply, State#state{nat_server = undefined, negotiated_nat = false}};
+    {noreply, State#state{nat_server = undefined, negotiated_nat = false, nat_type=unknown}};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
     %% check if this is a listen socket pid
     case libp2p_config:lookup_listen_socket(TID, Pid) of
@@ -895,7 +901,7 @@ distinct_observed_addrs(Addrs) ->
     lists:usort(DistinctAddresses).
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
-record_observed_addr(_, _, State=#state{negotiated_nat=true}) ->
+record_observed_addr(_, _, State=#state{negotiated_nat=NegotiatedNat, nat_type=NatType}) when NegotiatedNat == true; NatType /= unknown ->
     %% we have a upnp address, do nothing
     State;
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
@@ -939,12 +945,12 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     %% make it an exact check so we don't do this constantly
                     case length(distinct_observed_addrs(ObservedAddresses)) == 3 of
                         true ->
-                            lager:info("Saw 3 distinct observed addresses, assuming static NAT"),
+                            lager:info("Saw 3 distinct observed addresses, assuming symmetric NAT"),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
                             %% also check if we have a port forward from the same external port to our internal port
                             %% as this is a common configuration
-                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses});
+                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses, nat_type=symmetric});
                         false ->
                             State#state{observed_addrs=ObservedAddresses}
                     end
@@ -963,15 +969,21 @@ attempt_port_forward_discovery(ObservedAddr, PeerAddr, State=#state{tid=TID, stu
                                 {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
                                 [{"ip4", IP}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
                                 ObservedAddr1 = "/ip4/"++IP++"/tcp/"++PortStr,
-                                case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
-                                    {ok, StunPid} ->
-                                        lager:info("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
-                                        %% TODO: Remove this once dial stops using start_link
-                                        unlink(StunPid),
-                                        erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-                                        StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
-                                    _ ->
-                                        StateAcc
+                                case lists:member(ObservedAddr1, State#state.resolved_addresses) of
+                                    true ->
+                                        %% we don't need to try this again
+                                        StateAcc;
+                                    false ->
+                                        case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                                            {ok, StunPid} ->
+                                                lager:info("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
+                                                %% TODO: Remove this once dial stops using start_link
+                                                unlink(StunPid),
+                                                erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                                                StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
+                                            _ ->
+                                                StateAcc
+                                        end
                                 end;
                             _ ->
                                 StateAcc
