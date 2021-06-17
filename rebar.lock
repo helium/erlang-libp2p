@@ -23,7 +23,7 @@
  {<<"multihash">>,{pkg,<<"multihash">>,<<"2.0.3">>},1},
  {<<"nat">>,
   {git,"https://github.com/benoitc/erlang-nat",
-       {ref,"529802a3e5bbabd8e70f027217cb12c4c930ee5d"}},
+       {ref,"6136102c176814dd26c11b93ca0ce852b66c4195"}},
   0},
  {<<"procket">>,{pkg,<<"procket">>,<<"0.9.4">>},1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.5.0">>},0},
