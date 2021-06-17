@@ -131,6 +131,9 @@ handle_cast(stop_relay, #state{stream=Pid, address=Address, tid=TID}=State) when
     {noreply, State#state{stream=undefined, address=undefined}};
 handle_cast(stop_relay, State) ->
     %% nothing to do as we're not running
+    %% except cancel the retrying timer
+    erlang:cancel_timer(State#state.retrying),
+    %% leave the timer ref in the state, it's fine
     {noreply, State};
 handle_cast(init_relay, #state{stream = undefined} = State) ->
     case init_relay(State) of
