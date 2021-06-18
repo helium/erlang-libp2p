@@ -71,7 +71,8 @@
          nat_server :: undefined | {reference(), pid()},
          relay_monitor = make_ref() :: reference(),
          relay_retry_timer = make_ref() :: reference(),
-         stungun_timer = make_ref() :: reference()
+         stungun_timer = make_ref() :: reference(),
+         stungun_timeout_count = 0 :: non_neg_integer()
         }).
 
 -define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
@@ -524,14 +525,25 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     {noreply, NewState}
             end
     end;
-handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
+handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns, tid=TID}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
             lager:debug("stungun timed out"),
             Ref = erlang:send_after(30000, self(), stungun_retry),
             %% note we only remove the txnid here, because we can get multiple messages
             %% for this txnid
-            {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns), stungun_timer=Ref}};
+            NewState = State#state{stun_txns=remove_stun_txn(TxnID, StunTxns), stungun_timer=Ref},
+            case State#state.stungun_timeout_count == 5 of
+                true ->
+                    lager:notice("stungun timed out 5 times, adding relay address"),
+                    %% we are having trouble determining our NAT type, fire up a relay in
+                    %% desperation. If stungun finally resolves we will stop the relay later.
+                    Ref = monitor_relay_server(TID),
+                    libp2p_relay:init(libp2p_swarm:swarm(TID)),
+                    {noreply, NewState#state{relay_monitor=Ref}};
+                false ->
+                    {noreply, NewState}
+            end;
         false ->
             {noreply, State}
     end;
@@ -560,6 +572,7 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
                     %% clear the txnid so the timeout won't fire
                     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
                                           nat_type=NatType,
+                                          stungun_timeout_count=0,
                                           resolved_addresses=[ObservedAddr|State#state.resolved_addresses]}};
                 false ->
                     %% don't clear the txnid so the stungun timeout will still be handled
@@ -1092,7 +1105,7 @@ monitor_relay_server(TID) ->
     erlang:monitor(process, Pid).
 
 demonitor_relay_server(#state{relay_monitor=Ref, relay_retry_timer=Timer}) ->
-    erlang:cancel_timer(Timer, [flush]),
+    erlang:cancel_timer(Timer),
     erlang:demonitor(Ref).
 
 %% ------------------------------------------------------------------
