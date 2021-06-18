@@ -49,12 +49,8 @@ from_map(Map, SigFun) ->
                                {Type, #libp2p_association_list_pb{associations=AssocEntries}}
                        end, maps:get(associations, Map, [])),
     Connected0 = maps:get(connected, Map, []),
-    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 8),
-    Connected =
-        case length(Connected0) =< MaxConns of
-            true -> Connected0;
-            _ -> rand_sub(Connected0, MaxConns)
-        end,
+    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 200),
+    Connected = rand_sub(Connected0, MaxConns),
     Peer = #libp2p_peer_pb{pubkey=maps:get(pubkey, Map),
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
                            connected = Connected,
