@@ -84,6 +84,8 @@ init(server, Connection, ["/dial/"++Path, _, TID]) ->
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
                     case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
                         {ok, VC} ->
+                            %% TODO we need to check we're dialing who we think we're dialing here
+                            %% in case we hit a different peer
                             lager:debug("verifier dial suceeded for ~p", [ObservedAddr]),
                             %% Read the response
                             case libp2p_framed_stream:recv(VC, 5000) of
