@@ -512,33 +512,38 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     %% we have either port restricted cone NAT or symmetric NAT
                     %% and we need to start a relay
                     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
-                    Ref = monitor_relay_server(TID),
+                    Ref = monitor_relay_server(State),
                     libp2p_relay:init(libp2p_swarm:swarm(TID)),
                     erlang:cancel_timer(State#state.stungun_timer),
                     %% however, lets also check for a static port forward here
                     Peers = sets:to_list(State#state.observed_addrs),
                     {PeerAddr, ObservedAddr} = lists:nth(rand:uniform(length(Peers)), Peers),
+                    %% finally, as this is a 'negative' result, schedule a retry in the future in case
+                    %% our peers are wrong or lying to us
+                    TimerRef = erlang:send_after(timer:minutes(30), self(), stungun_retry),
                     NewState = attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
                                                                                                   relay_monitor = Ref,
+                                                                                                  stungun_timeout_count = 0,
+                                                                                                  stungun_timer = TimerRef,
                                                                                                   nat_type=NatType,
                                                                                                   resolved_addresses=[ResolvedAddr|State#state.resolved_addresses]}),
                     {noreply, NewState}
             end
     end;
-handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns, tid=TID}) ->
+handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns, tid=TID, stungun_timeout_count=Count}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
             lager:debug("stungun timed out"),
             Ref = erlang:send_after(30000, self(), stungun_retry),
             %% note we only remove the txnid here, because we can get multiple messages
             %% for this txnid
-            NewState = State#state{stun_txns=remove_stun_txn(TxnID, StunTxns), stungun_timer=Ref},
-            case State#state.stungun_timeout_count == 5 of
+            NewState = State#state{stun_txns=remove_stun_txn(TxnID, StunTxns), stungun_timer=Ref, stungun_timeout_count=Count+1},
+            case NewState#state.stungun_timeout_count == 5 of
                 true ->
                     lager:notice("stungun timed out 5 times, adding relay address"),
                     %% we are having trouble determining our NAT type, fire up a relay in
                     %% desperation. If stungun finally resolves we will stop the relay later.
-                    Ref = monitor_relay_server(TID),
+                    Ref = monitor_relay_server(State),
                     libp2p_relay:init(libp2p_swarm:swarm(TID)),
                     {noreply, NewState#state{relay_monitor=Ref}};
                 false ->
@@ -613,7 +618,7 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, State=#state{relay_monitor=Ref}
 handle_info(relay_retry, State = #state{tid = TID}) ->
     case libp2p_config:lookup_relay(TID) of
         {ok, _Pid} ->
-            Ref = monitor_relay_server(TID),
+            Ref = monitor_relay_server(State),
             libp2p_relay:init(libp2p_swarm:swarm(TID)),
             {noreply, State#state{relay_monitor=Ref}};
         false ->
@@ -979,7 +984,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                         true ->
                             lager:info("Saw 3 distinct observed addresses, assuming symmetric NAT"),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
-                            Ref = monitor_relay_server(TID),
+                            Ref = monitor_relay_server(State),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
                             %% also check if we have a port forward from the same external port to our internal port
                             %% as this is a common configuration
@@ -1100,7 +1105,8 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
             end
     end.
 
-monitor_relay_server(TID) ->
+monitor_relay_server(#state{relay_monitor=Ref, tid=TID}) ->
+    erlang:demonitor(Ref),
     {ok, Pid} = libp2p_config:lookup_relay(TID),
     erlang:monitor(process, Pid).
 
