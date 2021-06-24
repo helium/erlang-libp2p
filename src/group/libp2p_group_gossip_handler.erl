@@ -2,7 +2,10 @@
 
 
 -callback init_gossip_data(State::any()) -> init_result().
--callback handle_gossip_data(StreamPid::pid(), Msg::binary(), State::any()) -> {reply, iodata()} | noreply.
+-callback handle_gossip_data(StreamPid::pid(),
+                             Msg::binary() | any(), % allow for the possibility of pre-decoded messages
+                             State::any()) ->
+    {reply, iodata()} | noreply.
 
 -type init_result() :: ok | {send, binary()}.
 
