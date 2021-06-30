@@ -31,6 +31,9 @@ match_addr(Addr, TID) when is_list(Addr) ->
                [{"p2p", SwarmAddress}|_] ->
                    lager:info("can't match a relay address for ourselves"),
                    false;
+               [{"p2p", SwarmAddress}, {"p2p-circuit", "p2p/"++SwarmAddress}] ->
+                   lager:info("can't match a relay address for itself"),
+                   false;
                _ ->
                    Result
            end;
