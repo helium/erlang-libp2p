@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  CI:
+    runs-on: ubuntu-18.04
+    container: heliumsystems/builder-erlang:2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Cancel previous runs
+        if: ${{ !env.ACT }}
+        uses: styfle/cancel-workflow-action@0.5.0
+        with:
+          access_token: ${{ github.token }}
+
+      - name: Cache Hex Packages
+        if: ${{ !env.ACT }}
+        uses: actions/cache@v1
+        with:
+          path: ~/.cache/rebar3/hex/hexpm/packages
+          key: ${{ runner.os }}-hex-${{ hashFiles(format('{0}{1}', github.workspace, '/rebar.lock')) }}
+          restore-keys: |
+            ${{ runner.os }}-hex-
+
+      - name: Cache Dialyzer PLTs
+        if: ${{ !env.ACT }}
+        uses: actions/cache@v1
+        with:
+          path: ~/.cache/rebar3/rebar3_*_plt
+          key: ${{ runner.os }}-dialyzer-${{ hashFiles(format('{0}{1}', github.workspace, '/rebar.config')) }}
+          restore-keys: |
+            ${{ runner.os }}-dialyzer-
+
+      - name: Build
+        run: rebar3 compile
+
+      - name: Run tests
+        run: rebar3 as test do eunit,ct,cover
+
+      - name: Run Dialyzer
+        run: rebar3 do dialyzer, xref
+
+      - name: Generate coverage report
+        run: rebar3 covertool generate
+
+      - name: Upload coverage report
+        if: ${{ !env.ACT }}
+        uses: codecov/codecov-action@v1
+        with:
+          file: _build/test/covertool/erlang_libp2p.covertool.xml
+          fail_ci_if_error: true
