@@ -151,6 +151,17 @@ handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
 handle_cast({request_target, inbound, WorkerPid, _Ref}, State=#state{}) ->
     {noreply, stop_inbound_worker(WorkerPid, State)};
+handle_cast({clear_target, _Kind, _WorkerPid, Ref}, State=#state{workers = Workers}) ->
+    lager:debug("clearing target for worker ~p ", [_WorkerPid]),
+    %% the ref is stable across restarts, so use that as the lookup key
+    case lookup_worker(Ref, #worker.ref, State) of
+        Worker=#worker{} ->
+            NewWorkers = lists:keyreplace(Ref, #worker.ref, Workers,
+                                          Worker#worker{target=undefined}),
+            {noreply, State#state{workers=NewWorkers}};
+        _ ->
+            {noreply, State}
+    end;
 handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) ->
     LocalAddr = libp2p_swarm:pubkey_bin(TID),
     PeerList = case libp2p_swarm:peerbook(TID) of
@@ -160,6 +171,7 @@ handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) -
                        WorkerAddrs = [ libp2p_crypto:p2p_to_pubkey_bin(W#worker.target) || W <- State#state.workers, W#worker.target /= undefined, W#worker.kind /= seed ],
                        try libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs]) of
                            {Addr, _} ->
+                               lager:debug("found target ~p, assigning to worker ~p",[Addr, WorkerPid]),
                                [Addr];
                            false ->
                                lager:debug("cannot get target as no peers or already connected to all peers",[]),

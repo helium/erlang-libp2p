@@ -212,6 +212,11 @@ handle_cast({request_target, Index, WorkerPid, _WorkerRef}, State=#state{tid=TID
                                              {keys, State#state.group_keys}]}},
     libp2p_group_worker:assign_target(WorkerPid, {Target, ClientSpec}),
     {noreply, NewState};
+handle_cast({clear_target, _Kind, _WorkerPid, _Ref}, State=#state{}) ->
+    %% relcast server's target assignment is fixed, the same group worker will always get the same target
+    %% as such clear target here is deliberately a noop, unlike gossip server
+    %% clear_target commands originate from the group workers
+    {noreply, State};
 handle_cast({handle_input, _Msg}, State=#state{close_state=closing}) ->
     {noreply, State};
 handle_cast({handle_input, _Msg}, State=#state{store=Bad}) when Bad == not_started orelse
