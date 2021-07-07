@@ -70,18 +70,23 @@ connect_to(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
     lager:info("init relay tranport with ~p", [[MAddr, RAddress, SAddress]]),
     true = libp2p_config:insert_relay_sessions(TID, SAddress, self()),
-    case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
-        {error, _Reason}=Error ->
-            Error;
-        {ok, SessionPid} ->
-            Swarm = libp2p_swarm:swarm(TID),
-            {ok, Stream} = libp2p_relay:dial_framed_stream(
-                Swarm,
-                RAddress,
-                [{type, {bridge_cr, MAddr}}]
-            ),
-            erlang:monitor(process, Stream),
-            connect_rcv(Swarm, MAddr, SAddress, SessionPid, Stream)
+    case RAddress == SAddress of
+        true ->
+            {error, relay_loop};
+        false ->
+            case libp2p_transport:connect_to(RAddress, Options, Timeout, TID) of
+                {error, _Reason}=Error ->
+                    Error;
+                {ok, SessionPid} ->
+                    Swarm = libp2p_swarm:swarm(TID),
+                    {ok, Stream} = libp2p_relay:dial_framed_stream(
+                                     Swarm,
+                                     RAddress,
+                                     [{type, {bridge_cr, MAddr}}]
+                                    ),
+                    erlang:monitor(process, Stream),
+                    connect_rcv(Swarm, MAddr, SAddress, SessionPid, Stream)
+            end
     end.
 
 -spec match_protocols(list()) -> {ok, string()} | false.
