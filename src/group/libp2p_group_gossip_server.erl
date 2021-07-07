@@ -4,6 +4,7 @@
 -behavior(libp2p_gossip_stream).
 
 -include("gossip.hrl").
+-include_lib("kernel/include/inet.hrl"). %% for DNS lookup
 
 %% API
 -export([start_link/2]).
@@ -38,6 +39,10 @@
 -define(DEFAULT_MAX_INBOUND_CONNECTIONS, 10).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 -define(GROUP_ID, "gossip").
+-define(DNS_RETRIES, 3).
+-define(DNS_TIMEOUT, 2000). % millis
+-define(DNS_SLEEP, 100). % millis
+-define(DEFAULT_SEED_DNS_PORTS, [2154, 443]).
 
 %% API
 %%
@@ -335,7 +340,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     State
             end;
         _ ->
-            SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
+            SelectedAddr = mk_multiaddr(maybe_lookup_seed_in_dns(TargetAddrs)),
             ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self()]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
@@ -350,6 +355,55 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     State
             end
     end.
+
+maybe_lookup_seed_in_dns(TargetAddrs) ->
+    case application:get_env(libp2p, use_dns_for_seeds, false) of
+        false ->
+            choose_random_element(TargetAddrs);
+        true ->
+            lookup_seed_from_dns(TargetAddrs)
+    end.
+
+choose_random_element(L) when is_list(L) ->
+    lists:nth(rand:uniform(length(L), L)).
+
+%% We will lookup a seed from a DNS name, and fall back to
+%% picking a random element from the TargetAddrs list
+lookup_seed_from_dns(TargetAddrs) ->
+    case application:get_env(libp2p, seed_dns_cname, undefined) of
+        undefined ->
+            lager:error("Configured to use DNS to lookup seed node IP, but the cname is undefined", []),
+            choose_random_element(TargetAddrs);
+        CName ->
+            case attempt_dns_lookup(CName, ?DNS_RETRIES) of
+                {error, _} = Error ->
+                    lager:error("DNS lookup of ~p resulted in ~p; falling back", [CName, Error]),
+                    choose_random_element(TargetAddrs);
+                {ok, DNSRecord} ->
+                    lager:debug("successful DNS lookup result: ~p", [lager:pr(DNSRecord, inet)]),
+                    convert_dns_record(DNSRecord)
+            end
+    end.
+
+attempt_dns_lookup(_Name, 0) -> {error, too_many_lookup_attempts};
+attempt_dns_lookup(Name, Attempts) ->
+    case inet_res:gethostbyname(Name, inet, ?DNS_TIMEOUT) of
+        {error, _} = Error ->
+            lager:debug("attempt ~p: got ~p", [Attempts, Error]),
+            timer:sleep(?DNS_SLEEP),
+            attempt_dns_lookup(Name, Attempts - 1);
+        {ok, HostRec} -> {ok, HostRec}
+    end.
+
+convert_dns_record(#hostent{h_addr_list = AddrList}) ->
+    IPStr = inet:ntoa(choose_random_element(AddrList)),
+    PortList = application:get_env(libp2p, seed_dns_ports, ?DEFAULT_SEED_DNS_PORTS),
+    PortStr = to_string(choose_random_element(PortList)),
+    libp2p_crypto:p2p_to_pubkey_bin("/ip4/" ++ IPStr ++ "/tcp/" ++ PortStr).
+
+to_string(V) when is_integer(V) -> integer_to_list(V);
+to_string(V) when is_binary(V) -> binary_to_list(V);
+to_string(V) when is_list(V) -> V.
 
 drop_target(Worker=#worker{pid=WorkerPid}, State=#state{workers=Workers}) ->
     libp2p_group_worker:clear_target(WorkerPid),
