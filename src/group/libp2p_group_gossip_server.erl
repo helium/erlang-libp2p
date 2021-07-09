@@ -162,7 +162,8 @@ handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) -
                                           W#worker.kind /= seed ],
                        try
                            Pred = application:get_env(libp2p, random_peer_pred, fun(_) -> true end),
-                           case libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs], Pred) of
+                           Ct = application:get_env(libp2p, random_peer_tries, 100),
+                           case libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs], Pred, Ct) of
                                {Addr, _} ->
                                    [Addr];
                                false ->
