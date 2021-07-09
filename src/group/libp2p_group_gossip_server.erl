@@ -157,15 +157,27 @@ handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) -
                    false ->
                        [];
                    Peerbook ->
-                       WorkerAddrs = [ libp2p_crypto:p2p_to_pubkey_bin(W#worker.target) || W <- State#state.workers, W#worker.target /= undefined, W#worker.kind /= seed ],
-                       try libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs]) of
-                           {Addr, _} ->
-                               [Addr];
-                           false ->
-                               lager:debug("cannot get target as no peers or already connected to all peers",[]),
-                               []
+                       WorkerAddrs = [ libp2p_crypto:p2p_to_pubkey_bin(W#worker.target)
+                                       || W <- State#state.workers, W#worker.target /= undefined,
+                                          W#worker.kind /= seed ],
+                       try
+                           Pred = application:get_env(libp2p, random_peer_pred, fun(_) -> true end),
+                           Ct = application:get_env(libp2p, random_peer_tries, 100),
+                           case libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs], Pred, Ct) of
+                               {Addr, _} ->
+                                   [Addr];
+                               false ->
+                                   %% if we can't find a peer with the predicate, relax it
+                                   case libp2p_peerbook:random(Peerbook, [LocalAddr|WorkerAddrs]) of
+                                       {Addr, _} ->
+                                           [Addr];
+                                       false ->
+                                           lager:debug("cannot get target as no peers or already connected to all peers",[]),
+                                           []
+                                   end
+                           end
                        catch _:_ ->
-                                 []
+                               []
                        end
                end,
     {noreply, assign_target(WorkerPid, Ref, PeerList, State)};
