@@ -74,8 +74,22 @@ init([TID]) ->
     libp2p_swarm_auxiliary_sup:register_cache(TID),
     SwarmName = libp2p_swarm:name(TID),
     DataDir = libp2p_config:base_dir(TID),
-    Opts = [{file, filename:join([DataDir, SwarmName, "cache.dets"])}],
-    {ok, Dets} = dets:open_file(SwarmName, Opts),
+    CacheFilePath = filename:join([DataDir, SwarmName, "cache.dets"]),
+    Open = fun() -> dets:open_file(SwarmName, [{file, CacheFilePath}]) end,
+    {ok, Dets} =
+        case Open() of
+            {error, {not_a_dets_file, CacheFilePath}} ->
+                lager:error(
+                    "DETS file corrupted: ~p. Deleting it.",
+                    [CacheFilePath]
+                ),
+                ok = file:delete(CacheFilePath),
+                %% A single retry should be sufficient, if the problem is
+                %% indeed simply a corrupted file.
+                Open();
+            {ok, _}=Ok ->
+                Ok
+        end,
     _ = migrate(Dets),
     {ok, #state{dets=Dets}}.
 
