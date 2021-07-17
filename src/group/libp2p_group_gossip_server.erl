@@ -65,7 +65,9 @@ handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
     gen_server:cast(Pid, {handle_data, StreamPid, Key, ListOrData}).
 
 accept_stream(Pid, SessionPid, StreamPid, Path) ->
-    gen_server:call(Pid, {accept_stream, SessionPid, StreamPid, Path}, 15000).
+    Ref = erlang:monitor(process, Pid),
+    gen_server:cast(Pid, {accept_stream, SessionPid, Ref, StreamPid, Path}),
+    Ref.
 
 handle_identify(Pid, StreamPid, Path, Identify) ->
     gen_server:call(Pid, {handle_identify, StreamPid, Path, Identify}, 15000).
@@ -103,13 +105,7 @@ init([Sup, TID]) ->
                                 sidejob_sup = SideJobRegName,
                                 supported_paths=SupportedPaths})}.
 
-handle_call({accept_stream, _Session, _StreamPid, _Path}, _From, State=#state{workers=Workers})
-  when map_size(Workers) == 0 ->
-    {reply, {error, not_ready}, State};
-handle_call({accept_stream, Session, StreamPid, Path}, From, State) ->
-    libp2p_session:identify(Session, self(), {From, StreamPid, Path}),
-    {noreply, State};
-handle_call({connected_addrs, Kind}, _From, State) ->
+handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
     {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
     {reply, Addrs, State};
 handle_call({connected_pids, Kind}, _From, State) ->
@@ -149,6 +145,13 @@ handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
 
+
+handle_cast({accept_stream, _Session, ReplyRef, StreamPid, _Path}, State=#state{workers=[]}) ->
+    StreamPid ! {ReplyRef, {error, not_ready}},
+    {noreply, State};
+handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{}) ->
+    libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path}),
+    {noreply, State};
 
 handle_cast({handle_data, StreamPid, Key, {Path, ListOrData}}, State=#state{}) ->
     %% Incoming message from a gossip stream for a given key
@@ -300,11 +303,11 @@ handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=Drop
             lager:debug("Timeout dropping 1 connection: ~p]", [Worker#worker.target]),
             {noreply, drop_target(Worker, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
     end;
-handle_info({handle_identify, {From, StreamPid, _Path}, {error, Error}}, State=#state{}) ->
+handle_info({handle_identify, {ReplyRef, StreamPid, _Path}, {error, Error}}, State=#state{}) ->
     lager:notice("Failed to identify stream ~p: ~p", [StreamPid, Error]),
-    gen_server:reply(From, {error, Error}),
+    StreamPid ! {ReplyRef, {error, Error}},
     {noreply, State};
-handle_info({handle_identify, {From, StreamPid, Path}, {ok, Identify}}, State=#state{}) ->
+handle_info({handle_identify, {ReplyRef, StreamPid, Path}, {ok, Identify}}, State=#state{}) ->
     Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     %% Check if we already have a worker for this target
     case lookup_worker_by_target(Target, State) of
@@ -315,18 +318,18 @@ handle_info({handle_identify, {From, StreamPid, Path}, {ok, Identify}}, State=#s
                 true ->
                     lager:debug("Too many inbound workers: ~p",
                                 [State#state.max_inbound_connections]),
-                    gen_server:reply(From, {error, too_many}),
+                    StreamPid ! {ReplyRef, {error, too_many}},
                     {noreply, State};
                 false ->
                     Worker = start_inbound_worker(Target, StreamPid, Path, State),
-                    gen_server:reply(From, ok),
+                    StreamPid ! {ReplyRef, ok},
                     {noreply, add_worker(Worker, State)}
             end;
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
         #worker{pid=Worker} ->
             libp2p_group_worker:assign_stream(Worker, StreamPid, Path),
-            gen_server:reply(From, ok),
+            StreamPid ! {ReplyRef, ok},
             {noreply, State}
     end;
 handle_info(Msg, State) ->

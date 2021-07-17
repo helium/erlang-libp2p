@@ -14,14 +14,15 @@
 %% API
 -export([encode/2, encode/3]).
 %% libp2p_framed_stream
--export([server/4, client/2, init/3, handle_data/3]).
+-export([server/4, client/2, init/3, handle_data/3, handle_info/3]).
 
 
 -record(state,
         { connection :: libp2p_connection:connection(),
           handler_module :: atom(),
           handler_state :: any(),
-          path :: any()
+          path :: any(),
+          reply_ref=make_ref() :: reference()
         }).
 
 %% API
@@ -48,32 +49,12 @@ server(Connection, _Path, _TID, Args) ->
 init(server, Connection, [Path, HandlerModule, HandlerState]) ->
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
-    %% Catch errors from the handler module in accepting a stream. The
-    %% most common occurence is during shutdown of a swarm where
-    %% ordering of the shutdown will cause the accept below to crash
-    %% noisily in the logs. This catch avoids that noise
-    libp2p_session:identify(Session, self(), {ignore, self(), Path}),
-    receive
-        {handle_identify, {_, _, _}, {ok, _Identify} = Reply} ->
-            case (catch HandlerModule:handle_identify(HandlerState, self(), Path, Reply)) of
-                ok -> {ok, #state{connection=Connection,
-                                  handler_module=HandlerModule,
-                                  handler_state=HandlerState,
-                                  path=Path}};
-                {error, too_many} ->
-                    {stop, normal};
-                {error, Reason} ->
-                    lager:warning("Stopping on accept stream error: ~p", [Reason]),
-                    {stop, {error, Reason}};
-                Exit={'EXIT', _} ->
-                    lager:warning("Stopping on accept_stream exit: ~s",
-                                  [error_logger_lager_h:format_reason(Exit)]),
-                    {stop, normal}
-            end;
-        Reason -> {stop, {error, Reason}}
-    after 15000 ->
-            {stop, {error, identify_timeout}}
-    end;
+    HandlerModule:accept_stream(HandlerState, Session, self(), Path),
+    {ok, #state{connection=Connection,
+                handler_module=HandlerModule,
+                handler_state=HandlerState,
+                path=Path}};
+
 init(client, Connection, [Path, HandlerModule, HandlerState]) ->
     lager:debug("initiating client with path ~p", [Path]),
     {ok, #state{connection=Connection,
@@ -81,7 +62,7 @@ init(client, Connection, [Path, HandlerModule, HandlerState]) ->
                 handler_state=HandlerState,
                 path=Path}}.
 
-handle_data(_, Data, State=#state{handler_module=HandlerModule,
+handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
                                   handler_state=HandlerState,
                                   path=Path}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
@@ -91,6 +72,22 @@ handle_data(_, Data, State=#state{handler_module=HandlerModule,
                                    {Path, apply_path_decode(Path, Bin)}),
     {noreply, State}.
 
+handle_info(server, {Ref, AcceptResult}, State=#state{reply_ref=Ref}) ->
+    case AcceptResult of
+        ok ->
+            erlang:demonitor(Ref, [flush]),
+            {noreply, State};
+        {error, too_many} ->
+            {stop, normal, State};
+        {error, Reason} ->
+            lager:warning("Stopping on accept stream error: ~p", [Reason]),
+            {stop, {error, Reason}, State}
+    end;
+handle_info(server, {'DOWN', Ref, process, _, Reason}, State=#state{reply_ref=Ref}) ->
+    %% gossip server died while we were waiting for accept result
+    {stop, Reason, State};
+handle_info(_, _, State) ->
+    {noreply, State}.
 
 apply_path_encode(?GROUP_PATH_V1, Data)->
     lager:debug("not compressing for path ~p..",[?GROUP_PATH_V1]),
