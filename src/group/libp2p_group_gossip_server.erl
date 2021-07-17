@@ -273,16 +273,22 @@ handle_info({start_workers, Sup},
     PeerBookWorkers =
         lists:foldl(
           fun(_, Acc) ->
-                  Worker = start_worker(peerbook, State),
-                  Acc#{Worker#worker.ref => Worker}
+                  case start_worker(peerbook, State) of
+                      {ok, Worker} ->
+                          Acc#{Worker#worker.ref => Worker};
+                      _ -> Acc
+                  end
           end,
           #{},
           lists:seq(1, PeerCount)),
     SeedWorkers =
         lists:foldl(
           fun(_, Acc) ->
-                  Worker = start_worker(seed, State),
-                  Acc#{Worker#worker.ref => Worker}
+                  case start_worker(seed, State) of
+                      {ok, Worker} ->
+                          Acc#{Worker#worker.ref => Worker};
+                      _ -> Acc
+                  end
           end,
           #{},
           lists:seq(1, SeedCount)),
@@ -524,14 +530,17 @@ stop_inbound_worker(StreamRef, Pid, State) ->
             State
     end.
 
--spec start_worker(atom(), #state{}) -> #worker{}.
+-spec start_worker(atom(), #state{}) -> {ok, #worker{}} | {error, overload}.
 start_worker(Kind, #state{tid=TID, sidejob_sup = WorkerSup}) ->
     Ref = make_ref(),
-    {ok, WorkerPid} = sidejob_supervisor:start_child(
+    case sidejob_supervisor:start_child(
                         WorkerSup,
                         libp2p_group_worker, start_link,
-                        [Ref, Kind, self(), ?GROUP_ID, TID]),
-    #worker{kind=Kind, pid=WorkerPid, target=undefined, ref=Ref}.
+                        [Ref, Kind, self(), ?GROUP_ID, TID]) of
+        {ok, WorkerPid} ->
+            {ok, #worker{kind=Kind, pid=WorkerPid, target=undefined, ref=Ref}};
+        Other -> Other
+    end.
 
 -spec get_opt(libp2p_config:opts(), atom(), any()) -> any().
 get_opt(Opts, Key, Default) ->
