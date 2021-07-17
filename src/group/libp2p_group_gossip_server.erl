@@ -321,9 +321,14 @@ handle_info({handle_identify, {ReplyRef, StreamPid, Path}, {ok, Identify}}, Stat
                     StreamPid ! {ReplyRef, {error, too_many}},
                     {noreply, State};
                 false ->
-                    Worker = start_inbound_worker(Target, StreamPid, Path, State),
-                    StreamPid ! {ReplyRef, ok},
-                    {noreply, add_worker(Worker, State)}
+                    case start_inbound_worker(Target, StreamPid, Path, State) of
+                        {ok, Worker} ->
+                            StreamPid ! {ReplyRef, ok},
+                            {noreply, add_worker(Worker, State)};
+                        {error, Reason} ->
+                            StreamPid ! {error, Reason},
+                            {noreply, State}
+                    end
             end;
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
