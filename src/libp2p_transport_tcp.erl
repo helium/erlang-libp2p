@@ -584,7 +584,7 @@ terminate(_Reason, #state{}) ->
 listen_options(IP, TID) ->
     OptionDefaults = [
                       {ip, IP},
-                      {backlog, 1024},
+                      {backlog, 4096},
                       {nodelay, true},
                       {send_timeout, 30000},
                       {send_timeout_close, true}
