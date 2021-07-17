@@ -13,7 +13,7 @@
 -export([accept_stream/4, handle_identify/4, handle_data/4]).
 
 -record(worker,
-       { target :: string() | undefined,
+       { target :: binary() | string() | undefined,
          kind :: libp2p_group_gossip:connection_kind(),
          pid :: pid() | self,
          ref :: reference()
@@ -117,7 +117,7 @@ handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
 
 handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
             _From, State) ->
-    Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
+    Target = libp2p_identify:pubkey_bin(Identify),
     %% Check if we already have a worker for this target
     case lookup_worker_by_target(Target, State) of
         %% If not, we we check if we can accept a random inbound
@@ -308,7 +308,7 @@ handle_info({handle_identify, {ReplyRef, StreamPid, _Path}, {error, Error}}, Sta
     StreamPid ! {ReplyRef, {error, Error}},
     {noreply, State};
 handle_info({handle_identify, {ReplyRef, StreamPid, Path}, {ok, Identify}}, State=#state{}) ->
-    Target = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
+    Target = libp2p_identify:pubkey_bin(Identify),
     %% Check if we already have a worker for this target
     case lookup_worker_by_target(Target, State) of
         %% If not, we we check if we can accept a random inbound
@@ -401,9 +401,9 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     State
             end;
         _ ->
-            SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
+            SelectedAddr = lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs),
             ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self()]}},
-            libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
+            libp2p_group_worker:assign_target(WorkerPid, {mk_multiaddr(SelectedAddr), ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
             case lookup_worker(WorkerRef, State) of
                 Worker=#worker{} ->
@@ -471,7 +471,7 @@ do_get_addrs(Map) ->
       fun(_Ref, #worker{target = undefined}, Acc) ->
               Acc;
          (_Ref, #worker{target = Target}, Acc) ->
-              TargetAddr = libp2p_crypto:p2p_to_pubkey_bin(Target),
+              TargetAddr = Target,
               [TargetAddr | Acc]
       end,
       [],
