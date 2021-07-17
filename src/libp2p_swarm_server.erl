@@ -70,6 +70,7 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
     %%
     %% Store the session in config and tell the peerbook about the
     %% session change as well as the new identify record.
+    spawn(fun() ->
     Addr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     lager:debug("received identity for peer ~p. Putting this peer", [Addr]),
     libp2p_config:insert_session(TID,
@@ -77,16 +78,19 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
                                  Session),
     PeerBook = libp2p_swarm:peerbook(TID),
     libp2p_peerbook:register_session(PeerBook, Session, Identify),
-    libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]),
+    libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)])
+          end),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, _Pid, _Reason}, State=#state{pid_gc_monitor=MonitorRef}) ->
     erlang:send_after(timer:minutes(5), self(), gc_pids),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
+    spawn(fun() ->
     libp2p_config:remove_pid(TID, Pid),
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:unregister_session(PeerBook, Pid),
+    libp2p_peerbook:unregister_session(PeerBook, Pid)
+          end),
     {noreply, NewState};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
     {stop, Reason, State};
