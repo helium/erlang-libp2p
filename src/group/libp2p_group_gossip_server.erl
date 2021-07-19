@@ -568,14 +568,16 @@ lookup_handler(Pid, Key) ->
     %% XXX ASSUMPTION: gossip handlers are not removed or changed once added
     case get(Key) of
         undefined ->
-            case gen_server:call(Pid, {handle_data, Key}) of
-                error ->
-                    %% Do not cache a miss
-                    error;
-                Res ->
-                    put(Key, Res),
-                    Res
-            end;
-        Val ->
-            Val
+            Res = gen_server:call(Pid, {handle_data, Key}, infinity),
+            put(Key, {erlang:timestamp(), Res}),
+            Res;
+        {Time, Val} ->
+            %% cache for 1 minute
+            case timer:now_diff(erlang:timestamp(), Time) > 60000000 of
+                true ->
+                    erase(Key),
+                    lookup_handler(Pid, Key);
+                false ->
+                    Val
+            end
     end.
