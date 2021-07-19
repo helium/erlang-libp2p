@@ -62,7 +62,30 @@ handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
             _ ->
                 {Path, Bin}
         end,
-    gen_server:cast(Pid, {handle_data, StreamPid, Key, ListOrData}).
+        %% check the cache, see the lookup_handler function for details
+        case lookup_handler(Pid, Key) of
+            error ->
+                ok;
+            {ok, M, S} ->
+                %% Catch the callback response. This avoids a crash in the
+                %% handler taking down the gossip worker itself.
+                try M:handle_gossip_data(StreamPid, ListOrData, S) of
+                    {reply, Reply} ->
+                        %% handler wants to reply
+                        %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
+                        %%        As such we need to encode at this point, and send raw..no encoding actions
+                        case (catch libp2p_gossip_stream:encode(Key, Reply, Path)) of
+                            {'EXIT', Error} ->
+                                lager:warning("Error encoding gossip data ~p", [Error]);
+                            ReplyMsg ->
+                                libp2p_framed_stream:send(StreamPid, ReplyMsg)
+                        end;
+                    _ ->
+                        ok
+                catch _:_ ->
+                          ok
+                end
+        end.
 
 accept_stream(Pid, SessionPid, StreamPid, Path) ->
     Ref = erlang:monitor(process, Pid),
@@ -141,6 +164,16 @@ handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
             {reply, ok, State}
     end;
 
+handle_call({handle_data, Key}, _From, State=#state{}) ->
+    %% Incoming message from a gossip stream for a given key
+    %% for performance reasons, and for backpressure, just return
+    %% the module and state
+    case maps:find(Key, State#state.handlers) of
+        error -> {reply, error, State};
+        {ok, {M, S}} ->
+            {reply, {ok, M, S}, State}
+    end;
+
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call: ~p", [Msg]),
     {reply, ok, State}.
@@ -153,33 +186,6 @@ handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{})
     libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path}),
     {noreply, State};
 
-handle_cast({handle_data, StreamPid, Key, {Path, ListOrData}}, State=#state{}) ->
-    %% Incoming message from a gossip stream for a given key
-    case maps:find(Key, State#state.handlers) of
-        error -> ok;
-        {ok, {M, S}} ->
-            spawn(fun() ->
-                          %% Catch the callback response. This avoids a crash in the
-                          %% handler taking down the gossip_server itself.
-                          try M:handle_gossip_data(StreamPid, ListOrData, S) of
-                              {reply, Reply} ->
-                                  %% handler wants to reply
-                                  %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
-                                  %%        As such we need to encode at this point, and send raw..no encoding actions
-                                  case (catch libp2p_gossip_stream:encode(Key, Reply, Path)) of
-                                      {'EXIT', Error} ->
-                                          lager:warning("Error encoding gossip data ~p", [Error]);
-                                      ReplyMsg ->
-                                          libp2p_framed_stream:send(StreamPid, ReplyMsg)
-                                  end;
-                              _ ->
-                                  ok
-                          catch _:_ ->
-                                  ok
-                          end
-                  end)
-    end,
-    {noreply, State};
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
     {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
 handle_cast({request_target, inbound, WorkerPid, Ref}, State=#state{}) ->
@@ -557,3 +563,19 @@ update_metadata(State=#state{}) ->
        {group_id, ?GROUP_ID}
       ]),
     State.
+
+lookup_handler(Pid, Key) ->
+    %% XXX ASSUMPTION: gossip handlers are not removed or changed once added
+    case get(Key) of
+        undefined ->
+            case gen_server:call(Pid, {handle_data, Key}) of
+                error ->
+                    %% Do not cache a miss
+                    error;
+                Res ->
+                    put(Key, Res),
+                    Res
+            end;
+        Val ->
+            Val
+    end.
