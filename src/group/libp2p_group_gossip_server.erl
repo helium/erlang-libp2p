@@ -572,8 +572,8 @@ lookup_handler(Pid, Key) ->
             put(Key, {erlang:timestamp(), Res}),
             Res;
         {Time, Val} ->
-            %% cache for 1 minute
-            case timer:now_diff(erlang:timestamp(), Time) > 60000000 of
+            %% cache for 10 minutes
+            case timer:now_diff(erlang:timestamp(), Time) > 600000000 of
                 true ->
                     erase(Key),
                     lookup_handler(Pid, Key);
