@@ -561,8 +561,6 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                           filter_rfc1918_addresses(ListenAddrs0)
                   end,
     NetworkID = libp2p_swarm:network_id(TID),
-    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
-    ConnectedAddrs = lists:sublist(State#state.connections, MaxConns*2),
     %% Copy data from current peer
     case CurrentPeer of
         undefined ->
@@ -572,7 +570,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     end,
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
-                            connected => ConnectedAddrs,
+                            connected => State#state.connections,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
