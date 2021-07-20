@@ -34,7 +34,7 @@
                   relcast,
                   libp2p_crypto,
                   throttle,
-                  bloom
+                  erbloom
                  ]},
   {env,[]},
 
