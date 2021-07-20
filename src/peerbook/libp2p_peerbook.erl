@@ -40,6 +40,7 @@
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=#{} :: #{libp2p_crypto:pubkey_bin() => pid()},
+          connections = [] :: [libp2p_crypto:pubkey_bin()],
           sigfun :: fun((binary()) -> binary()),
           metadata_fun :: fun(() -> map()),
           metadata = #{} :: map(),
@@ -470,11 +471,13 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) 
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
-    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions)})};
+    Addr = maps:get(SessionPid, Sessions, undefined),
+    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions), connections=State#state.connections -- [Addr]})};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:pubkey_bin(Identify),
-    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, Sessions)})};
+    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
+    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, Sessions), connections=lists:sublist([SessionAddr|State#state.connections], MaxConns*2)})};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
@@ -558,8 +561,6 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                           filter_rfc1918_addresses(ListenAddrs0)
                   end,
     NetworkID = libp2p_swarm:network_id(TID),
-    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
-    ConnectedAddrs = lists:sublist(maps:values(State#state.sessions), MaxConns*2),
     %% Copy data from current peer
     case CurrentPeer of
         undefined ->
@@ -569,7 +570,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     end,
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
-                            connected => ConnectedAddrs,
+                            connected => State#state.connections,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
