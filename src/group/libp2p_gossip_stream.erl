@@ -22,6 +22,7 @@
           handler_module :: atom(),
           handler_state :: any(),
           path :: any(),
+          bloom :: bloom_nif:bloom(),
           reply_ref=make_ref() :: reference()
         }).
 
@@ -46,30 +47,43 @@ client(Connection, Args) ->
 server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
-init(server, Connection, [Path, HandlerModule, HandlerState]) ->
+init(server, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
     HandlerModule:accept_stream(HandlerState, Session, self(), Path),
     {ok, #state{connection=Connection,
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
+                bloom=Bloom,
                 path=Path}};
 
-init(client, Connection, [Path, HandlerModule, HandlerState]) ->
+init(client, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
     lager:debug("initiating client with path ~p", [Path]),
     {ok, #state{connection=Connection,
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
+                bloom=Bloom,
                 path=Path}}.
 
 handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
                                   handler_state=HandlerState,
+                                  bloom=Bloom,
                                   path=Path}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
         libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
     lager:debug("gossip received for handler ~p and key ~p via path ~p with payload ~p",[HandlerModule, Key, Path, Bin]),
-    ok = HandlerModule:handle_data(HandlerState, self(), Key,
-                                   {Path, apply_path_decode(Path, Bin)}),
+    DecodedData = apply_path_decode(Path, Bin),
+    case bloom:check(Bloom, {in, DecodedData}) of
+        true ->
+            ok;
+        false ->
+            %% TODO if we knew this connections's peer/target address
+            %% we could do a second bloom:set to allow tracking where we
+            %% received this data from
+            bloom:set(Bloom, {in, DecodedData}),
+            ok = HandlerModule:handle_data(HandlerState, self(), Key,
+                                           {Path, DecodedData})
+    end,
     {noreply, State}.
 
 handle_info(server, {Ref, AcceptResult}, State=#state{reply_ref=Ref}) ->
