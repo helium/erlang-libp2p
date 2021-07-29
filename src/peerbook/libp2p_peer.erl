@@ -294,7 +294,7 @@ has_public_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
     lists:any(fun libp2p_transport_tcp:is_public/1, ListenAddresses).
 
-%% @doc Returns whether the peer is publishing a RFC1918 address
+%% @doc Returns whether the peer is publishing a private IP address
 -spec has_private_ip(peer()) -> boolean().
 has_private_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),

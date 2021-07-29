@@ -638,7 +638,7 @@ has_useful_listen_addrs(Peer, #state{tid=TID}) ->
 
 filter_rfc1918_addresses(ListenAddrs) ->
     %% filter out any rfc1918 addresses
-    lists:filter(fun(A) -> libp2p_transport_tcp:rfc1918(A) == false end, ListenAddrs).
+    lists:filter(fun(A) -> libp2p_transport_tcp:bogon_ip_mask(A) == false end, ListenAddrs).
 
 -spec notify_peers(#state{}) -> #state{}.
 notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) == 0 ->

@@ -31,6 +31,24 @@
 
 -type opt() :: {listen, [listen_opt()]}.
 
+%% List of non-publicly routable IP address blocks in CIDR notation: {IP, bits in mask}.
+%% source: https://team-cymru.com/community-services/bogon-reference/bogon-reference-http/ (29 July 2021)
+-define(BOGON_PREFIXES, [{{0, 0, 0, 0}, 8},
+                         {{10, 0, 0, 0}, 8},
+                         {{100, 64, 0, 0}, 10},
+                         {{127, 0, 0, 0}, 8},
+                         {{169, 254, 0, 0}, 16},
+                         {{172, 16, 0, 0}, 12},
+                         {{192, 0, 0, 0}, 24},
+                         {{192, 0, 2, 0}, 24},
+                         {{192, 168, 0, 0}, 16},
+                         {{198, 18, 0, 0}, 15},
+                         {{198, 51, 100, 0}, 24},
+                         {{203, 0, 113, 0}, 24},
+                         {{224, 0, 0, 0}, 4},
+                         {{240, 0, 0, 0}, 4}
+                        ]).
+
 -export_type([opt/0, listen_opt/0]).
 
 %% libp2p_transport
@@ -48,7 +66,7 @@
         ]).
 
 %% for tcp sockets
--export([to_multiaddr/1, common_options/0, tcp_addr/1, rfc1918/1, is_public/1]).
+-export([to_multiaddr/1, common_options/0, tcp_addr/1, bogon_ip_mask/1, is_public/1]).
 
 -record(tcp_state,
         {
@@ -118,9 +136,9 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
         end
     end, Addrs),
     SortedAddrIps = lists:sort(fun({_, AIP}, {_, BIP}) ->
-        AIP_1918 = not (false == ?MODULE:rfc1918(AIP)),
-        BIP_1918 = not (false == ?MODULE:rfc1918(BIP)),
-        case AIP_1918 == BIP_1918 of
+        AIP_Bogon = not (false == ?MODULE:bogon_ip_mask(AIP)),
+        BIP_Bogon = not (false == ?MODULE:bogon_ip_mask(BIP)),
+        case AIP_Bogon == BIP_Bogon of
             %% Same kind of IP address to a straight compare
             true ->
                 %% check if one of them is a the default route network
@@ -132,14 +150,14 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
                         %% different, so return if A is a default route address or not
                         X
                 end;
-            %% Different, A <= B if B is a 1918 addr but A is not
+            %% Different, A <= B if B is a non-public addr but A is not
             false ->
-                BIP_1918 andalso not AIP_1918
+                BIP_Bogon andalso not AIP_Bogon
         end
     end, AddrIPs),
     lists:map(
         fun({Addr, IP}) ->
-            case ?MODULE:rfc1918(IP) of
+            case ?MODULE:bogon_ip_mask(IP) of
                 false -> {1, Addr};
                 _ -> {4, Addr}
             end
@@ -330,30 +348,29 @@ common_options() ->
 tcp_addr(MAddr) ->
     tcp_addr(MAddr, multiaddr:protocols(MAddr)).
 
-%% return RFC1918 mask for IP or false if not in RFC1918 range
--spec rfc1918(inet:ip_address() | string()) -> 8 | 16| 12 | false.
-rfc1918({10, _, _, _}) ->
-    8;
-rfc1918({192,168, _, _}) ->
-    16;
-rfc1918(IP={172, _, _, _}) ->
-    %% this one is a /12, not so simple
-    case mask_address({172, 16, 0, 0}, 12) == mask_address(IP, 12) of
-        true ->
-            12;
-        false ->
-            false
-    end;
-rfc1918(MA) when is_list(MA) ->
+%% return net mask bits for IP in bogon prefix list or false if not in list
+-spec bogon_ip_mask(inet:ip_address() | string()) -> pos_integer() | false.
+bogon_ip_mask(MA) when is_list(MA) ->
     case tcp_addr(MA) of
         {IP, _Port, inet, _} ->
-            case rfc1918(IP) of
+            case bogon_ip_mask(IP) of
                 false -> false;
                 R -> R
             end;
         _ -> false
     end;
-rfc1918(_) ->
+bogon_ip_mask(IP) ->
+    %% sort list by longest prefix to return most specific match
+    bogon_ip_mask(lists:reverse(lists:keysort(2,?BOGON_PREFIXES)), IP).
+
+bogon_ip_mask([{BogonIP, BogonMask} | Tail], IP) ->
+    case mask_address(BogonIP, BogonMask) == mask_address(IP, BogonMask) of
+        true ->
+             BogonMask;
+        false ->
+             bogon_ip_mask(Tail, IP)
+    end;
+bogon_ip_mask([],_) ->
     false.
 
 -spec is_public(string()) -> boolean().
@@ -363,7 +380,7 @@ is_public(Address) ->
         {ok, _} ->
             case ?MODULE:tcp_addr(Address) of
                 {IP, _, _, _} ->
-                    case ?MODULE:rfc1918(IP) of
+                    case ?MODULE:bogon_ip_mask(IP) of
                         false -> true;
                         _ -> false
                     end;
@@ -1033,19 +1050,34 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
 %% ------------------------------------------------------------------
 -ifdef(TEST).
 
-rfc1918_test() ->
-    ?assertEqual(8, rfc1918({10, 0, 0, 0})),
-    ?assertEqual(8, rfc1918({10, 20, 0, 0})),
-    ?assertEqual(8, rfc1918({10, 1, 1, 1})),
-    ?assertEqual(16, rfc1918({192, 168, 10, 1})),
-    ?assertEqual(16, rfc1918({192, 168, 20, 1})),
-    ?assertEqual(16, rfc1918({192, 168, 30, 1})),
-    ?assertEqual(12, rfc1918({172, 16, 1, 0})),
-    ?assertEqual(12, rfc1918({172, 16, 10, 0})),
-    ?assertEqual(12, rfc1918({172, 16, 100, 0})),
-    ?assertEqual(false, rfc1918({11, 0, 0, 0})),
-    ?assertEqual(false, rfc1918({192, 169, 10, 1})),
-    ?assertEqual(false, rfc1918({172, 254, 100, 0})).
+bogon_ip_mask_test() ->
+    ?assertEqual(8, bogon_ip_mask({0, 0, 0, 0})),
+    ?assertEqual(8, bogon_ip_mask({10, 0, 0, 0})),
+    ?assertEqual(8, bogon_ip_mask({10, 20, 0, 0})),
+    ?assertEqual(8, bogon_ip_mask({10, 1, 1, 1})),
+    ?assertEqual(16, bogon_ip_mask({192, 168, 10, 1})),
+    ?assertEqual(16, bogon_ip_mask({192, 168, 20, 1})),
+    ?assertEqual(16, bogon_ip_mask({192, 168, 30, 1})),
+    ?assertEqual(12, bogon_ip_mask({172, 16, 1, 0})),
+    ?assertEqual(12, bogon_ip_mask({172, 16, 10, 0})),
+    ?assertEqual(12, bogon_ip_mask({172, 16, 100, 0})),
+    ?assertEqual(10, bogon_ip_mask({100, 109, 66, 8})),
+    ?assertEqual(10, bogon_ip_mask({100, 114, 44, 71})),
+    ?assertEqual(8, bogon_ip_mask({127, 0, 0, 1})),
+    ?assertEqual(16, bogon_ip_mask({169, 254, 0, 1})),
+    ?assertEqual(15, bogon_ip_mask({198, 18, 10, 18})),
+    ?assertEqual(24, bogon_ip_mask({203, 0, 113, 99})),
+    ?assertEqual(4, bogon_ip_mask({224, 255, 254, 1})),
+    ?assertEqual(4, bogon_ip_mask({227, 0, 0, 1})),
+    ?assertEqual(4, bogon_ip_mask({240, 1, 1, 1})),
+    ?assertEqual(4, bogon_ip_mask({241, 1, 1, 1})),
+    ?assertEqual(false, bogon_ip_mask({11, 0, 0, 0})),
+    ?assertEqual(false, bogon_ip_mask({192, 169, 10, 1})),
+    ?assertEqual(false, bogon_ip_mask({172, 254, 100, 0})),
+    ?assertEqual(false, bogon_ip_mask({1, 1, 1, 1})),
+    ?assertEqual(false, bogon_ip_mask({100, 63, 255, 255})),
+    ?assertEqual(false, bogon_ip_mask({198, 17, 0, 1})),
+    ?assertEqual(false, bogon_ip_mask({209, 85, 231, 104})).
 
 sort_addr_test() ->
     Addrs = [
