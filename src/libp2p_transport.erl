@@ -59,8 +59,8 @@ for_addr(TID, Addr) ->
 %%--------------------------------------------------------------------
 %% @doc
 %% Addresses are sorted by priority ranking from 1 to 5 (1 highest and 5 lowest priority)
-%% 1 = Non-Private IP (public IPs), 2 = P2P circuit address (relay), 3 = P2P address,
-%% 4 = Public IPs (shared/reserved/private/local IPs), 5 = Proxy transport
+%% 1 = Public IP, 2 = P2P circuit address (relay), 3 = P2P address,
+%% 4 = "Bogon" IPs (shared/reserved/private/local IPs), 5 = Proxy transport
 %% @end
 %%--------------------------------------------------------------------
 -spec sort_addrs_with_keys(ets:tab(), [string()]) -> [{non_neg_integer(), string()}].
