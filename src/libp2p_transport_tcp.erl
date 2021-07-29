@@ -135,9 +135,9 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
         end
     end, Addrs),
     SortedAddrIps = lists:sort(fun({_, AIP}, {_, BIP}) ->
-        AIP_1918 = not (false == ?MODULE:private_ip_mask(AIP)),
-        BIP_1918 = not (false == ?MODULE:private_ip_mask(BIP)),
-        case AIP_1918 == BIP_1918 of
+        AIP_Private = not (false == ?MODULE:private_ip_mask(AIP)),
+        BIP_Private = not (false == ?MODULE:private_ip_mask(BIP)),
+        case AIP_Private == BIP_Private of
             %% Same kind of IP address to a straight compare
             true ->
                 %% check if one of them is a the default route network
@@ -149,9 +149,9 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
                         %% different, so return if A is a default route address or not
                         X
                 end;
-            %% Different, A <= B if B is a 1918 addr but A is not
+            %% Different, A <= B if B is a Private addr but A is not
             false ->
-                BIP_1918 andalso not AIP_1918
+                BIP_Private andalso not AIP_Private
         end
     end, AddrIPs),
     lists:map(
