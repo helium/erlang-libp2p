@@ -181,7 +181,7 @@ maybe_parse({IPStr, PortStr}) when is_list(IPStr), is_list(PortStr) ->
 discovery_filter(MultiAddr) ->
     case libp2p_transport_tcp:tcp_addr(MultiAddr) of
         {IP, Port, inet, _} ->
-            case libp2p_transport_tcp:rfc1918(IP) of
+            case libp2p_transport_tcp:bogon_ip_mask(IP) of
                 false -> false;
                 _ -> {true, {MultiAddr, IP, Port}}
             end;
@@ -202,12 +202,12 @@ add_port_mapping(Context, InternalPort, ExternalPort0, Retry) ->
         {ok, Since, InternalPort, ExternalPort2, Lease1} ->
             {ok, ExternalAddress} = nat:get_external_address(Context),
             {ok, ParsedAddress} = inet:parse_address(ExternalAddress),
-            case libp2p_transport_tcp:rfc1918(ParsedAddress) of
+            case libp2p_transport_tcp:bogon_ip_mask(ParsedAddress) of
                 false ->
                     {ok, ExternalAddress, ExternalPort2, Lease1, Since};
                 _ ->
                     nat:delete_port_mapping(Context, tcp, InternalPort, ExternalPort2),
-                    lager:warning("Double NAT detected"),
+                    lager:warning("Double NAT detected ~p", [ExternalAddress]),
                     {error, double_nat}
             end;
         {error, Reason} ->
