@@ -33,8 +33,7 @@
                   backoff,
                   relcast,
                   libp2p_crypto,
-                  throttle,
-                  erbloom
+                  throttle
                  ]},
   {env,[]},
 

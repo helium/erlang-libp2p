@@ -49,8 +49,12 @@ from_map(Map, SigFun) ->
                                {Type, #libp2p_association_list_pb{associations=AssocEntries}}
                        end, maps:get(associations, Map, [])),
     Connected0 = maps:get(connected, Map, []),
-    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
-    Connected = rand_sub(Connected0, MaxConns),
+    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 8),
+    Connected =
+        case length(Connected0) =< MaxConns of
+            true -> Connected0;
+            _ -> rand_sub(Connected0, MaxConns)
+        end,
     Peer = #libp2p_peer_pb{pubkey=maps:get(pubkey, Map),
                            listen_addrs=[multiaddr:new(L) || L <- maps:get(listen_addrs, Map)],
                            connected = Connected,
@@ -62,10 +66,8 @@ from_map(Map, SigFun) ->
                           },
     sign_peer(Peer, SigFun).
 
-rand_sub(L, N) when length(L) =< N -> L;
 rand_sub(L, N) ->
-   Len = length(L),
-   lists:usort([ lists:nth(rand:uniform(Len), L) || _ <- lists:seq(1, N) ]).
+    lists:sublist(element(2, lists:unzip(lists:sort([{rand:uniform(), I} || I <- L]))), N).
 
 %% @doc Gets the public key for the given peer.
 -spec pubkey_bin(peer()) -> libp2p_crypto:pubkey_bin().

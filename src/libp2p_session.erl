@@ -28,9 +28,7 @@ close(Pid) ->
     catch
         exit:timeout ->
             %% pid is hung, just kill it
-            exit(Pid, kill);
-        exit:noproc ->
-            ok
+            exit(Pid, kill)
     end.
 
 -spec close(pid(), term(), non_neg_integer() | infinity) -> ok.

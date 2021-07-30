@@ -18,7 +18,8 @@
 
 -record(client_state, {
           txn_id :: binary(),
-          handler :: pid()
+          handler :: pid(),
+          direction :: inbound | outbound
          }).
 
 %%
@@ -51,8 +52,9 @@ client(Connection, Args) ->
 server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
-init(client, _Connection, [TxnID, Handler, _TID]) ->
-    {ok, #client_state{txn_id=TxnID, handler=Handler}};
+init(client, Connection, [TxnID, Handler, TID]) ->
+    {ok, SessionPid} = libp2p_connection:session(Connection),
+    {ok, #client_state{txn_id=TxnID, handler=Handler, direction=libp2p_config:lookup_session_direction(TID, SessionPid)}};
 init(server, Connection, ["/dial/"++Path, _, TID]) ->
     {_, ObservedAddr0} = libp2p_connection:addr_info(Connection),
     [{"ip4", IP}, {"tcp", PortStr0}] = multiaddr:protocols(ObservedAddr0),
@@ -84,8 +86,6 @@ init(server, Connection, ["/dial/"++Path, _, TID]) ->
                     VerifyPath = "stungun/1.0.0/verify/"++TxnID++ObservedAddr,
                     case libp2p_swarm:dial(TID, VerifierAddr, VerifyPath, [], 5000) of
                         {ok, VC} ->
-                            %% TODO we need to check we're dialing who we think we're dialing here
-                            %% in case we hit a different peer
                             lager:debug("verifier dial suceeded for ~p", [ObservedAddr]),
                             %% Read the response
                             case libp2p_framed_stream:recv(VC, 5000) of
@@ -125,17 +125,10 @@ init(server, Connection, ["/dial/"++Path, _, TID]) ->
                     {stop, normal, ?SYMMETRIC_NAT}
             end
     end;
-init(server, Connection, ["/reply/"++TxnID, Handler, TID]) ->
+init(server, Connection, ["/reply/"++TxnID, Handler, _TID]) ->
     lager:debug("got reply confirmation for  ~p", [TxnID]),
-    {ok, SessionPid} = libp2p_connection:session(Connection),
-    case libp2p_config:lookup_session_direction(TID, SessionPid) of
-        inbound ->
-            {LocalAddr, _} = libp2p_connection:addr_info(Connection),
-            Handler ! {stungun_reply, list_to_integer(TxnID), LocalAddr};
-        _ ->
-            lager:info("ignoring IP address confirmation on outbound session"),
-            ok
-    end,
+    {LocalAddr, _} = libp2p_connection:addr_info(Connection),
+    Handler ! {stungun_reply, list_to_integer(TxnID), LocalAddr},
     {stop, normal};
 init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
     {TxnID, TargetAddr} = string:take(Info, "/", true),
@@ -154,10 +147,13 @@ init(server, _Connection, ["/verify/"++Info, _Handler, TID]) ->
             {stop, normal, ?FAILED}
     end.
 
-handle_data(client, Code, State=#client_state{txn_id=TxnID, handler=Handler}) ->
+handle_data(client, Code, State=#client_state{txn_id=TxnID, handler=Handler, direction=inbound}) ->
     lager:debug("Got code ~p for txnid ~p", [Code, TxnID]),
     {NatType, _Info} = to_nat_type(Code),
     Handler ! {stungun_nat, TxnID, NatType},
+    {stop, normal, State};
+handle_data(client, Code, State=#client_state{txn_id=TxnID, direction=outbound}) ->
+    lager:notice("Got code ~p for txnid ~p on outbound session, ignoring", [Code, TxnID]),
     {stop, normal, State};
 
 handle_data(server, _,  _) ->

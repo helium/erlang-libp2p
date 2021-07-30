@@ -30,18 +30,18 @@ send(GroupPid, Data) ->
 -spec info(pid()) -> map().
 info(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
-    gen_server:call(Server, info, 60000).
+    gen_server:call(Server, info).
 
 -spec status(pid()) -> atom().
 status(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
-    gen_server:call(Server, status, 60000).
+    gen_server:call(Server, status).
 
 %% @doc Get the messages queued in the relcast server.
 -spec queues(pid()) -> relcast:status().
 queues(GroupPid) ->
     Server = libp2p_group_relcast_sup:server(GroupPid),
-    gen_server:call(Server, dump_queues, 60000).
+    gen_server:call(Server, dump_queues).
 
 -spec handle_command(GroupPid::pid(), Msg::term()) -> term() | {error, any()}.
 handle_command(GroupPid, Msg) ->

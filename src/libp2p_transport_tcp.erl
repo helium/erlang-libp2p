@@ -84,13 +84,7 @@
          stun_txns=#{} :: #{libp2p_stream_stungun:txn_id() => string()},
          observed_addrs=sets:new() :: sets:set({string(), string()}),
          negotiated_nat=false :: boolean(),
-         resolved_addresses = [],
-         nat_type = unknown,
-         nat_server :: undefined | {reference(), pid()},
-         relay_monitor = make_ref() :: reference(),
-         relay_retry_timer = make_ref() :: reference(),
-         stungun_timer = make_ref() :: reference(),
-         stungun_timeout_count = 0 :: non_neg_integer()
+         nat_server :: undefined | {reference(), pid()}
         }).
 
 -define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
@@ -263,14 +257,6 @@ fdset(#tcp_state{socket=Socket}=State) ->
                                 erlang:demonitor(Ref, [flush]),
                                 Return;
                             {'DOWN', Ref, process, Pid, Reason} ->
-                                %% flush any other response
-                                %% we might be racing with
-                                receive
-                                    {Ref, _} ->
-                                        ok
-                                after 0 ->
-                                          ok
-                                end,
                                 {error, Reason}
                     after 5000 ->
                               %% client process wedged, kill it
@@ -485,21 +471,20 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
             case [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)] of
                 [] ->
                     %% no connected peers
-                    Ref = erlang:send_after(30000, self(), stungun_retry),
-                    {noreply, State#state{stungun_timer=Ref}};
+                    erlang:send_after(30000, self(), stungun_retry),
+                    {noreply, State};
                 MyConnectedPeers ->
                     PeerAddr = lists:nth(rand:uniform(length(MyConnectedPeers)), MyConnectedPeers),
-                    lager:info("retrying stungun with peer ~p", [PeerAddr]),
+                    lager:debug("retrying stungun with peer ~p", [PeerAddr]),
                     case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                         {ok, StunPid} ->
                             %% TODO: Remove this once dial stops using start_link
                             unlink(StunPid),
-                            %% this timeout gets ignored if the txnid is cleared
                             erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
                             {noreply, State#state{stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)}};
                         _ ->
-                            Ref = erlang:send_after(30000, self(), stungun_retry),
-                            {noreply, State#state{stungun_timer=Ref}}
+                            erlang:send_after(30000, self(), stungun_retry),
+                            {noreply, State}
                     end
             end;
         error ->
@@ -511,12 +496,9 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
             {noreply, NewState}
     end;
 handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunTxns}) ->
-    case maps:find(TxnID, StunTxns) of
-        error ->
-            lager:debug("unknown stungun txnid ~p", [TxnID]),
-            {noreply, State};
-        {ok, ResolvedAddr} ->
-            lager:info("stungun detected NAT type ~p", [NatType]),
+    case maps:is_key(TxnID, StunTxns) of
+        true ->
+            lager:debug("stungun detected NAT type ~p", [NatType]),
             case NatType of
                 none ->
                     %% don't clear the txn id yet we might still be waiting for the stungun_reply msg
@@ -529,43 +511,21 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     %% we have either port restricted cone NAT or symmetric NAT
                     %% and we need to start a relay
                     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
-                    Ref = monitor_relay_server(State),
                     libp2p_relay:init(libp2p_swarm:swarm(TID)),
-                    erlang:cancel_timer(State#state.stungun_timer),
-                    %% however, lets also check for a static port forward here
-                    Peers = sets:to_list(State#state.observed_addrs),
-                    {PeerAddr, ObservedAddr} = lists:nth(rand:uniform(length(Peers)), Peers),
-                    %% finally, as this is a 'negative' result, schedule a retry in the future in case
-                    %% our peers are wrong or lying to us
-                    TimerRef = erlang:send_after(timer:minutes(30), self(), stungun_retry),
-                    NewState = attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
-                                                                                                  relay_monitor = Ref,
-                                                                                                  stungun_timeout_count = 0,
-                                                                                                  stungun_timer = TimerRef,
-                                                                                                  nat_type=NatType,
-                                                                                                  resolved_addresses=[ResolvedAddr|State#state.resolved_addresses]}),
-                    {noreply, NewState}
-            end
+                    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}}
+            end;
+        false ->
+            lager:debug("unknown stungun txnid ~p", [TxnID]),
+            {noreply, State}
     end;
-handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns, tid=TID, stungun_timeout_count=Count}) ->
+handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns}) ->
     case maps:is_key(TxnID, StunTxns) of
         true ->
             lager:debug("stungun timed out"),
-            Ref = erlang:send_after(30000, self(), stungun_retry),
+            erlang:send_after(30000, self(), stungun_retry),
             %% note we only remove the txnid here, because we can get multiple messages
             %% for this txnid
-            NewState = State#state{stun_txns=remove_stun_txn(TxnID, StunTxns), stungun_timer=Ref, stungun_timeout_count=Count+1},
-            case NewState#state.stungun_timeout_count == 5 of
-                true ->
-                    lager:notice("stungun timed out 5 times, adding relay address"),
-                    %% we are having trouble determining our NAT type, fire up a relay in
-                    %% desperation. If stungun finally resolves we will stop the relay later.
-                    Ref = monitor_relay_server(State),
-                    libp2p_relay:init(libp2p_swarm:swarm(TID)),
-                    {noreply, NewState#state{relay_monitor=Ref}};
-                false ->
-                    {noreply, NewState}
-            end;
+            {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
         false ->
             {noreply, State}
     end;
@@ -575,29 +535,22 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             lager:debug("unknown stungun txnid ~p", [TxnID]),
             {noreply, State};
         {ok, ObservedAddr} ->
-            lager:info("Got dial back confirmation of observed address ~p", [ObservedAddr]),
+            lager:debug("Got dial back confirmation of observed address ~p", [ObservedAddr]),
             case libp2p_config:lookup_listener(TID, LocalAddr) of
                 {ok, ListenerPid} ->
                     libp2p_config:insert_listener(TID, [ObservedAddr], ListenerPid),
                     %% don't need to start relay here, stop any we already have
                     libp2p_relay_server:stop(libp2p_swarm:swarm(TID)),
-                    demonitor_relay_server(State),
                     %% if we didn't have an external address originally, set the NAT type to 'static'
-                    NatType = case State#state.negotiated_nat of
+                    case State#state.negotiated_nat of
                         true ->
-                             static;
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), static);
                         false ->
-                            none
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), none)
                     end,
-                    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
-                    erlang:cancel_timer(State#state.stungun_timer),
                     %% clear the txnid so the timeout won't fire
-                    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
-                                          nat_type=NatType,
-                                          stungun_timeout_count=0,
-                                          resolved_addresses=[ObservedAddr|State#state.resolved_addresses]}};
+                    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns)}};
                 false ->
-                    %% don't clear the txnid so the stungun timeout will still be handled
                     lager:notice("unable to determine listener pid for ~p", [LocalAddr]),
                     {noreply, State}
             end
@@ -605,18 +558,16 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
 handle_info({nat_discovered, InternalAddr, ExternalAddr}, State=#state{tid=TID}) ->
     case libp2p_config:lookup_listener(TID, InternalAddr) of
         {ok, ListenPid} ->
-            lager:info("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
+            lager:debug("added port mapping from ~s to ~s", [InternalAddr, ExternalAddr]),
             %% remove any observed addresses
             [ true = libp2p_config:remove_listener(TID, MultiAddr) || MultiAddr <- distinct_observed_addrs(State#state.observed_addrs) ],
             libp2p_config:insert_listener(TID, [ExternalAddr], ListenPid),
             %% monitor the nat server, so we can unset this if it crashes
             {ok, Pid} = libp2p_config:lookup_nat(TID),
             Ref = erlang:monitor(process, Pid),
-            %% if the nat type has resolved to 'none' here we should change it to static
-            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), static),
 
+            %% TODO if the nat type has resolved to 'none' here we should change it to static
             {noreply, State#state{negotiated_nat = true,
-                                  nat_type = static,
                                   observed_addrs = sets:new(),
                                   nat_server = {Ref, Pid}}};
         _ ->
@@ -627,21 +578,7 @@ handle_info(no_nat, State) ->
     {noreply, State#state{negotiated_nat = false}};
 handle_info({'DOWN', Ref, process, Pid, _Reason}, State=#state{nat_server = {NatRef, NatPid}})
   when Pid == NatPid andalso Ref == NatRef ->
-    {noreply, State#state{nat_server = undefined, negotiated_nat = false, nat_type=unknown}};
-handle_info({'DOWN', Ref, process, Pid, Reason}, State=#state{relay_monitor=Ref}) ->
-    lager:warning("Relay server ~p crashed with reason ~p", [Pid, Reason]),
-    self() ! relay_retry,
-    {noreply, State};
-handle_info(relay_retry, State = #state{tid = TID}) ->
-    case libp2p_config:lookup_relay(TID) of
-        {ok, _Pid} ->
-            Ref = monitor_relay_server(State),
-            libp2p_relay:init(libp2p_swarm:swarm(TID)),
-            {noreply, State#state{relay_monitor=Ref}};
-        false ->
-            TimerRef = erlang:send_after(30000, self(), relay_retry),
-            {noreply, State#state{relay_retry_timer=TimerRef}}
-    end;
+    {noreply, State#state{nat_server = undefined, negotiated_nat = false}};
 handle_info({'DOWN', _Ref, process, Pid, Reason}, State=#state{tid=TID}) when Reason /= normal; Reason /= shutdown ->
     %% check if this is a listen socket pid
     case libp2p_config:lookup_listen_socket(TID, Pid) of
@@ -955,57 +892,49 @@ distinct_observed_addrs(Addrs) ->
     lists:usort(DistinctAddresses).
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
-record_observed_addr(_, _, State=#state{negotiated_nat=NegotiatedNat, nat_type=NatType}) when NegotiatedNat == true; NatType /= unknown ->
+record_observed_addr(_, _, State=#state{negotiated_nat=true}) ->
     %% we have a upnp address, do nothing
     State;
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
+    lager:notice("recording observed address ~p ~p", [PeerAddr, ObservedAddr]),
     case is_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs) of
         true ->
             % this peer already told us about this observed address
             State;
         false ->
-            % check if another peer has seen this address and we're not running a stun txn for this address
-            HasStunTxn = lists:member(ObservedAddr, maps:values(StunTxns)),
-            IsResolved = lists:member(ObservedAddr, State#state.resolved_addresses),
+            % check if another peer has seen this address
             case is_observed_addr(ObservedAddr, ObservedAddrs) of
                 true ->
-                    case HasStunTxn orelse IsResolved of
-                        true ->
-                            %% do nothing here because we're either testing this address
-                            %% or we've resolved its status
-                            State;
-                        false ->
-                            %% ok, we have independant confirmation of an observed address
-                            lager:info("received confirmation of observed address ~s from peer ~s", [ObservedAddr, PeerAddr]),
-                            {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
-                            %% Record the TxnID , then convince a peer to dial us back with that TxnID
-                            %% then that handler needs to forward the response back here, so we can add the external address
-                            lager:info("attempting to discover network status using stungun with ~p", [PeerAddr]),
-                            case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
-                                {ok, StunPid} ->
-                                    %% TODO: Remove this once dial stops using start_link
-                                    unlink(StunPid),
-                                    erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-                                    State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
-                                                stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
-                                _ ->
-                                    State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
-                            end
+                    %% ok, we have independant confirmation of an observed address
+                    lager:debug("received confirmation of observed address ~s", [ObservedAddr]),
+                    {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
+                    %% Record the TxnID , then convince a peer to dial us back with that TxnID
+                    %% then that handler needs to forward the response back here, so we can add the external address
+                    lager:debug("attempting to discover network status using stungun with ~p", [PeerAddr]),
+                    case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                        {ok, StunPid} ->
+                            %% TODO: Remove this once dial stops using start_link
+                            unlink(StunPid),
+                            erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                            State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
+                                        stun_txns=add_stun_txn(TxnID, ObservedAddr, StunTxns)};
+                        _ ->
+                            State#state{observed_addrs=add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs)}
                     end;
                 false ->
                     ObservedAddresses = add_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs),
-                    lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
+                    lager:debug("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
+                    Limit = libp2p_config:get_opt(libp2p_swarm:opts(TID), [libp2p_group_gossip, peerbook_connections], 5),
                     %% check if we have `Limit' + 1 distinct observed addresses
                     %% make it an exact check so we don't do this constantly
-                    case length(distinct_observed_addrs(ObservedAddresses)) == 3 of
+                    case length(distinct_observed_addrs(ObservedAddresses)) == Limit + 1 of
                         true ->
-                            lager:info("Saw 3 distinct observed addresses, assuming symmetric NAT"),
+                            lager:info("Saw ~p distinct observed addresses, assuming static NAT", [Limit + 1]),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
-                            Ref = monitor_relay_server(State),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
                             %% also check if we have a port forward from the same external port to our internal port
                             %% as this is a common configuration
-                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses, relay_monitor=Ref, nat_type=symmetric});
+                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses});
                         false ->
                             State#state{observed_addrs=ObservedAddresses}
                     end
@@ -1024,21 +953,15 @@ attempt_port_forward_discovery(ObservedAddr, PeerAddr, State=#state{tid=TID, stu
                                 {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
                                 [{"ip4", IP}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
                                 ObservedAddr1 = "/ip4/"++IP++"/tcp/"++PortStr,
-                                case lists:member(ObservedAddr1, State#state.resolved_addresses) of
-                                    true ->
-                                        %% we don't need to try this again
-                                        StateAcc;
-                                    false ->
-                                        case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
-                                            {ok, StunPid} ->
-                                                lager:info("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
-                                                %% TODO: Remove this once dial stops using start_link
-                                                unlink(StunPid),
-                                                erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-                                                StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
-                                            _ ->
-                                                StateAcc
-                                        end
+                                case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                                    {ok, StunPid} ->
+                                        lager:debug("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
+                                        %% TODO: Remove this once dial stops using start_link
+                                        unlink(StunPid),
+                                        erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                                        StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
+                                    _ ->
+                                        StateAcc
                                 end;
                             _ ->
                                 StateAcc
@@ -1104,7 +1027,7 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
                     %% find listen addresses for this transport
                     MyListenAddrs = [ LA || LA <- ListenAddrs, match_addr(LA, TID) /= false ],
                     RemovedListenAddrs = MyListenAddrs -- NewListenAddrs,
-                    lager:info("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
+                    lager:debug("Listen addresses changed: ~p -> ~p", [MyListenAddrs, NewListenAddrs]),
                     [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
                     %% we can simply re-add all of the addresses again, overrides are fine
                     [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
@@ -1121,15 +1044,6 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
                     {noreply, State}
             end
     end.
-
-monitor_relay_server(#state{relay_monitor=Ref, tid=TID}) ->
-    erlang:demonitor(Ref),
-    {ok, Pid} = libp2p_config:lookup_relay(TID),
-    erlang:monitor(process, Pid).
-
-demonitor_relay_server(#state{relay_monitor=Ref, relay_retry_timer=Timer}) ->
-    erlang:cancel_timer(Timer),
-    erlang:demonitor(Ref).
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests

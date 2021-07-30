@@ -84,7 +84,7 @@ handle_call({register, TransportPid, MultiAddr, IntPort}, _From, #state{tid=TID,
             {reply, ok, State#state{transport_tcp=TransportPid, internal_address=MultiAddr, internal_port=IntPort,
                                     external_address=ExtAddr, external_port=ExtPort, lease=Lease, since=Since}};
         {error, _Reason1} ->
-            lager:info("failed to add port (~p) mapping with upnp: ~p", [{IntPort, CachedExtPort}, _Reason1]),
+            lager:error("failed to add port (~p) mapping ~p", [{IntPort, CachedExtPort}, _Reason1]),
             {reply, {error, _Reason1}, State}
     end;
 handle_call(_Msg, _From, State) ->
