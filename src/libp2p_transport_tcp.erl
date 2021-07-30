@@ -33,7 +33,7 @@
 
 %% List of non-publicly routable IP address blocks in CIDR notation: {IP, bits in mask}.
 %% source: https://team-cymru.com/community-services/bogon-reference/bogon-reference-http/ (29 July 2021)
--define(BOGON_PREFIXES, [{{0, 0, 0, 0}, 32},
+-define(BOGON_PREFIXES, [{{0, 0, 0, 0}, 8},
                          {{10, 0, 0, 0}, 8},
                          {{100, 64, 0, 0}, 10},
                          {{127, 0, 0, 0}, 8},
@@ -1051,6 +1051,7 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
 -ifdef(TEST).
 
 bogon_ip_mask_test() ->
+    ?assertEqual(8, bogon_ip_mask({0, 0, 0, 0})),
     ?assertEqual(8, bogon_ip_mask({10, 0, 0, 0})),
     ?assertEqual(8, bogon_ip_mask({10, 20, 0, 0})),
     ?assertEqual(8, bogon_ip_mask({10, 1, 1, 1})),
@@ -1060,11 +1061,23 @@ bogon_ip_mask_test() ->
     ?assertEqual(12, bogon_ip_mask({172, 16, 1, 0})),
     ?assertEqual(12, bogon_ip_mask({172, 16, 10, 0})),
     ?assertEqual(12, bogon_ip_mask({172, 16, 100, 0})),
+    ?assertEqual(10, bogon_ip_mask({100, 109, 66, 8})),
+    ?assertEqual(10, bogon_ip_mask({100, 114, 44, 71})),
+    ?assertEqual(8, bogon_ip_mask({127, 0, 0, 1})),
+    ?assertEqual(16, bogon_ip_mask({169, 254, 0, 1})),
+    ?assertEqual(15, bogon_ip_mask({198, 18, 10, 18})),
+    ?assertEqual(24, bogon_ip_mask({203, 0, 113, 99})),
+    ?assertEqual(4, bogon_ip_mask({224, 255, 254, 1})),
+    ?assertEqual(4, bogon_ip_mask({227, 0, 0, 1})),
+    ?assertEqual(4, bogon_ip_mask({240, 1, 1, 1})),
+    ?assertEqual(4, bogon_ip_mask({241, 1, 1, 1})),
     ?assertEqual(false, bogon_ip_mask({11, 0, 0, 0})),
     ?assertEqual(false, bogon_ip_mask({192, 169, 10, 1})),
     ?assertEqual(false, bogon_ip_mask({172, 254, 100, 0})),
     ?assertEqual(false, bogon_ip_mask({1, 1, 1, 1})),
-    ?assertEqual(false, bogon_ip_mask({100, 63, 255, 255})).
+    ?assertEqual(false, bogon_ip_mask({100, 63, 255, 255})),
+    ?assertEqual(false, bogon_ip_mask({198, 17, 0, 1})),
+    ?assertEqual(false, bogon_ip_mask({209, 85, 231, 104})).
 
 sort_addr_test() ->
     Addrs = [
