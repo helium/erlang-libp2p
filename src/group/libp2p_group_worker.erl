@@ -7,7 +7,7 @@
 -export_type([stream_client_spec/0]).
 
 %% API
--export([start_link/5, start_link/7,
+-export([start_link/6, start_link/8,
          assign_target/2, clear_target/1,
          assign_stream/2, assign_stream/3, send/4, send_ack/3, close/1]).
 
@@ -34,6 +34,7 @@
           tid :: ets:tab(),
           kind :: atom() | pos_integer(),
           group_id :: string(),
+          dial_options = [] :: [any()],
           server :: pid(),
           %% Target information
           target={undefined, undefined} :: target() | {undefined, undefined},
@@ -117,39 +118,43 @@ info(Pid) ->
 %% gen_statem
 %%
 
--spec start_link(reference(), atom(), pid(), string(), ets:tab()) ->
+-spec start_link(reference(), atom(), pid(), string(), [any()], ets:tab()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Ref, Kind, Server, GroupID, TID) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID, TID], []).
+start_link(Ref, Kind, Server, GroupID, DialOptions, TID) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID,
+                                    DialOptions, TID], []).
 
--spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), ets:tab(), string()) ->
+-spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), [any()], ets:tab(), string()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Ref, Kind, StreamPid, Server, GroupID, TID, Path) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server, GroupID, TID, Path], []).
+start_link(Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server,
+                                    GroupID, DialOptions, TID, Path], []).
 
 callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Ref, Kind, StreamPid, Server, GroupID, TID, Path]) ->
+init([Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path]) ->
     lager:debug("starting group worker of kind ~p and path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
     process_flag(trap_exit, true),
     {ok, connected,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
                           target_backoff=init_targeting_backoff(),
                           connect_retry_backoff=init_connect_retry_backoff(),
+                          dial_options=DialOptions,
                           worker_path = Path}),
     {next_event, info, {assign_stream, StreamPid, Path}}};
-init([Ref, Kind, Server, GroupID, TID]) ->
+init([Ref, Kind, Server, GroupID, DialOptions, TID]) ->
     lager:debug("starting group worker of kind: ~p",[Kind]),
     process_flag(trap_exit, true),
     {ok, targeting,
      update_metadata(#data{ref=Ref, tid=TID, server=Server, kind=Kind, group_id=GroupID,
-                          target_backoff=init_targeting_backoff(),
-                          connect_retry_backoff=init_connect_retry_backoff()}),
+                           target_backoff=init_targeting_backoff(),
+                           dial_options=DialOptions,
+                           connect_retry_backoff=init_connect_retry_backoff()}),
      ?TRIGGER_TARGETING}.
 
 targeting(cast, clear_target, Data=#data{}) ->
@@ -247,6 +252,7 @@ connecting(info, connect_retry_timeout, Data=#data{target={undefined, _}}) ->
      ?TRIGGER_TARGETING};
 connecting(info, connect_retry_timeout, Data=#data{tid=TID,
                                                    target={MAddr, {SupportedPaths, {M, A}}},
+                                                   dial_options=DialOptions,
                                                    connect_pid=ConnectPid}) ->
     %% When the retry timeout fires we kill any exisitng connect_pid
     %% (just to be sure, this should not be needed). Then we spin up
@@ -264,7 +270,7 @@ connecting(info, connect_retry_timeout, Data=#data{tid=TID,
             Parent = self(),
             %% NOTE: why spawn the connect off ?  Why does it matter if the worker is blocked for a bit whilst connecting ?
             Pid = erlang:spawn_link(fun() ->
-                case dial(Parent, TID, MAddr, M, A, SupportedPaths) of
+                case dial(Parent, TID, MAddr, DialOptions, M, A, SupportedPaths) of
                     {error, Error} ->
                         Parent ! {connect_error, Error};
                     {ok, StreamPid, AcceptedPath} ->
@@ -611,11 +617,11 @@ update_metadata(Data=#data{}) ->
       ]),
     Data.
 
--spec dial(Parent::pid(), TID::ets:tab(), Peer::string(), Module::atom(),
+-spec dial(Parent::pid(), TID::ets:tab(), Peer::string(), DialOptions::[any()], Module::atom(),
             Args::[any()], SupportedPaths::[string()])->
                     {'ok', StreamPid::pid(), Path::string()} |
                     {'error', any()}.
-dial(Parent, TID, Peer, Module, Args, SupportedPaths) ->
+dial(Parent, TID, Peer, DialOptions,  Module, Args, SupportedPaths) ->
     lager:debug("(~p) Swarm ~p is dialing peer ~p with paths ~p",[Parent, TID, Peer, SupportedPaths]),
     DialFun =
         fun
@@ -623,7 +629,7 @@ dial(Parent, TID, Peer, Module, Args, SupportedPaths) ->
                 lager:debug("(~p) dialing group worker stream failed, no compatible paths versions",[Parent]),
                 {error, no_supported_paths};
             Dial([Path | Rest]) ->
-                case do_dial(TID, Peer, Module, Args, Path) of
+                case do_dial(TID, Peer, DialOptions, Module, Args, Path) of
                         {ok, Stream} ->
                             lager:debug("(~p) dialing group worker stream successful, stream pid: ~p, path version: ~p", [Parent, Stream, Path]),
                             {ok, Stream, Path};
@@ -637,13 +643,15 @@ dial(Parent, TID, Peer, Module, Args, SupportedPaths) ->
         end,
     DialFun(SupportedPaths).
 
--spec do_dial(TID::ets:tab(), Peer::string(), Module::atom(),
+-spec do_dial(TID::ets:tab(), Peer::string(), DialOptions::[any()], Module::atom(),
             Args::[any()], Path::string())->
                     {'ok', StreamPid::pid()} |
                     {'error', any()}.
-do_dial(TID, Peer, Module, Args, Path)->
+do_dial(TID, Peer, DialOptions, Module, Args, Path)->
     libp2p_swarm:dial_framed_stream(TID,
                                     Peer,
                                     Path,
+                                    DialOptions,
+                                    5000,
                                     Module,
                                     [Path | Args]).

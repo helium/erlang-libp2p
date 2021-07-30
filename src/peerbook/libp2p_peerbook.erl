@@ -40,6 +40,7 @@
           notify_timer=undefined :: reference() | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=#{} :: #{libp2p_crypto:pubkey_bin() => pid()},
+          connections = [] :: [libp2p_crypto:pubkey_bin()],
           sigfun :: fun((binary()) -> binary()),
           metadata_fun :: fun(() -> map()),
           metadata = #{} :: map(),
@@ -395,9 +396,8 @@ init([TID, SigFun]) ->
                                         fun() -> #{} end),
     case libp2p_swarm:peerbook(TID) of
         false ->
-            ok = rocksdb:repair(DataDir, []), % This is just in case DB gets corrupted
-            case rocksdb:open_with_ttl(DataDir, [{create_if_missing, true}] ++ CFOpts,
-                                       (2 * StaleTime) div 1000, false) of
+            %% ok = rocksdb:repair(DataDir, []), % This is just in case DB gets corrupted
+            case open_rocks(DataDir, CFOpts, (2 * StaleTime) div 1000) of
                 {error, Reason} -> {stop, Reason};
                 {ok, DB} ->
                     %% compact the DB on open, just in case
@@ -471,11 +471,13 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) 
     UpdatedPeer = libp2p_peer:associations_put(ThisPeer, AssocType, Assoc, State#state.sigfun),
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
-    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions)})};
+    Addr = maps:get(SessionPid, Sessions, undefined),
+    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions), connections=State#state.connections -- [Addr]})};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:pubkey_bin(Identify),
-    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, Sessions)})};
+    MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
+    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, Sessions), connections=lists:sublist([SessionAddr|State#state.connections], MaxConns*2)})};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
@@ -510,6 +512,37 @@ terminate(_Reason, _State) ->
 %% Internal
 %%
 
+open_rocks(DataDir, CFOpts0, TTL) ->
+    CFOpts = [{create_if_missing, true}] ++ CFOpts0,
+    open_rocks(DataDir, CFOpts, TTL, clean).
+
+open_rocks(DataDir, CFOpts, TTL, clean) ->
+    case rocksdb:open_with_ttl(DataDir, CFOpts, TTL, false) of
+        {error, {db_open,"Corruption:" ++ _Reason}} ->
+            case rocksdb:repair(DataDir, CFOpts) of
+                ok ->
+                    open_rocks(DataDir, CFOpts, TTL, repaired);
+                _ ->
+                    open_rocks(DataDir, CFOpts, TTL, clear)
+            end;
+        {error, _} ->
+            open_rocks(DataDir, CFOpts, TTL, clear);
+        {ok, _DB} = OK -> OK
+    end;
+open_rocks(DataDir, CFOpts, TTL, repaired) ->
+    case rocksdb:open_with_ttl(DataDir, CFOpts, TTL, false) of
+        {error, _} ->
+            open_rocks(DataDir, CFOpts, TTL, clear);
+        {ok, _DB} = OK -> OK
+    end;
+open_rocks(DataDir, CFOpts, TTL, clear) ->
+    %% we've given up, start over
+    ok = rocksdb:destroy(DataDir, []),
+    case rocksdb:open_with_ttl(DataDir, CFOpts, TTL, false) of
+        {error, _} = E -> E;
+        {ok, _DB} = OK -> OK
+    end.
+
 eligible_gossip_peer(Peer) ->
     Limit = application:get_env(libp2p, eligible_peer_connectedness, 3),
     libp2p_peer:is_dialable(Peer)
@@ -528,7 +561,6 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
                           filter_rfc1918_addresses(ListenAddrs0)
                   end,
     NetworkID = libp2p_swarm:network_id(TID),
-    ConnectedAddrs = maps:values(State#state.sessions),
     %% Copy data from current peer
     case CurrentPeer of
         undefined ->
@@ -538,7 +570,7 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
     end,
     libp2p_peer:from_map(#{ pubkey => SwarmAddr,
                             listen_addrs => ListenAddrs,
-                            connected => ConnectedAddrs,
+                            connected => State#state.connections,
                             nat_type => State#state.nat_type,
                             network_id => NetworkID,
                             associations => Associations,
