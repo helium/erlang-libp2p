@@ -32,7 +32,7 @@
 -type opt() :: {listen, [listen_opt()]}.
 
 %% List of non-publicly routable IP address blocks in CIDR notation: {IP, bits in mask}.
-%% source: https://ipgeolocation.io/resources/bogon.html (29 July 2021)
+%% source: https://team-cymru.com/community-services/bogon-reference/bogon-reference-http/ (29 July 2021)
 -define(BOGON_PREFIXES, [{{0, 0, 0, 0}, 32},
                          {{10, 0, 0, 0}, 8},
                          {{100, 64, 0, 0}, 10},
@@ -150,7 +150,7 @@ sort_addrs(Addrs, AddressesForDefaultRoutes) ->
                         %% different, so return if A is a default route address or not
                         X
                 end;
-            %% Different, A <= B if B is a non-pulbic addr but A is not
+            %% Different, A <= B if B is a non-public addr but A is not
             false ->
                 BIP_Bogon andalso not AIP_Bogon
         end
