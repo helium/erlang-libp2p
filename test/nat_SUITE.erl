@@ -108,11 +108,7 @@ server(_Config) ->
         {ok, Since, Port, ExtPort, MockLease}
     end),
     meck:expect(nat, get_external_address, fun(_Context) ->
-<<<<<<< HEAD
         {ok, "67.192.56.22"}
-=======
-        {ok, "127.0.0.1"}
->>>>>>> 5714f363b297327d30b9eb0fa0ea228e14257684
     end),
     meck:expect(nat, delete_port_mapping, fun(_Context, tcp, _Port, _Port) ->
         ok
