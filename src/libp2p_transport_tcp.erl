@@ -374,8 +374,14 @@ bogon_ip_mask(MA) when is_list(MA) ->
         _ -> false
     end;
 bogon_ip_mask(IP) ->
-    %% sort list by longest prefix to return most specific match
-    bogon_ip_mask(lists:reverse(lists:keysort(2,?BOGON_PREFIXES)), IP).
+    case erlang:size(IP) of
+        4 ->
+            %% IPv4. Sort list by longest prefix to return most specific match
+            bogon_ip_mask(lists:reverse(lists:keysort(2,?BOGON_PREFIXES)), IP);
+        _ ->
+            %% TO-DO handle case of 8 for IPv6
+            false
+    end.
 
 bogon_ip_mask([{BogonIP, BogonMask} | Tail], IP) ->
     case mask_address(BogonIP, BogonMask) == mask_address(IP, BogonMask) of
@@ -1056,6 +1062,11 @@ attempt_port_forward_discovery(ObservedAddr, PeerAddr, State=#state{tid=TID, stu
 mask_address(Addr={_, _, _, _}, Maskbits) ->
     B = list_to_binary(tuple_to_list(Addr)),
     <<Subnet:Maskbits, _Host/bitstring>> = B,
+    Subnet;
+mask_address({A,B,C,D,E,F,G,H}, Maskbits) ->
+    %% IPv6
+    Addr = <<A:16, B:16, C:16, D:16, E:16, F:16, G:16, H:16>>,
+    <<Subnet:Maskbits, _Host/bitstring>> = Addr,
     Subnet.
 
 do_identify(Session, Identify, State=#state{tid=TID}) ->
@@ -1163,7 +1174,9 @@ bogon_ip_mask_test() ->
     ?assertEqual(false, bogon_ip_mask({1, 1, 1, 1})),
     ?assertEqual(false, bogon_ip_mask({100, 63, 255, 255})),
     ?assertEqual(false, bogon_ip_mask({198, 17, 0, 1})),
-    ?assertEqual(false, bogon_ip_mask({209, 85, 231, 104})).
+    ?assertEqual(false, bogon_ip_mask({209, 85, 231, 104})),
+    %% IPv6 negative test
+    ?assertEqual(false, bogon_ip_mask({10754,11778,33843,58112,38506,45311,65119,6184})).
 
 sort_addr_test() ->
     Addrs = [
