@@ -4,6 +4,7 @@
 -behavior(libp2p_gossip_stream).
 
 -include("gossip.hrl").
+-include_lib("kernel/include/inet.hrl"). %% for DNS lookup
 
 %% API
 -export([start_link/2]).
@@ -39,6 +40,10 @@
 -define(DEFAULT_MAX_INBOUND_CONNECTIONS, 10).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
 -define(GROUP_ID, "gossip").
+-define(DNS_RETRIES, 3).
+-define(DNS_TIMEOUT, 2000). % millis
+-define(DNS_SLEEP, 100). % millis
+-define(DEFAULT_SEED_DNS_PORTS, [2154, 443]).
 
 %% API
 %%
@@ -190,8 +195,9 @@ handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_n
     LocalAddr = libp2p_swarm:p2p_address(TID),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
-    TargetAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
+    BaseAddrs = sets:to_list(sets:subtract(sets:from_list(SeedAddrs),
                                              sets:from_list(ExcludedAddrs))),
+    TargetAddrs = maybe_lookup_seed_in_dns(BaseAddrs),
     {noreply, assign_target(WorkerPid, Ref, TargetAddrs, State)};
 handle_cast({send, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
     %% use a fun to generate the send data for each gossip peer
@@ -361,7 +367,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     State
             end;
         _ ->
-            SelectedAddr = mk_multiaddr(lists:nth(rand:uniform(length(TargetAddrs)), TargetAddrs)),
+            SelectedAddr = mk_multiaddr(choose_random_element(TargetAddrs)),
             ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), Bloom]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
@@ -376,6 +382,61 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     State
             end
     end.
+
+maybe_lookup_seed_in_dns(TargetAddrs) ->
+    case application:get_env(libp2p, use_dns_for_seeds, false) of
+        false ->
+            TargetAddrs;
+        true ->
+            lookup_seed_from_dns(TargetAddrs)
+    end.
+
+choose_random_element([E]) -> E;
+choose_random_element(L) when is_list(L) ->
+    lists:nth(rand:uniform(length(L)), L).
+
+%% We will (try to) lookup seed IPs from a DNS cname, and fall back to
+%% using the static seed list
+lookup_seed_from_dns(TargetAddrs) ->
+    case application:get_env(libp2p, seed_dns_cname, undefined) of
+        undefined ->
+            lager:error("Configured to use DNS to lookup seed node IP, but the cname is undefined", []),
+            TargetAddrs;
+        CName ->
+            case attempt_dns_lookup(CName, ?DNS_RETRIES) of
+                {error, _} = Error ->
+                    lager:error("DNS lookup of ~p resulted in ~p; falling back", [CName, Error]),
+                    TargetAddrs;
+                {ok, DNSRecord} ->
+                    lager:debug("successful DNS lookup result: ~p", [lager:pr(DNSRecord, inet)]),
+                    %% to help migitate possible eclipse attacks we will blend the DNS results
+                    %% with the static list of seed nodes
+                    convert_dns_records(DNSRecord) ++ TargetAddrs
+            end
+    end.
+
+attempt_dns_lookup(_Name, 0) -> {error, too_many_lookup_attempts};
+attempt_dns_lookup(Name, Attempts) ->
+    case inet_res:gethostbyname(Name, inet, ?DNS_TIMEOUT) of
+        {error, _} = Error ->
+            lager:debug("attempt ~p: got ~p", [Attempts, Error]),
+            timer:sleep(?DNS_SLEEP),
+            attempt_dns_lookup(Name, Attempts - 1);
+        {ok, HostRec} -> {ok, HostRec}
+    end.
+
+convert_dns_records(#hostent{h_addr_list = AddrList}) ->
+    [ format_dns_addr(A) || A <- AddrList ].
+
+format_dns_addr(Addr) ->
+    IPStr = inet:ntoa(Addr),
+    PortList = application:get_env(libp2p, seed_dns_ports, ?DEFAULT_SEED_DNS_PORTS),
+    PortStr = to_string(choose_random_element(PortList)),
+    "/ip4/" ++ IPStr ++ "/tcp/" ++ PortStr.
+
+to_string(V) when is_integer(V) -> integer_to_list(V);
+to_string(V) when is_binary(V) -> binary_to_list(V);
+to_string(V) when is_list(V) -> V.
 
 drop_target(Worker=#worker{pid=WorkerPid}, State=#state{workers=Workers}) ->
     libp2p_group_worker:clear_target(WorkerPid),
