@@ -177,66 +177,71 @@ random(Peerbook, Exclude, Pred) ->
 random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
     Exclude = lists:map(fun rev/1, Exclude0),
     {ok, Iterator} = rocksdb:iterator(Store, []),
-    {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} = rocksdb:iterator_move(Iterator, first),
-    {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
-    Difference = End - Start,
-    case Difference of
-        0 ->
-            rocksdb:iterator_close(Iterator),
-            %% only have one peer
-            case lists:member(FirstAddr, Exclude) of
-                true ->
-                    %% only peer we have is excluded
-                    false;
-                false ->
-                    %% use unsafe coming off the disk
-                    try libp2p_peer:decode_unsafe(FirstPeer) of
-                        Peer -> {rev(FirstAddr), Peer}
-                    catch
-                        _:_ ->
-                            %% only peer we have is junk
-                            false
-                    end
-            end;
-        _ ->
-            Offset = rand:uniform(Difference),
-            SeekPoint = Start + Offset,
-            NetworkID = libp2p_swarm:network_id(TID),
-            fun RandLoop(_, 0) ->
+    case rocksdb:iterator_move(Iterator, first) of
+        {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} ->
+            {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
+            Difference = End - Start,
+            case Difference of
+                0 ->
                     rocksdb:iterator_close(Iterator),
-                    false;
-                RandLoop({error, iterator_closed}, T) ->
-                    %% start completely over because our iterator is bad
-                    random(Peerbook, Exclude0, Pred, T - 1);
-                RandLoop({error, _} = _E, T) ->
-                    RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
-                RandLoop({ok, Addr, Bin}, T) ->
-                    case lists:member(Addr, Exclude) of
+                    %% only have one peer
+                    case lists:member(FirstAddr, Exclude) of
                         true ->
-                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                            %% only peer we have is excluded
+                            false;
                         false ->
                             %% use unsafe coming off the disk
-                            try libp2p_peer:decode_unsafe(Bin) of
-                                Peer ->
-                                    case libp2p_peer:is_stale(Peer, StaleTime) of
-                                        true ->
-                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
-                                        false ->
-                                            case libp2p_peer:network_id_allowable(Peer, NetworkID)
-                                                andalso Pred(Peer) of
-                                                true ->
-                                                    rocksdb:iterator_close(Iterator),
-                                                    {rev(Addr), Peer};
-                                                _ ->
-                                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
-                                           end
-                                    end
-                             catch
+                            try libp2p_peer:decode_unsafe(FirstPeer) of
+                                Peer -> {rev(FirstAddr), Peer}
+                            catch
                                 _:_ ->
-                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                    %% only peer we have is junk
+                                    false
                             end
-                    end
-            end(rocksdb:iterator_move(Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
+                    end;
+                _ ->
+                    Offset = rand:uniform(Difference),
+                    SeekPoint = Start + Offset,
+                    NetworkID = libp2p_swarm:network_id(TID),
+                    fun RandLoop(_, 0) ->
+                            rocksdb:iterator_close(Iterator),
+                            false;
+                        RandLoop({error, iterator_closed}, T) ->
+                            %% start completely over because our iterator is bad
+                            random(Peerbook, Exclude0, Pred, T - 1);
+                        RandLoop({error, _} = _E, T) ->
+                            RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
+                        RandLoop({ok, Addr, Bin}, T) ->
+                            case lists:member(Addr, Exclude) of
+                                true ->
+                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                                false ->
+                                    %% use unsafe coming off the disk
+                                    try libp2p_peer:decode_unsafe(Bin) of
+                                        Peer ->
+                                            case libp2p_peer:is_stale(Peer, StaleTime) of
+                                                true ->
+                                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                                                false ->
+                                                    case libp2p_peer:network_id_allowable(Peer, NetworkID)
+                                                         andalso Pred(Peer) of
+                                                        true ->
+                                                            rocksdb:iterator_close(Iterator),
+                                                            {rev(Addr), Peer};
+                                                        _ ->
+                                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                                    end
+                                            end
+                                    catch
+                                        _:_ ->
+                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                    end
+                            end
+                    end(rocksdb:iterator_move(Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
+            end;
+        {error,invalid_iterator} ->
+            %% no peers yet
+            false
     end.
 
 -spec refresh(peerbook(), libp2p_crypto:pubkey_bin() | libp2p_peer:peer()) -> ok.
