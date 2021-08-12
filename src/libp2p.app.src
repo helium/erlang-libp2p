@@ -34,7 +34,9 @@
                   relcast,
                   libp2p_crypto,
                   throttle,
-                  erbloom
+                  erbloom,
+                  sidejob,
+                  prometheus
                  ]},
   {env,[]},
 

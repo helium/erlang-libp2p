@@ -13,8 +13,8 @@
 %% libp2p_info
 -export([info/1]).
 
--define(RECV_TIMEOUT, 120000).
--define(SEND_TIMEOUT, 120000).
+-define(RECV_TIMEOUT, 30000).
+-define(SEND_TIMEOUT, 30000).
 
 -type response() :: binary().
 -type handle_data_result() ::
@@ -319,7 +319,7 @@ handle_cast(Request, State=#state{kind=Kind, module=Module, state=ModuleState}) 
 
 terminate(Reason, #state{send_pid=SendPid, kind=Kind, connection=Connection, module=Module, state=ModuleState}) ->
     case erlang:function_exported(Module, terminate, 3) of
-        true -> Module:terminate(Kind, Reason, ModuleState);
+        true -> catch Module:terminate(Kind, Reason, ModuleState);
         false -> ok
     end,
     unlink(SendPid),
@@ -340,7 +340,9 @@ call(Pid, Cmd, Timeout) ->
         exit:{normal, _} ->
             {error, closed};
         exit:{shutdown, _} ->
-            {error, closed}
+            {error, closed};
+        exit:{timeout, _} ->
+            {error, timeout}
     end.
 
 close(Pid) ->

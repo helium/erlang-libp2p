@@ -250,6 +250,7 @@ init_relay(#state{tid = TID, banlist = Banlist}) ->
             {error, retry}
     end.
 
+-spec banlist(undefined | string(), #state{}) -> #state{}.
 banlist(undefined, State) ->
     %% relay failed before we found out the address
     State;

@@ -141,6 +141,7 @@ mk_async_sender(Handler, Connection) ->
                      end
              end,
     fun() ->
+            erlang:put(async_sender_for, Parent),
             erlang:monitor(process, Parent),
             Sender()
     end.

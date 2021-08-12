@@ -12,5 +12,6 @@ message peer_resolution_msg {
         peer_request request = 1;
         signed_peer response = 2;
     }
+    bool re_request = 3;
 }
 

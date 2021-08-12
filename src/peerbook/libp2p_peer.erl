@@ -18,7 +18,7 @@
 -export_type([peer/0, association/0, peer_map/0, nat_type/0]).
 
 -export([from_map/2, encode/1, decode/1, decode_unsafe/1, encode_list/1, decode_list/1, verify/1,
-         pubkey_bin/1, listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
+         pubkey_bin/1, listen_addrs/1, raw_listen_addrs/1, connected_peers/1, nat_type/1, timestamp/1,
          supersedes/2, is_stale/2, is_similar/2, network_id/1, network_id_allowable/2,
          has_private_ip/1, has_public_ip/1, is_dialable/1]).
 %% associations
@@ -77,6 +77,12 @@ pubkey_bin(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{pubkey=PubKeyBin}}) ->
 -spec listen_addrs(peer()) -> [string()].
 listen_addrs(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{listen_addrs=Addrs}}) ->
     [multiaddr:to_string(A) || A <- Addrs].
+
+%% @doc Gets the list of peer multiaddrs that the given peer is
+%% listening on.
+-spec raw_listen_addrs(peer()) -> [string()].
+raw_listen_addrs(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{listen_addrs=Addrs}}) ->
+    Addrs.
 
 %% @doc Gets the list of peer crypto addresses that the given peer was last
 %% known to be connected to.
@@ -266,7 +272,7 @@ is_similar(Target=#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{timestamp=TargetTi
     pubkey_bin(Target) == pubkey_bin(Other)
         andalso nat_type(Target) == nat_type(Other)
         andalso network_id(Target) == network_id(Other)
-        andalso sets:from_list(listen_addrs(Target)) == sets:from_list(listen_addrs(Other))
+        andalso sets:from_list(raw_listen_addrs(Target)) == sets:from_list(raw_listen_addrs(Other))
         andalso TimestampSimilar
         %% We only compare the {type, assoc_adddress} parts of an
         %% association as multiple signatures over the same value will
@@ -296,7 +302,8 @@ has_public_ip(Peer) ->
 -spec has_private_ip(peer()) -> boolean().
 has_private_ip(Peer) ->
     ListenAddresses = ?MODULE:listen_addrs(Peer),
-    not lists:all(fun libp2p_transport_tcp:is_public/1, [ L || L <- ListenAddresses, libp2p_transport_tcp:match_addr(L) /= false]).
+    not lists:all(fun libp2p_transport_tcp:is_public/1, [ L || L <- ListenAddresses,
+                                                               libp2p_transport_tcp:match_addr(L) /= false]).
 
 %% @doc Returns whether the peer is dialable. A peer is dialable if it
 %% has a public IP address or it is reachable via a relay address.

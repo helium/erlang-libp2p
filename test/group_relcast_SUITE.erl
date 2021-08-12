@@ -54,6 +54,7 @@ unicast_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
+    test_util:connect_swarms(S2, S3),
 
     test_util:await_gossip_groups(Swarms),
     test_util:await_gossip_streams(Swarms),
@@ -111,6 +112,7 @@ multicast_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
     test_util:connect_swarms(S1, S3),
+    test_util:connect_swarms(S2, S3),
 
     test_util:await_gossip_groups(Swarms),
     test_util:await_gossip_streams(Swarms),
