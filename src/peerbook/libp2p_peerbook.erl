@@ -329,7 +329,7 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %%
 
 -spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, DecodedList, Handle) ->
+handle_gossip_data(_StreamPid, {"gossip/1.0."++_, DecodedList}, Handle) ->
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
     noreply.

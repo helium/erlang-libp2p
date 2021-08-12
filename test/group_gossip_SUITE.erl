@@ -378,7 +378,8 @@ seed_test(Config) ->
 init_gossip_data(_) ->
      ok.
 
-handle_gossip_data(_StreamPid, Msg, Parent) ->
+handle_gossip_data(_StreamPid, {"gossip/1.0"++_, Msg}, Parent) ->
+    ct:pal("handle gossip data ~p ~p ~p", [_StreamPid, Msg, Parent]),
     Parent ! {handle_gossip_data, Msg},
     noreply.
 

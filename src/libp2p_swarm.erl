@@ -181,7 +181,7 @@ store_peerbook(TID, Handle) ->
 %% @doc Get the peerbook pid for a swarm.
 -spec peerbook_pid(ets:tab() | pid()) -> pid().
 peerbook_pid(Sup) when is_pid(Sup) ->
-    peerbook(tid(Sup));
+    peerbook_pid(tid(Sup));
 peerbook_pid(TID) ->
     libp2p_swarm_sup:peerbook(TID).
 
