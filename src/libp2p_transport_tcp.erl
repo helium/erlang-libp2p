@@ -721,7 +721,7 @@ terminate(_Reason, #state{}) ->
 listen_options(IP, TID) ->
     OptionDefaults = [
                       {ip, IP},
-                      {backlog, 1024},
+                      {backlog, application:get_env(libp2p, listen_backlog, 1024)},
                       {nodelay, true},
                       {send_timeout, 30000},
                       {send_timeout_close, true}
@@ -1074,11 +1074,10 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                         true ->
                             lager:info("Saw 3 distinct observed addresses similar to ~p assuming symmetric NAT", [ObservedAddr]),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
-                            Ref = monitor_relay_server(State),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
                             %% also check if we have a port forward from the same external port to our internal port
                             %% as this is a common configuration
-                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses, relay_monitor=Ref, nat_type=symmetric});
+                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses});
                         false ->
                             State#state{observed_addrs=ObservedAddresses}
                     end
