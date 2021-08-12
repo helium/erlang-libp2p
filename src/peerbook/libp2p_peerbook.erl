@@ -358,7 +358,7 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %%
 
 -spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, DecodedList, Handle) ->
+handle_gossip_data(_StreamPid, {"gossip/1.0."++_, DecodedList}, Handle) ->
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
     noreply.
@@ -693,7 +693,10 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
             Opts = libp2p_swarm:opts(TID),
             PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
-            SendFun = fun() ->
+            SendFun = fun(seed) ->
+                              %% send everything to the seed nodes
+                              libp2p_peer:encode_list(PeerList);
+                         (_Type) ->
                               {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
                               libp2p_peer:encode_list(RandomNPeers)
                       end,

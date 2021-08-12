@@ -685,7 +685,7 @@ terminate(_Reason, #state{}) ->
 listen_options(IP, TID) ->
     OptionDefaults = [
                       {ip, IP},
-                      {backlog, 1024},
+                      {backlog, application:get_env(libp2p, listen_backlog, 1024)},
                       {nodelay, true},
                       {send_timeout, 30000},
                       {send_timeout_close, true}
@@ -1007,11 +1007,10 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                         true ->
                             lager:info("Saw 3 distinct observed addresses, assuming symmetric NAT"),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
-                            Ref = monitor_relay_server(State),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
                             %% also check if we have a port forward from the same external port to our internal port
                             %% as this is a common configuration
-                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses, relay_monitor=Ref, nat_type=symmetric});
+                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses});
                         false ->
                             State#state{observed_addrs=ObservedAddresses}
                     end
@@ -1030,21 +1029,15 @@ attempt_port_forward_discovery(ObservedAddr, PeerAddr, State=#state{tid=TID, stu
                                 {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
                                 [{"ip4", IP}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
                                 ObservedAddr1 = "/ip4/"++IP++"/tcp/"++PortStr,
-                                case lists:member(ObservedAddr1, State#state.resolved_addresses) of
-                                    true ->
-                                        %% we don't need to try this again
-                                        StateAcc;
-                                    false ->
-                                        case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
-                                            {ok, StunPid} ->
-                                                lager:info("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
-                                                %% TODO: Remove this once dial stops using start_link
-                                                unlink(StunPid),
-                                                erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
-                                                StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
-                                            _ ->
-                                                StateAcc
-                                        end
+                                case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
+                                    {ok, StunPid} ->
+                                        lager:debug("dialed stungun peer ~p looking for validation of ~p", [PeerAddr, ObservedAddr1]),
+                                        %% TODO: Remove this once dial stops using start_link
+                                        unlink(StunPid),
+                                        erlang:send_after(60000, self(), {stungun_timeout, TxnID}),
+                                        StateAcc#state{stun_txns=add_stun_txn(TxnID, ObservedAddr1, StunTxns)};
+                                    _ ->
+                                        StateAcc
                                 end;
                             _ ->
                                 StateAcc
