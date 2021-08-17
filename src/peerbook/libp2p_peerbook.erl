@@ -145,9 +145,8 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
 -spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook{tid=TID}=Handle, ID) ->
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
-    SeedNode = application:get_env(libp2p, seed_node, false),
     case fetch_peer(ID, Handle) of
-        {error, not_found} when ID == ThisPeerId, SeedNode == false ->
+        {error, not_found} when ID == ThisPeerId ->
             gen_server:call(libp2p_swarm:peerbook_pid(TID), update_this_peer, infinity),
             get(Handle, ID);
         {error, Error} ->
@@ -358,7 +357,7 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %%
 
 -spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, DecodedList, Handle) ->
+handle_gossip_data(_StreamPid, {"gossip/1.0."++_, DecodedList}, Handle) ->
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
     noreply.
@@ -584,27 +583,22 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
-    case application:get_env(libp2p, seed_node, false) of
-        false ->
-            SwarmAddr = libp2p_swarm:pubkey_bin(TID),
-            case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
-                {error, not_found} ->
-                    NewPeer = mk_this_peer(undefined, State),
-                    update_this_peer(NewPeer, get_async_signed_metadata(State));
-                {ok, OldPeer} ->
-                    case mk_this_peer(OldPeer, State) of
-                        {ok, NewPeer} ->
-                            case libp2p_peer:is_similar(NewPeer, OldPeer) of
-                                true -> State;
-                                false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
-                            end;
-                        {error, Error} ->
-                            lager:notice("Failed to make peer: ~p", [Error]),
-                            State
-                    end
-            end;
-         true ->
-            State
+    SwarmAddr = libp2p_swarm:pubkey_bin(TID),
+    case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
+        {error, not_found} ->
+            NewPeer = mk_this_peer(undefined, State),
+            update_this_peer(NewPeer, get_async_signed_metadata(State));
+        {ok, OldPeer} ->
+            case mk_this_peer(OldPeer, State) of
+                {ok, NewPeer} ->
+                    case libp2p_peer:is_similar(NewPeer, OldPeer) of
+                        true -> State;
+                        false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
+                    end;
+                {error, Error} ->
+                    lager:notice("Failed to make peer: ~p", [Error]),
+                    State
+            end
     end.
 
 -spec update_this_peer({ok, libp2p_peer:peer()} | {error, term()}, #state{}) -> #state{}.
@@ -693,7 +687,10 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
             Opts = libp2p_swarm:opts(TID),
             PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
-            SendFun = fun() ->
+            SendFun = fun(seed) ->
+                              %% send everything to the seed nodes
+                              libp2p_peer:encode_list(PeerList);
+                         (_Type) ->
                               {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
                               libp2p_peer:encode_list(RandomNPeers)
                       end,

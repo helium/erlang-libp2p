@@ -17,13 +17,14 @@
 -define(PATH, "identify/1.0.0").
 -define(TIMEOUT, 5000).
 
--spec dial_spawn(Session::pid(), ets:tab(), Handler::pid()) -> pid().
+-spec dial_spawn(Session::pid(), ets:tab(), Handler::pid()) -> {pid(), reference()}.
 dial_spawn(Session, TID, Handler) ->
-    spawn(fun() ->
-                  Challenge = crypto:strong_rand_bytes(20),
-                  Path = lists:flatten([?PATH, "/", base58:binary_to_base58(Challenge)]),
-                  libp2p_session:dial_framed_stream(Path, Session, ?MODULE, [TID, Handler])
-          end).
+    spawn_monitor(
+      fun() ->
+              Challenge = crypto:strong_rand_bytes(20),
+              Path = lists:flatten([?PATH, "/", base58:binary_to_base58(Challenge)]),
+              libp2p_session:dial_framed_stream(Path, Session, ?MODULE, [TID, Handler])
+      end).
 
 client(Connection, Args=[_TID, _Handler]) ->
     libp2p_framed_stream:client(?MODULE, Connection, Args).
