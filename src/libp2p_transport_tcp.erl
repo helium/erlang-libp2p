@@ -94,6 +94,7 @@
         }).
 
 -define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
+-define(DEFAULT_MAX_TCP_ACCEPTORS, 10).
 
 %% libp2p_transport
 %%
@@ -757,8 +758,10 @@ listen_on(Addr, TID) ->
                     ok = libp2p_cache:insert(Cache, {tcp_local_listen_addrs, Type}, ListenAddrs),
 
                     MaxTCPConnections = application:get_env(libp2p, max_tcp_connections, ?DEFAULT_MAX_TCP_CONNECTIONS),
+                    MaxAcceptors = application:get_env(libp2p, num_tcp_acceptors, ?DEFAULT_MAX_TCP_ACCEPTORS),
                     ChildSpec = ranch:child_spec(ListenAddrs,
-                                                 ranch_tcp, [{socket, Socket}, {max_connections, MaxTCPConnections}],
+                                                 ranch_tcp, [{socket, Socket}, {max_connections, MaxTCPConnections},
+                                                             {num_acceptors, MaxAcceptors}],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
