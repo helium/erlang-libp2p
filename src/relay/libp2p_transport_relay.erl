@@ -68,7 +68,7 @@ connect(Pid, MAddr, Options, Timeout, TID) ->
                  ,pos_integer(), ets:tab()) -> {ok, pid()} | {error, term()}.
 connect_to(_Pid, MAddr, Options, Timeout, TID) ->
     {ok, {RAddress, SAddress}} = libp2p_relay:p2p_circuit(MAddr),
-    lager:info("init relay tranport with ~p", [[MAddr, RAddress, SAddress]]),
+    lager:info("init relay transport with ~p", [[MAddr, RAddress, SAddress]]),
     true = libp2p_config:insert_relay_sessions(TID, SAddress, self()),
     case RAddress == SAddress of
         true ->
