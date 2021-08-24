@@ -987,9 +987,9 @@ record_observed_addr(_, _, State=#state{negotiated_nat=NegotiatedNat, nat_type=N
     %% we have a upnp address, do nothing
     State;
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
-    case is_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs) of
+    case is_observed_addr(PeerAddr, ObservedAddr, ObservedAddrs) orelse not is_public(ObservedAddr) of
         true ->
-            % this peer already told us about this observed address
+            % this peer already told us about this observed address or its a private IP
             State;
         false ->
             % check if another peer has seen this address and we're not running a stun txn for this address
