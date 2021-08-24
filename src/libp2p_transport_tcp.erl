@@ -482,6 +482,8 @@ handle_info({handle_identify, Session, {ok, Identify}}, State) ->
             lager:notice("handle identify failed ~p ~p ~p", [What, Why, Stack]),
             {noreply, State}
     end;
+handle_info({stungun_retry,Addr}, State) ->
+    handle_info(stungun_retry, State#state{resolved_addresses = State#state.resolved_addresses -- [{failed, Addr}]});
 handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns=StunTxns}) ->
     case most_observed_addr(Addrs) of
         {ok, ObservedAddr} ->
@@ -543,13 +545,13 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     {PeerAddr, ObservedAddr} = lists:nth(rand:uniform(length(Peers)), Peers),
                     %% finally, as this is a 'negative' result, schedule a retry in the future in case
                     %% our peers are wrong or lying to us
-                    TimerRef = erlang:send_after(timer:minutes(30), self(), stungun_retry),
+                    TimerRef = erlang:send_after(timer:minutes(30), self(), {stungun_retry, ResolvedAddr}),
                     NewState = attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
                                                                                                   relay_monitor = Ref,
                                                                                                   stungun_timeout_count = 0,
                                                                                                   stungun_timer = TimerRef,
                                                                                                   nat_type=NatType,
-                                                                                                  resolved_addresses=[ResolvedAddr|State#state.resolved_addresses]}),
+                                                                                                  resolved_addresses=[{failed, ResolvedAddr}|State#state.resolved_addresses]}),
                     {noreply, NewState}
             end
     end;
@@ -584,6 +586,8 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             lager:info("Got dial back confirmation of observed address ~p", [ObservedAddr]),
             case libp2p_config:lookup_listener(TID, LocalAddr) of
                 {ok, ListenerPid} ->
+                    %% remove any prior stungun discovered addresses, if any
+                    [ true = libp2p_config:remove_listener(TID, MultiAddr) || {resolved, MultiAddr} <- State#state.resolved_addresses ],
                     libp2p_config:insert_listener(TID, [ObservedAddr], ListenerPid),
                     %% don't need to start relay here, stop any we already have
                     libp2p_relay_server:stop(libp2p_swarm:swarm(TID)),
@@ -597,11 +601,12 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
                     end,
                     libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
                     erlang:cancel_timer(State#state.stungun_timer),
+                    ResolvedAddrs = [E || {resolved, _MultiAddr}=E <- State#state.resolved_addresses ],
                     %% clear the txnid so the timeout won't fire
                     {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
                                           nat_type=NatType,
                                           stungun_timeout_count=0,
-                                          resolved_addresses=[ObservedAddr|State#state.resolved_addresses]}};
+                                          resolved_addresses=[{resolved, ObservedAddr}|State#state.resolved_addresses -- ResolvedAddrs]}};
                 false ->
                     %% don't clear the txnid so the stungun timeout will still be handled
                     lager:notice("unable to determine listener pid for ~p", [LocalAddr]),
@@ -960,6 +965,23 @@ distinct_observed_addrs(Addrs) ->
                                          end, {[], []}, sets:to_list(Addrs)),
     lists:usort(DistinctAddresses).
 
+distinct_observed_addrs_for_ip(Addrs, ThisAddr) ->
+    {DistinctAddresses, _} = lists:foldl(fun({Reporter, Addr}, {Addresses, Reporters}) ->
+                                                 case lists:member(Reporter, Reporters) of
+                                                     true ->
+                                                         {Addresses, Reporters};
+                                                     false ->
+                                                         %% check it shares the same IP as the supplied address
+                                                         case hd(multiaddr:protocols(Addr)) == hd(multiaddr:protocols(ThisAddr)) of
+                                                             true ->
+                                                                 {[Addr|Addresses], [Reporter|Reporters]};
+                                                             false ->
+                                                                 {Addresses, Reporters}
+                                                         end
+                                                 end
+                                         end, {[], []}, sets:to_list(Addrs)),
+    lists:usort(DistinctAddresses).
+
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
 record_observed_addr(_, _, State=#state{negotiated_nat=NegotiatedNat, nat_type=NatType}) when NegotiatedNat == true; NatType /= unknown ->
     %% we have a upnp address, do nothing
@@ -972,7 +994,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
         false ->
             % check if another peer has seen this address and we're not running a stun txn for this address
             HasStunTxn = lists:member(ObservedAddr, maps:values(StunTxns)),
-            IsResolved = lists:member(ObservedAddr, State#state.resolved_addresses),
+            IsResolved = lists:keymember(ObservedAddr, 2, State#state.resolved_addresses),
             case is_observed_addr(ObservedAddr, ObservedAddrs) of
                 true ->
                     case HasStunTxn orelse IsResolved of
@@ -1003,7 +1025,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
                     %% check if we have `Limit' + 1 distinct observed addresses
                     %% make it an exact check so we don't do this constantly
-                    case length(distinct_observed_addrs(ObservedAddresses)) == 3 of
+                    case length(distinct_observed_addrs_for_ip(ObservedAddresses, ObservedAddr)) == 3 of
                         true ->
                             lager:info("Saw 3 distinct observed addresses, assuming symmetric NAT"),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
@@ -1030,7 +1052,7 @@ attempt_port_forward_discovery(ObservedAddr, PeerAddr, State=#state{tid=TID, stu
                                 {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(list_to_integer(PortStr)),
                                 [{"ip4", IP}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
                                 ObservedAddr1 = "/ip4/"++IP++"/tcp/"++PortStr,
-                                case lists:member(ObservedAddr1, State#state.resolved_addresses) of
+                                case lists:keymember(ObservedAddr1, 2, State#state.resolved_addresses) of
                                     true ->
                                         %% we don't need to try this again
                                         StateAcc;
