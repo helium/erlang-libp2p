@@ -961,7 +961,7 @@ distinct_observed_addrs(Addrs) ->
     lists:usort(DistinctAddresses).
 
 -spec record_observed_addr(string(), string(), #state{}) -> #state{}.
-record_observed_addr(_, _, State=#state{negotiated_nat=NegotiatedNat, nat_type=NatType}) when NegotiatedNat == true; NatType /= unknown ->
+record_observed_addr(_, _, State=#state{negotiated_nat=true}) ->
     %% we have a upnp address, do nothing
     State;
 record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addrs=ObservedAddrs, stun_txns=StunTxns}) ->
