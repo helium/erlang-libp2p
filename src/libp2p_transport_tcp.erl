@@ -534,25 +534,49 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     %% stungun failed to resolve, so we have to retry later when the timeout fires
                     {noreply, State};
                 _ ->
-                    %% we have either port restricted cone NAT or symmetric NAT
-                    %% and we need to start a relay
-                    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
-                    Ref = monitor_relay_server(State),
-                    libp2p_relay:init(libp2p_swarm:swarm(TID)),
-                    erlang:cancel_timer(State#state.stungun_timer),
-                    %% however, lets also check for a static port forward here
-                    Peers = sets:to_list(State#state.observed_addrs),
-                    {PeerAddr, ObservedAddr} = lists:nth(rand:uniform(length(Peers)), Peers),
-                    %% finally, as this is a 'negative' result, schedule a retry in the future in case
-                    %% our peers are wrong or lying to us
-                    TimerRef = erlang:send_after(timer:minutes(30), self(), {stungun_retry, ResolvedAddr}),
-                    NewState = attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
-                                                                                                  relay_monitor = Ref,
-                                                                                                  stungun_timeout_count = 0,
-                                                                                                  stungun_timer = TimerRef,
-                                                                                                  nat_type=NatType,
-                                                                                                  resolved_addresses=[{failed, ResolvedAddr}|State#state.resolved_addresses]}),
-                    {noreply, NewState}
+                    %% there are cases where the router uses the same outbound port for outbound dials
+                    %% but there's a port map set up. This can confuse the address resolution and lead to the
+                    %% outbound port detecting symmetric NAT and the inbound port detecting a working inbound
+                    %% port mapping. This will yield a peerbook entry with both an external address and a relay address.
+                    %%
+                    %% Instead, let's check if we've resolved an external address with the same IP here before
+                    %% declaring failure:
+
+                    [{"ip4", ResolvedIPAddress}, {"tcp", _}] = multiaddr:protocols(ResolvedAddr),
+                    case lists:any(fun({resolved, Addr}) ->
+                                           case multiaddr:protocols(Addr) of
+                                               [{"ip4", ResolvedIPAddress}, {tcp, _}] ->
+                                                   true;
+                                               _ ->
+                                                   false
+                                           end;
+                                      (_) -> false
+                                   end, State#state.resolved_addresses) of
+                        true ->
+                            lager:info("Discarding failed stungun resolution for ~p because we have resolved a working port map for this address", [ResolvedIPAddress]),
+                            erlang:cancel_timer(State#state.stungun_timer),
+                            {noreply, State#state{resolved_addresses=[{failed, ResolvedAddr}|State#state.resolved_addresses]}};
+                        false ->
+                            %% we have either port restricted cone NAT or symmetric NAT
+                            %% and we need to start a relay
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
+                            Ref = monitor_relay_server(State),
+                            libp2p_relay:init(libp2p_swarm:swarm(TID)),
+                            erlang:cancel_timer(State#state.stungun_timer),
+                            %% however, lets also check for a static port forward here
+                            Peers = sets:to_list(State#state.observed_addrs),
+                            {PeerAddr, ObservedAddr} = lists:nth(rand:uniform(length(Peers)), Peers),
+                            %% finally, as this is a 'negative' result, schedule a retry in the future in case
+                            %% our peers are wrong or lying to us
+                            TimerRef = erlang:send_after(timer:minutes(30), self(), {stungun_retry, ResolvedAddr}),
+                            NewState = attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
+                                                                                                          relay_monitor = Ref,
+                                                                                                          stungun_timeout_count = 0,
+                                                                                                          stungun_timer = TimerRef,
+                                                                                                          nat_type=NatType,
+                                                                                                          resolved_addresses=[{failed, ResolvedAddr}|State#state.resolved_addresses]}),
+                            {noreply, NewState}
+                    end
             end
     end;
 handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns, tid=TID, stungun_timeout_count=Count}) ->
@@ -1008,7 +1032,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                             {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
                             %% Record the TxnID , then convince a peer to dial us back with that TxnID
                             %% then that handler needs to forward the response back here, so we can add the external address
-                            lager:info("attempting to discover network status using stungun with ~p", [PeerAddr]),
+                            lager:info("attempting to discover network status for ~p using stungun with ~p", [ObservedAddr, PeerAddr]),
                             case libp2p_stream_stungun:dial(TID, PeerAddr, PeerPath, TxnID, self()) of
                                 {ok, StunPid} ->
                                     %% TODO: Remove this once dial stops using start_link
