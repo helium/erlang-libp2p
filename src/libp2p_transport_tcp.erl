@@ -1049,9 +1049,23 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     lager:info("peer ~p informed us of our observed address ~p", [PeerAddr, ObservedAddr]),
                     %% check if we have `Limit' + 1 distinct observed addresses
                     %% make it an exact check so we don't do this constantly
-                    case length(distinct_observed_addrs_for_ip(ObservedAddresses, ObservedAddr)) == 3 of
+
+                    %% also check that we have not already resolved this address. eg if we've already
+                    %% established a port mapping and only later do we see the symmetric NAT on outbound
+                    %% connections.
+                    [{"ip4", ResolvedIPAddress}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
+                    HasResolvedThisAddress = lists:any(fun({resolved, Addr}) ->
+                                                               case multiaddr:protocols(Addr) of
+                                                                   [{"ip4", ResolvedIPAddress}, {tcp, _}] ->
+                                                                       true;
+                                                                   _ ->
+                                                                       false
+                                                               end;
+                                                          (_) -> false
+                                                       end, State#state.resolved_addresses),
+                    case length(distinct_observed_addrs_for_ip(ObservedAddresses, ObservedAddr)) == 3 andalso not HasResolvedThisAddress of
                         true ->
-                            lager:info("Saw 3 distinct observed addresses, assuming symmetric NAT"),
+                            lager:info("Saw 3 distinct observed addresses similar to ~p assuming symmetric NAT", [ObservedAddr]),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
                             Ref = monitor_relay_server(State),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
