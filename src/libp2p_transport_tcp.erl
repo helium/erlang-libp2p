@@ -1222,7 +1222,7 @@ confirm_external_ip(ResolvedAddr) ->
         {ok, ResolveURL} ->
             case multiaddr:protocols(ResolvedAddr) of
                 [{"ip4", ResolvedIPAddress}, {"tcp", _}] ->
-                    case httpc:request(get, {ResolveURL, [{"accept", "text/plain"}]}, [], [{socket_opts, [inet]}]) of
+                    case httpc:request(get, {ResolveURL, [{"accept", "text/plain"}]}, [{timeout, 30000}], [{socket_opts, [inet]}]) of
                         {ok, {{_, 200, _}, _, Body0}} ->
                             Body = string:chomp(Body0),
                             case inet:parse_ipv4_address(Body) of
@@ -1237,7 +1237,10 @@ confirm_external_ip(ResolvedAddr) ->
                             %% something went wrong here, likely a rate limiting or routing issue
                             %% it's probably best to err on the side of assuming the peers are correct
                             true
-                    end
+                    end;
+                Result ->
+                    lager:notice("could not parse resolved address as ipv4/tcp ~p: ~p", [ResolvedAddr, Result]),
+                    false
             end
     end.
 
