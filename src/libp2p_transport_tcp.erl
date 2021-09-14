@@ -608,32 +608,39 @@ handle_info({stungun_reply, TxnID, LocalAddr}, State=#state{tid=TID, stun_txns=S
             {noreply, State};
         {ok, ObservedAddr} ->
             lager:info("Got dial back confirmation of observed address ~p", [ObservedAddr]),
-            case libp2p_config:lookup_listener(TID, LocalAddr) of
-                {ok, ListenerPid} ->
-                    %% remove any prior stungun discovered addresses, if any
-                    [ true = libp2p_config:remove_listener(TID, MultiAddr) || {resolved, MultiAddr} <- State#state.resolved_addresses ],
-                    libp2p_config:insert_listener(TID, [ObservedAddr], ListenerPid),
-                    %% don't need to start relay here, stop any we already have
-                    libp2p_relay_server:stop(libp2p_swarm:swarm(TID)),
-                    demonitor_relay_server(State),
-                    %% if we didn't have an external address originally, set the NAT type to 'static'
-                    NatType = case State#state.negotiated_nat of
-                        true ->
-                             static;
+            %% confirm it's an IP we seem to actually have
+            case confirm_external_ip(ObservedAddr) of
+                true ->
+                    case libp2p_config:lookup_listener(TID, LocalAddr) of
+                        {ok, ListenerPid} ->
+                            %% remove any prior stungun discovered addresses, if any
+                            [ true = libp2p_config:remove_listener(TID, MultiAddr) || {resolved, MultiAddr} <- State#state.resolved_addresses ],
+                            libp2p_config:insert_listener(TID, [ObservedAddr], ListenerPid),
+                            %% don't need to start relay here, stop any we already have
+                            libp2p_relay_server:stop(libp2p_swarm:swarm(TID)),
+                            demonitor_relay_server(State),
+                            %% if we didn't have an external address originally, set the NAT type to 'static'
+                            NatType = case State#state.negotiated_nat of
+                                          true ->
+                                              static;
+                                          false ->
+                                              none
+                                      end,
+                            libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
+                            erlang:cancel_timer(State#state.stungun_timer),
+                            ResolvedAddrs = [E || {resolved, _MultiAddr}=E <- State#state.resolved_addresses ],
+                            %% clear the txnid so the timeout won't fire
+                            {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
+                                                  nat_type=NatType,
+                                                  stungun_timeout_count=0,
+                                                  resolved_addresses=[{resolved, ObservedAddr}|State#state.resolved_addresses -- ResolvedAddrs]}};
                         false ->
-                            none
-                    end,
-                    libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), NatType),
-                    erlang:cancel_timer(State#state.stungun_timer),
-                    ResolvedAddrs = [E || {resolved, _MultiAddr}=E <- State#state.resolved_addresses ],
-                    %% clear the txnid so the timeout won't fire
-                    {noreply, State#state{stun_txns=remove_stun_txn(TxnID, StunTxns),
-                                          nat_type=NatType,
-                                          stungun_timeout_count=0,
-                                          resolved_addresses=[{resolved, ObservedAddr}|State#state.resolved_addresses -- ResolvedAddrs]}};
+                            %% don't clear the txnid so the stungun timeout will still be handled
+                            lager:notice("unable to determine listener pid for ~p", [LocalAddr]),
+                            {noreply, State}
+                    end;
                 false ->
-                    %% don't clear the txnid so the stungun timeout will still be handled
-                    lager:notice("unable to determine listener pid for ~p", [LocalAddr]),
+                    lager:notice("no independent confirmation of external address ~p", [ObservedAddr]),
                     {noreply, State}
             end
     end;
@@ -1201,6 +1208,41 @@ monitor_relay_server(#state{relay_monitor=Ref, tid=TID}) ->
 demonitor_relay_server(#state{relay_monitor=Ref, relay_retry_timer=Timer}) ->
     erlang:cancel_timer(Timer),
     erlang:demonitor(Ref).
+
+confirm_external_ip(ResolvedAddr) ->
+    %% if configured, we expect a service similar to ifconfig.co
+    %% that will return the IP address as a string in the body if accept: text/plain
+    %% is supplied. This service is open source so vendors can run their own if rate limit
+    %% issues occur. We only confirm this at the very end of the IP discovery process as
+    %% a way to limit the load on the external service.
+    case application:get_env(libp2p, ip_confirmation_host) of
+        undefined ->
+            %% no way to confirm or deny
+            true;
+        {ok, ResolveURL} ->
+            case multiaddr:protocols(ResolvedAddr) of
+                [{"ip4", ResolvedIPAddress}, {"tcp", _}] ->
+                    case httpc:request(get, {ResolveURL, [{"accept", "text/plain"}]}, [{timeout, 30000}], [{socket_opts, [inet]}]) of
+                        {ok, {{_, 200, _}, _, Body0}} ->
+                            Body = string:chomp(Body0),
+                            case inet:parse_ipv4_address(Body) of
+                                {ok, _IP} ->
+                                    Body == ResolvedIPAddress;
+                                _ ->
+                                    lager:notice("failed to parse ip resolution service response ~p", [Body]),
+                                    true
+                            end;
+                        _ ->
+                            lager:notice("resolving external address with ~p failed", [ResolveURL]),
+                            %% something went wrong here, likely a rate limiting or routing issue
+                            %% it's probably best to err on the side of assuming the peers are correct
+                            true
+                    end;
+                Result ->
+                    lager:notice("could not parse resolved address as ipv4/tcp ~p: ~p", [ResolvedAddr, Result]),
+                    false
+            end
+    end.
 
 %% ------------------------------------------------------------------
 %% EUNIT Tests
