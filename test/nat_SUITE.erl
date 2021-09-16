@@ -110,7 +110,7 @@ server(_Config) ->
     meck:expect(nat, get_external_address, fun(_Context) ->
         {ok, "67.192.56.22"}
     end),
-    meck:expect(nat, delete_port_mapping, fun(_Context, tcp, _Port, _Port) ->
+    meck:expect(nat, delete_port_mapping, fun(_Context, tcp, _Port2, _Port3) ->
         ok
     end),
 
