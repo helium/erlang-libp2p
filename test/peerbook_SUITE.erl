@@ -3,11 +3,20 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([all/0,
+         init_per_testcase/2,
+         end_per_testcase/2,
+         init_per_group/2,
+         end_per_group/2,
+         groups/0
+        ]).
 -export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1,
          association_test/1, gossip_test/1, network_id_gossip_test/1, stale_test/1]).
 
 all() ->
+    [{group, ecc_compact}, {group, ed25519}, {group, bls12_381}].
+
+test_cases() ->
     [
      accessor_test,
      bad_peer_test,
@@ -19,10 +28,24 @@ all() ->
      association_test
     ].
 
+groups() ->
+    [
+        {ecc_compact, [], test_cases()},
+        {ed25519, [], test_cases()},
+        {bls12_381, [], test_cases()}
+    ].
 
+init_per_group(ecc_compact, Config) ->
+    [{key_type, ecc_compact} | Config];
+init_per_group(ed25519, Config) ->
+    [{key_type, ed25519} | Config];
+init_per_group(bls12_381, Config) ->
+    [{key_type, bls12_381} | Config].
+
+end_per_group(_, _Config) ->
+    ok.
 
 init_per_testcase(accessor_test = TestCase, Config) ->
-
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     setup_peerbook(Config0, []);
 init_per_testcase(bad_peer_test = TestCase, Config) ->
@@ -98,8 +121,8 @@ accessor_test(Config) ->
     {_PeerBook, Address} = ?config(peerbook, Config),
     PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
-    Peer1 = mk_peer(),
-    Peer2 = mk_peer(),
+    Peer1 = mk_peer(Config),
+    Peer2 = mk_peer(Config),
 
     libp2p_peerbook:put(PeerBook, [Peer1]),
     libp2p_peerbook:put(PeerBook, [Peer2]),
@@ -125,10 +148,11 @@ accessor_test(Config) ->
     ok.
 
 bad_peer_test(Config) ->
+    KeyType = ?config(key_type, Config),
     PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
-    #{public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := PubKey1} = libp2p_crypto:generate_keys(KeyType),
+    #{secret := PrivKey2, public := PubKey2} = libp2p_crypto:generate_keys(KeyType),
 
     SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
 
@@ -149,7 +173,7 @@ blacklist_test(Config) ->
     {_PeerBook, _Address} = ?config(peerbook, Config),
     PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
-    Peer1 = mk_peer(),
+    Peer1 = mk_peer(Config),
 
     libp2p_peerbook:put(PeerBook, [Peer1]),
 
@@ -165,10 +189,11 @@ blacklist_test(Config) ->
 
 
 association_test(Config) ->
+    KeyType = ?config(key_type, Config),
     {_PeerBook, Address} = ?config(peerbook, Config),
     PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
-    #{secret := AssocPrivKey, public := AssocPubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := AssocPrivKey, public := AssocPubKey} = libp2p_crypto:generate_keys(KeyType),
     AssocSigFun = libp2p_crypto:mk_sig_fun(AssocPrivKey),
     Assoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey), Address, AssocSigFun),
 
@@ -190,9 +215,9 @@ put_test(Config) ->
     {_PeerBook, Address} = ?config(peerbook, Config),
     PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
 
-    PeerList1 = [mk_peer() || _ <- lists:seq(1, 5)],
+    PeerList1 = [mk_peer(Config) || _ <- lists:seq(1, 5)],
 
-    ExtraPeers = [mk_peer() || _ <- lists:seq(1, 3)],
+    ExtraPeers = [mk_peer(Config) || _ <- lists:seq(1, 3)],
     PeerList2 = lists:sublist(PeerList1, 1, 3) ++ ExtraPeers,
 
     ok = libp2p_peerbook:put(PeerBook, PeerList1),
@@ -351,7 +376,7 @@ stale_test(Config) ->
     S1Addr = libp2p_swarm:pubkey_bin(S1),
     {ok, S1First} = libp2p_peerbook:get(PeerBook, S1Addr),
 
-    Peer1 = mk_peer(),
+    Peer1 = mk_peer(Config),
     libp2p_peerbook:put(PeerBook, [Peer1]),
 
     %% This peer should remew itself after stale_time
@@ -400,9 +425,10 @@ stale_test(Config) ->
 peer_keys(PeerList) ->
     [libp2p_crypto:bin_to_b58(libp2p_peer:pubkey_bin(P)) || P <- PeerList].
 
-mk_peer() ->
-    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    #{ public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+mk_peer(Config) ->
+    KeyType = ?config(key_type, Config),
+    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(KeyType),
+    #{ public := PubKey2} = libp2p_crypto:generate_keys(KeyType),
     {ok, Peer} = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey),
                                         listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                                         connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
@@ -413,10 +439,11 @@ mk_peer() ->
 
 setup_peerbook(Config, Opts) ->
     test_util:setup(),
+    KeyType = ?config(key_type, Config),
     Name = list_to_atom("swarm" ++ integer_to_list(erlang:monotonic_time())),
     TID = ets:new(Name, [public, ordered_set, {read_concurrency, true}]),
     ets:insert(TID, {swarm_name, Name}),
-    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(KeyType),
     CompactKey = libp2p_crypto:pubkey_to_bin(PubKey),
     ets:insert(TID, {swarm_address, CompactKey}),
     PrivDir = ?config(priv_dir, Config),

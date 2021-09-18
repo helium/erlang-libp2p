@@ -3,10 +3,14 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
--export([all/0]).
+-export([all/0,
+         init_per_group/2,
+         end_per_group/2,
+         groups/0]).
+
 -export([coding_test/1, metadata_test/1, blacklist_test/1, association_test/1, signed_metadata_test/1]).
 
-all() ->
+test_cases() ->
     [coding_test,
      metadata_test,
      blacklist_test,
@@ -14,13 +18,34 @@ all() ->
      signed_metadata_test
     ].
 
-coding_test(_) ->
-    #{public := PubKey1, secret := PrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
-    #{public := PubKey2, secret := PrivKey2} = libp2p_crypto:generate_keys(ecc_compact),
+all() ->
+    [{group, ecc_compact}, {group, ed25519}, {group, bls12_381}].
+
+groups() ->
+    [
+        {ecc_compact, [], test_cases()},
+        {ed25519, [], test_cases()},
+        {bls12_381, [], test_cases()}
+    ].
+
+init_per_group(ecc_compact, Config) ->
+    [{key_type, ecc_compact} | Config];
+init_per_group(ed25519, Config) ->
+    [{key_type, ed25519} | Config];
+init_per_group(bls12_381, Config) ->
+    [{key_type, bls12_381} | Config].
+
+end_per_group(_, _Config) ->
+    ok.
+
+coding_test(Config) ->
+    KeyType = ?config(key_type, Config),
+    #{public := PubKey1, secret := PrivKey1} = libp2p_crypto:generate_keys(KeyType),
+    #{public := PubKey2, secret := PrivKey2} = libp2p_crypto:generate_keys(KeyType),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
     SigFun2 = libp2p_crypto:mk_sig_fun(PrivKey2),
 
-    #{public := AssocPubKey1, secret := AssocPrivKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{public := AssocPubKey1, secret := AssocPrivKey1} = libp2p_crypto:generate_keys(KeyType),
     AssocSigFun1 = libp2p_crypto:mk_sig_fun(AssocPrivKey1),
     Associations = [libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
                                                libp2p_crypto:pubkey_to_bin(PubKey1),
@@ -62,8 +87,9 @@ coding_test(_) ->
 
     ok.
 
-metadata_test(_) ->
-    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+metadata_test(Config) ->
+    KeyType = ?config(key_type, Config),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(KeyType),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
     PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
@@ -91,8 +117,9 @@ metadata_test(_) ->
 
     ok.
 
-blacklist_test(_) ->
-    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+blacklist_test(Config) ->
+    KeyType = ?config(key_type, Config),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(KeyType),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
     BadListenAddr = "/ip4/8.8.8.8/tcp/1234",
@@ -111,8 +138,9 @@ blacklist_test(_) ->
 
     ok.
 
-association_test(_) ->
-    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+association_test(Config) ->
+    KeyType = ?config(key_type, Config),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(KeyType),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
     PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
@@ -120,7 +148,7 @@ association_test(_) ->
                 connected => [],
                 nat_type => static},
 
-    #{secret := AssocPrivKey1, public := AssocPubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+    #{secret := AssocPrivKey1, public := AssocPubKey1} = libp2p_crypto:generate_keys(KeyType),
     ValidAssoc = libp2p_peer:mk_association(libp2p_crypto:pubkey_to_bin(AssocPubKey1),
                                             libp2p_crypto:pubkey_to_bin(PubKey1),
                                             libp2p_crypto:mk_sig_fun(AssocPrivKey1)),
@@ -158,8 +186,9 @@ association_test(_) ->
 
     ok.
 
-signed_metadata_test(_) ->
-    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(ecc_compact),
+signed_metadata_test(Config) ->
+    KeyType = ?config(key_type, Config),
+    #{secret := PrivKey1, public := PubKey1} = libp2p_crypto:generate_keys(KeyType),
     SigFun1 = libp2p_crypto:mk_sig_fun(PrivKey1),
 
     PeerMap = #{pubkey => libp2p_crypto:pubkey_to_bin(PubKey1),
