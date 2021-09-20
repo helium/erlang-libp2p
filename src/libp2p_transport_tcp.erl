@@ -48,6 +48,14 @@
                          {{224, 0, 0, 0}, 4},
                          {{240, 0, 0, 0}, 4}
                         ]).
+%% source: https://www.ripe.net/manage-ips-and-asns/ipv6/ipv6-address-types/ipv6addresstypes.pdf (16 Sept 2021)
+-define(BOGON_PREFIXES_IPV6, [{{0, 0, 0, 0, 0, 0, 0, 0}, 128},       %% unspecified address
+                              {{0, 0, 0, 0, 0, 0, 0, 1}, 128},       %% loopback address
+                              {{0, 0, 0, 0, 0, 16#ffff, 0, 0}, 96},  %% IPv4-mapped addresses
+                              {{16#fc00, 0, 0, 0, 0, 0, 0, 0}, 7},   %% unique local addresses (ULA)
+                              {{16#fe80, 0, 0, 0, 0, 0, 0, 0}, 10},  %% link-local unicast
+                              {{16#fec0, 0, 0, 0, 0, 0, 0, 0}, 10}   %% site-local unicast  (deprecated)
+                             ]).
 
 -export_type([opt/0, listen_opt/0]).
 
@@ -378,11 +386,12 @@ bogon_ip_mask(IP) ->
         4 ->
             %% IPv4. Sort list by longest prefix to return most specific match
             bogon_ip_mask(lists:reverse(lists:keysort(2,?BOGON_PREFIXES)), IP);
+        8 ->
+            %% IPv6. Sort list by longest prefix to return most specific match
+            bogon_ip_mask(lists:reverse(lists:keysort(2,?BOGON_PREFIXES_IPV6)), IP);
         _ ->
-            %% TO-DO handle case of 8 for IPv6
             false
     end.
-
 bogon_ip_mask([{BogonIP, BogonMask} | Tail], IP) ->
     case mask_address(BogonIP, BogonMask) == mask_address(IP, BogonMask) of
         true ->
@@ -778,11 +787,11 @@ listen_on(Addr, TID) ->
                 -> {ok, pid()} | {error, term()}.
 connect_to(Addr, UserOptions, Timeout, TID, TCPPid) ->
     case tcp_addr(Addr) of
-        {IP, Port, Type, AddrOpts} ->
+        {IP, Port, Type, _} ->
             UniqueSession = proplists:get_value(unique_session, UserOptions, false),
             UniquePort = proplists:get_value(unique_port, UserOptions, false),
             ListenAddrs = libp2p_config:listen_addrs(TID),
-            Options = connect_options(Type, AddrOpts ++ common_options(), Addr, ListenAddrs,
+            Options = connect_options(Type, common_options(), Addr, ListenAddrs,
                                       UniqueSession, UniquePort),
             case ranch_tcp:connect(IP, Port, Options, Timeout) of
                 {ok, Socket} ->
@@ -1119,9 +1128,6 @@ attempt_port_forward_discovery(ObservedAddr, PeerAddr, State=#state{tid=TID, stu
                 end, State, ListenSockets).
 
 
-%mask_address(_, _) ->
-    %% presumably ipv6, don't have a function for that one yet
-    %undefined.
 
 %% @doc Get the subnet mask as an integer, stolen from an old post on
 %%      erlang-questions.
@@ -1278,7 +1284,12 @@ bogon_ip_mask_test() ->
     ?assertEqual(false, bogon_ip_mask({198, 17, 0, 1})),
     ?assertEqual(false, bogon_ip_mask({209, 85, 231, 104})),
     %% IPv6 negative test
-    ?assertEqual(false, bogon_ip_mask({10754,11778,33843,58112,38506,45311,65119,6184})).
+    ?assertEqual(false, bogon_ip_mask({10754,11778,33843,58112,38506,45311,65119,6184})),
+    ?assertEqual(128, bogon_ip_mask({0,0,0,0,0,0,0,0})),
+    ?assertEqual(128, bogon_ip_mask({0,0,0,0,0,0,0,1})),
+    ?assertEqual(96, bogon_ip_mask({0,0,0,0,0,65535,0,0})),
+    ?assertEqual(7, bogon_ip_mask({16#fc80,0,0,0,16#e24f,16#43ff,16#fee8,16#dd6})),
+    ?assertEqual(10, bogon_ip_mask({16#fe80,0,0,0,16#e24f,16#43ff,16#fee8,16#dd6})).
 
 sort_addr_test() ->
     Addrs = [
