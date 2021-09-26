@@ -592,9 +592,9 @@ handle_info({stungun_timeout, TxnID}, State=#state{stun_txns=StunTxns, tid=TID, 
                     lager:notice("stungun timed out 5 times, adding relay address"),
                     %% we are having trouble determining our NAT type, fire up a relay in
                     %% desperation. If stungun finally resolves we will stop the relay later.
-                    Ref = monitor_relay_server(State),
+                    RelayRef = monitor_relay_server(State),
                     libp2p_relay:init(libp2p_swarm:swarm(TID)),
-                    {noreply, NewState#state{relay_monitor=Ref}};
+                    {noreply, NewState#state{relay_monitor=RelayRef}};
                 false ->
                     {noreply, NewState}
             end;
