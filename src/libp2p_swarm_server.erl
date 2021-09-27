@@ -137,7 +137,7 @@ handle_cast(Msg, State) ->
 terminate(Reason, #state{tid=TID}) ->
     lists:foreach(fun({Addr, Pid}) ->
                           libp2p_config:remove_session(TID, Addr),
-                          catch libp2p_session:close(Pid, Reason, infinity)
+                          catch libp2p_session:close(Pid, Reason)
                   end, libp2p_config:lookup_sessions(TID)).
 
 %% Internal
