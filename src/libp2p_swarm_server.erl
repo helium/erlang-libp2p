@@ -72,12 +72,21 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
     %% session change as well as the new identify record.
     Addr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     lager:debug("received identity for peer ~p. Putting this peer", [Addr]),
-    libp2p_config:insert_session(TID,
-                                 Addr,
-                                 Session),
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:register_session(PeerBook, Session, Identify),
-    libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]),
+    try libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]) of
+        ok ->
+            libp2p_config:insert_session(TID,
+                                         Addr,
+                                         Session),
+            libp2p_peerbook:register_session(PeerBook, Session, Identify);
+        {error, Reason} ->
+            lager:warning("Failed to put peerbook entry for ~p ~p", [Addr, Reason]),
+            libp2p_session:close(Session)
+    catch
+        error:invalid_signature ->
+            lager:warning("Invalid peerbook signature for ~p", [Addr]),
+            libp2p_session:close(Session)
+    end,
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, _Pid, _Reason}, State=#state{pid_gc_monitor=MonitorRef}) ->
     erlang:send_after(timer:minutes(5), self(), gc_pids),
