@@ -361,7 +361,7 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
+-spec handle_gossip_data(pid(), {string(), [libp2p_peer:peer()]}, peerbook()) -> noreply.
 handle_gossip_data(_StreamPid, {"gossip/1.0."++_, DecodedList}, Handle) ->
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
