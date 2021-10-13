@@ -116,7 +116,7 @@ init([Sup, TID]) ->
             false ->
                 get_opt(Opts, seednode_connections, ?DEFAULT_SEEDNODE_CONNECTIONS);
             true ->
-                length(SeedNodes) - 1
+                length(maybe_lookup_seed_in_dns(SeedNodes)) - 1
         end,
     InboundCount = get_opt(Opts, inbound_connections, ?DEFAULT_MAX_INBOUND_CONNECTIONS),
     DropTimeOut = get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
