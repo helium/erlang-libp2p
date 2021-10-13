@@ -5,6 +5,7 @@ import "libp2p_peer.proto";
 message peer_request {
     bytes pubkey = 1;
     int64 timestamp = 2;
+    bool re_request = 3;
 }
 
 message peer_resolution_msg {

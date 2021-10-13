@@ -2,6 +2,7 @@
 
 -export([start_link/2, stop/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1,
+         tid/1,
          put/2, put/3, get/2,
          random/1, random/2, random/3, random/4,
          refresh/2, is_key/2, remove/2, stale_time/1,
@@ -86,6 +87,10 @@
 %%
 %% API
 %%
+
+-spec tid(peerbook()) -> ets:tab().
+tid(#peerbook{tid=TID}) ->
+    TID.
 
 -spec put(peerbook(), [libp2p_peer:peer()]) -> ok | {error, term()}.
 put(Handle, PeerList) ->

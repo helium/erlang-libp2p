@@ -237,10 +237,12 @@ handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_n
                                              sets:from_list(ExcludedAddrs))),
     TargetAddrs = maybe_lookup_seed_in_dns(BaseAddrs),
     {noreply, assign_target(WorkerPid, Ref, TargetAddrs, State)};
-handle_cast({send, Key, Fun}, State) when is_function(Fun, 1) ->
+handle_cast({send, Key, Data}, State) ->
+    %% assume all gossip peers
+    handle_cast({send, all, Key, Data}, State);
+handle_cast({send, all, Key, Fun}, State=#state{}) when is_function(Fun, 1) ->
     %% use a fun to generate the send data for each gossip peer
     %% this can be helpful to send a unique random subset of data to each peer
-
     %% find out what kind of connection we are dealing with and pass that type to the fun
     {_, SeedPids} = lists:unzip(connections(seed, State)),
     {_, PeerbookPids} = lists:unzip(connections(peerbook, State)),
@@ -251,15 +253,25 @@ handle_cast({send, Key, Fun}, State) when is_function(Fun, 1) ->
                   [ libp2p_group_worker:send(Pid, Key, Fun(inbound), true) || Pid <- InboundPids ]
           end),
     {noreply, State};
+handle_cast({send, Kind, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
+    %% use a fun to generate the send data for each gossip peer
+    %% this can be helpful to send a unique random subset of data to each peer
+    {_, Pids} = lists:unzip(connections(Kind, State)),
+    lists:foreach(fun(Pid) ->
+                          Data = Fun(Kind),
+                          %% Catch errors encoding the given arguments to avoid a bad key or
+                          %% value taking down the gossip server
+                          libp2p_group_worker:send(Pid, Key, Data, true)
+                  end, Pids),
+    {noreply, State};
 
-handle_cast({send, Key, Data}, State=#state{bloom=Bloom}) ->
+handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom}) ->
     case bloom:check(Bloom, {out, Data}) of
         true ->
             ok;
         false ->
             bloom:set(Bloom, {out, Data}),
-
-            {_, Pids} = lists:unzip(connections(all, State)),
+            {_, Pids} = lists:unzip(connections(Kind, State)),
             lager:debug("sending data via connection pids: ~p",[Pids]),
             spawn(fun() ->
                           lists:foreach(fun(Pid) ->

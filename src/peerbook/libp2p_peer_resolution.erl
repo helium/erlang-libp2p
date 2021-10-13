@@ -21,8 +21,21 @@ resolve(GossipGroup, PK, Ts) ->
                                   msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}})),
     ok.
 
+re_resolve(GossipGroup, PK, Ts) ->
+    libp2p_group_gossip:send(GossipGroup, seed, ?GOSSIP_GROUP_KEY,
+                             libp2p_peer_resolution_pb:encode_msg(
+                               #libp2p_peer_resolution_msg_pb{
+                                  msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts, re_request=true}}})),
+    ok.
+
+
 install_handler(G, Handle) ->
-    throttle:setup(?MODULE, 10, per_minute),
+    Limit = case application:get_env(libp2p, seed_node, false) of
+                true ->
+                    1000;
+                false -> 10
+            end,
+    throttle:setup(?MODULE, Limit, per_minute),
     libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
     ok.
 
@@ -33,7 +46,7 @@ install_handler(G, Handle) ->
 -spec handle_gossip_data(pid(), binary(), libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
 handle_gossip_data(StreamPid, Data, Handle) ->
     case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
-        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}} ->
+        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts, re_request=ReRequest}}} ->
             case throttle:check(?MODULE, StreamPid) of
                 {ok, _, _} ->
                     %% look up our peerbook for a newer record for this peer
@@ -45,12 +58,14 @@ handle_gossip_data(StreamPid, Data, Handle) ->
                                     {reply, libp2p_peer_resolution_pb:encode_msg(
                                               #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
                                 false ->
+                                    maybe_re_resolve(Handle, ReRequest, PK, Ts),
                                     lager:debug("ARP response for ~p Failed - stale", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
                                     %% peer is as stale or staler than what they have
                                     noreply
                             end;
                         _ ->
                             lager:debug("ARP response for ~p Failed - notfound", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
+                            maybe_re_resolve(Handle, ReRequest, PK, Ts),
                             %% don't have this peer
                             noreply
                     end;
@@ -64,7 +79,17 @@ handle_gossip_data(StreamPid, Data, Handle) ->
             noreply
     end.
 
-
+maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->
+    case ReRequest /= true andalso application:get_env(libp2p, seed_node, false) of
+        true ->
+            %% only have seed nodes re-request, and only from other seed nodes and
+            %% only if this is not a re-request itself
+            GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Peerbook)),
+            lager:info("ARP re-request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
+            re_resolve(GossipGroup, PK, Ts);
+        false ->
+            ok
+    end.
 
 -spec init_gossip_data(libp2p_peerbook:peerbook()) -> libp2p_group_gossip_handler:init_result().
 init_gossip_data(_Peerbook) ->

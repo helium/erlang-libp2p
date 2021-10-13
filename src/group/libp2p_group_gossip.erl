@@ -12,7 +12,7 @@
 
 -export_type([handler/0, connection_kind/0]).
 
--export([add_handler/3, remove_handler/2, send/3, connected_addrs/2, connected_pids/2]).
+-export([add_handler/3, remove_handler/2, send/3, send/4, connected_addrs/2, connected_pids/2]).
 
 -spec add_handler(pid(), string(), handler()) -> ok.
 add_handler(Pid, Key, Handler) ->
@@ -27,7 +27,11 @@ remove_handler(Pid, Key) ->
 %% used for delivery. Delivery is best effort.
 -spec send(pid(), string(), iodata() | fun((connection_kind()) -> iodata())) -> ok.
 send(Pid, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
-    gen_server:cast(Pid, {send, Key, Data}).
+    gen_server:cast(Pid, {send, all, Key, Data}).
+
+-spec send(pid(), connection_kind(), string(), iodata() | fun(() -> iodata())) -> ok.
+send(Pid, Kind, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
+    gen_server:cast(Pid, {send, Kind, Key, Data}).
 
 -spec connected_addrs(pid(), connection_kind() | all) -> [MAddr::string()].
 connected_addrs(Pid, WorkerKind) ->
