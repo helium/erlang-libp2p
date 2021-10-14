@@ -25,7 +25,8 @@ re_resolve(GossipGroup, PK, Ts) ->
     libp2p_group_gossip:send(GossipGroup, seed, ?GOSSIP_GROUP_KEY,
                              libp2p_peer_resolution_pb:encode_msg(
                                #libp2p_peer_resolution_msg_pb{
-                                  msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts, re_request=true}}})),
+                                  msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}},
+                                  re_request = true})),
     ok.
 
 
@@ -46,7 +47,7 @@ install_handler(G, Handle) ->
 -spec handle_gossip_data(pid(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
 handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
     case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
-        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts, re_request=ReRequest}}} ->
+        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}, re_request=ReRequest}} ->
             case throttle:check(?MODULE, StreamPid) of
                 {ok, _, _} ->
                     %% look up our peerbook for a newer record for this peer
@@ -72,11 +73,18 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
                 {limit_exceeded, _, _} ->
                     noreply
             end;
-        #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}} ->
+        #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
             lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
             %% send this peer to the peerbook
-            libp2p_peerbook:put(Handle, [Peer]),
-            noreply
+            Res = libp2p_peerbook:put(Handle, [Peer]),
+            case Res == ok andalso ReRequest andalso application:get_env(libp2p, seed_node, false) of
+                true ->
+                    %% this was a re-request, so gossip this update to everyone else too
+                    {reply, libp2p_peer_resolution_pb:encode_msg(
+                              #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
+                false ->
+                    noreply
+            end
     end.
 
 maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->
