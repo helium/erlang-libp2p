@@ -47,7 +47,7 @@ install_handler(G, Handle) ->
 -spec handle_gossip_data(pid(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
 handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
     case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
-        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}, re_request=ReRequest}} ->
+        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
             case throttle:check(?MODULE, StreamPid) of
                 {ok, _, _} ->
                     %% look up our peerbook for a newer record for this peer
