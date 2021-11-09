@@ -6,7 +6,7 @@
 
 -export_type([stream_handler/0]).
 
--export([ping/1, open/1, close/1, close/2, close_state/1, goaway/1, streams/1, addr_info/2, identify/3]).
+-export([ping/1, open/1, close/1, close/3, close_state/1, goaway/1, streams/1, addr_info/2, identify/3]).
 
 -export([dial/2, dial_framed_stream/4]).
 
@@ -23,11 +23,7 @@ open(Pid) ->
 
 -spec close(pid()) -> ok.
 close(Pid) ->
-    close(Pid, normal).
-
--spec close(pid(), term()) -> ok.
-close(Pid, Reason) ->
-    try close(Pid, Reason, 5000) of
+    try close(Pid, normal, 5000) of
         Res -> Res
     catch
         exit:timeout ->
