@@ -133,12 +133,9 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-
-terminate(Reason, #state{tid=TID}) ->
-    lists:foreach(fun({Addr, Pid}) ->
-                          libp2p_config:remove_session(TID, Addr),
-                          catch libp2p_session:close(Pid, Reason)
-                  end, libp2p_config:lookup_sessions(TID)).
+terminate(Reason, _State) ->
+    lager:warning("going down ~p", [Reason]),
+    ok.
 
 %% Internal
 %%
