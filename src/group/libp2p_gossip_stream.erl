@@ -75,16 +75,20 @@ handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
     DecodedData = apply_path_decode(Path, Bin),
     case bloom:check(Bloom, {in, DecodedData}) of
         true ->
-            ok;
+            {noreply, State};
         false ->
             %% TODO if we knew this connections's peer/target address
             %% we could do a second bloom:set to allow tracking where we
             %% received this data from
             bloom:set(Bloom, {in, DecodedData}),
-            ok = HandlerModule:handle_data(HandlerState, self(), Key,
-                                           {Path, DecodedData})
-    end,
-    {noreply, State}.
+            case HandlerModule:handle_data(HandlerState, self(), Key,
+                                           {Path, DecodedData}) of
+                {reply, ReplyMsg} ->
+                    {noreply, State, ReplyMsg};
+                _ ->
+                    {noreply, State}
+            end
+    end.
 
 handle_info(server, {Ref, AcceptResult}, State=#state{reply_ref=Ref}) ->
     case AcceptResult of

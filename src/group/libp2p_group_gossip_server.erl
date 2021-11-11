@@ -84,7 +84,7 @@ handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
                             {'EXIT', Error} ->
                                 lager:warning("Error encoding gossip data ~p", [Error]);
                             ReplyMsg ->
-                                libp2p_framed_stream:send(StreamPid, ReplyMsg)
+                                {reply, ReplyMsg}
                         end;
                     _ ->
                         ok
