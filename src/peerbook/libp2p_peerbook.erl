@@ -100,40 +100,47 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
             false -> lists:filter(fun libp2p_peer:verify/1, PeerList0)
         end,
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
-    %% XXX uncomment this to reject any peers publishing RFC1918 addresses once the network has transitioned over
-    AllowRFC1918 = true, %% is_rfc1918_allowed(TID),
+    AllowRFC1918 = is_rfc1918_allowed(TID),
     NewPeers = lists:foldl(
                  fun(NewPeer, Acc) ->
-                         NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
-                         case unsafe_fetch_peer(NewPeerId, Handle) of
-                             {error, not_found} ->
-                                 case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
-                                     true ->
-                                         store_peer(NewPeer, Handle),
-                                         [NewPeer | Acc];
-                                     false -> Acc
-                                 end;
-                             {ok, ExistingPeer} ->
-                                 %% Only store peers that are not _this_ peer,
-                                 %% are newer than what we have,
-                                 %% are not stale themselves
-                                 case NewPeerId /= ThisPeerId
-                                     andalso (AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer))
-                                     andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
-                                     andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
-                                     andalso libp2p_peer:network_id_allowable(NewPeer, libp2p_swarm:network_id(TID)) of
-                                     true ->
-                                         %% even if the peer is similar, we should still
-                                         %% store it because it's newer
-                                         store_peer(NewPeer, Handle),
-                                         case libp2p_peer:is_similar(NewPeer, ExistingPeer) of
-                                             false ->
-                                                 [NewPeer | Acc];
+                         case libp2p_peer:listen_addrs() == [] of
+                             true ->
+                                 %% no need to store a peer with no listen addresses
+                                 %% and it it will make it easier to get an updated version
+                                 %% later once the peer has an address
+                                 Acc;
+                             _ ->
+                                 NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
+                                 case unsafe_fetch_peer(NewPeerId, Handle) of
+                                     {error, not_found} ->
+                                         case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
                                              true ->
-                                                 Acc
+                                                 store_peer(NewPeer, Handle),
+                                                 [NewPeer | Acc];
+                                             false -> Acc
                                          end;
-                                     _ ->
-                                         Acc
+                                     {ok, ExistingPeer} ->
+                                         %% Only store peers that are not _this_ peer,
+                                         %% are newer than what we have,
+                                         %% are not stale themselves
+                                         case NewPeerId /= ThisPeerId
+                                              andalso (AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer))
+                                              andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
+                                              andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
+                                              andalso libp2p_peer:network_id_allowable(NewPeer, libp2p_swarm:network_id(TID)) of
+                                             true ->
+                                                 %% even if the peer is similar, we should still
+                                                 %% store it because it's newer
+                                                 store_peer(NewPeer, Handle),
+                                                 case libp2p_peer:is_similar(NewPeer, ExistingPeer) of
+                                                     false ->
+                                                         [NewPeer | Acc];
+                                                     true ->
+                                                         Acc
+                                                 end;
+                                             _ ->
+                                                 Acc
+                                         end
                                  end
                          end
                  end, [], PeerList),
@@ -635,8 +642,7 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
                                %% check the peer has some interesting information
-                               case has_useful_listen_addrs(Peer, State) orelse
-                                    libp2p_peer:connected_peers(Peer) /= [] of
+                               case has_useful_listen_addrs(Peer, State) of
                                    false -> Acc;
                                    true ->
                                        case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
