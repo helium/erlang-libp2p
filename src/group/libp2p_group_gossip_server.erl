@@ -395,25 +395,38 @@ choose_random_element([E]) -> E;
 choose_random_element(L) when is_list(L) ->
     lists:nth(rand:uniform(length(L)), L).
 
-%% We will (try to) lookup seed IPs from a DNS cname, and fall back to
+%% We will (try to) lookup seed IPs from a (pool of) DNS cname, and fall back to
 %% using the static seed list
 lookup_seed_from_dns(TargetAddrs) ->
     case application:get_env(libp2p, seed_dns_cname, undefined) of
         undefined ->
             lager:error("Configured to use DNS to lookup seed node IP, but the cname is undefined", []),
             TargetAddrs;
-        CName ->
-            case attempt_dns_lookup(CName, ?DNS_RETRIES) of
-                {error, _} = Error ->
-                    lager:error("DNS lookup of ~p resulted in ~p; falling back", [CName, Error]),
-                    TargetAddrs;
-                {ok, DNSRecord} ->
-                    lager:debug("successful DNS lookup result: ~p", [lager:pr(DNSRecord, inet)]),
-                    %% to help migitate possible eclipse attacks we will blend the DNS results
-                    %% with the static list of seed nodes
-                    convert_dns_records(DNSRecord) ++ TargetAddrs
-            end
+        BaseCName ->
+            %% to help migitate possible eclipse attacks we will blend the DNS results
+            %% with the static list of seed nodes
+            collect_dns_records(BaseCName) ++ TargetAddrs
     end.
+
+collect_dns_records(Base) ->
+    AdditionalNames = application:get_env(libp2p, seed_dns_pool_names, []),
+    DNSNames = maybe_make_seed_pool_names(Base, AdditionalNames),
+    lists:foldl(fun do_dns_lookups/2, [], DNSNames).
+
+do_dns_lookups(CName, Acc) ->
+    case attempt_dns_lookup(CName, ?DNS_RETRIES) of
+        {error, _} = Error ->
+            lager:error("DNS lookup of ~p resulted in ~p after ~p retries", [CName, Error, ?DNS_RETRIES]),
+            Acc;
+        {ok, DNSRecord} ->
+            lager:debug("successful DNS lookup result: ~p for ~p", [lager:pr(DNSRecord, inet), CName]),
+            convert_dns_records(DNSRecord) ++ Acc
+    end.
+
+maybe_make_seed_pool_names(Base, []) -> [Base];
+maybe_make_seed_pool_names(Base, Additional) ->
+    [_InitialCName, Domain] = string:split(Base, "."),
+    [Base] ++ [ A ++ "." ++ Domain || A <- Additional ].
 
 attempt_dns_lookup(_Name, 0) -> {error, too_many_lookup_attempts};
 attempt_dns_lookup(Name, Attempts) ->
