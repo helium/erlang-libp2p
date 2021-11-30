@@ -24,7 +24,7 @@
           data_queue=[] :: [binary()]
         }).
 
--define(ACK_STREAM_TIMEOUT, timer:minutes(5)).
+-define(ACK_STREAM_TIMEOUT, timer:minutes(1)).
 
 %% API
 %%
