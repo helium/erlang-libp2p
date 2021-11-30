@@ -76,6 +76,16 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
         #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
             lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
             %% send this peer to the peerbook
+            %% refresh any relays this peer is using as well so we don't fail
+            %% a subsequent dial
+            lists:foreach(fun(Address) ->
+                                  case libp2p_relay:p2p_circuit(Address) of
+                                      {ok, {Relay, _PeerAddr}} ->
+                                          libp2p_peerbook:refresh(Handle, libp2p_crypto:p2p_to_pubkey_bin(Relay));
+                                      error ->
+                                          ok
+                                  end
+                          end, libp2p_peer:listen_addrs(Peer)),
             Res = libp2p_peerbook:put(Handle, [Peer]),
             case Res == ok andalso ReRequest andalso application:get_env(libp2p, seed_node, false) of
                 true ->
