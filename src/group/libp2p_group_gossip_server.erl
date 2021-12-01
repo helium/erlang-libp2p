@@ -34,7 +34,8 @@
          drop_timer :: reference(),
          supported_paths :: [string()],
          bloom :: bloom_nif:bloom(),
-         sidejob_sup :: atom()
+         sidejob_sup :: atom(),
+         worker_start_refs = [] :: [reference()]
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
@@ -148,7 +149,7 @@ handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
     {reply, ok, State#state{handlers=maps:remove(Key, Handlers)}};
 
 handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
-            _From, State) ->
+            From, State) ->
     Target = libp2p_identify:pubkey_bin(Identify),
     %% Check if we already have a worker for this target
     case lookup_worker_by_target(Target, State) of
@@ -161,10 +162,7 @@ handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
                                 [State#state.max_inbound_connections]),
                     {reply, {error, too_many}, State};
                 false ->
-                    case start_inbound_worker(Target, StreamPid, Path, State) of
-                        {ok, Worker} -> {reply, ok, add_worker(Worker, State)};
-                        {error, overload} -> {reply, {error, too_many}, State}
-                    end
+                    start_inbound_worker(From, Target, StreamPid, Path, State)
             end;
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
@@ -308,6 +306,33 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
+
+handle_info({started_inbound_worker, Ref, From, {error, _Reason}=Error}, State=#state{worker_start_refs=Refs}) ->
+    case lists:member(Ref, Refs) of
+        true ->
+            case From of
+                {raw, Pid, MsgRef} ->
+                    Pid ! {MsgRef, Error};
+                _ ->
+                    gen_server:reply(From, Error)
+            end,
+            {noreply, State#state{worker_start_refs=Refs--[Ref]}};
+        false ->
+            {noreply, State}
+    end;
+handle_info({started_inbound_worker, Ref, From, {ok, Worker}}, State=#state{worker_start_refs=Refs}) ->
+    case lists:member(Ref, Refs) of
+        true ->
+            case From of
+                {raw, Pid, MsgRef} ->
+                    Pid ! {MsgRef, ok};
+                _ ->
+                    gen_server:reply(From, ok)
+            end,
+            {noreply, add_worker(Worker, State#state{worker_start_refs=Refs--[Ref]})};
+        false ->
+            {noreply, State}
+    end;
 handle_info({start_workers, Sup},
             State0 = #state{tid=TID, seednode_connections=SeedCount,
                             peerbook_connections=PeerCount,
@@ -373,14 +398,7 @@ handle_info({handle_identify, {ReplyRef, StreamPid, Path}, {ok, Identify}}, Stat
                     StreamPid ! {ReplyRef, {error, too_many}},
                     {noreply, State};
                 false ->
-                    case start_inbound_worker(Target, StreamPid, Path, State) of
-                        {ok, Worker} ->
-                            StreamPid ! {ReplyRef, ok},
-                            {noreply, add_worker(Worker, State)};
-                        {error, Reason} ->
-                            StreamPid ! {error, Reason},
-                            {noreply, State}
-                    end
+                    start_inbound_worker({raw, StreamPid, ReplyRef}, Target, StreamPid, Path, State)
             end;
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
@@ -613,15 +631,17 @@ count_workers(Kind, #state{workers=Workers}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     maps:size(KindMap).
 
--spec start_inbound_worker(string(), pid(), string(), #state{}) ->  #worker{}.
-start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers}) ->
+-spec start_inbound_worker(any(), string(), pid(), string(), #state{}) ->  {noreply, #state{}}.
+start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers, worker_start_refs=WorkerStartRefs}) ->
     Ref = make_ref(),
+    Parent = self(),
+    spawn(fun() ->
     case sidejob_supervisor:start_child(
            WorkerSup,
            libp2p_group_worker, start_link,
            [Ref, inbound, StreamPid, self(), ?GROUP_ID, [], TID, Path]) of
         {ok, WorkerPid} ->
-            spawn(fun() -> maps:fold(fun(Key, {M, S}, Acc) ->
+            maps:fold(fun(Key, {M, S}, Acc) ->
                                  case (catch M:init_gossip_data(S)) of
                                      {'EXIT', Reason} ->
                                          lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
@@ -632,12 +652,12 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=Worker
                                          libp2p_group_worker:send(WorkerPid, Key, Msg, true),
                                          Acc
                                  end
-                         end, none, Handlers)
-                  end),
-            {ok, #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}};
+                      end, none, Handlers),
+            Parent ! {started_inbound_worker, Ref, From, {ok, #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}}};
         {error, overload} ->
-            {error, overload}
-    end.
+            Parent ! {started_inbound_worker, Ref, From, {error, overload}}
+    end end),
+    {noreply, State#state{worker_start_refs=[Ref|WorkerStartRefs]}}.
 
 -spec stop_inbound_worker(reference(), pid(), #state{}) -> #state{}.
 stop_inbound_worker(StreamRef, Pid, State) ->
