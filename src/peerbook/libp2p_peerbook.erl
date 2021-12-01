@@ -185,8 +185,7 @@ random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
 -spec random(peerbook(), [libp2p_crypto:pubkey_bin()], fun((libp2p_peer:peer()) -> boolean()), non_neg_integer()) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
-random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
-    Exclude = lists:map(fun rev/1, Exclude0),
+random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, Pred, Tries) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
     case rocksdb:iterator_move(Iterator, first) of
         {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} ->
@@ -196,7 +195,7 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0,
                 0 ->
                     rocksdb:iterator_close(Iterator),
                     %% only have one peer
-                    case lists:member(FirstAddr, Exclude) of
+                    case lists:member(rev(FirstAddr), Exclude) of
                         true ->
                             %% only peer we have is excluded
                             false;
@@ -219,11 +218,11 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0,
                             false;
                         RandLoop({error, iterator_closed}, T) ->
                             %% start completely over because our iterator is bad
-                            random(Peerbook, Exclude0, Pred, T - 1);
+                            random(Peerbook, Exclude, Pred, T - 1);
                         RandLoop({error, _} = _E, T) ->
                             RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
                         RandLoop({ok, Addr, Bin}, T) ->
-                            case lists:member(Addr, Exclude) of
+                            case lists:member(rev(Addr), Exclude) of
                                 true ->
                                     RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
                                 false ->
