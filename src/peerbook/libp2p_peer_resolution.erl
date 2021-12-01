@@ -124,7 +124,7 @@ maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->
             %% only have seed nodes re-request, and only from other seed nodes and
             %% only if this is not a re-request itself
             GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Peerbook)),
-            lager:info("ARP re-request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
+            lager:debug("ARP re-request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
             re_resolve(GossipGroup, PK, Ts);
         false ->
             ok
