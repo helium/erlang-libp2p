@@ -8,7 +8,7 @@
          refresh/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2,
-         blacklist_listen_addr/3,
+         blacklist_listen_addr/3, fold_peers/3,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/3, init_gossip_data/1]).
