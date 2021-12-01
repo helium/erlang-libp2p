@@ -418,23 +418,16 @@ schedule_drop_timer(DropTimeOut) ->
 -spec connections(libp2p_group_gossip:connection_kind() | all, #state{})
                  -> [{MAddr::string(), Pid::pid()}].
 connections(all, State = #state{workers=Workers}) ->
-    maps:fold(
+    lists:flatten(maps:fold(
       fun(Kind, _, Acc) ->
               Conns = connections(Kind, State),
-              lists:append(Conns, Acc)
+              [Conns|Acc]
       end,
       [],
-      Workers);
+      Workers));
 connections(Kind, #state{workers=Workers}) ->
     KindMap = maps:get(Kind, Workers, #{}),
-    maps:fold(
-      fun(_Ref, #worker{target = undefined}, Acc) ->
-              Acc;
-         (_Ref, #worker{target = Target, pid = Pid}, Acc) ->
-              [{Target, Pid} | Acc]
-      end,
-      [],
-      KindMap).
+    [ {Target, Pid} || #worker{target = Target, pid = Pid} <- maps:values(KindMap), Target /= undefined ].
 
 assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, supported_paths = SupportedPaths, bloom=Bloom}) ->
     case length(TargetAddrs) of
