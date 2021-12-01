@@ -191,7 +191,7 @@ handle_cast({accept_stream, _Session, ReplyRef, StreamPid, _Path}, State=#state{
 handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{}) ->
     case count_workers(inbound, State) > State#state.max_inbound_connections of
         true ->
-            spawn(fun() -> libp2p_framed_stream:close(StreamPid) end);
+            StreamPid ! {ReplyRef, {error, too_many}};
         false ->
             libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path})
     end,
@@ -362,7 +362,6 @@ handle_info(drop_timeout, State=#state{drop_timeout=DropTimeOut, drop_timer=Drop
             {noreply, drop_target(Worker, State#state{drop_timer=schedule_drop_timer(DropTimeOut)})}
     end;
 handle_info({handle_identify, {ReplyRef, StreamPid, _Path}, {error, Error}}, State=#state{}) ->
-    lager:notice("Failed to identify stream ~p: ~p", [StreamPid, Error]),
     StreamPid ! {ReplyRef, {error, Error}},
     {noreply, State};
 handle_info({handle_identify, {ReplyRef, StreamPid, Path}, {ok, Identify}}, State=#state{}) ->
