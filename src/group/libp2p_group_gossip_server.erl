@@ -650,7 +650,6 @@ stop_inbound_worker(StreamRef, Pid, State) ->
             spawn(fun() -> gen_statem:stop(OtherPid) end),
             remove_worker(Worker, State);
         _ ->
-            lager:info("trying to stop worker with unknown ref ~p pid ~p", [StreamRef, Pid]),
             State
     end.
 
