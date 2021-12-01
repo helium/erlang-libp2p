@@ -137,11 +137,11 @@ init([Sup, TID]) ->
                                 sidejob_sup = SideJobRegName,
                                 supported_paths=SupportedPaths})}.
 
-handle_call({connected_addrs, Kind}, _From, State=#state{}) ->
-    {Addrs, _Pids} = lists:unzip(connections(Kind, State)),
+handle_call({connected_addrs, Kind}, _From, State=#state{workers=Workers}) ->
+    Addrs = connection_addrs(Kind, Workers),
     {reply, Addrs, State};
 handle_call({connected_pids, Kind}, _From, State) ->
-    {_Addrs, Pids} = lists:unzip(connections(Kind, State)),
+    Pids = connection_pids(Kind, State#state.workers),
     {reply, Pids, State};
 
 handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
@@ -228,8 +228,8 @@ handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) -
                        end
                end,
     {noreply, assign_target(WorkerPid, Ref, PeerList, State)};
-handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_nodes=SeedAddrs}) ->
-    {CurrentAddrs, _} = lists:unzip(connections(seed, State)),
+handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_nodes=SeedAddrs, workers=Workers}) ->
+    CurrentAddrs = connection_addrs(seed, Workers),
     LocalAddr = libp2p_swarm:p2p_address(TID),
     %% Exclude the local swarm address from the available addresses
     ExcludedAddrs = CurrentAddrs ++ [LocalAddr],
@@ -240,23 +240,20 @@ handle_cast({request_target, seed, WorkerPid, Ref}, State=#state{tid=TID, seed_n
 handle_cast({send, Key, Data}, State) ->
     %% assume all gossip peers
     handle_cast({send, all, Key, Data}, State);
-handle_cast({send, all, Key, Fun}, State=#state{}) when is_function(Fun, 1) ->
+handle_cast({send, all, Key, Fun}, State=#state{workers=Workers}) when is_function(Fun, 1) ->
     %% use a fun to generate the send data for each gossip peer
     %% this can be helpful to send a unique random subset of data to each peer
     %% find out what kind of connection we are dealing with and pass that type to the fun
-    {_, SeedPids} = lists:unzip(connections(seed, State)),
-    {_, PeerbookPids} = lists:unzip(connections(peerbook, State)),
-    {_, InboundPids} = lists:unzip(connections(inbound, State)),
     spawn(fun() ->
-                  [ libp2p_group_worker:send(Pid, Key, Fun(seed), true) || Pid <- SeedPids ],
-                  [ libp2p_group_worker:send(Pid, Key, Fun(peerbook), true) || Pid <- PeerbookPids ],
-                  [ libp2p_group_worker:send(Pid, Key, Fun(inbound), true) || Pid <- InboundPids ]
+                  [ libp2p_group_worker:send(Pid, Key, Fun(seed), true) || Pid <- connection_pids(seed, Workers) ],
+                  [ libp2p_group_worker:send(Pid, Key, Fun(peerbook), true) || Pid <- connection_pids(peerbook, Workers) ],
+                  [ libp2p_group_worker:send(Pid, Key, Fun(inbound), true) || Pid <- connection_pids(inbound, Workers) ]
           end),
     {noreply, State};
-handle_cast({send, Kind, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
+handle_cast({send, Kind, Key, Fun}, State=#state{}) when is_function(Fun, 1) ->
     %% use a fun to generate the send data for each gossip peer
     %% this can be helpful to send a unique random subset of data to each peer
-    {_, Pids} = lists:unzip(connections(Kind, State)),
+    Pids = connection_pids(Kind, State#state.workers),
     lists:foreach(fun(Pid) ->
                           Data = Fun(Kind),
                           %% Catch errors encoding the given arguments to avoid a bad key or
@@ -265,21 +262,19 @@ handle_cast({send, Kind, Key, Fun}, State=#state{}) when is_function(Fun, 0) ->
                   end, Pids),
     {noreply, State};
 
-handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom}) ->
+handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom, workers=Workers}) ->
     case bloom:check(Bloom, {out, Data}) of
         true ->
             ok;
         false ->
             bloom:set(Bloom, {out, Data}),
-            {_, Pids} = lists:unzip(connections(Kind, State)),
-            lager:debug("sending data via connection pids: ~p",[Pids]),
             spawn(fun() ->
                           lists:foreach(fun(Pid) ->
                                                 %% TODO we could check the connections's Address here for
                                                 %% if we received this data from that address and avoid
                                                 %% bouncing the gossip data back
                                                 libp2p_group_worker:send(Pid, Key, Data, true)
-                                        end, Pids)
+                                        end, connection_pids(Kind, Workers))
                   end)
     end,
     {noreply, State};
@@ -415,19 +410,35 @@ schedule_drop_timer(DropTimeOut) ->
     erlang:send_after(DropTimeOut, self(), drop_timeout).
 
 
--spec connections(libp2p_group_gossip:connection_kind() | all, #state{})
-                 -> [{MAddr::string(), Pid::pid()}].
-connections(all, State = #state{workers=Workers}) ->
-    lists:flatten(maps:fold(
+-spec connection_pids(libp2p_group_gossip:connection_kind() | all, #{atom() => #{reference() => #worker{}}})
+                 -> [Pid::pid()].
+connection_pids(all, Workers) ->
+    maps:fold(
       fun(Kind, _, Acc) ->
-              Conns = connections(Kind, State),
-              [Conns|Acc]
+              Conns = connection_pids(Kind, Workers),
+              lists:append(Conns, Acc)
       end,
       [],
-      Workers));
-connections(Kind, #state{workers=Workers}) ->
+      Workers);
+connection_pids(Kind, Workers) ->
     KindMap = maps:get(Kind, Workers, #{}),
-    [ {Target, Pid} || #worker{target = Target, pid = Pid} <- maps:values(KindMap), Target /= undefined ].
+    [ Pid || #worker{target = Target, pid = Pid} <- maps:values(KindMap), Target /= undefined ].
+
+
+-spec connection_addrs(libp2p_group_gossip:connection_kind() | all, #{atom() => #{reference() => #worker{}}})
+                 -> [MAddr::string()].
+connection_addrs(all, Workers) ->
+    maps:fold(
+      fun(Kind, _, Acc) ->
+              Conns = connection_addrs(Kind, Workers),
+              lists:append(Conns, Acc)
+      end,
+      [],
+      Workers);
+connection_addrs(Kind, Workers) ->
+    KindMap = maps:get(Kind, Workers, #{}),
+    [ Target || #worker{target = Target} <- maps:values(KindMap), Target /= undefined ].
+
 
 assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, supported_paths = SupportedPaths, bloom=Bloom}) ->
     case length(TargetAddrs) of
