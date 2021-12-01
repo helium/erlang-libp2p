@@ -34,8 +34,7 @@
          drop_timer :: reference(),
          supported_paths :: [string()],
          bloom :: bloom_nif:bloom(),
-         sidejob_sup :: atom(),
-         worker_start_refs = [] :: [reference()]
+         sidejob_sup :: atom()
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
@@ -307,32 +306,8 @@ handle_cast(Msg, State) ->
     {noreply, State}.
 
 
-handle_info({started_inbound_worker, Ref, From, {error, _Reason}=Error}, State=#state{worker_start_refs=Refs}) ->
-    case lists:member(Ref, Refs) of
-        true ->
-            case From of
-                {raw, Pid, MsgRef} ->
-                    Pid ! {MsgRef, Error};
-                _ ->
-                    gen_server:reply(From, Error)
-            end,
-            {noreply, State#state{worker_start_refs=Refs--[Ref]}};
-        false ->
-            {noreply, State}
-    end;
-handle_info({started_inbound_worker, Ref, From, {ok, Worker}}, State=#state{worker_start_refs=Refs}) ->
-    case lists:member(Ref, Refs) of
-        true ->
-            case From of
-                {raw, Pid, MsgRef} ->
-                    Pid ! {MsgRef, ok};
-                _ ->
-                    gen_server:reply(From, ok)
-            end,
-            {noreply, add_worker(Worker, State#state{worker_start_refs=Refs--[Ref]})};
-        false ->
-            {noreply, State}
-    end;
+handle_info({started_inbound_worker, {ok, Worker}}, State) ->
+    {noreply, add_worker(Worker, State)};
 handle_info({start_workers, Sup},
             State0 = #state{tid=TID, seednode_connections=SeedCount,
                             peerbook_connections=PeerCount,
@@ -632,9 +607,9 @@ count_workers(Kind, #state{workers=Workers}) ->
     maps:size(KindMap).
 
 -spec start_inbound_worker(any(), string(), pid(), string(), #state{}) ->  {noreply, #state{}}.
-start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers, worker_start_refs=WorkerStartRefs}) ->
-    Ref = make_ref(),
+start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers}) ->
     Parent = self(),
+    Ref = make_ref(),
     spawn(fun() ->
     case sidejob_supervisor:start_child(
            WorkerSup,
@@ -653,11 +628,22 @@ start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, side
                                          Acc
                                  end
                       end, none, Handlers),
-            Parent ! {started_inbound_worker, Ref, From, {ok, #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}}};
-        {error, overload} ->
-            Parent ! {started_inbound_worker, Ref, From, {error, overload}}
+            case From of
+                {raw, Pid, MsgRef} ->
+                    Pid ! {MsgRef, ok};
+                _ ->
+                    gen_server:reply(From, ok)
+            end,
+            Parent ! {started_inbound_worker, {ok, #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}}};
+        {error, overload}=Error ->
+            case From of
+                {raw, Pid, MsgRef} ->
+                    Pid ! {MsgRef, Error};
+                _ ->
+                    gen_server:reply(From, Error)
+            end
     end end),
-    {noreply, State#state{worker_start_refs=[Ref|WorkerStartRefs]}}.
+    {noreply, State}.
 
 -spec stop_inbound_worker(reference(), pid(), #state{}) -> #state{}.
 stop_inbound_worker(StreamRef, Pid, State) ->
