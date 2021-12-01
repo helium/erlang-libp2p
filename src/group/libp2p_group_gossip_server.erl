@@ -610,7 +610,7 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=Worker
            libp2p_group_worker, start_link,
            [Ref, inbound, StreamPid, self(), ?GROUP_ID, [], TID, Path]) of
         {ok, WorkerPid} ->
-            maps:fold(fun(Key, {M, S}, Acc) ->
+            spawn(fun() -> maps:fold(fun(Key, {M, S}, Acc) ->
                                  case (catch M:init_gossip_data(S)) of
                                      {'EXIT', Reason} ->
                                          lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
@@ -621,7 +621,8 @@ start_inbound_worker(Target, StreamPid, Path, #state{tid=TID, sidejob_sup=Worker
                                          libp2p_group_worker:send(WorkerPid, Key, Msg, true),
                                          Acc
                                  end
-                         end, none, Handlers),
+                         end, none, Handlers)
+                  end),
             {ok, #worker{kind=inbound, pid=WorkerPid, target=Target, ref=Ref}};
         {error, overload} ->
             {error, overload}
