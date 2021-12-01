@@ -189,7 +189,12 @@ handle_cast({accept_stream, _Session, ReplyRef, StreamPid, _Path}, State=#state{
     StreamPid ! {ReplyRef, {error, not_ready}},
     {noreply, State};
 handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{}) ->
-    libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path}),
+    case count_workers(inbound, State) > State#state.max_inbound_connections of
+        true ->
+            spawn(fun() -> libp2p_framed_stream:close(StreamPid) end);
+        false ->
+            libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path})
+    end,
     {noreply, State};
 
 handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
