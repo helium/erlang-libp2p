@@ -280,22 +280,24 @@ handle_cast({send_ready, _Target, _Ref, false}, State=#state{}) ->
     %% server only reacts to ready messages by sending initial
     %% gossip_data.
     {noreply, State};
-handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{}) ->
+handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{handlers=Handlers}) ->
     case lookup_worker_by_target(Target, State) of
         #worker{pid=WorkerPid} ->
-            NewState = maps:fold(fun(Key, {M, S}, Acc) ->
+            spawn(fun() ->
+                          maps:fold(fun(Key, {M, S}, Acc) ->
                                          case (catch M:init_gossip_data(S)) of
                                              {'EXIT', Reason} ->
                                                  lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
-                                                 Acc#state{handlers=maps:remove(Key, Acc#state.handlers)};
+                                                 Acc;
                                              ok ->
                                                  Acc;
                                              {send, Msg} ->
                                                  libp2p_group_worker:send(WorkerPid, Key, Msg, true),
                                                  Acc
                                          end
-                                 end, State, State#state.handlers),
-            {noreply, NewState};
+                                 end, none, Handlers)
+                  end),
+            {noreply, State};
         _ ->
             {noreply, State}
     end;
