@@ -476,7 +476,20 @@ maybe_lookup_seed_in_dns(TargetAddrs) ->
         false ->
             TargetAddrs;
         true ->
-            lookup_seed_from_dns(TargetAddrs)
+            case get(dns_seeds) of
+                undefined ->
+                    Res = lookup_seed_from_dns(TargetAddrs),
+                    put(dns_seeds, {erlang:system_time(secconds), Res}),
+                    Res;
+                {Time, Value} ->
+                    case (erlang:system_time(seconds) - Time) > 60 of
+                        true ->
+                            erase(dns_seeds),
+                            maybe_lookup_seed_in_dns(TargetAddrs);
+                        false ->
+                            Value
+                    end
+            end
     end.
 
 choose_random_element([E]) -> E;
