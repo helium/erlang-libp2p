@@ -479,7 +479,7 @@ maybe_lookup_seed_in_dns(TargetAddrs) ->
             case get(dns_seeds) of
                 undefined ->
                     Res = lookup_seed_from_dns(TargetAddrs),
-                    put(dns_seeds, {erlang:system_time(secconds), Res}),
+                    put(dns_seeds, {erlang:system_time(seconds), Res}),
                     Res;
                 {Time, Value} ->
                     case (erlang:system_time(seconds) - Time) > 60 of
