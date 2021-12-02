@@ -108,7 +108,7 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
     AllowRFC1918 = is_rfc1918_allowed(TID),
     NewPeers = lists:foldl(
                  fun(NewPeer, Acc) ->
-                         case libp2p_peer:listen_addrs(NewPeer) == [] of
+                         case libp2p_peer:raw_listen_addrs(NewPeer) == [] of
                              true ->
                                  %% no need to store a peer with no listen addresses
                                  %% and it it will make it easier to get an updated version
