@@ -599,9 +599,22 @@ remove_worker(#worker{ref = Ref, kind = Kind, target = Target, pid=Pid},
               State = #state{workers = Workers, targets = Targets, tid=TID}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     Workers1 = Workers#{Kind => maps:remove(Ref, KindMap)},
-    case ets:lookup(TID, {Kind, gossip_workers}) of
-        [{{Kind, gossip_workers}, Pids}] ->
-            ets:insert(TID, {{Kind, gossip_workers}, lists:delete(Pid, Pids)});
+    case ets:lookup(TID, {delete, gossip_workers}) of
+        [{{deleted, gossip_workers}, DeletedPids}] ->
+            NewDeleted = [Pid|DeletedPids],
+            case length(NewDeleted) > 100 of
+                true ->
+                    case ets:lookup(TID, {Kind, gossip_workers}) of
+                        [{{Kind, gossip_workers}, Pids}] ->
+                            ets:insert(TID, {{Kind, gossip_workers}, Pids -- NewDeleted}),
+                            ets:insert(TID, {{deleted, gossip_workers}, []});
+                        [] ->
+                            %%idk
+                            ok
+                    end;
+                false ->
+                    ets:insert(TID, {{deleted, gossip_workers}, NewDeleted})
+            end;
         [] ->
             ok
     end,

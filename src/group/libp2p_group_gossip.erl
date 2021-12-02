@@ -37,14 +37,19 @@ send(TID, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data)
                catch _:_ -> []
                end,
 
+    Deleted = try ets:lookup_element(TID, {deleted, gossip_workers}, 2)
+               catch _:_ -> []
+               end,
+
+
     case is_function(Data) of
         true ->
-            [ libp2p_group_worker:send(Pid, Key, Data(seed), true) || Pid <- Seed ],
-            [ libp2p_group_worker:send(Pid, Key, Data(peerbook), true) || Pid <- Peerbook ],
-            [ libp2p_group_worker:send(Pid, Key, Data(inbound), true) || Pid <- Inbound ],
+            [ libp2p_group_worker:send(Pid, Key, Data(seed), true) || Pid <- Seed -- Deleted ],
+            [ libp2p_group_worker:send(Pid, Key, Data(peerbook), true) || Pid <- Peerbook -- Deleted ],
+            [ libp2p_group_worker:send(Pid, Key, Data(inbound), true) || Pid <- Inbound -- Deleted ],
             ok;
         false ->
-            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Seed ++ Peerbook ++ Inbound ]
+            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- (Seed ++ Peerbook ++ Inbound) -- Deleted ]
     end,
     ok.
 
@@ -54,12 +59,16 @@ send(TID, Kind, Key, Data) when is_list(Key), is_binary(Data) orelse is_function
                catch _:_ -> []
                end,
 
+    Deleted = try ets:lookup_element(TID, {deleted, gossip_workers}, 2)
+               catch _:_ -> []
+               end,
+
     case is_function(Data) of
         true ->
-            [ libp2p_group_worker:send(Pid, Key, Data(Kind), true) || Pid <- Pids ],
+            [ libp2p_group_worker:send(Pid, Key, Data(Kind), true) || Pid <- Pids -- Deleted ],
             ok;
         false ->
-            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Pids ]
+            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Pids -- Deleted ]
     end,
     ok.
 
