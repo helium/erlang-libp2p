@@ -263,8 +263,7 @@ refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
         false ->
             case fetch_peer(ID, Handle) of
                 {error, _Error} ->
-                    GossipGroup = libp2p_swarm:gossip_group(TID),
-                    libp2p_peer_resolution:resolve(GossipGroup, ID, 0),
+                    libp2p_peer_resolution:resolve(TID, ID, 0),
                     ok;
                 {ok, Peer} ->
                     refresh(Handle, Peer)
@@ -278,8 +277,7 @@ refresh(#peerbook{tid=TID}, Peer) ->
         false ->
             ok;
         true ->
-            GossipGroup = libp2p_swarm:gossip_group(TID),
-            libp2p_peer_resolution:resolve(GossipGroup, libp2p_peer:pubkey_bin(Peer), libp2p_peer:timestamp(Peer)),
+            libp2p_peer_resolution:resolve(TID, libp2p_peer:pubkey_bin(Peer), libp2p_peer:timestamp(Peer)),
             ok
     end.
 
@@ -703,7 +701,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
                               {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
                               libp2p_peer:encode_list(RandomNPeers)
                       end,
-            libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY, SendFun)
+            spawn(fun() -> libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun) end)
     end,
     State#state{notify_peers=#{}}.
 

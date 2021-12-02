@@ -12,17 +12,17 @@
 %% Gossip group key to register and transmit with
 -define(GOSSIP_GROUP_KEY, "peer_resolution").
 
--spec resolve(pid(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
-resolve(GossipGroup, PK, Ts) ->
+-spec resolve(ets:tab(), libp2p_crypto:pubkey_bin(), non_neg_integer()) -> ok.
+resolve(TID, PK, Ts) ->
     lager:debug("ARP request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
-    libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
+    libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY,
                              libp2p_peer_resolution_pb:encode_msg(
                                #libp2p_peer_resolution_msg_pb{
                                   msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}})),
     ok.
 
-re_resolve(GossipGroup, PK, Ts) ->
-    libp2p_group_gossip:send(GossipGroup, seed, ?GOSSIP_GROUP_KEY,
+re_resolve(TID, PK, Ts) ->
+    libp2p_group_gossip:send(TID, seed, ?GOSSIP_GROUP_KEY,
                              libp2p_peer_resolution_pb:encode_msg(
                                #libp2p_peer_resolution_msg_pb{
                                   msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}},
@@ -123,9 +123,9 @@ maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->
         true ->
             %% only have seed nodes re-request, and only from other seed nodes and
             %% only if this is not a re-request itself
-            GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Peerbook)),
+            TID = libp2p_peerbook:tid(Peerbook),
             lager:debug("ARP re-request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
-            re_resolve(GossipGroup, PK, Ts);
+            re_resolve(TID, PK, Ts);
         false ->
             ok
     end.

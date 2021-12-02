@@ -583,16 +583,29 @@ drop_target(Worker=#worker{pid=WorkerPid, ref = Ref, kind = Kind},
     State#state{workers=NewWorkers}.
 
 add_worker(Worker = #worker{kind = Kind, ref = Ref, pid=Pid, target = Target},
-           State = #state{workers = Workers, targets = Targets, monitors=Monitors}) ->
+           State = #state{workers = Workers, targets = Targets, monitors=Monitors, tid=TID}) ->
     MonitorRef = erlang:monitor(process, Pid),
     KindMap = maps:get(Kind, Workers, #{}),
     Workers1 = Workers#{Kind => KindMap#{Ref => Worker}},
+    case ets:lookup(TID, {Kind, gossip_workers}) of
+        [{{Kind, gossip_workers}, Pids}] ->
+            ets:insert(TID, {{Kind, gossip_workers}, [Pid|Pids]});
+        [] ->
+            ets:insert(TID, {{Kind, gossip_workers}, [Pid]})
+    end,
     State#state{workers = Workers1, targets = Targets#{Target => {Kind, Ref}}, monitors = Monitors#{MonitorRef => {Kind, Pid, Ref}}}.
 
-remove_worker(#worker{ref = Ref, kind = Kind, target = Target},
-              State = #state{workers = Workers, targets = Targets}) ->
+remove_worker(#worker{ref = Ref, kind = Kind, target = Target, pid=Pid},
+              State = #state{workers = Workers, targets = Targets, tid=TID}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     Workers1 = Workers#{Kind => maps:remove(Ref, KindMap)},
+    case ets:lookup(TID, {Kind, gossip_workers}) of
+        [{{Kind, gossip_workers}, Pids}] ->
+            ets:insert(TID, {{Kind, gossip_workers}, lists:delete(Pid, Pids)});
+        [] ->
+            ok
+    end,
+
     State#state{workers = Workers1, targets = maps:remove(Target, Targets)}.
 
 lookup_worker(Ref, #state{workers=Workers}) ->

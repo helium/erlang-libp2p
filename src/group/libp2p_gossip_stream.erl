@@ -32,12 +32,10 @@
 %%
 encode(Key, Data) ->
     %% replies are routed via encode/2 from the gossip server
-    lager:debug("gossip encoding, no path: ~p",[]),
     Msg = #libp2p_gossip_frame_pb{key=Key, data=Data},
     libp2p_gossip_pb:encode_msg(Msg).
 
 encode(Key, Data, Path) ->
-    lager:debug("gossip encoding for path: ~p",[Path]),
     Msg = #libp2p_gossip_frame_pb{key=Key, data=apply_path_encode(Path, Data)},
     libp2p_gossip_pb:encode_msg(Msg).
 
@@ -76,7 +74,6 @@ handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
                                   path=Path}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
         libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
-    lager:debug("gossip received for handler ~p and key ~p via path ~p with payload ~p",[HandlerModule, Key, Path, Bin]),
     DecodedData = apply_path_decode(Path, Bin),
     case bloom:check(Bloom, {in, DecodedData}) of
         true ->

@@ -25,13 +25,43 @@ remove_handler(Pid, Key) ->
 %% @doc Send the given data to all members of the group for the given
 %% gossip key. The implementation of the group determines the strategy
 %% used for delivery. Delivery is best effort.
--spec send(pid(), string(), iodata() | fun((connection_kind()) -> iodata())) -> ok.
-send(Pid, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
-    gen_server:cast(Pid, {send, all, Key, Data}).
+-spec send(ets:tab(), string(), iodata() | fun((connection_kind()) -> iodata())) -> ok.
+send(TID, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
+    Inbound = try ets:lookup_element(TID, {inbound, gossip_workers}, 2)
+              catch _:_ -> []
+              end,
+    Seed = try ets:lookup_element(TID, {seed, gossip_workers}, 2)
+           catch _:_ -> []
+           end,
+    Peerbook = try ets:lookup_element(TID, {peerbook, gossip_workers}, 2)
+               catch _:_ -> []
+               end,
 
--spec send(pid(), connection_kind(), string(), iodata() | fun(() -> iodata())) -> ok.
-send(Pid, Kind, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
-    gen_server:cast(Pid, {send, Kind, Key, Data}).
+    case is_function(Data) of
+        true ->
+            [ libp2p_group_worker:send(Pid, Key, Data(seed), true) || Pid <- Seed ],
+            [ libp2p_group_worker:send(Pid, Key, Data(peerbook), true) || Pid <- Peerbook ],
+            [ libp2p_group_worker:send(Pid, Key, Data(inbound), true) || Pid <- Inbound ],
+            ok;
+        false ->
+            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Seed ++ Peerbook ++ Inbound ]
+    end,
+    ok.
+
+-spec send(ets:tab(), connection_kind(), string(), iodata() | fun(() -> iodata())) -> ok.
+send(TID, Kind, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data) ->
+    Pids = try ets:lookup_element(TID, {Kind, gossip_workers}, 2)
+               catch _:_ -> []
+               end,
+
+    case is_function(Data) of
+        true ->
+            [ libp2p_group_worker:send(Pid, Key, Data(Kind), true) || Pid <- Pids ],
+            ok;
+        false ->
+            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Pids ]
+    end,
+    ok.
 
 -spec connected_addrs(pid(), connection_kind() | all) -> [MAddr::string()].
 connected_addrs(Pid, WorkerKind) ->
