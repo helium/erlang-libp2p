@@ -150,8 +150,13 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                          end
                  end, [], PeerList),
 
-    % Notify group of new peers
-    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers}),
+    case NewPeers of
+        [] ->
+            ok;
+        _ ->
+            % Notify group of new peers
+            gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers})
+    end,
     ok.
 
 -spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
