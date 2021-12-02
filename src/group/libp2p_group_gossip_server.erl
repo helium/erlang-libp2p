@@ -11,7 +11,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_gossip_stream
--export([accept_stream/4, handle_identify/4, handle_data/4]).
+-export([accept_stream/4, handle_identify/4, handle_data/5]).
 
 -record(worker,
        { target :: binary() | string() | undefined,
@@ -60,7 +60,7 @@ reg_name(TID)->
 %% libp2p_gossip_stream
 %%
 
-handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
+handle_data(_Pid, StreamPid, Key, TID, {Path, Bin}) ->
     %% experimentally move decoding out to the caller
     ListOrData =
         case Key of
@@ -70,7 +70,7 @@ handle_data(Pid, StreamPid, Key, {Path, Bin}) ->
                 {Path, Bin}
         end,
         %% check the cache, see the lookup_handler function for details
-        case lookup_handler(Pid, Key) of
+        case lookup_handler(TID, Key) of
             error ->
                 ok;
             {ok, M, S} ->
@@ -145,8 +145,10 @@ handle_call({connected_pids, Kind}, _From, State) ->
     Pids = connection_pids(Kind, State#state.workers),
     {reply, Pids, State};
 
-handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers}) ->
-    {reply, ok, State#state{handlers=maps:remove(Key, Handlers)}};
+handle_call({remove_handler, Key}, _From, State=#state{handlers=Handlers, tid=TID}) ->
+    NewHandlers = maps:remove(Key, Handlers),
+    ets:insert(TID, {gossip_handlers, NewHandlers}),
+    {reply, ok, State#state{handlers=NewHandlers}};
 
 handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
             From, State) ->
@@ -203,8 +205,10 @@ handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{})
     end,
     {noreply, State};
 
-handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers}) ->
-    {noreply, State#state{handlers=maps:put(Key, Handler, Handlers)}};
+handle_cast({add_handler, Key, Handler}, State=#state{handlers=Handlers, tid=TID}) ->
+    NewHandlers = maps:put(Key, Handler, Handlers),
+    ets:insert(TID, {gossip_handlers, NewHandlers}),
+    {noreply, State#state{handlers=NewHandlers}};
 handle_cast({request_target, inbound, WorkerPid, Ref}, State=#state{}) ->
     {noreply, stop_inbound_worker(Ref, WorkerPid, State)};
 handle_cast({request_target, peerbook, WorkerPid, Ref}, State=#state{tid=TID}) ->
@@ -353,7 +357,7 @@ handle_info({start_workers, Sup},
 
     GossipAddFun = fun(Path) ->
                            libp2p_swarm:add_stream_handler(TID, Path,
-                                                        {libp2p_gossip_stream, server, [Path, ?MODULE, self(), Bloom]})
+                                                        {libp2p_gossip_stream, server, [Path, ?MODULE, self(), TID, Bloom]})
                    end,
     lists:foreach(GossipAddFun, SupportedPaths),
     {noreply, State#state{workers=#{seed => SeedWorkers, peerbook => PeerBookWorkers}}};
@@ -464,7 +468,7 @@ connection_addrs(Kind, Workers) ->
     [ Target || #worker{target = Target} <- maps:values(KindMap), Target /= undefined ].
 
 
-assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, supported_paths = SupportedPaths, bloom=Bloom}) ->
+assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, supported_paths = SupportedPaths, tid=TID, bloom=Bloom}) ->
     case length(TargetAddrs) of
         0 ->
             %% the ref is stable across restarts, so use that as the lookup key
@@ -472,7 +476,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                 Worker=#worker{kind=seed, target=SelectedAddr, pid=StoredWorkerPid} when SelectedAddr /= undefined ->
                     %% don't give up on the seed nodes in case we're entirely offline
                     %% we need at least one connection to bootstrap the swarm
-                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), Bloom]}},
+                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), TID, Bloom]}},
                     libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
                     %% check if this worker got restarted
                     case WorkerPid /= StoredWorkerPid of
@@ -488,7 +492,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
             end;
         _ ->
             SelectedAddr = mk_multiaddr(choose_random_element(TargetAddrs)),
-            ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), Bloom]}},
+            ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), TID, Bloom]}},
             libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
             case lookup_worker(WorkerRef, State) of
@@ -733,20 +737,14 @@ update_metadata(State=#state{}) ->
       ]),
     State.
 
-lookup_handler(Pid, Key) ->
-    %% XXX ASSUMPTION: gossip handlers are not removed or changed once added
-    case get(Key) of
-        undefined ->
-            Res = gen_server:call(Pid, {handle_data, Key}, infinity),
-            put(Key, {erlang:timestamp(), Res}),
-            Res;
-        {Time, Val} ->
-            %% cache for 10 minutes
-            case timer:now_diff(erlang:timestamp(), Time) > 600000000 of
-                true ->
-                    erase(Key),
-                    lookup_handler(Pid, Key);
-                false ->
-                    Val
-            end
+lookup_handler(TID, Key) ->
+    case ets:lookup(TID, gossip_handlers) of
+        [{gossip_handlers, Handlers}] ->
+            case maps:find(Key, Handlers) of
+                error -> error;
+                {ok, {M, S}} ->
+                    {ok, M, S}
+            end;
+        _ ->
+            error
     end.

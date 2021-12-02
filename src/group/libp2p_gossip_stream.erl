@@ -5,7 +5,7 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), StreamPid::pid(), Key::string(), Msg::binary()) -> ok.
+-callback handle_data(State::any(), StreamPid::pid(), Key::string(), TID :: ets:tab(), Msg::binary()) -> ok.
 -callback accept_stream(State::any(),
                         Session::pid(),
                         Stream::pid(),
@@ -18,7 +18,9 @@
 
 
 -record(state,
-        { connection :: libp2p_connection:connection(),
+        {
+          tid :: ets:tab(),
+          connection :: libp2p_connection:connection(),
           handler_module :: atom(),
           handler_state :: any(),
           path :: any(),
@@ -47,19 +49,21 @@ client(Connection, Args) ->
 server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
-init(server, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
+init(server, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
     HandlerModule:accept_stream(HandlerState, Session, self(), Path),
     {ok, #state{connection=Connection,
+                tid = TID,
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
                 bloom=Bloom,
                 path=Path}};
 
-init(client, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
+init(client, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
     lager:debug("initiating client with path ~p", [Path]),
     {ok, #state{connection=Connection,
+                tid = TID,
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
                 bloom=Bloom,
@@ -68,6 +72,7 @@ init(client, Connection, [Path, HandlerModule, HandlerState, Bloom]) ->
 handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
                                   handler_state=HandlerState,
                                   bloom=Bloom,
+                                  tid=TID,
                                   path=Path}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
         libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
@@ -81,7 +86,7 @@ handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
             %% we could do a second bloom:set to allow tracking where we
             %% received this data from
             bloom:set(Bloom, {in, DecodedData}),
-            case HandlerModule:handle_data(HandlerState, self(), Key,
+            case HandlerModule:handle_data(HandlerState, self(), Key, TID,
                                            {Path, DecodedData}) of
                 {reply, ReplyMsg} ->
                     {noreply, State, ReplyMsg};
