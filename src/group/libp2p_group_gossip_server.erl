@@ -402,7 +402,8 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, State = #state{monitors=Monitor
                 true ->
                     ok;
                 false ->
-                    lager:info("worker ~p exited with reason ~p", [Pid, Reason])
+                    %lager:info("worker ~p exited with reason ~p", [Pid, Reason])
+                    ok
             end,
             case lookup_worker(WorkerRef, State) of
                 Worker = #worker{} ->
