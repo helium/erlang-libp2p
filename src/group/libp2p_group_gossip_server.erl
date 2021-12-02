@@ -29,6 +29,7 @@
          seed_nodes :: [string()],
          workers=#{} :: #{atom() => #{reference() => #worker{}}},
          targets=#{} :: #{string() => {atom(), reference()}},
+         monitors=#{} :: #{reference() => {atom(), pid(), reference()}},
          handlers=#{} :: #{string() => libp2p_group_gossip:handler()},
          drop_timeout :: pos_integer(),
          drop_timer :: reference(),
@@ -165,9 +166,14 @@ handle_call({handle_identify, StreamPid, Path, {ok, Identify}},
             end;
         %% There's an existing worker for the given address, re-assign
         %% the worker the new stream.
-        #worker{pid=Worker} ->
-            libp2p_group_worker:assign_stream(Worker, StreamPid, Path),
-            {reply, ok, State}
+        #worker{pid=WorkerPid}=Worker ->
+            case is_process_alive(WorkerPid) of
+                true ->
+                    libp2p_group_worker:assign_stream(WorkerPid, StreamPid, Path),
+                    {reply, ok, State};
+                false ->
+                    start_inbound_worker(From, Target, StreamPid, Path, remove_worker(Worker, State))
+            end
     end;
 
 handle_call({handle_data, Key}, _From, State=#state{}) ->
@@ -389,8 +395,26 @@ handle_info({handle_identify, {ReplyRef, StreamPid, Path}, {ok, Identify}}, Stat
             StreamPid ! {ReplyRef, ok},
             {noreply, State}
     end;
+handle_info({'DOWN', Ref, process, Pid, Reason}, State = #state{monitors=Monitors}) ->
+    case maps:get(Ref, Monitors, undefined) of
+        {_Kind, Pid, WorkerRef} ->
+            case Reason == normal orelse Reason == shutdown of
+                true ->
+                    ok;
+                false ->
+                    lager:info("worker ~p exited with reason ~p", [Pid, Reason])
+            end,
+            case lookup_worker(WorkerRef, State) of
+                Worker = #worker{} ->
+                    {noreply, remove_worker(Worker, State#state{monitors=maps:remove(Ref, Monitors)})};
+                not_found ->
+                    {noreply, State#state{monitors=maps:remove(Ref, Monitors)}}
+            end;
+        undefined ->
+            {noreply, State}
+    end;
 handle_info(Msg, State) ->
-    lager:warning("Unhandled cast: ~p", [Msg]),
+    lager:warning("Unhandled info: ~p", [Msg]),
     {noreply, State}.
 
 
@@ -553,11 +577,12 @@ drop_target(Worker=#worker{pid=WorkerPid, ref = Ref, kind = Kind},
     NewWorkers = Workers#{Kind => KindMap#{Ref => Worker#worker{target = undefined}}},
     State#state{workers=NewWorkers}.
 
-add_worker(Worker = #worker{kind = Kind, ref = Ref, target = Target},
-           State = #state{workers = Workers, targets = Targets}) ->
+add_worker(Worker = #worker{kind = Kind, ref = Ref, pid=Pid, target = Target},
+           State = #state{workers = Workers, targets = Targets, monitors=Monitors}) ->
+    MonitorRef = erlang:monitor(process, Pid),
     KindMap = maps:get(Kind, Workers, #{}),
     Workers1 = Workers#{Kind => KindMap#{Ref => Worker}},
-    State#state{workers = Workers1, targets = Targets#{Target => {Kind, Ref}}}.
+    State#state{workers = Workers1, targets = Targets#{Target => {Kind, Ref}}, monitors = Monitors#{MonitorRef => {Kind, Pid, Ref}}}.
 
 remove_worker(#worker{ref = Ref, kind = Kind, target = Target},
               State = #state{workers = Workers, targets = Targets}) ->
