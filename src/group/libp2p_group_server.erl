@@ -7,8 +7,9 @@ request_target(Pid, Kind, WorkerPid, Ref) ->
     gen_server:cast(Pid, {request_target, Kind, WorkerPid, Ref}).
 
 -spec send_result(Server::pid(), Ref::term(), Result::any()) -> ok.
-send_result(Pid, Ref, Result) ->
-    gen_server:cast(Pid, {send_result, Ref, Result}).
+send_result(_Pid, _Ref, _Result) ->
+    %gen_server:cast(Pid, {send_result, Ref, Result}).
+    ok.
 
 -spec send_ready(Server::pid(), Target::string(), Ref::term(), Ready::boolean()) -> ok.
 send_ready(Pid, Target, Ref, Ready) ->
