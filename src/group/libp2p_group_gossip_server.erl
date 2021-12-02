@@ -606,8 +606,13 @@ remove_worker(#worker{ref = Ref, kind = Kind, target = Target, pid=Pid},
                 true ->
                     case ets:lookup(TID, {Kind, gossip_workers}) of
                         [{{Kind, gossip_workers}, Pids}] ->
-                            ets:insert(TID, {{Kind, gossip_workers}, Pids -- NewDeleted}),
-                            ets:insert(TID, {{deleted, gossip_workers}, []});
+                            %% we want to find the pids for this kind that have been deleted and remove them from the list and also the deleted list
+                            A = sets:from_list(Pids),
+                            B = sets:from_list(NewDeleted),
+                            NewPids = sets:subtract(A, B),
+                            NewDeletedPids = sets:subtract(B, A),
+                            ets:insert(TID, {{Kind, gossip_workers}, sets:to_list(NewPids)}),
+                            ets:insert(TID, {{deleted, gossip_workers}, sets:to_list(NewDeletedPids)});
                         [] ->
                             %%idk
                             ok
