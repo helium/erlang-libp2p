@@ -491,14 +491,14 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) 
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     Addr = maps:get(SessionPid, Sessions, undefined),
-    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions), connections=State#state.connections -- [Addr]})};
+    {noreply, State#state{sessions=maps:remove(SessionPid, Sessions), connections=State#state.connections -- [Addr]}};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:pubkey_bin(Identify),
     MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
     NewConnections = lists:sublist([SessionAddr|State#state.connections], MaxConns*2),
     NewSessions = maps:filter(fun(_K, V) -> lists:member(V, NewConnections) end, Sessions),
-    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, NewSessions), connections=NewConnections})};
+    {noreply, State#state{sessions=maps:put(SessionPid, SessionAddr, NewSessions), connections=NewConnections}};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
