@@ -27,6 +27,7 @@
          seednode_connections :: pos_integer(),
          max_inbound_connections :: non_neg_integer(),
          seed_nodes :: [string()],
+         workers_to_add=[] :: [{libp2p_group_gossip:connection_kind(), pid()}],
          workers=#{} :: #{atom() => #{reference() => #worker{}}},
          targets=#{} :: #{string() => {atom(), reference()}},
          monitors=#{} :: #{reference() => {atom(), pid(), reference()}},
@@ -583,48 +584,79 @@ drop_target(Worker=#worker{pid=WorkerPid, ref = Ref, kind = Kind},
     State#state{workers=NewWorkers}.
 
 add_worker(Worker = #worker{kind = Kind, ref = Ref, pid=Pid, target = Target},
-           State = #state{workers = Workers, targets = Targets, monitors=Monitors, tid=TID}) ->
+           State = #state{workers = Workers, targets = Targets, monitors=Monitors, tid=TID, workers_to_add=ToAdd}) ->
     MonitorRef = erlang:monitor(process, Pid),
     KindMap = maps:get(Kind, Workers, #{}),
     Workers1 = Workers#{Kind => KindMap#{Ref => Worker}},
-    case ets:lookup(TID, {Kind, gossip_workers}) of
-        [{{Kind, gossip_workers}, Pids}] ->
-            ets:insert(TID, {{Kind, gossip_workers}, [Pid|Pids]});
-        [] ->
-            ets:insert(TID, {{Kind, gossip_workers}, [Pid]})
+
+    NewToAdd = [{Kind, Pid} | ToAdd],
+    AddWorkerBatchSize = case application:get_env(libp2p, seed_node, false) of
+                             true -> 100;
+                             false -> 0
+                         end,
+    WorkersToAdd = case length(NewToAdd) > AddWorkerBatchSize  of
+        true ->
+            add_worker_pids(NewToAdd, TID),
+            [];
+        false ->
+            NewToAdd
     end,
-    State#state{workers = Workers1, targets = Targets#{Target => {Kind, Ref}}, monitors = Monitors#{MonitorRef => {Kind, Pid, Ref}}}.
+
+    State#state{workers = Workers1, targets = Targets#{Target => {Kind, Ref}}, monitors = Monitors#{MonitorRef => {Kind, Pid, Ref}}, workers_to_add=WorkersToAdd}.
+
+add_worker_pids(NewWorkers, TID) ->
+    lists:foreach(fun(Kind) ->
+                          NewPids = [ P || {K, P} <- NewWorkers, is_process_alive(P), K == Kind],
+                          lager:info("~p new pids of type ~p", [length(NewPids), Kind]),
+                          case ets:lookup(TID, {Kind, gossip_workers}) of
+                              [{{Kind, gossip_workers}, Pids}] ->
+                                  ets:insert(TID, {{Kind, gossip_workers}, NewPids ++ Pids});
+                              [] ->
+                                  ets:insert(TID, {{Kind, gossip_workers}, NewPids})
+                          end
+                  end, [peerbook, seed, inbound]).
+
 
 remove_worker(#worker{ref = Ref, kind = Kind, target = Target, pid=Pid},
-              State = #state{workers = Workers, targets = Targets, tid=TID}) ->
+              State = #state{workers = Workers, targets = Targets, tid=TID, workers_to_add=ToAdd}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     Workers1 = Workers#{Kind => maps:remove(Ref, KindMap)},
-    case ets:lookup(TID, {delete, gossip_workers}) of
-        [{{deleted, gossip_workers}, DeletedPids}] ->
-            NewDeleted = [Pid|DeletedPids],
-            case length(NewDeleted) > 100 of
-                true ->
-                    case ets:lookup(TID, {Kind, gossip_workers}) of
-                        [{{Kind, gossip_workers}, Pids}] ->
-                            %% we want to find the pids for this kind that have been deleted and remove them from the list and also the deleted list
-                            A = sets:from_list(Pids),
-                            B = sets:from_list(NewDeleted),
-                            NewPids = sets:subtract(A, B),
-                            NewDeletedPids = sets:subtract(B, A),
-                            ets:insert(TID, {{Kind, gossip_workers}, sets:to_list(NewPids)}),
-                            ets:insert(TID, {{deleted, gossip_workers}, sets:to_list(NewDeletedPids)});
-                        [] ->
-                            %%idk
-                            ok
+    case lists:keymember(Pid, 2, ToAdd) of
+        true ->
+            State#state{workers = Workers1, targets = maps:remove(Target, Targets), workers_to_add=lists:keydelete(Pid, 2, ToAdd)};
+        false ->
+            case ets:lookup(TID, {deleted, gossip_workers}) of
+                [{{deleted, gossip_workers}, DeletedPids}] ->
+                    NewDeleted = [Pid|DeletedPids],
+                    DeleteWorkerBatchSize = case application:get_env(libp2p, seed_node, false) of
+                                                true -> 100;
+                                                false -> 10
+                                            end,
+                    case length(NewDeleted) > DeleteWorkerBatchSize of
+                        true ->
+                            case ets:lookup(TID, {Kind, gossip_workers}) of
+                                [{{Kind, gossip_workers}, Pids}] ->
+                                    %% we want to find the pids for this kind that have been deleted and remove them from the list and also the deleted list
+                                    A = sets:from_list(Pids),
+                                    B = sets:from_list(NewDeleted),
+                                    NewPids = sets:to_list(sets:subtract(A, B)),
+                                    NewDeletedPids = sets:to_list(sets:subtract(B, A)),
+                                    lager:info("Deleted ~p pids from ~p, ~p deletions left from ~p", [length(Pids) - length(NewPids), Kind, length(NewDeletedPids), length(NewDeleted)]),
+                                    ets:insert(TID, {{Kind, gossip_workers}, NewPids}),
+                                    ets:insert(TID, {{deleted, gossip_workers}, NewDeletedPids});
+                                [] ->
+                                    %%idk
+                                    ets:insert(TID, {{deleted, gossip_workers}, NewDeleted})
+                            end;
+                        false ->
+                            ets:insert(TID, {{deleted, gossip_workers}, NewDeleted})
                     end;
-                false ->
-                    ets:insert(TID, {{deleted, gossip_workers}, NewDeleted})
-            end;
-        [] ->
-            ok
-    end,
+                [] ->
+                    ets:insert(TID, {{deleted, gossip_workers}, [Pid]})
+            end,
 
-    State#state{workers = Workers1, targets = maps:remove(Target, Targets)}.
+            State#state{workers = Workers1, targets = maps:remove(Target, Targets)}
+    end.
 
 lookup_worker(Ref, #state{workers=Workers}) ->
     maps:fold(
