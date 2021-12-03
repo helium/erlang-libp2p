@@ -39,6 +39,7 @@
           notify_group :: atom(),
           notify_time :: pos_integer(),
           notify_timer=undefined :: reference() | undefined,
+          notify_worker :: {pid(), reference()} | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=#{} :: #{libp2p_crypto:pubkey_bin() => pid()},
           connections = [] :: [libp2p_crypto:pubkey_bin()],
@@ -508,6 +509,8 @@ handle_cast(Msg, State) ->
 
 handle_info({signed_metadata, MD}, State) ->
     {noreply, State#state{metadata=MD}};
+handle_info({'DOWN', Ref, process, Pid, _}, State=#state{notify_worker={Pid,Ref}}) ->
+    {noreply, State#state{notify_worker=undefined}};
 handle_info({'DOWN', Ref, _, _, _}, State=#state{metadata_ref=Ref}) ->
     {noreply, State#state{metadata_ref=undefined}};
 handle_info(peer_timeout, State=#state{tid=TID}) ->
@@ -637,7 +640,7 @@ update_this_peer({ok, NewPeer}, State=#state{peer_timer=PeerTimer}) ->
 notify_new_peers([], State=#state{}) ->
     State;
 notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime,
-                                        notify_peers=NotifyPeers}) ->
+                                        notify_peers=NotifyPeers, notify_worker=NotifyWorker}) ->
     %% Cache the new peers to be sent out but make sure that the new
     %% peers are not stale.  We do that by only replacing already
     %% cached versions if the new peers supersede existing ones
@@ -661,7 +664,7 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% peers will keep notifications ticking at the notify_time, but
     %% that no timer is firing if there's nothing to notify.
     NewNotifyTimer = case NotifyTimer of
-                         undefined when map_size(NewNotifyPeers) > 0 ->
+                         undefined when map_size(NewNotifyPeers) > 0 andalso NotifyWorker == undefined ->
                              erlang:send_after(NotifyTime, self(), notify_timeout);
                          Other -> Other
                      end,
@@ -691,27 +694,38 @@ notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) 
 notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
                           gossip_group=GossipGroup, tid=TID}) ->
     %% Notify to local interested parties
-    PeerList = maps:values(NotifyPeers),
-    [Pid ! {new_peers, PeerList} || Pid <- ?PG_MEMBERS(NotifyGroup)],
+    PeerList0 = maps:values(NotifyPeers),
+    [Pid ! {new_peers, PeerList0} || Pid <- ?PG_MEMBERS(NotifyGroup)],
+
+    %% pre-encode all the peers so we avoid re-encoding them every time we subsample the list
+    %% these can just be joined/prefixed with 10,<length> to simulate the list wrapping
+    %% because these came out of a map, we assume the ordering is pretty random
+    PeerList = [ begin
+                     Encoded = libp2p_peer:encode(P),
+                     Size = small_ints:encode_varint(byte_size(Encoded)),
+                     <<10, Size/binary, Encoded/binary>>
+                 end || P <- PeerList0 ],
+
+    TotalPeerCount = length(PeerList),
+
+    lager:info("gossiping out ~p notify peers", [TotalPeerCount]),
 
     case GossipGroup of
         undefined ->
-            ok;
+            State;
         _ ->
             Opts = libp2p_swarm:opts(TID),
             PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
             SendFun = fun(seed) ->
                               %% send everything to the seed nodes
-                              libp2p_peer:encode_list(PeerList);
+                              PeerList;
                          (_Type) ->
-                              {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
-                              libp2p_peer:encode_list(RandomNPeers)
+                              lists:sublist(PeerList, rand:uniform(TotalPeerCount), PeerCount)
                       end,
-            libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun)
-    end,
-    State#state{notify_peers=#{}}.
-
+            NotifyWorker = spawn_monitor(fun() -> libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun) end),
+            State#state{notify_peers=#{}, notify_worker=NotifyWorker}
+    end.
 
 %% rocksdb has a bad spec that doesn't list corruption as a valid return
 %% so this is here until that gets fixed
