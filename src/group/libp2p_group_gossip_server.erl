@@ -44,6 +44,7 @@
 -define(DNS_TIMEOUT, 2000). % millis
 -define(DNS_SLEEP, 100). % millis
 -define(DEFAULT_SEED_DNS_PORTS, [2154, 443]).
+-define(SEED_CONFIG_DNS_NAME, "_seed_config.helium.io").
 
 %% API
 %%
@@ -409,9 +410,26 @@ lookup_seed_from_dns(TargetAddrs) ->
     end.
 
 collect_dns_records(Base) ->
-    AdditionalNames = application:get_env(libp2p, seed_dns_pool_names, []),
+    AdditionalNames = generate_seed_pool_names(),
     DNSNames = maybe_make_seed_pool_names(Base, AdditionalNames),
     lists:foldl(fun do_dns_lookups/2, [], DNSNames).
+
+generate_seed_pool_names() ->
+    case inet_res:lookup(?SEED_CONFIG_DNS_NAME, in, txt) of
+        [] -> []; %% there was an error of some kind, return empty list
+        [PoolSizeStr] ->
+            PoolStart = $1, %% ASCII "1"
+            %% increment PoolStart so we start pool names using ASCII "2"
+            %%
+            %% end at ASCII "1" + pool size (as an integer)
+            %% which should be the ASCII representation of the
+            %% last pool member number
+            generate_seed_names(PoolStart+1, PoolStart + list_to_integer(PoolSizeStr), [])
+    end.
+
+generate_seed_names(Current, End, Acc) when Current == End -> lists:reverse(Acc);
+generate_seed_names(Current, End, Acc) ->
+    generate_seed_names(Current+1, End, [ [$s, $e, $e, $d, Current ] | Acc ]).
 
 do_dns_lookups(CName, Acc) ->
     case attempt_dns_lookup(CName, ?DNS_RETRIES) of
@@ -432,7 +450,7 @@ attempt_dns_lookup(_Name, 0) -> {error, too_many_lookup_attempts};
 attempt_dns_lookup(Name, Attempts) ->
     case inet_res:gethostbyname(Name, inet, ?DNS_TIMEOUT) of
         {error, _} = Error ->
-            lager:debug("attempt ~p: got ~p", [Attempts, Error]),
+            lager:debug("name: ~p, attempt ~p: got ~p", [Name, Attempts, Error]),
             timer:sleep(?DNS_SLEEP),
             attempt_dns_lookup(Name, Attempts - 1);
         {ok, HostRec} -> {ok, HostRec}
