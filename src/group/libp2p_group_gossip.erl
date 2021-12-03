@@ -41,6 +41,7 @@ send(TID, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data)
                catch _:_ -> []
                end,
 
+    Bloom = ets:lookup_element(TID, gossip_bloom, 2),
 
     case is_function(Data) of
         true ->
@@ -49,7 +50,13 @@ send(TID, Key, Data) when is_list(Key), is_binary(Data) orelse is_function(Data)
             [ libp2p_group_worker:send(Pid, Key, Data(inbound), true) || Pid <- Inbound -- Deleted ],
             ok;
         false ->
-            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- (Seed ++ Peerbook ++ Inbound) -- Deleted ]
+            case bloom:check(Bloom, {out, Data}) of
+                true ->
+                    ok;
+                false ->
+                    bloom:set(Bloom, {out, Data}),
+                    [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- (Seed ++ Peerbook ++ Inbound) -- Deleted ]
+            end
     end,
     ok.
 
@@ -63,12 +70,20 @@ send(TID, Kind, Key, Data) when is_list(Key), is_binary(Data) orelse is_function
                catch _:_ -> []
                end,
 
+    Bloom = ets:lookup_element(TID, gossip_bloom, 2),
+
     case is_function(Data) of
         true ->
             [ libp2p_group_worker:send(Pid, Key, Data(Kind), true) || Pid <- Pids -- Deleted ],
             ok;
         false ->
-            [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Pids -- Deleted ]
+            case bloom:check(Bloom, {out, Data}) of
+                true ->
+                    ok;
+                false ->
+                    bloom:set(Bloom, {out, Data}),
+                    [ libp2p_group_worker:send(Pid, Key, Data, true) || Pid <- Pids -- Deleted ]
+            end
     end,
     ok.
 

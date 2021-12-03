@@ -126,6 +126,8 @@ init([Sup, TID]) ->
 
     {ok, Bloom} = bloom:new_forgetful_optimal(1000, 3, 800, 1.0e-3), 
 
+    ets:insert(TID, {gossip_bloom, Bloom}),
+
     self() ! {start_workers, Sup},
     {ok, update_metadata(#state{sup=Sup, tid=TID,
                                 seed_nodes=SeedNodes,
@@ -298,20 +300,18 @@ handle_cast({send_ready, _Target, _Ref, false}, State=#state{}) ->
 handle_cast({send_ready, Target, _Ref, _Ready}, State=#state{handlers=Handlers}) ->
     case lookup_worker_by_target(Target, State) of
         #worker{pid=WorkerPid} ->
-            spawn(fun() ->
-                          maps:fold(fun(Key, {M, S}, Acc) ->
-                                         case (catch M:init_gossip_data(S)) of
-                                             {'EXIT', Reason} ->
-                                                 lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
-                                                 Acc;
-                                             ok ->
-                                                 Acc;
-                                             {send, Msg} ->
-                                                 libp2p_group_worker:send(WorkerPid, Key, Msg, true),
-                                                 Acc
-                                         end
-                                 end, none, Handlers)
-                  end),
+                maps:fold(fun(Key, {M, S}, Acc) ->
+                                case (catch M:init_gossip_data(S)) of
+                                    {'EXIT', Reason} ->
+                                        lager:warning("gossip handler ~s failed to init with error ~p", [M, Reason]),
+                                        Acc;
+                                    ok ->
+                                        Acc;
+                                    {send, Msg} ->
+                                        libp2p_group_worker:send(WorkerPid, Key, Msg, true),
+                                        Acc
+                                end
+                        end, none, Handlers),
             {noreply, State};
         _ ->
             {noreply, State}

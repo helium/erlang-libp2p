@@ -708,7 +708,7 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
                               {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
                               libp2p_peer:encode_list(RandomNPeers)
                       end,
-            spawn(fun() -> libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun) end)
+            libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun)
     end,
     State#state{notify_peers=#{}}.
 
