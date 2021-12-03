@@ -554,7 +554,7 @@ generate_seed_pool_names(undefined) -> [];
 generate_seed_pool_names(ConfigDnsName) ->
     case inet_res:lookup(ConfigDnsName, in, txt) of
         [] -> []; %% there was an error of some kind, return empty list
-        [PoolSizeStr] ->
+        [[PoolSizeStr]] ->
             PoolStart = $1, %% ASCII "1"
             %% increment PoolStart so we start pool names using ASCII "2"
             %%
