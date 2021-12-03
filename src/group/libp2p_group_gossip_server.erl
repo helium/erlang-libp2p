@@ -634,20 +634,22 @@ remove_worker(#worker{ref = Ref, kind = Kind, target = Target, pid=Pid},
                                             end,
                     case length(NewDeleted) > DeleteWorkerBatchSize of
                         true ->
-                            case ets:lookup(TID, {Kind, gossip_workers}) of
-                                [{{Kind, gossip_workers}, Pids}] ->
-                                    %% we want to find the pids for this kind that have been deleted and remove them from the list and also the deleted list
-                                    A = sets:from_list(Pids),
-                                    B = sets:from_list(NewDeleted),
-                                    NewPids = sets:to_list(sets:subtract(A, B)),
-                                    NewDeletedPids = sets:to_list(sets:subtract(B, A)),
-                                    lager:info("Deleted ~p pids from ~p, ~p deletions left from ~p", [length(Pids) - length(NewPids), Kind, length(NewDeletedPids), length(NewDeleted)]),
-                                    ets:insert(TID, {{Kind, gossip_workers}, NewPids}),
-                                    ets:insert(TID, {{deleted, gossip_workers}, NewDeletedPids});
-                                [] ->
-                                    %%idk
-                                    ets:insert(TID, {{deleted, gossip_workers}, NewDeleted})
-                            end;
+                            B = sets:from_list(NewDeleted),
+                            lists:foreach(fun(FilterKind) ->
+                                                  case ets:lookup(TID, {FilterKind, gossip_workers}) of
+                                                      [{{FilterKind, gossip_workers}, Pids}] ->
+                                                          %% we want to find the pids for this kind that have been deleted and remove them from the list and also the deleted list
+                                                          A = sets:from_list(Pids),
+                                                          NewPids = sets:to_list(sets:subtract(A, B)),
+                                                          lager:info("Deleted ~p pids from ~p", [length(Pids) - length(NewPids), FilterKind]),
+                                                          ets:insert(TID, {{FilterKind, gossip_workers}, NewPids});
+                                                      [] ->
+                                                          %% idk
+                                                          ok
+                                                  end
+                                          end, [seed, peerbook, inbound]),
+                            %% by definition we must have deleted everything
+                            ets:insert(TID, {{deleted, gossip_workers}, []});
                         false ->
                             ets:insert(TID, {{deleted, gossip_workers}, NewDeleted})
                     end;
