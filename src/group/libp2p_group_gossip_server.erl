@@ -410,12 +410,13 @@ lookup_seed_from_dns(TargetAddrs) ->
     end.
 
 collect_dns_records(Base) ->
-    AdditionalNames = generate_seed_pool_names(),
+    AdditionalNames = generate_seed_pool_names(application:get_env(libp2p, seed_config_dns_name, undefined)),
     DNSNames = maybe_make_seed_pool_names(Base, AdditionalNames),
     lists:foldl(fun do_dns_lookups/2, [], DNSNames).
 
-generate_seed_pool_names() ->
-    case inet_res:lookup(?SEED_CONFIG_DNS_NAME, in, txt) of
+generate_seed_pool_names(undefined) -> [];
+generate_seed_pool_names(ConfigDnsName) ->
+    case inet_res:lookup(ConfigDnsName, in, txt) of
         [] -> []; %% there was an error of some kind, return empty list
         [PoolSizeStr] ->
             PoolStart = $1, %% ASCII "1"
