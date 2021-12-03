@@ -48,7 +48,6 @@
 -define(DNS_TIMEOUT, 2000). % millis
 -define(DNS_SLEEP, 100). % millis
 -define(DEFAULT_SEED_DNS_PORTS, [2154, 443]).
--define(SEED_CONFIG_DNS_NAME, "_seed_config.helium.io").
 
 %% API
 %%
