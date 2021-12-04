@@ -646,16 +646,21 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               %% check the peer has some interesting information
-                               case has_useful_listen_addrs(Peer, State) of
-                                   false -> Acc;
+                               case maps:size(Acc) > 5000 of
                                    true ->
-                                       case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
-                                           error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                           {ok, FoundPeer} ->
-                                               case libp2p_peer:supersedes(Peer, FoundPeer) of
-                                                   true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                                   false -> Acc
+                                       Acc;
+                                   false ->
+                                       %% check the peer has some interesting information
+                                       case has_useful_listen_addrs(Peer, State) of
+                                           false -> Acc;
+                                           true ->
+                                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                                   error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                   {ok, FoundPeer} ->
+                                                       case libp2p_peer:supersedes(Peer, FoundPeer) of
+                                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                           false -> Acc
+                                                       end
                                                end
                                        end
                                end
