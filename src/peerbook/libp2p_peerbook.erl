@@ -717,9 +717,9 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 
     Opts = libp2p_swarm:opts(TID),
     PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
-    SeedNodeCount = length(ets:lookup_element(TID, {seed, gossip_workers}, 2)),
+    SeedNodeCount = length(try ets:lookup_element(TID, {seed, gossip_workers}, 2) catch _:_ -> [] end),
 
-    PerSeed = max(PeerCount, TotalPeerCount div SeedNodeCount),
+    PerSeed = max(PeerCount, TotalPeerCount div max(1, SeedNodeCount)),
 
     case GossipGroup of
         undefined ->

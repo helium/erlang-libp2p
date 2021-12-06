@@ -13,8 +13,8 @@
 %% libp2p_info
 -export([info/1]).
 
--define(RECV_TIMEOUT, 120000).
--define(SEND_TIMEOUT, 120000).
+-define(RECV_TIMEOUT, 30000).
+-define(SEND_TIMEOUT, 30000).
 
 -type response() :: binary().
 -type handle_data_result() ::
