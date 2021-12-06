@@ -646,7 +646,7 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               case maps:size(Acc) > 5000 of
+                               case maps:size(Acc) > application:get_env(libp2p, peer_notification_batch_size, 5000) of
                                    true ->
                                        Acc;
                                    false ->
@@ -715,16 +715,20 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 
     lager:info("gossiping out ~p notify peers", [TotalPeerCount]),
 
+    Opts = libp2p_swarm:opts(TID),
+    PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
+    SeedNodeCount = length(ets:lookup_element(TID, {seed, gossip_workers}, 2)),
+
+    PerSeed = max(PeerCount, TotalPeerCount div SeedNodeCount),
+
     case GossipGroup of
         undefined ->
             State;
         _ ->
-            Opts = libp2p_swarm:opts(TID),
-            PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
             SendFun = fun(seed) ->
-                              %% send everything to the seed nodes
-                              PeerList;
+                              %% send 1/SeedNodeCount new peers to each seed node
+                              lists:sublist(PeerList, rand:uniform(TotalPeerCount), PerSeed);
                          (_Type) ->
                               lists:sublist(PeerList, rand:uniform(TotalPeerCount), PeerCount)
                       end,
