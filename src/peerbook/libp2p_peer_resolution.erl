@@ -33,7 +33,7 @@ re_resolve(GossipGroup, PK, Ts) ->
 install_handler(G, Handle) ->
     Limit = case application:get_env(libp2p, seed_node, false) of
                 true ->
-                    1000;
+                    100;
                 false -> 10
             end,
     throttle:setup(?MODULE, Limit, per_minute),
@@ -53,7 +53,7 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
                     %% look up our peerbook for a newer record for this peer
                     case libp2p_peerbook:get(Handle, PK) of
                         {ok, Peer} ->
-                            case libp2p_peer:timestamp(Peer) > Ts of
+                            case libp2p_peer:timestamp(Peer) > Ts andalso libp2p_peer:listen_addrs(Peer) /= [] of
                                 true ->
                                     lager:debug("ARP response for ~p Success", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
                                     {reply, libp2p_peer_resolution_pb:encode_msg(

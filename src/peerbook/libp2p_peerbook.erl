@@ -274,7 +274,8 @@ refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
 refresh(#peerbook{tid=TID}, Peer) ->
     TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff_mins, 1),
     case libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) andalso
-         libp2p_peer:is_stale(Peer, timer:minutes(TimeDiffMinutes)) of
+         libp2p_peer:is_stale(Peer, timer:minutes(TimeDiffMinutes)) andalso
+         libp2p_peer:listen_addrs(Peer) /= [] of
         false ->
             ok;
         true ->
