@@ -48,7 +48,7 @@ install_handler(G, Handle) ->
 handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
     case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
         #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
-            case throttle:check(?MODULE, StreamPid) of
+            case throttle_check(StreamPid, ReRequest) of
                 {ok, _, _} ->
                     %% look up our peerbook for a newer record for this peer
                     case libp2p_peerbook:get(Handle, PK) of
@@ -76,22 +76,32 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
         #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
             lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
             %% send this peer to the peerbook
+            Res = libp2p_peerbook:put(Handle, [Peer]),
             %% refresh any relays this peer is using as well so we don't fail
             %% a subsequent dial
-            lists:foreach(fun(Address) ->
-                                  case libp2p_relay:p2p_circuit(Address) of
-                                      {ok, {Relay, _PeerAddr}} ->
-                                          libp2p_peerbook:refresh(Handle, libp2p_crypto:p2p_to_pubkey_bin(Relay));
-                                      error ->
-                                          ok
-                                  end
-                          end, libp2p_peer:listen_addrs(Peer)),
-            Res = libp2p_peerbook:put(Handle, [Peer]),
+            case ReRequest of
+                true ->
+                    %% don't spider the relay addresses
+                    %% since this is a seed node
+                    ok;
+                false ->
+                    lists:foreach(fun(Address) ->
+                                          case libp2p_relay:p2p_circuit(Address) of
+                                              {ok, {Relay, _PeerAddr}} ->
+                                                  libp2p_peerbook:refresh(Handle, libp2p_crypto:p2p_to_pubkey_bin(Relay));
+                                              error ->
+                                                  ok
+                                          end
+                                  end, libp2p_peer:listen_addrs(Peer))
+            end,
             case Res == ok andalso ReRequest andalso application:get_env(libp2p, seed_node, false) of
                 true ->
                     %% this was a re-request, so gossip this update to everyone else too
-                    {reply, libp2p_peer_resolution_pb:encode_msg(
-                              #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
+                    GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Handle)),
+                    libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
+                                             libp2p_peer_resolution_pb:encode_msg(
+                                               #libp2p_peer_resolution_msg_pb{msg = {response, Peer}, re_request=ReRequest})),
+                    noreply;
                 false ->
                     noreply
             end
@@ -113,3 +123,9 @@ maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->
 init_gossip_data(_Peerbook) ->
     %% nothing to send on init
     ok.
+
+throttle_check(StreamPid, true) ->
+    %% allow 10x more arp requests between seed nodes than from any single normal peer
+    throttle:check(?MODULE, {rand:uniform(10), StreamPid});
+throttle_check(StreamPid, false) ->
+    throttle:check(?MODULE, StreamPid).
