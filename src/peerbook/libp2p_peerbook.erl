@@ -737,12 +737,14 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
         _ ->
             %% Gossip to any attached parties
             SendFun = fun(seed) ->
-                              prometheus_gauge:inc(peers_sent, PerSeed),
+                              SentList = lists:sublist(PeerList, rand:uniform(TotalPeerCount), PerSeed),
+                              prometheus_gauge:inc(peers_sent, [], length(SentList)),
                               %% send 1/SeedNodeCount new peers to each seed node
-                              lists:sublist(PeerList, rand:uniform(TotalPeerCount), PerSeed);
+                              SentList;
                          (_Type) ->
-                              prometheus_gauge:inc(peers_sent, PeerCount),
-                              lists:sublist(PeerList, rand:uniform(TotalPeerCount), PeerCount)
+                              CountList = lists:sublist(PeerList, rand:uniform(TotalPeerCount), PeerCount),
+                              prometheus_gauge:inc(peers_sent, [], length(CountList)),
+                              CountList
                       end,
             NotifyWorker = spawn_monitor(fun() -> libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun) end),
             State#state{notify_peers=#{}, notify_worker=NotifyWorker}
