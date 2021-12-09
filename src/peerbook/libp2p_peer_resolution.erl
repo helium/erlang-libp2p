@@ -38,11 +38,11 @@ install_handler(G, Handle) ->
             end,
     throttle:setup(?MODULE, Limit, per_minute),
     prometheus:start(),
-    prometheus_gauge:declare([{name, arp}, {help, "help me"}]),
-    prometheus_gauge:declare([{name, arp_rerequests}, {help, "help"}]),
-    prometheus_gauge:declare([{name, arp_dropped}, {help, "help me"}]),
-    prometheus_gauge:declare([{name, arp_responses}, {help, "help me"}]),
-    prometheus_gauge:declare([{name, arp_results}, {help, "help me"}]),
+    prometheus_gauge:declare([{name, arp}, {help, "Inbound ARP requests"}]),
+    prometheus_gauge:declare([{name, arp_rerequests}, {help, "Inbound ARP rerequests"}]),
+    prometheus_gauge:declare([{name, arp_dropped}, {help, "Rejected ARP requests"}]),
+    prometheus_gauge:declare([{name, arp_responses}, {help, "ARP responses sent"}]),
+    prometheus_gauge:declare([{name, arp_results}, {help, "ARP result received"}]),
     libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
     ok.
 

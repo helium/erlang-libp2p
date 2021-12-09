@@ -122,8 +122,11 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                                          case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
                                              true ->
                                                  store_peer(NewPeer, Handle),
+                                                 prometheus_gauge:inc(peers_written),
                                                  [NewPeer | Acc];
-                                             false -> Acc
+                                             false ->
+                                                 prometheus_gauge:inc(peers_rejected),
+                                                 Acc
                                          end;
                                      {ok, ExistingPeer} ->
                                          %% Only store peers that are not _this_ peer,
@@ -140,8 +143,10 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                                                  store_peer(NewPeer, Handle),
                                                  case libp2p_peer:is_similar(NewPeer, ExistingPeer) of
                                                      false ->
+                                                         prometheus_gauge:inc(peers_written),
                                                          [NewPeer | Acc];
                                                      true ->
+                                                         prometheus_gauge:inc(peers_rejected),
                                                          Acc
                                                  end;
                                              _ ->
@@ -408,8 +413,9 @@ init([TID, SigFun]) ->
     Opts = libp2p_swarm:opts(TID),
 
     prometheus:start(),
-    prometheus_gauge:declare([{name, peers_written}, {help, "help me"}]),
-    prometheus_gauge:declare([{name, peers_sent}, {help, "help me"}]),
+    prometheus_gauge:declare([{name, peers_written}, {help, "Number of peers received and stored"}]),
+    prometheus_gauge:declare([{name, peers_sent}, {help, "Number of peers gossiped out"}]),
+    prometheus_gauge:declare([{name, peers_rejected}, {help, "Number of peers received and rejected"}]),
 
     CFOpts = application:get_env(rocksdb, global_opts, []),
 
@@ -813,7 +819,6 @@ store_peer(Peer, #peerbook{store=Store}) ->
     case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
         ok ->
-            prometheus_gauge:inc(peers_written),
             ok
     end.
 
