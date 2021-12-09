@@ -41,6 +41,8 @@ install_handler(G, Handle) ->
     prometheus_gauge:declare([{name, arp}, {help, "help me"}]),
     prometheus_gauge:declare([{name, arp_rerequests}, {help, "help"}]),
     prometheus_gauge:declare([{name, arp_dropped}, {help, "help me"}]),
+    prometheus_gauge:declare([{name, arp_responses}, {help, "help me"}]),
+    prometheus_gauge:declare([{name, arp_results}, {help, "help me"}]),
     libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
     ok.
 
@@ -66,6 +68,7 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
                             case libp2p_peer:timestamp(Peer) > Ts andalso libp2p_peer:listen_addrs(Peer) /= [] of
                                 true ->
                                     lager:debug("ARP response for ~p Success", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
+                                    prometheus_gauge:inc(arp_responses),
                                     {reply, libp2p_peer_resolution_pb:encode_msg(
                                               #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
                                 false ->
@@ -86,6 +89,7 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
             end;
         #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
             lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
+            prometheus_gauge:inc(arp_results),
             %% send this peer to the peerbook
             Res = libp2p_peerbook:put(Handle, [Peer]),
             %% refresh any relays this peer is using as well so we don't fail

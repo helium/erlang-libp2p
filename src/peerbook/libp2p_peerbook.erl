@@ -407,6 +407,10 @@ init([TID, SigFun]) ->
     Group = group_create(SwarmName),
     Opts = libp2p_swarm:opts(TID),
 
+    prometheus:start(),
+    prometheus_gauge:declare([{name, peers_written}, {help, "help me"}]),
+    prometheus_gauge:declare([{name, peers_sent}, {help, "help me"}]),
+
     CFOpts = application:get_env(rocksdb, global_opts, []),
 
     StaleTime = libp2p_config:get_opt(Opts, [?MODULE, stale_time], ?DEFAULT_STALE_TIME),
@@ -727,9 +731,11 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
         _ ->
             %% Gossip to any attached parties
             SendFun = fun(seed) ->
+                              prometheus_gauge:inc(peers_sent, PerSeed),
                               %% send 1/SeedNodeCount new peers to each seed node
                               lists:sublist(PeerList, rand:uniform(TotalPeerCount), PerSeed);
                          (_Type) ->
+                              prometheus_gauge:inc(peers_sent, PeerCount),
                               lists:sublist(PeerList, rand:uniform(TotalPeerCount), PeerCount)
                       end,
             NotifyWorker = spawn_monitor(fun() -> libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun) end),
@@ -806,7 +812,9 @@ store_peer(Peer, #peerbook{store=Store}) ->
     %% reverse pubkeys so they're easier to randomly select
     case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
-        ok -> ok
+        ok ->
+            prometheus_gauge:inc(peers_written),
+            ok
     end.
 
 -spec delete_peer(libp2p_crypto:pubkey_bin(), peerbook()) -> ok.
