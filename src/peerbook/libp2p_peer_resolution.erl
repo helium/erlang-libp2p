@@ -37,6 +37,10 @@ install_handler(G, Handle) ->
                 false -> 10
             end,
     throttle:setup(?MODULE, Limit, per_minute),
+    prometheus:start(),
+    prometheus_gauge:declare([{name, arp}, {help, "help me"}]),
+    prometheus_gauge:declare([{name, arp_rerequests}, {help, "help"}]),
+    prometheus_gauge:declare([{name, arp_dropped}, {help, "help me"}]),
     libp2p_group_gossip:add_handler(G,  ?GOSSIP_GROUP_KEY, {?MODULE, Handle}),
     ok.
 
@@ -50,6 +54,12 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
         #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
             case throttle_check(StreamPid, ReRequest) of
                 {ok, _, _} ->
+                    case ReRequest of
+                        true ->
+                            prometheus_gauge:inc(arp_rerequests);
+                        _ ->
+                            prometheus_gauge:inc(arp)
+                    end,
                     %% look up our peerbook for a newer record for this peer
                     case libp2p_peerbook:get(Handle, PK) of
                         {ok, Peer} ->
@@ -71,6 +81,7 @@ handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
                             noreply
                     end;
                 {limit_exceeded, _, _} ->
+                    prometheus_gauge:inc(arp_dropped),
                     noreply
             end;
         #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
