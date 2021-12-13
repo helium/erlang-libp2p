@@ -119,6 +119,8 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                              _ ->
                                  NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
                                  case unsafe_fetch_peer(NewPeerId, Handle) of
+                                     {error, disabled} ->
+                                         Acc;
                                      {error, not_found} ->
                                          case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
                                              true ->
@@ -173,6 +175,8 @@ get(#peerbook{tid=TID}=Handle, ID) ->
         {error, not_found} when ID == ThisPeerId ->
             gen_server:call(libp2p_swarm:peerbook_pid(TID), update_this_peer, infinity),
             get(Handle, ID);
+        {error, disabled} ->
+            {error, not_found};
         {error, Error} ->
             {error, Error};
         {ok, Peer} ->
@@ -274,6 +278,7 @@ refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
             ok;
         false ->
             case fetch_peer(ID, Handle) of
+                {error, disabled} -> ok;
                 {error, _Error} ->
                     libp2p_peer_resolution:resolve(TID, ID, 0),
                     ok;
@@ -772,11 +777,13 @@ notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
 %% so this is here until that gets fixed
 -dialyzer({nowarn_function, unsafe_fetch_peer/2}).
 -spec unsafe_fetch_peer(libp2p_crypto:pubkey_bin() | undefined, peerbook())
-                       -> {ok, libp2p_peer:peer()} | {error, not_found}.
+                       -> {ok, libp2p_peer:peer()} | {error, not_found | disabled}.
 unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
 unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
     case rocksdb:get(Store, rev(ID), []) of
+        {ok, <<"disabled">>} ->
+            {error, disabled};
         {ok, Bin} ->
             %% I think that it's OK to use unsafe here for performance, this was validated on
             %% storage.  disk corruption will result in a crash anyway.
