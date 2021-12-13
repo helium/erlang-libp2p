@@ -9,6 +9,7 @@
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2,
          blacklist_listen_addr/3, fold_peers/3,
+         disable/2, enable/2,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
 -export([handle_gossip_data/3, init_gossip_data/1]).
@@ -329,6 +330,12 @@ blacklist_listen_addr(Handle=#peerbook{}, ID, ListenAddr) ->
             store_peer(UpdatedPeer, Handle)
     end.
 
+disable(#peerbook{tid=TID}, PeerAddr) ->
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {disable, PeerAddr}).
+
+enable(#peerbook{tid=TID}, PeerAddr) ->
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {enable, PeerAddr}).
+
 -spec join_notify(peerbook(), pid()) -> ok.
 join_notify(#peerbook{tid=TID}, Joiner) ->
     gen_server:cast(libp2p_swarm:peerbook_pid(TID), {join_notify, Joiner}).
@@ -512,6 +519,17 @@ handle_cast({register_session, SessionPid, Identify},
     {noreply, State#state{sessions=maps:put(SessionPid, SessionAddr, NewSessions), connections=NewConnections}};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
+    {noreply, State};
+handle_cast({disable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
+    rocksdb:put(Store, rev(PeerAddr), <<"disabled">>, []),
+    {noreply, State};
+handle_cast({enable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
+    case rocksdb:get(Store, rev(PeerAddr), []) of
+        {ok, <<"disabled">>} ->
+            rocksdb:delete(Store, rev(PeerAddr), []);
+        _ ->
+            ok
+    end,
     {noreply, State};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
