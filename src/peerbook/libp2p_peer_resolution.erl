@@ -31,11 +31,7 @@ re_resolve(TID, PK, Ts) ->
 
 
 install_handler(G, Handle) ->
-    Limit = case application:get_env(libp2p, seed_node, false) of
-                true ->
-                    100;
-                false -> 10
-            end,
+    Limit = application:get_env(libp2p, arp_limit, 10),
     throttle:setup(?MODULE, Limit, per_minute),
     prometheus:start(),
     prometheus_gauge:declare([{name, arp}, {help, "Inbound ARP requests"}]),
