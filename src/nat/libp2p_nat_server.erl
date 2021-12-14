@@ -217,7 +217,8 @@ renew(infinity) ->
 renew(0) ->
     lager:info("not renewing lease is infinite");
 renew(Time0) ->
-    % Try to renew before so we don't have down time
-    Time1 = max(0, timer:seconds(Time0)-500),
+    % Try to renew before so we don't have down time. Ensure at least 60 seconds
+    % apart
+    Time1 = max(timer:seconds(60), timer:seconds(Time0)-500),
     _ = erlang:send_after(Time1, self(), renew),
     lager:info("renewing lease in ~pms", [Time1]).
