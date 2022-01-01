@@ -49,13 +49,14 @@ install_handler(G, Handle) ->
 -spec handle_gossip_data(pid(), libp2p_crypto:pubkey_bin(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
 handle_gossip_data(_StreamPid, undefined, {_Path, _Data}, _Handle) ->
     noteply;
-handle_gossip_data(StreamPid, PeerAddr, {_Path, Data}, Handle) ->
-    %% check this peer is actually legitimately connected to us
-    case libp2p_peerbook:get(Handle, PeerAddr) of
+handle_gossip_data(StreamPid, GossipPeer, {_Path, Data}, Handle) ->
+    %% check this peer is actually legitimately connected to us so
+    %% we don't poison the throttle
+    case libp2p_peerbook:get(Handle, GossipPeer) of
         {ok, _} ->
             case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
                 #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
-                    case throttle_check(StreamPid, ReRequest) of
+                    case throttle_check(PeerAddr, ReRequest) of
                         {ok, _, _} ->
                             case ReRequest of
                                 true ->
@@ -143,8 +144,8 @@ init_gossip_data(_Peerbook) ->
     %% nothing to send on init
     ok.
 
-throttle_check(StreamPid, true) ->
+throttle_check(GossipPeer, true) ->
     %% allow 10x more arp requests between seed nodes than from any single normal peer
-    throttle:check(?MODULE, {rand:uniform(10), StreamPid});
-throttle_check(StreamPid, false) ->
-    throttle:check(?MODULE, StreamPid).
+    throttle:check(?MODULE, {rand:uniform(10), GossipPeer});
+throttle_check(GossipPeer, false) ->
+    throttle:check(?MODULE, GossipPeer).
