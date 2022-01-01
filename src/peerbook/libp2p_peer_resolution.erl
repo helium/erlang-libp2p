@@ -5,7 +5,7 @@
 -include("pb/libp2p_peer_resolution_pb.hrl").
 
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/3, init_gossip_data/1]).
+-export([handle_gossip_data/4, init_gossip_data/1]).
 
 -export([resolve/3, install_handler/2]).
 
@@ -46,76 +46,84 @@ install_handler(G, Handle) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(pid(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
-handle_gossip_data(StreamPid, {_Path, Data}, Handle) ->
-    case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
-        #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
-            case throttle_check(StreamPid, ReRequest) of
-                {ok, _, _} ->
-                    case ReRequest of
-                        true ->
-                            prometheus_gauge:inc(arp_rerequests);
-                        _ ->
-                            prometheus_gauge:inc(arp)
-                    end,
-                    %% look up our peerbook for a newer record for this peer
-                    case libp2p_peerbook:get(Handle, PK) of
-                        {ok, Peer} ->
-                            case libp2p_peer:timestamp(Peer) > Ts andalso libp2p_peer:listen_addrs(Peer) /= [] of
+-spec handle_gossip_data(pid(), libp2p_crypto:pubkey_bin(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
+handle_gossip_data(_StreamPid, undefined, {_Path, _Data}, _Handle) ->
+    noteply;
+handle_gossip_data(StreamPid, PeerAddr, {_Path, Data}, Handle) ->
+    %% check this peer is actually legitimately connected to us
+    case libp2p_peerbook:get(Handle, PeerAddr) of
+        {ok, _} ->
+            case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
+                #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
+                    case throttle_check(StreamPid, ReRequest) of
+                        {ok, _, _} ->
+                            case ReRequest of
                                 true ->
-                                    lager:debug("ARP response for ~p Success", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
-                                    prometheus_gauge:inc(arp_responses),
-                                    {reply, libp2p_peer_resolution_pb:encode_msg(
-                                              #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
-                                false ->
+                                    prometheus_gauge:inc(arp_rerequests);
+                                _ ->
+                                    prometheus_gauge:inc(arp)
+                            end,
+                            %% look up our peerbook for a newer record for this peer
+                            case libp2p_peerbook:get(Handle, PK) of
+                                {ok, Peer} ->
+                                    case libp2p_peer:timestamp(Peer) > Ts andalso libp2p_peer:listen_addrs(Peer) /= [] of
+                                        true ->
+                                            lager:debug("ARP response for ~p Success", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
+                                            prometheus_gauge:inc(arp_responses),
+                                            {reply, libp2p_peer_resolution_pb:encode_msg(
+                                                      #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
+                                        false ->
+                                            maybe_re_resolve(Handle, ReRequest, PK, Ts),
+                                            lager:debug("ARP response for ~p Failed - stale", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
+                                            %% peer is as stale or staler than what they have
+                                            noreply
+                                    end;
+                                _ ->
+                                    lager:debug("ARP response for ~p Failed - notfound", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
                                     maybe_re_resolve(Handle, ReRequest, PK, Ts),
-                                    lager:debug("ARP response for ~p Failed - stale", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
-                                    %% peer is as stale or staler than what they have
+                                    %% don't have this peer
                                     noreply
                             end;
-                        _ ->
-                            lager:debug("ARP response for ~p Failed - notfound", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
-                            maybe_re_resolve(Handle, ReRequest, PK, Ts),
-                            %% don't have this peer
+                        {limit_exceeded, _, _} ->
+                            prometheus_gauge:inc(arp_dropped),
                             noreply
                     end;
-                {limit_exceeded, _, _} ->
-                    prometheus_gauge:inc(arp_dropped),
-                    noreply
+                #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
+                    lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
+                    prometheus_gauge:inc(arp_results),
+                    %% send this peer to the peerbook
+                    Res = libp2p_peerbook:put(Handle, [Peer]),
+                    %% refresh any relays this peer is using as well so we don't fail
+                    %% a subsequent dial
+                    case ReRequest of
+                        true ->
+                            %% don't spider the relay addresses
+                            %% since this is a seed node
+                            ok;
+                        false ->
+                            lists:foreach(fun(Address) ->
+                                                  case libp2p_relay:p2p_circuit(Address) of
+                                                      {ok, {Relay, _PeerAddr}} ->
+                                                          libp2p_peerbook:refresh(Handle, libp2p_crypto:p2p_to_pubkey_bin(Relay));
+                                                      error ->
+                                                          ok
+                                                  end
+                                          end, libp2p_peer:listen_addrs(Peer))
+                    end,
+                    case Res == ok andalso ReRequest andalso application:get_env(libp2p, seed_node, false) of
+                        true ->
+                            %% this was a re-request, so gossip this update to everyone else too
+                            GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Handle)),
+                            libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
+                                                     libp2p_peer_resolution_pb:encode_msg(
+                                                       #libp2p_peer_resolution_msg_pb{msg = {response, Peer}, re_request=ReRequest})),
+                            noreply;
+                        false ->
+                            noreply
+                    end
             end;
-        #libp2p_peer_resolution_msg_pb{msg = {response, #libp2p_signed_peer_pb{} = Peer}, re_request=ReRequest} ->
-            lager:debug("ARP result for ~p", [libp2p_crypto:pubkey_bin_to_p2p(libp2p_peer:pubkey_bin(Peer))]),
-            prometheus_gauge:inc(arp_results),
-            %% send this peer to the peerbook
-            Res = libp2p_peerbook:put(Handle, [Peer]),
-            %% refresh any relays this peer is using as well so we don't fail
-            %% a subsequent dial
-            case ReRequest of
-                true ->
-                    %% don't spider the relay addresses
-                    %% since this is a seed node
-                    ok;
-                false ->
-                    lists:foreach(fun(Address) ->
-                                          case libp2p_relay:p2p_circuit(Address) of
-                                              {ok, {Relay, _PeerAddr}} ->
-                                                  libp2p_peerbook:refresh(Handle, libp2p_crypto:p2p_to_pubkey_bin(Relay));
-                                              error ->
-                                                  ok
-                                          end
-                                  end, libp2p_peer:listen_addrs(Peer))
-            end,
-            case Res == ok andalso ReRequest andalso application:get_env(libp2p, seed_node, false) of
-                true ->
-                    %% this was a re-request, so gossip this update to everyone else too
-                    GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Handle)),
-                    libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
-                                             libp2p_peer_resolution_pb:encode_msg(
-                                               #libp2p_peer_resolution_msg_pb{msg = {response, Peer}, re_request=ReRequest})),
-                    noreply;
-                false ->
-                    noreply
-            end
+        _ ->
+            noreply
     end.
 
 maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->

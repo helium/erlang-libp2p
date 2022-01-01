@@ -5,7 +5,7 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), StreamPid::pid(), Key::string(), TID :: ets:tab(), Msg::binary()) -> ok.
+-callback handle_data(State::any(), StreamPid::pid(), Peer::libp2p_crypto:pubkey_bin(), Key::string(), TID :: ets:tab(), Msg::binary()) -> ok.
 -callback accept_stream(State::any(),
                         Session::pid(),
                         Stream::pid(),
@@ -25,6 +25,7 @@
           handler_state :: any(),
           path :: any(),
           bloom :: bloom_nif:bloom(),
+          peer :: undefined | libp2p_crypto:pubkey_bin(),
           reply_ref=make_ref() :: reference()
         }).
 
@@ -58,10 +59,11 @@ init(server, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
                 bloom=Bloom,
                 path=Path}};
 
-init(client, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
+init(client, Connection, [Path, HandlerModule, HandlerState, TID, Bloom, SelectedAddr]) ->
     lager:debug("initiating client with path ~p", [Path]),
     {ok, #state{connection=Connection,
                 tid = TID,
+                peer = libp2p_crypto:p2p_to_pubkey_bin(SelectedAddr),
                 handler_module=HandlerModule,
                 handler_state=HandlerState,
                 bloom=Bloom,
@@ -69,6 +71,7 @@ init(client, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
 
 handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
                                   handler_state=HandlerState,
+                                  peer=Peer,
                                   bloom=Bloom,
                                   tid=TID,
                                   path=Path}) ->
@@ -83,7 +86,7 @@ handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
             %% we could do a second bloom:set to allow tracking where we
             %% received this data from
             bloom:set(Bloom, {in, DecodedData}),
-            case HandlerModule:handle_data(HandlerState, self(), Key, TID,
+            case HandlerModule:handle_data(HandlerState, self(), Peer, Key, TID,
                                            {Path, DecodedData}) of
                 {reply, ReplyMsg} ->
                     {noreply, State, ReplyMsg};
@@ -92,6 +95,8 @@ handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
             end
     end.
 
+handle_info(server, {identify, PeerAddr}, State) ->
+    {noreply, State#state{peer=PeerAddr}};
 handle_info(server, {Ref, AcceptResult}, State=#state{reply_ref=Ref}) ->
     case AcceptResult of
         ok ->

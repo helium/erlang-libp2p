@@ -7,7 +7,7 @@
 -export_type([stream_client_spec/0]).
 
 %% API
--export([start_link/6, start_link/8,
+-export([start_link/6, start_link/9,
          assign_target/2, clear_target/1,
          assign_stream/2, assign_stream/3, send/4, send_ack/3, close/1]).
 
@@ -126,18 +126,19 @@ start_link(Ref, Kind, Server, GroupID, DialOptions, TID) ->
     gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID,
                                     DialOptions, TID], []).
 
--spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), [any()], ets:tab(), string()) ->
+-spec start_link(reference(), atom(), Stream::pid(), Target::libp2p_crypto:pubkey_bin(), Server::pid(), string(), [any()], ets:tab(), string()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server,
+start_link(Ref, Kind, StreamPid, Target, Server, GroupID, DialOptions, TID, Path) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Target, Server,
                                     GroupID, DialOptions, TID, Path], []).
 
 callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path]) ->
+init([Ref, Kind, StreamPid, Target, Server, GroupID, DialOptions, TID, Path]) ->
+    StreamPid ! {identify, Target},
     lager:debug("starting group worker of kind ~p and path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
     process_flag(trap_exit, true),
     {ok, connected,
