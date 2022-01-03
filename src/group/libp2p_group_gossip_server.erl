@@ -11,7 +11,7 @@
 %% gen_server
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 %% libp2p_gossip_stream
--export([accept_stream/4, handle_identify/4, handle_data/6]).
+-export([accept_stream/4, handle_identify/4, handle_data/7]).
 
 -record(worker,
        { target :: binary() | string() | undefined,
@@ -61,7 +61,7 @@ reg_name(TID)->
 %% libp2p_gossip_stream
 %%
 
-handle_data(_Pid, StreamPid, Peer, Key, TID, {Path, Bin}) ->
+handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
     %% experimentally move decoding out to the caller
     ListOrData =
         case Key of
@@ -70,7 +70,7 @@ handle_data(_Pid, StreamPid, Peer, Key, TID, {Path, Bin}) ->
             _ ->
                 {Path, Bin}
         end,
-        lager:info("gossip data from peer ~p", [Peer]),
+        lager:info("gossip data from peer ~p ~p", [Kind, Peer]),
         %% check the cache, see the lookup_handler function for details
         case lookup_handler(TID, Key) of
             error ->
@@ -78,7 +78,7 @@ handle_data(_Pid, StreamPid, Peer, Key, TID, {Path, Bin}) ->
             {ok, M, S} ->
                 %% Catch the callback response. This avoids a crash in the
                 %% handler taking down the gossip worker itself.
-                try M:handle_gossip_data(StreamPid, Peer, ListOrData, S) of
+                try M:handle_gossip_data(StreamPid, Kind, Peer, ListOrData, S) of
                     {reply, Reply} ->
                         %% handler wants to reply
                         %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
@@ -478,7 +478,7 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                 Worker=#worker{kind=seed, target=SelectedAddr, pid=StoredWorkerPid} when SelectedAddr /= undefined ->
                     %% don't give up on the seed nodes in case we're entirely offline
                     %% we need at least one connection to bootstrap the swarm
-                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), TID, Bloom, SelectedAddr]}},
+                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), TID, Bloom, seed, SelectedAddr]}},
                     libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
                     %% check if this worker got restarted
                     case WorkerPid /= StoredWorkerPid of
@@ -493,12 +493,12 @@ assign_target(WorkerPid, WorkerRef, TargetAddrs, State=#state{workers=Workers, s
                     State
             end;
         _ ->
-            SelectedAddr = mk_multiaddr(choose_random_element(TargetAddrs)),
-            ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), TID, Bloom, SelectedAddr]}},
-            libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
             %% the ref is stable across restarts, so use that as the lookup key
             case lookup_worker(WorkerRef, State) of
-                Worker=#worker{} ->
+                Worker=#worker{kind=Kind} ->
+                    SelectedAddr = mk_multiaddr(choose_random_element(TargetAddrs)),
+                    ClientSpec = {SupportedPaths, {libp2p_gossip_stream, [?MODULE, self(), TID, Bloom, Kind, SelectedAddr]}},
+                    libp2p_group_worker:assign_target(WorkerPid, {SelectedAddr, ClientSpec}),
                     %% since we have to update the worker here anyway, update the worker pid as well
                     %% so we handle restarts smoothly
                     NewWorker = Worker#worker{target=SelectedAddr, pid=WorkerPid},
@@ -760,7 +760,7 @@ start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, side
     case sidejob_supervisor:start_child(
            WorkerSup,
            libp2p_group_worker, start_link,
-           [Ref, inbound, StreamPid, Target, self(), ?GROUP_ID, [], TID, Path]) of
+           [Ref, inbound, StreamPid, libp2p_crypto:pubkey_bin_to_p2p(Target), self(), ?GROUP_ID, [], TID, Path]) of
         {ok, WorkerPid} ->
             maps:fold(fun(Key, {M, S}, Acc) ->
                                  case (catch M:init_gossip_data(S)) of

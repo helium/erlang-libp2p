@@ -12,7 +12,7 @@
          disable/2, enable/2,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/4, init_gossip_data/1]).
+-export([handle_gossip_data/5, init_gossip_data/1]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
@@ -389,8 +389,8 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(pid(), libp2p_crypto:pubkey_bin(), {string(), [libp2p_peer:peer()]}, peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, _Peer, {"gossip/1.0."++_, DecodedList}, Handle) ->
+-spec handle_gossip_data(pid(), inbound | seed | peerbook, string(), {string(), [libp2p_peer:peer()]}, peerbook()) -> noreply.
+handle_gossip_data(_StreamPid, _Kind, _Peer, {"gossip/1.0."++_, DecodedList}, Handle) ->
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
     noreply.

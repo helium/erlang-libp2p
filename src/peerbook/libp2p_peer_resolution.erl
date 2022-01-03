@@ -5,7 +5,7 @@
 -include("pb/libp2p_peer_resolution_pb.hrl").
 
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/4, init_gossip_data/1]).
+-export([handle_gossip_data/5, init_gossip_data/1]).
 
 -export([resolve/3, install_handler/2]).
 
@@ -46,14 +46,14 @@ install_handler(G, Handle) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(pid(), libp2p_crypto:pubkey_bin(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
-handle_gossip_data(_StreamPid, undefined, {_Path, _Data}, _Handle) ->
+-spec handle_gossip_data(pid(), seed | inbound | peerbook, string(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
+handle_gossip_data(_StreamPid, _Kind, undefined, {_Path, _Data}, _Handle) ->
     noteply;
-handle_gossip_data(_StreamPid, GossipPeer, {_Path, Data}, Handle) ->
+handle_gossip_data(_StreamPid, Kind, GossipPeer, {_Path, Data}, Handle) ->
     %% check this peer is actually legitimately connected to us so
     %% we don't poison the throttle
-    case libp2p_peerbook:get(Handle, GossipPeer) of
-        {ok, _} ->
+    case is_valid_peer(Kind, GossipPeer, Handle) of
+        true ->
             case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
                 #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
                     case throttle_check(GossipPeer, ReRequest) of
@@ -125,6 +125,16 @@ handle_gossip_data(_StreamPid, GossipPeer, {_Path, Data}, Handle) ->
             end;
         _ ->
             noreply
+    end.
+
+is_valid_peer(seed, _, _) ->
+    true;
+is_valid_peer(_, Peer, Handle) ->
+    case libp2p_peerbook:get(Handle, libp2p_crypto:p2p_to_pubkey_bin(Peer)) of
+        {ok, _} ->
+            true;
+        _ ->
+            false
     end.
 
 maybe_re_resolve(Peerbook, ReRequest, PK, Ts) ->

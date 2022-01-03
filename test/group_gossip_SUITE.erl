@@ -9,7 +9,7 @@
 -export([connection_test/1, gossip_test/1, seed_test/1]).
 -export([forwards_compat_gossip_test/1, backwards_compat_gossip_test/1]).
 -export([same_path_gossip_test1/1, same_path_gossip_test2/1]).
--export([init_gossip_data/1, handle_gossip_data/4]).
+-export([init_gossip_data/1, handle_gossip_data/5]).
 
 all() ->
     [
@@ -377,7 +377,7 @@ seed_test(Config) ->
 init_gossip_data(_) ->
      ok.
 
-handle_gossip_data(_StreamPid, _Peer, {"gossip/1.0"++_, Msg}, Parent) ->
+handle_gossip_data(_StreamPid, _Kind, _Peer, {"gossip/1.0"++_, Msg}, Parent) ->
     ct:pal("handle gossip data ~p ~p ~p", [_StreamPid, Msg, Parent]),
     Parent ! {handle_gossip_data, Msg},
     noreply.
