@@ -1186,8 +1186,6 @@ do_identify(Session, Identify, State=#state{tid=TID}) ->
                     [ libp2p_config:remove_listener(TID, A) || A <- RemovedListenAddrs ],
                     %% we can simply re-add all of the addresses again, overrides are fine
                     [ libp2p_config:insert_listener(TID, LAs, P) || {LAs, P} <- NewListenAddrsWithPid],
-                    PB = libp2p_swarm:peerbook(TID),
-                    libp2p_peerbook:changed_listener(PB),
                     libp2p_nat:maybe_spawn_discovery(self(), NewListenAddrs, TID),
                     %% wipe out any prior observed addresses here
                     {noreply, record_observed_addr(RemoteP2PAddr, ObservedAddr, State#state{observed_addrs=sets:new()} )};
