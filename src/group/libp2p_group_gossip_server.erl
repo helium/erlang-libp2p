@@ -70,7 +70,7 @@ handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
             _ ->
                 {Path, Bin}
         end,
-        lager:info("gossip data from peer ~p ~p", [Kind, Peer]),
+        lager:debug("gossip data from peer ~p ~p", [Kind, Peer]),
         %% check the cache, see the lookup_handler function for details
         case lookup_handler(TID, Key) of
             error ->
