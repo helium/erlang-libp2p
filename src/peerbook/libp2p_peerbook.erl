@@ -745,9 +745,10 @@ fetch_peer(ID, Handle=#peerbook{stale_time=StaleTime}) ->
 
 
 fold_peers(Fun, Acc0, #peerbook{tid=TID, store=Store, stale_time=StaleTime}) ->
-    {ok, Iterator} = rocksdb:iterator(Store, []),
+    {ok, StoreSnapshot} = rocksdb:snapshot(Store),
+    {ok, Iterator} = rocksdb:iterator(Store, [{snapshot, StoreSnapshot}]),
     NetworkID = libp2p_swarm:network_id(TID),
-    fold(Iterator, rocksdb:iterator_move(Iterator, first),
+    Folded = fold(Iterator, rocksdb:iterator_move(Iterator, first),
          fun(Key, Bin, Acc) ->
                  Peer = libp2p_peer:decode_unsafe(Bin),
                  case libp2p_peer:is_stale(Peer, StaleTime)
@@ -755,7 +756,9 @@ fold_peers(Fun, Acc0, #peerbook{tid=TID, store=Store, stale_time=StaleTime}) ->
                      true -> Acc;
                      false -> Fun(rev(Key), Peer, Acc)
                  end
-         end, Acc0).
+         end, Acc0),
+    rocksdb:release_snapshot(StoreSnapshot),
+    Folded.
 
 fold(Iterator, {error, _}, _Fun, Acc) ->
     rocksdb:iterator_close(Iterator),
