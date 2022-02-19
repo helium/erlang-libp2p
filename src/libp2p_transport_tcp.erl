@@ -94,6 +94,7 @@
         }).
 
 -define(DEFAULT_MAX_TCP_CONNECTIONS, 1024).
+-define(DEFAULT_MAX_TCP_ACCEPTORS, 10).
 
 %% libp2p_transport
 %%
@@ -249,6 +250,7 @@ fdset(#tcp_state{socket=Socket}=State) ->
     case erlang:get(fdset_pid) of
         undefined ->
             Pid = erlang:spawn(fun() ->
+                                   erlang:put(fsset_for, Parent),
                                    erlang:monitor(process, Parent),
                                    fdset_loop(Socket, Parent, 1)
                                end),
@@ -721,7 +723,7 @@ terminate(_Reason, #state{}) ->
 listen_options(IP, TID) ->
     OptionDefaults = [
                       {ip, IP},
-                      {backlog, 1024},
+                      {backlog, application:get_env(libp2p, listen_backlog, 1024)},
                       {nodelay, true},
                       {send_timeout, 30000},
                       {send_timeout_close, true}
@@ -757,8 +759,10 @@ listen_on(Addr, TID) ->
                     ok = libp2p_cache:insert(Cache, {tcp_local_listen_addrs, Type}, ListenAddrs),
 
                     MaxTCPConnections = application:get_env(libp2p, max_tcp_connections, ?DEFAULT_MAX_TCP_CONNECTIONS),
+                    MaxAcceptors = application:get_env(libp2p, num_tcp_acceptors, ?DEFAULT_MAX_TCP_ACCEPTORS),
                     ChildSpec = ranch:child_spec(ListenAddrs,
-                                                 ranch_tcp, [{socket, Socket}, {max_connections, MaxTCPConnections}],
+                                                 ranch_tcp, [{socket, Socket}, {max_connections, MaxTCPConnections},
+                                                             {num_acceptors, MaxAcceptors}],
                                                  libp2p_transport_ranch_protocol, {?MODULE, TID}),
                     case supervisor:start_child(Sup, ChildSpec) of
                         {ok, Pid} ->
@@ -1074,11 +1078,10 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                         true ->
                             lager:info("Saw 3 distinct observed addresses similar to ~p assuming symmetric NAT", [ObservedAddr]),
                             libp2p_peerbook:update_nat_type(libp2p_swarm:peerbook(TID), symmetric),
-                            Ref = monitor_relay_server(State),
                             libp2p_relay:init(libp2p_swarm:swarm(TID)),
                             %% also check if we have a port forward from the same external port to our internal port
                             %% as this is a common configuration
-                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses, relay_monitor=Ref, nat_type=symmetric});
+                            attempt_port_forward_discovery(ObservedAddr, PeerAddr, State#state{observed_addrs=ObservedAddresses});
                         false ->
                             State#state{observed_addrs=ObservedAddresses}
                     end

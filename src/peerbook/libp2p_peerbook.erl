@@ -2,15 +2,17 @@
 
 -export([start_link/2, stop/1, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
 -export([keys/1, values/1,
+         tid/1,
          put/2, put/3, get/2,
          random/1, random/2, random/3, random/4,
          refresh/2, is_key/2, remove/2, stale_time/1,
          join_notify/2, changed_listener/1, update_nat_type/2,
          register_session/3, unregister_session/2,
-         blacklist_listen_addr/3,
+         blacklist_listen_addr/3, fold_peers/3,
+         disable/2, enable/2,
          add_association/3, lookup_association/3]).
 %% libp2p_group_gossip_handler
--export([handle_gossip_data/3, init_gossip_data/1]).
+-export([handle_gossip_data/5, init_gossip_data/1]).
 
 -type opt() :: {stale_time, pos_integer()}
              | {peer_time, pos_integer()}.
@@ -38,6 +40,7 @@
           notify_group :: atom(),
           notify_time :: pos_integer(),
           notify_timer=undefined :: reference() | undefined,
+          notify_worker :: {pid(), reference()} | undefined,
           notify_peers=#{} :: #{libp2p_crypto:pubkey_bin() => libp2p_peer:peer()},
           sessions=#{} :: #{libp2p_crypto:pubkey_bin() => pid()},
           connections = [] :: [libp2p_crypto:pubkey_bin()],
@@ -87,6 +90,10 @@
 %% API
 %%
 
+-spec tid(peerbook()) -> ets:tab().
+tid(#peerbook{tid=TID}) ->
+    TID.
+
 -spec put(peerbook(), [libp2p_peer:peer()]) -> ok | {error, term()}.
 put(Handle, PeerList) ->
     put(Handle, PeerList, false).
@@ -103,7 +110,7 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
     AllowRFC1918 = is_rfc1918_allowed(TID),
     NewPeers = lists:foldl(
                  fun(NewPeer, Acc) ->
-                         case libp2p_peer:listen_addrs(NewPeer) == [] of
+                         case libp2p_peer:raw_listen_addrs(NewPeer) == [] of
                              true ->
                                  %% no need to store a peer with no listen addresses
                                  %% and it it will make it easier to get an updated version
@@ -112,12 +119,17 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                              _ ->
                                  NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
                                  case unsafe_fetch_peer(NewPeerId, Handle) of
+                                     {error, disabled} ->
+                                         Acc;
                                      {error, not_found} ->
                                          case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
                                              true ->
                                                  store_peer(NewPeer, Handle),
+                                                 prometheus_gauge:inc(peers_written),
                                                  [NewPeer | Acc];
-                                             false -> Acc
+                                             false ->
+                                                 prometheus_gauge:inc(peers_rejected),
+                                                 Acc
                                          end;
                                      {ok, ExistingPeer} ->
                                          %% Only store peers that are not _this_ peer,
@@ -134,8 +146,10 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                                                  store_peer(NewPeer, Handle),
                                                  case libp2p_peer:is_similar(NewPeer, ExistingPeer) of
                                                      false ->
+                                                         prometheus_gauge:inc(peers_written),
                                                          [NewPeer | Acc];
                                                      true ->
+                                                         prometheus_gauge:inc(peers_rejected),
                                                          Acc
                                                  end;
                                              _ ->
@@ -145,18 +159,24 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
                          end
                  end, [], PeerList),
 
-    % Notify group of new peers
-    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers}),
+    case NewPeers of
+        [] ->
+            ok;
+        _ ->
+            % Notify group of new peers
+            gen_server:cast(libp2p_swarm:peerbook_pid(TID), {notify_new_peers, NewPeers})
+    end,
     ok.
 
 -spec get(peerbook(), libp2p_crypto:pubkey_bin()) -> {ok, libp2p_peer:peer()} | {error, term()}.
 get(#peerbook{tid=TID}=Handle, ID) ->
     ThisPeerId = libp2p_swarm:pubkey_bin(TID),
-    SeedNode = application:get_env(libp2p, seed_node, false),
     case fetch_peer(ID, Handle) of
-        {error, not_found} when ID == ThisPeerId, SeedNode == false ->
+        {error, not_found} when ID == ThisPeerId ->
             gen_server:call(libp2p_swarm:peerbook_pid(TID), update_this_peer, infinity),
             get(Handle, ID);
+        {error, disabled} ->
+            {error, not_found};
         {error, Error} ->
             {error, Error};
         {ok, Peer} ->
@@ -181,8 +201,7 @@ random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
 -spec random(peerbook(), [libp2p_crypto:pubkey_bin()], fun((libp2p_peer:peer()) -> boolean()), non_neg_integer()) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
-random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
-    Exclude = lists:map(fun rev/1, Exclude0),
+random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, Pred, Tries) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
     case rocksdb:iterator_move(Iterator, first) of
         {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} ->
@@ -192,7 +211,7 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0,
                 0 ->
                     rocksdb:iterator_close(Iterator),
                     %% only have one peer
-                    case lists:member(FirstAddr, Exclude) of
+                    case lists:member(rev(FirstAddr), Exclude) of
                         true ->
                             %% only peer we have is excluded
                             false;
@@ -215,11 +234,11 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0,
                             false;
                         RandLoop({error, iterator_closed}, T) ->
                             %% start completely over because our iterator is bad
-                            random(Peerbook, Exclude0, Pred, T - 1);
+                            random(Peerbook, Exclude, Pred, T - 1);
                         RandLoop({error, _} = _E, T) ->
                             RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
                         RandLoop({ok, Addr, Bin}, T) ->
-                            case lists:member(Addr, Exclude) of
+                            case lists:member(rev(Addr), Exclude) of
                                 true ->
                                     RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
                                 false ->
@@ -259,9 +278,9 @@ refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
             ok;
         false ->
             case fetch_peer(ID, Handle) of
+                {error, disabled} -> ok;
                 {error, _Error} ->
-                    GossipGroup = libp2p_swarm:gossip_group(TID),
-                    libp2p_peer_resolution:resolve(GossipGroup, ID, 0),
+                    libp2p_peer_resolution:resolve(TID, ID, 0),
                     ok;
                 {ok, Peer} ->
                     refresh(Handle, Peer)
@@ -270,12 +289,12 @@ refresh(#peerbook{tid=TID}=Handle, ID) when is_binary(ID) ->
 refresh(#peerbook{tid=TID}, Peer) ->
     TimeDiffMinutes = application:get_env(libp2p, similarity_time_diff_mins, 1),
     case libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) andalso
-         libp2p_peer:is_stale(Peer, timer:minutes(TimeDiffMinutes)) of
+         libp2p_peer:is_stale(Peer, timer:minutes(TimeDiffMinutes)) andalso
+         libp2p_peer:listen_addrs(Peer) /= [] of
         false ->
             ok;
         true ->
-            GossipGroup = libp2p_swarm:gossip_group(TID),
-            libp2p_peer_resolution:resolve(GossipGroup, libp2p_peer:pubkey_bin(Peer), libp2p_peer:timestamp(Peer)),
+            libp2p_peer_resolution:resolve(TID, libp2p_peer:pubkey_bin(Peer), libp2p_peer:timestamp(Peer)),
             ok
     end.
 
@@ -315,6 +334,12 @@ blacklist_listen_addr(Handle=#peerbook{}, ID, ListenAddr) ->
             UpdatedPeer = libp2p_peer:blacklist_add(Peer, ListenAddr),
             store_peer(UpdatedPeer, Handle)
     end.
+
+disable(#peerbook{tid=TID}, PeerAddr) ->
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {disable, PeerAddr}).
+
+enable(#peerbook{tid=TID}, PeerAddr) ->
+    gen_server:cast(libp2p_swarm:peerbook_pid(TID), {enable, PeerAddr}).
 
 -spec join_notify(peerbook(), pid()) -> ok.
 join_notify(#peerbook{tid=TID}, Joiner) ->
@@ -364,8 +389,8 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(pid(), binary(), peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, DecodedList, Handle) ->
+-spec handle_gossip_data(pid(), inbound | seed | peerbook, string(), {string(), [libp2p_peer:peer()]}, peerbook()) -> noreply.
+handle_gossip_data(_StreamPid, _Kind, _Peer, {"gossip/1.0."++_, DecodedList}, Handle) ->
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
     noreply.
@@ -398,6 +423,11 @@ init([TID, SigFun]) ->
     SwarmName = libp2p_swarm:name(TID),
     Group = group_create(SwarmName),
     Opts = libp2p_swarm:opts(TID),
+
+    prometheus:start(),
+    prometheus_gauge:declare([{name, peers_written}, {help, "Number of peers received and stored"}]),
+    prometheus_gauge:declare([{name, peers_sent}, {help, "Number of peers gossiped out"}]),
+    prometheus_gauge:declare([{name, peers_rejected}, {help, "Number of peers received and rejected"}]),
 
     CFOpts = application:get_env(rocksdb, global_opts, []),
 
@@ -484,14 +514,27 @@ handle_cast({add_association, AssocType, Assoc}, State=#state{peerbook=Handle}) 
     {noreply, update_this_peer(UpdatedPeer, State)};
 handle_cast({unregister_session, SessionPid}, State=#state{sessions=Sessions}) ->
     Addr = maps:get(SessionPid, Sessions, undefined),
-    {noreply, update_this_peer(State#state{sessions=maps:remove(SessionPid, Sessions), connections=State#state.connections -- [Addr]})};
+    {noreply, State#state{sessions=maps:remove(SessionPid, Sessions), connections=State#state.connections -- [Addr]}};
 handle_cast({register_session, SessionPid, Identify},
             State=#state{sessions=Sessions}) ->
     SessionAddr = libp2p_identify:pubkey_bin(Identify),
     MaxConns = application:get_env(libp2p, max_peers_to_gossip, 20),
-    {noreply, update_this_peer(State#state{sessions=maps:put(SessionPid, SessionAddr, Sessions), connections=lists:sublist([SessionAddr|State#state.connections], MaxConns*2)})};
+    NewConnections = lists:sublist([SessionAddr|State#state.connections], MaxConns*2),
+    NewSessions = maps:filter(fun(_K, V) -> lists:member(V, NewConnections) end, Sessions),
+    {noreply, State#state{sessions=maps:put(SessionPid, SessionAddr, NewSessions), connections=NewConnections}};
 handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
+    {noreply, State};
+handle_cast({disable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
+    rocksdb:put(Store, rev(PeerAddr), <<"disabled">>, []),
+    {noreply, State};
+handle_cast({enable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
+    case rocksdb:get(Store, rev(PeerAddr), []) of
+        {ok, <<"disabled">>} ->
+            rocksdb:delete(Store, rev(PeerAddr), []);
+        _ ->
+            ok
+    end,
     {noreply, State};
 handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
@@ -499,6 +542,8 @@ handle_cast(Msg, State) ->
 
 handle_info({signed_metadata, MD}, State) ->
     {noreply, State#state{metadata=MD}};
+handle_info({'DOWN', Ref, process, Pid, _}, State=#state{notify_worker={Pid,Ref}}) ->
+    {noreply, State#state{notify_worker=undefined}};
 handle_info({'DOWN', Ref, _, _, _}, State=#state{metadata_ref=Ref}) ->
     {noreply, State#state{metadata_ref=undefined}};
 handle_info(peer_timeout, State=#state{tid=TID}) ->
@@ -589,27 +634,22 @@ mk_this_peer(CurrentPeer, State=#state{tid=TID}) ->
 
 -spec update_this_peer(#state{}) -> #state{}.
 update_this_peer(State=#state{tid=TID}) ->
-    case application:get_env(libp2p, seed_node, false) of
-        false ->
-            SwarmAddr = libp2p_swarm:pubkey_bin(TID),
-            case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
-                {error, not_found} ->
-                    NewPeer = mk_this_peer(undefined, State),
-                    update_this_peer(NewPeer, get_async_signed_metadata(State));
-                {ok, OldPeer} ->
-                    case mk_this_peer(OldPeer, State) of
-                        {ok, NewPeer} ->
-                            case libp2p_peer:is_similar(NewPeer, OldPeer) of
-                                true -> State;
-                                false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
-                            end;
-                        {error, Error} ->
-                            lager:notice("Failed to make peer: ~p", [Error]),
-                            State
-                    end
-            end;
-         true ->
-            State
+    SwarmAddr = libp2p_swarm:pubkey_bin(TID),
+    case unsafe_fetch_peer(SwarmAddr, State#state.peerbook) of
+        {error, not_found} ->
+            NewPeer = mk_this_peer(undefined, State),
+            update_this_peer(NewPeer, get_async_signed_metadata(State));
+        {ok, OldPeer} ->
+            case mk_this_peer(OldPeer, State) of
+                {ok, NewPeer} ->
+                    case libp2p_peer:is_similar(NewPeer, OldPeer) of
+                        true -> State;
+                        false -> update_this_peer({ok, NewPeer}, get_async_signed_metadata(State))
+                    end;
+                {error, Error} ->
+                    lager:notice("Failed to make peer: ~p", [Error]),
+                    State
+            end
     end.
 
 -spec update_this_peer({ok, libp2p_peer:peer()} | {error, term()}, #state{}) -> #state{}.
@@ -633,22 +673,27 @@ update_this_peer({ok, NewPeer}, State=#state{peer_timer=PeerTimer}) ->
 notify_new_peers([], State=#state{}) ->
     State;
 notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=NotifyTime,
-                                        notify_peers=NotifyPeers}) ->
+                                        notify_peers=NotifyPeers, notify_worker=NotifyWorker}) ->
     %% Cache the new peers to be sent out but make sure that the new
     %% peers are not stale.  We do that by only replacing already
     %% cached versions if the new peers supersede existing ones
     NewNotifyPeers = lists:foldl(
                        fun (Peer, Acc) ->
-                               %% check the peer has some interesting information
-                               case has_useful_listen_addrs(Peer, State) of
-                                   false -> Acc;
+                               case maps:size(Acc) > application:get_env(libp2p, peer_notification_batch_size, 5000) of
                                    true ->
-                                       case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
-                                           error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                           {ok, FoundPeer} ->
-                                               case libp2p_peer:supersedes(Peer, FoundPeer) of
-                                                   true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
-                                                   false -> Acc
+                                       Acc;
+                                   false ->
+                                       %% check the peer has some interesting information
+                                       case has_useful_listen_addrs(Peer, State) of
+                                           false -> Acc;
+                                           true ->
+                                               case maps:find(libp2p_peer:pubkey_bin(Peer), Acc) of
+                                                   error -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                   {ok, FoundPeer} ->
+                                                       case libp2p_peer:supersedes(Peer, FoundPeer) of
+                                                           true -> maps:put(libp2p_peer:pubkey_bin(Peer), Peer, Acc);
+                                                           false -> Acc
+                                                       end
                                                end
                                        end
                                end
@@ -657,7 +702,7 @@ notify_new_peers(NewPeers, State=#state{notify_timer=NotifyTimer, notify_time=No
     %% peers will keep notifications ticking at the notify_time, but
     %% that no timer is firing if there's nothing to notify.
     NewNotifyTimer = case NotifyTimer of
-                         undefined when map_size(NewNotifyPeers) > 0 ->
+                         undefined when map_size(NewNotifyPeers) > 0 andalso NotifyWorker == undefined ->
                              erlang:send_after(NotifyTime, self(), notify_timeout);
                          Other -> Other
                      end,
@@ -687,34 +732,58 @@ notify_peers(State=#state{notify_peers=NotifyPeers}) when map_size(NotifyPeers) 
 notify_peers(State=#state{notify_peers=NotifyPeers, notify_group=NotifyGroup,
                           gossip_group=GossipGroup, tid=TID}) ->
     %% Notify to local interested parties
-    PeerList = maps:values(NotifyPeers),
-    [Pid ! {new_peers, PeerList} || Pid <- ?PG_MEMBERS(NotifyGroup)],
+    PeerList0 = maps:values(NotifyPeers),
+    [Pid ! {new_peers, PeerList0} || Pid <- ?PG_MEMBERS(NotifyGroup)],
+
+    %% pre-encode all the peers so we avoid re-encoding them every time we subsample the list
+    %% these can just be joined/prefixed with 10,<length> to simulate the list wrapping
+    %% because these came out of a map, we assume the ordering is pretty random
+    PeerList = [ begin
+                     Encoded = libp2p_peer:encode(P),
+                     Size = small_ints:encode_varint(byte_size(Encoded)),
+                     <<10, Size/binary, Encoded/binary>>
+                 end || P <- PeerList0 ],
+
+    TotalPeerCount = length(PeerList),
+
+    lager:info("gossiping out ~p notify peers", [TotalPeerCount]),
+
+    Opts = libp2p_swarm:opts(TID),
+    PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
+    SeedNodeCount = length(try ets:lookup_element(TID, {seed, gossip_workers}, 2) catch _:_ -> [] end),
+
+    PerSeed = max(PeerCount, TotalPeerCount div max(1, SeedNodeCount)),
 
     case GossipGroup of
         undefined ->
-            ok;
+            State;
         _ ->
-            Opts = libp2p_swarm:opts(TID),
-            PeerCount = libp2p_config:get_opt(Opts, [?MODULE, notify_peer_gossip_limit], ?DEFAULT_NOTIFY_PEER_GOSSIP_LIMIT),
             %% Gossip to any attached parties
-            SendFun = fun() ->
-                              {_, RandomNPeers} = lists:unzip(lists:sublist(lists:keysort(1, [ {rand:uniform(), E} || E <- PeerList]), PeerCount)),
-                              libp2p_peer:encode_list(RandomNPeers)
+            SendFun = fun(seed) ->
+                              SentList = lists:sublist(PeerList, rand:uniform(TotalPeerCount), PerSeed),
+                              prometheus_gauge:inc(peers_sent, [], length(SentList)),
+                              %% send 1/SeedNodeCount new peers to each seed node
+                              SentList;
+                         (_Type) ->
+                              CountList = lists:sublist(PeerList, rand:uniform(TotalPeerCount), PeerCount),
+                              prometheus_gauge:inc(peers_sent, [], length(CountList)),
+                              CountList
                       end,
-            libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY, SendFun)
-    end,
-    State#state{notify_peers=#{}}.
-
+            NotifyWorker = spawn_monitor(fun() -> libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY, SendFun) end),
+            State#state{notify_peers=#{}, notify_worker=NotifyWorker}
+    end.
 
 %% rocksdb has a bad spec that doesn't list corruption as a valid return
 %% so this is here until that gets fixed
 -dialyzer({nowarn_function, unsafe_fetch_peer/2}).
 -spec unsafe_fetch_peer(libp2p_crypto:pubkey_bin() | undefined, peerbook())
-                       -> {ok, libp2p_peer:peer()} | {error, not_found}.
+                       -> {ok, libp2p_peer:peer()} | {error, not_found | disabled}.
 unsafe_fetch_peer(undefined, _) ->
     {error, not_found};
 unsafe_fetch_peer(ID, #peerbook{store=Store}) ->
     case rocksdb:get(Store, rev(ID), []) of
+        {ok, <<"disabled">>} ->
+            {error, disabled};
         {ok, Bin} ->
             %% I think that it's OK to use unsafe here for performance, this was validated on
             %% storage.  disk corruption will result in a crash anyway.
@@ -779,7 +848,8 @@ store_peer(Peer, #peerbook{store=Store}) ->
     %% reverse pubkeys so they're easier to randomly select
     case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
-        ok -> ok
+        ok ->
+            ok
     end.
 
 -spec delete_peer(libp2p_crypto:pubkey_bin(), peerbook()) -> ok.

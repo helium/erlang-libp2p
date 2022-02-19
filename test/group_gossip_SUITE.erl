@@ -9,7 +9,7 @@
 -export([connection_test/1, gossip_test/1, seed_test/1]).
 -export([forwards_compat_gossip_test/1, backwards_compat_gossip_test/1]).
 -export([same_path_gossip_test1/1, same_path_gossip_test2/1]).
--export([init_gossip_data/1, handle_gossip_data/3]).
+-export([init_gossip_data/1, handle_gossip_data/5]).
 
 all() ->
     [
@@ -106,7 +106,7 @@ connection_test(Config) ->
     ?assertEqual([], libp2p_group_gossip:connected_addrs(S1Group, peerbook)),
 
     %% Sending to a gossip group without a stream client config should fail silently
-    libp2p_group_gossip:send(S1Group, "flip", <<"no way">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S1), "flip", <<"no way">>),
 
     ok.
 
@@ -124,8 +124,7 @@ gossip_test(Config) ->
     test_util:await_gossip_groups(Swarms),
     test_util:await_gossip_streams(Swarms),
 
-    S2Group = libp2p_swarm:gossip_group(S2),
-    libp2p_group_gossip:send(S2Group, "gossip_test", <<"hello">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S2), "gossip_test", <<"hello">>),
 
     receive
         {handle_gossip_data, <<"hello">>} -> ok
@@ -170,7 +169,7 @@ forwards_compat_gossip_test(Config) ->
     connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S1), "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
@@ -178,7 +177,7 @@ forwards_compat_gossip_test(Config) ->
     end,
 
     %% send the msg from S2 to S1
-    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S2), "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
@@ -227,7 +226,7 @@ backwards_compat_gossip_test(Config) ->
     connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S1), "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
@@ -235,7 +234,7 @@ backwards_compat_gossip_test(Config) ->
     end,
 
     %% send the msg from S2 to S1
-    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S2), "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
@@ -281,7 +280,7 @@ same_path_gossip_test1(Config) ->
     connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S1), "gossip/1.0.0", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
@@ -289,7 +288,7 @@ same_path_gossip_test1(Config) ->
     end,
 
     %% send the msg from S2 to S1
-    libp2p_group_gossip:send(S2Group, "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S2), "gossip/1.0.0", <<"hello S1, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
@@ -338,7 +337,7 @@ same_path_gossip_test2(Config) ->
     connect_await_ready(S1, S2),
 
     %% send the msg from S1 to S2
-    libp2p_group_gossip:send(S1Group, "gossip/1.0.2", <<"hello S2, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S1), "gossip/1.0.2", <<"hello S2, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S2, its me you're looking for">>} -> ok
@@ -346,7 +345,7 @@ same_path_gossip_test2(Config) ->
     end,
 
     %% send the msg from S2 to S1
-    libp2p_group_gossip:send(S2Group, "gossip/1.0.2", <<"hello S1, its me you're looking for">>),
+    libp2p_group_gossip:send(libp2p_swarm:tid(S2), "gossip/1.0.2", <<"hello S1, its me you're looking for">>),
 
     receive
         {handle_gossip_data, <<"hello S1, its me you're looking for">>} -> ok
@@ -378,7 +377,8 @@ seed_test(Config) ->
 init_gossip_data(_) ->
      ok.
 
-handle_gossip_data(_StreamPid, Msg, Parent) ->
+handle_gossip_data(_StreamPid, _Kind, _Peer, {"gossip/1.0"++_, Msg}, Parent) ->
+    ct:pal("handle gossip data ~p ~p ~p", [_StreamPid, Msg, Parent]),
     Parent ! {handle_gossip_data, Msg},
     noreply.
 

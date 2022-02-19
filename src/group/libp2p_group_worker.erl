@@ -7,7 +7,7 @@
 -export_type([stream_client_spec/0]).
 
 %% API
--export([start_link/6, start_link/8,
+-export([start_link/6, start_link/9,
          assign_target/2, clear_target/1,
          assign_stream/2, assign_stream/3, send/4, send_ack/3, close/1]).
 
@@ -126,18 +126,19 @@ start_link(Ref, Kind, Server, GroupID, DialOptions, TID) ->
     gen_statem:start_link(?MODULE, [Ref, Kind, Server, GroupID,
                                     DialOptions, TID], []).
 
--spec start_link(reference(), atom(), Stream::pid(), Server::pid(), string(), [any()], ets:tab(), string()) ->
+-spec start_link(reference(), atom(), Stream::pid(), Target::libp2p_crypto:pubkey_bin(), Server::pid(), string(), [any()], ets:tab(), string()) ->
                         {ok, Pid :: pid()} |
                         ignore |
                         {error, Error :: term()}.
-start_link(Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path) ->
-    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Server,
+start_link(Ref, Kind, StreamPid, Target, Server, GroupID, DialOptions, TID, Path) ->
+    gen_statem:start_link(?MODULE, [Ref, Kind, StreamPid, Target, Server,
                                     GroupID, DialOptions, TID, Path], []).
 
 callback_mode() -> state_functions.
 
 -spec init(Args :: term()) -> gen_statem:init_result(atom()).
-init([Ref, Kind, StreamPid, Server, GroupID, DialOptions, TID, Path]) ->
+init([Ref, Kind, StreamPid, Target, Server, GroupID, DialOptions, TID, Path]) ->
+    StreamPid ! {identify, Target},
     lager:debug("starting group worker of kind ~p and path: ~p with streamID: ~p",[Kind, Path, StreamPid]),
     process_flag(trap_exit, true),
     {ok, connected,
@@ -305,6 +306,11 @@ connected(info, {assign_stream, StreamPid, Path}, Data0=#data{}) ->
         {ok, NewData} -> {keep_state, NewData};
         _ -> {keep_state, Data}
     end;
+connected(info, {'EXIT', StreamPid, _Reason}, Data=#data{stream_pid=StreamPid, kind=inbound}) ->
+    %% don't try to reconnect inbound streams, it never seems to work
+    %% this just tells the group server to remove us
+    libp2p_group_server:request_target(Data#data.server, Data#data.kind, self(), Data#data.ref),
+    {stop, normal, Data};
 connected(info, {'EXIT', StreamPid, Reason}, Data=#data{stream_pid=StreamPid, target={MAddr, _}}) ->
     %% The stream we're using died. Let's go back to connecting, but
     %% do not trigger a connect retry right away, (re-)start the
@@ -484,10 +490,14 @@ handle_stream_winner_loser(_CurrentStream, _WinnerStream, LoserStream, _Data) ->
     spawn(fun() -> libp2p_framed_stream:close(LoserStream) end),
     false.
 
-handle_send(StreamPid, Server, Ref, Bin, Data)->
+handle_send(StreamPid, Server, Ref, Bin, Data = #data{kind=Kind})->
     Result = libp2p_framed_stream:send(StreamPid, Bin),
     libp2p_group_server:send_result(Server, Ref, Result),
     case Result of
+        {error, _} when Kind == inbound ->
+            %% this just tells the group server to remove us
+            libp2p_group_server:request_target(Data#data.server, Data#data.kind, self(), Data#data.ref),
+            {stop, normal, Data};
         {error, _Reason} ->
             lager:debug("send via stream ~p failed with reason ~p", [StreamPid, Result]),
             {next_state, connecting, Data#data{stream_pid=update_stream(undefined, Data)},

@@ -7,7 +7,7 @@
           sig_fun :: libp2p_crypto:sig_fun(),
           ecdh_fun :: libp2p_crypto:ecdh_fun(),
           pid_gc_monitor = make_ref() :: reference(),
-          monitors=[] :: [{pid(), {reference(), atom()}}]
+          monitors=#{} :: #{pid() => {reference(), atom()}}
          }).
 
 -export([start_link/3, init/1, handle_call/3, handle_info/2, handle_cast/2, terminate/2]).
@@ -70,6 +70,7 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
     %%
     %% Store the session in config and tell the peerbook about the
     %% session change as well as the new identify record.
+    spawn(fun() ->
     Addr = libp2p_crypto:pubkey_bin_to_p2p(libp2p_identify:pubkey_bin(Identify)),
     lager:debug("received identity for peer ~p. Putting this peer", [Addr]),
     PeerBook = libp2p_swarm:peerbook(TID),
@@ -86,16 +87,19 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
         error:invalid_signature ->
             lager:warning("Invalid peerbook signature for ~p", [Addr]),
             libp2p_session:close(Session)
-    end,
+    end
+          end),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, _Pid, _Reason}, State=#state{pid_gc_monitor=MonitorRef}) ->
     erlang:send_after(timer:minutes(5), self(), gc_pids),
     {noreply, State};
 handle_info({'DOWN', MonitorRef, process, Pid, _}, State=#state{tid=TID}) ->
     NewState = remove_monitor(MonitorRef, Pid, State),
+    spawn(fun() ->
     libp2p_config:remove_pid(TID, Pid),
     PeerBook = libp2p_swarm:peerbook(TID),
-    libp2p_peerbook:unregister_session(PeerBook, Pid),
+    libp2p_peerbook:unregister_session(PeerBook, Pid)
+          end),
     {noreply, NewState};
 handle_info({'EXIT', _From,  Reason}, State=#state{}) ->
     {stop, Reason, State};
@@ -126,29 +130,26 @@ handle_cast(Msg, State) ->
     lager:warning("Unhandled cast: ~p", [Msg]),
     {noreply, State}.
 
-
-terminate(Reason, #state{tid=TID}) ->
-    lists:foreach(fun({Addr, Pid}) ->
-                          libp2p_config:remove_session(TID, Addr),
-                          catch libp2p_session:close(Pid, Reason, infinity)
-                  end, libp2p_config:lookup_sessions(TID)).
+terminate(Reason, _State) ->
+    lager:warning("going down ~p", [Reason]),
+    ok.
 
 %% Internal
 %%
 
 -spec add_monitor(atom(), pid(), #state{}) -> #state{}.
 add_monitor(Kind, Pid, State=#state{monitors=Monitors}) ->
-    Value = case lists:keyfind(Pid, 1, Monitors) of
-                false -> {erlang:monitor(process, Pid), Kind};
-                {Pid, {MonitorRef, Kind}} -> {MonitorRef, Kind}
+    Value = case maps:find(Pid, Monitors) of
+                error -> {erlang:monitor(process, Pid), Kind};
+                {ok, {MonitorRef, Kind}} -> {MonitorRef, Kind}
             end,
-    State#state{monitors=lists:keystore(Pid, 1, Monitors, {Pid, Value})}.
+    State#state{monitors=Monitors#{Pid => Value}}.
 
 -spec remove_monitor(reference(), pid(), #state{}) -> #state{}.
 remove_monitor(MonitorRef, Pid, State=#state{tid=TID, monitors=Monitors}) ->
-    case lists:keytake(Pid, 1, Monitors) of
-        false -> State;
-        {value, {Pid, {MonitorRef, _}}, NewMonitors} ->
+    case maps:find(Pid, Monitors) of
+        error -> State;
+        {ok, {MonitorRef, _}} ->
             libp2p_config:remove_pid(TID, Pid),
-            State#state{monitors=NewMonitors}
+            State#state{monitors=maps:remove(Pid, Monitors)}
     end.
