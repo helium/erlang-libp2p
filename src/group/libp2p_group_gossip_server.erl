@@ -638,7 +638,7 @@ add_worker(Worker = #worker{kind = Kind, ref = Ref, pid=Pid, target = Target},
 add_worker_pids(NewWorkers, TID) ->
     lists:foreach(fun(Kind) ->
                           NewPids = [ P || {K, P} <- NewWorkers, is_process_alive(P), K == Kind],
-                          lager:info("~p new pids of type ~p", [length(NewPids), Kind]),
+                          lager:debug("~p new pids of type ~p", [length(NewPids), Kind]),
                           case ets:lookup(TID, {Kind, gossip_workers}) of
                               [{{Kind, gossip_workers}, Pids}] ->
                                   ets:insert(TID, {{Kind, gossip_workers}, NewPids ++ Pids});
