@@ -223,9 +223,18 @@ init_module(Kind, Module, Connection, Args, SendPid) ->
 
 handle_info({inert_read, _, _}, State=#state{}) ->
     handle_recv_result(recv(State#state.connection, ?RECV_TIMEOUT), State);
-handle_info({send_result, Key, Result}, State=#state{sends=Sends}) ->
+handle_info({send_result, Key, Result}, State=#state{sends=Sends, send_pid=SendPid}) ->
     case maps:take(Key, Sends) of
         error -> {noreply, State};
+        {{Timer, Info, Fun}, NewSends} ->
+            case Fun() of
+                ok ->
+                    erlang:cancel_timer(Timer),
+                    handle_send_result(Info, Result, State#state{sends=NewSends});
+                {NewFun, Data} ->
+                    SendPid ! {send, Key, Data},
+                    {noreply, State#state{sends=maps:put(Key, {Timer, Info, NewFun}, NewSends)}}
+            end;
         {{Timer, Info}, NewSends} ->
             erlang:cancel_timer(Timer),
             handle_send_result(Info, Result, State#state{sends=NewSends})
@@ -512,9 +521,10 @@ send_key(Data, #state{send_pid=SendPid}=State) ->
     State.
 
 
--spec handle_resp_send(send_result_action(), binary(), non_neg_integer(), #state{}) -> #state{}.
+-spec handle_resp_send(send_result_action(), binary() | {pos_integer(), fun(() -> {function(), binary()}) }, non_neg_integer(), #state{}) -> #state{}.
 handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=true,
-                                                     send_nonce=Nonce, connection=Conn}) ->
+                                                     send_nonce=Nonce, connection=Conn}) when is_binary(Data) ->
+    %% TODO support streaming encrypted data
     try enacl:aead_chacha20poly1305_ietf_encrypt(Data, <<>>, <<Nonce:96/integer-unsigned-little>>, State#state.send_key) of
         EncryptedData ->
             handle_resp_send_inner(Action, EncryptedData, Timeout, State#state{send_nonce=Nonce+1})
@@ -523,15 +533,23 @@ handle_resp_send(Action, Data, Timeout, State=#state{secured=true, exchanged=tru
             lager:warning("failed to encrypt : ~p ~p", [What, Why]),
             State
     end;
-handle_resp_send(Action, Data, Timeout, State=#state{}) ->
+handle_resp_send(Action, Data, Timeout, State=#state{secured=false}) ->
     handle_resp_send_inner(Action, Data, Timeout, State).
 
 handle_resp_send_inner(Action, Data, Timeout, State=#state{sends=Sends, send_pid=SendPid}) ->
     Key = make_ref(),
     Timer = erlang:send_after(Timeout, self(), {send_result, Key, {error, timeout}}),
-    Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
-    SendPid ! {send, Key, Bin},
-    State#state{sends=maps:put(Key, {Timer, Action}, Sends)}.
+    case Data of
+        {Size, Fun} ->
+            {NewFun, Bin0} = Fun(),
+            Bin = <<Size:32/little-unsigned-integer, Bin0/binary>>,
+            SendPid ! {send, Key, Bin},
+            State#state{sends=maps:put(Key, {Timer, Action, NewFun}, Sends)};
+        _ ->
+            Bin = <<(byte_size(Data)):32/little-unsigned-integer, Data/binary>>,
+            SendPid ! {send, Key, Bin},
+            State#state{sends=maps:put(Key, {Timer, Action}, Sends)}
+    end.
 
 
 -spec handle_send_result(send_result_action(), ok | {error, term()}, #state{}) ->

@@ -2,12 +2,13 @@
 -include_lib("common_test/include/ct.hrl").
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
--export([path_test/1, send_test/1, handle_info_test/1, handle_call_test/1, handle_cast_test/1]).
+-export([path_test/1, send_test/1, send_stream_test/1, handle_info_test/1, handle_call_test/1, handle_cast_test/1]).
 
 
 all() ->
     [ path_test
     , send_test
+    , send_stream_test
     , handle_info_test
     , handle_call_test
     , handle_cast_test
@@ -20,6 +21,9 @@ setup_swarms(Callbacks, Path, Config) ->
     [{swarms, Swarms}, {serve, {Client, Server}} | Config].
 
 init_per_testcase(send_test = TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    setup_swarms([], "", Config0);
+init_per_testcase(send_stream_test = TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     setup_swarms([], "", Config0);
 init_per_testcase(path_test = TestCase, Config) ->
@@ -80,6 +84,26 @@ send_test(Config) ->
     libp2p_framed_stream:send(Client, <<"hello">>),
     ok = test_util:wait_until(fun() -> serve_framed_stream:server_data(Server) == <<"hello">> end),
     ok.
+
+send_stream_test(Config) ->
+    {Client, Server} = ?config(serve, Config),
+
+    Msg = crypto:strong_rand_bytes(rand:uniform(20)),
+
+    libp2p_framed_stream:send(Client, {byte_size(Msg), mk_stream_fun(Msg)}),
+    ok = test_util:wait_until(fun() -> serve_framed_stream:server_data(Server) == Msg end),
+    ok.
+
+
+mk_stream_fun(<<>>) ->
+    fun() ->
+            ok
+    end;
+mk_stream_fun(Bin) ->
+    fun() ->
+            <<A:1/binary, Rest/binary>> = Bin,
+            {mk_stream_fun(Rest), A}
+    end.
 
 handle_info_test(Config) ->
     {_Client, Server} = ?config(serve, Config),
