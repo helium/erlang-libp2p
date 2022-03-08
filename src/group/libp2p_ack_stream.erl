@@ -14,6 +14,7 @@
 %% libp2p_framed_stream
 -export([server/4, client/2, init/3, handle_data/3, handle_send/5, handle_info/3]).
 
+-on_load(load_pb_msg_defs/0).
 
 -record(state,
         { connection :: libp2p_connection:connection(),
@@ -56,7 +57,7 @@ handle_data(server, Data, State=#state{ack_ref=undefined}) ->
     %% queue it until we get our ack ref
     {noreply, State#state{data_queue=[Data|State#state.data_queue]}};
 handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}) ->
-    case libp2p_ack_stream_pb:decode_msg(Data, libp2p_ack_frame_pb) of
+    case enif_protobuf:decode(Data, libp2p_ack_frame_pb) of
         #libp2p_ack_frame_pb{messages=Bin, seqs=Seq} when Bin /= [] ->
             %% Inbound request to handle a message
             AckModule:handle_data(AckState, AckRef, lists:zip(Seq, Bin)),
@@ -74,10 +75,10 @@ handle_data(_Kind, Data, State=#state{ack_ref=AckRef, ack_module=AckModule, ack_
 handle_send(_Kind, From, Msgs, Timeout, State=#state{}) when is_list(Msgs) ->
     {Seqs, Data} = lists:unzip(Msgs),
     Msg = #libp2p_ack_frame_pb{messages=Data, seqs=Seqs},
-    {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}};
+    {ok, {reply, From, pending}, enif_protobuf:encode(Msg), Timeout, State#state{}};
 handle_send(_Kind, From, {Data, Seq}, Timeout, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{messages=[Data], seqs=[Seq]},
-    {ok, {reply, From, pending}, libp2p_ack_stream_pb:encode_msg(Msg), Timeout, State#state{}}.
+    {ok, {reply, From, pending}, enif_protobuf:encode(Msg), Timeout, State#state{}}.
 
 handle_info(server, {Ref, AcceptResult}, State=#state{reply_ref=Ref}) ->
     case AcceptResult of
@@ -101,4 +102,8 @@ handle_info(server, {'DOWN', Ref, process, _, Reason}, State=#state{reply_ref=Re
     {stop, Reason, State};
 handle_info(_Kind, {send_ack, Seq, Reset}, State=#state{}) ->
     Msg = #libp2p_ack_frame_pb{seqs=Seq, reset=Reset},
-    {noreply, State, libp2p_ack_stream_pb:encode_msg(Msg)}.
+    {noreply, State, enif_protobuf:encode(Msg)}.
+
+load_pb_msg_defs() ->
+    ok = enif_protobuf:load_cache(libp2p_ack_stream_pb:get_proto_defs()),
+    enif_protobuf:set_opts([{string_as_list, true}]).
