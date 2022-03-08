@@ -163,5 +163,5 @@ throttle_check(GossipPeer, false) ->
     throttle:check(?MODULE, GossipPeer).
 
 load_pb_msg_defs() ->
-    ok = enif_protobuf:load_cache(libp2p_peer_resolution_pb:get_proto_defs()),
+    catch enif_protobuf:load_cache(libp2p_peer_resolution_pb:get_proto_defs()),
     enif_protobuf:set_opts([{string_as_list, true}]).

@@ -105,5 +105,5 @@ handle_info(_Kind, {send_ack, Seq, Reset}, State=#state{}) ->
     {noreply, State, enif_protobuf:encode(Msg)}.
 
 load_pb_msg_defs() ->
-    ok = enif_protobuf:load_cache(libp2p_ack_stream_pb:get_proto_defs()),
+    catch enif_protobuf:load_cache(libp2p_ack_stream_pb:get_proto_defs()),
     enif_protobuf:set_opts([{string_as_list, true}]).
