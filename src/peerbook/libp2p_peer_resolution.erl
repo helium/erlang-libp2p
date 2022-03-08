@@ -9,8 +9,6 @@
 
 -export([resolve/3, install_handler/2]).
 
--on_load(load_pb_msg_defs/0).
-
 %% Gossip group key to register and transmit with
 -define(GOSSIP_GROUP_KEY, "peer_resolution").
 
@@ -33,6 +31,7 @@ re_resolve(TID, PK, Ts) ->
 
 
 install_handler(G, Handle) ->
+    load_pb_msg_defs(),
     Limit = application:get_env(libp2p, arp_limit, 10),
     throttle:setup(?MODULE, Limit, per_minute),
     prometheus:start(),
@@ -163,5 +162,12 @@ throttle_check(GossipPeer, false) ->
     throttle:check(?MODULE, GossipPeer).
 
 load_pb_msg_defs() ->
-    catch enif_protobuf:load_cache(libp2p_peer_resolution_pb:get_proto_defs()),
-    enif_protobuf:set_opts([{string_as_list, true}]).
+    case persistent_term:get({?MODULE, enif_protobuf_loaded}, false) of
+        true -> ok;
+        false ->
+            catch begin
+                ok = enif_protobuf:load_cache(libp2p_peer_resolution_pb:get_proto_defs()),
+                enif_protobuf:set_opts([{string_as_list, true}]),
+                persistent_term:put({?MODULE, enif_protobuf_loaded}, true)
+            end
+    end.

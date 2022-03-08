@@ -16,8 +16,6 @@
 %% libp2p_framed_stream
 -export([server/4, client/2, init/3, handle_data/3, handle_info/3]).
 
--on_load(load_pb_msg_defs/0).
-
 -record(state,
         {
           tid :: ets:tab(),
@@ -51,6 +49,7 @@ server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
 init(server, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
+    load_pb_msg_defs(),
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
     HandlerModule:accept_stream(HandlerState, Session, self(), Path),
@@ -64,6 +63,7 @@ init(server, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
 
 init(client, Connection, [Path, HandlerModule, HandlerState, TID, Bloom, Kind, SelectedAddr]) ->
     lager:debug("initiating client with path ~p", [Path]),
+    load_pb_msg_defs(),
     {ok, #state{connection=Connection,
                 tid = TID,
                 peer = SelectedAddr,
@@ -139,5 +139,12 @@ apply_path_decode(_UnknownPath, Data)->
     Data.
 
 load_pb_msg_defs() ->
-    catch enif_protobuf:load_cache(libp2p_gossip_pb:get_proto_defs()),
-    enif_protobuf:set_opts([{string_as_list, true}]).
+    case persistent_term:get({?MODULE, enif_protobuf_loaded}, false) of
+        true -> ok;
+        false ->
+            catch begin
+                ok = enif_protobuf:load_cache(libp2p_gossip_pb:get_proto_defs()),
+                enif_protobuf:set_opts([{string_as_list, true}]),
+                persistent_term:put({?MODULE, enif_protobuf_loaded}, true)
+            end
+    end.

@@ -13,10 +13,9 @@
 -export([from_map/2, encode/1, decode/1, verify/1,
          pubkey_bin/1, peer/1, observed_maddr/1, observed_addr/1, nonce/1]).
 
--on_load(load_pb_msg_defs/0).
-
 -spec from_map(identify_map(), libp2p_crypto:sig_fun()) -> identify().
 from_map(Map, SigFun) ->
+    load_pb_msg_defs(),
     Identify = #libp2p_identify_pb{peer=maps:get(peer, Map),
                                    observed_addr=multiaddr:new(maps:get(observed_addr, Map)),
                                    nonce=maps:get(nonce, Map)
@@ -46,11 +45,13 @@ nonce(#libp2p_signed_identify_pb{identify=#libp2p_identify_pb{nonce=Nonce}}) ->
 %% @doc Encodes the given identify into its binary form.
 -spec encode(identify()) -> binary().
 encode(Msg=#libp2p_signed_identify_pb{}) ->
+    load_pb_msg_defs(),
     enif_protobuf:encode(Msg).
 
 %% @doc Decodes a given binary into an identify.
 -spec decode(binary()) -> {ok, identify()} | {error, term()}.
 decode(Bin) ->
+    load_pb_msg_defs(),
     try
         Msg = enif_protobuf:decode(Bin, libp2p_signed_identify_pb),
         verify(Msg)
@@ -69,5 +70,12 @@ verify(Msg=#libp2p_signed_identify_pb{identify=Ident=#libp2p_identify_pb{}, sign
     end.
 
 load_pb_msg_defs() ->
-    catch enif_protobuf:load_cache(libp2p_identify_pb:get_proto_defs()),
-    enif_protobuf:set_opts([{string_as_list, true}]).
+    case persistent_term:get({?MODULE, enif_protobuf_loaded}, false) of
+        true -> ok;
+        false ->
+            catch begin
+                ok = enif_protobuf:load_cache(libp2p_identify_pb:get_proto_defs()),
+                enif_protobuf:set_opts([{string_as_list, true}]),
+                persistent_term:put({?MODULE, enif_protobuf_loaded}, true)
+            end
+    end.

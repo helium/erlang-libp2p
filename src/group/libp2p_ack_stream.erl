@@ -14,8 +14,6 @@
 %% libp2p_framed_stream
 -export([server/4, client/2, init/3, handle_data/3, handle_send/5, handle_info/3]).
 
--on_load(load_pb_msg_defs/0).
-
 -record(state,
         { connection :: libp2p_connection:connection(),
           ack_module :: atom(),
@@ -44,11 +42,13 @@ server(Connection, Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, [Path | Args]).
 
 init(server, Connection, [Path, AckModule, AckState | _]) ->
+    load_pb_msg_defs(),
     libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
     Ref = AckModule:accept_stream(AckState, self(), Path),
     {ok, #state{connection=Connection, reply_ref=Ref,
                 ack_module=AckModule, ack_state=AckState}};
 init(client, Connection, [_Path, AckRef, AckModule, AckState | _]) ->
+    load_pb_msg_defs(),
     libp2p_connection:set_idle_timeout(Connection, ?ACK_STREAM_TIMEOUT),
     {ok, #state{connection=Connection,
                 ack_ref=AckRef, ack_module=AckModule, ack_state=AckState}}.
@@ -105,5 +105,12 @@ handle_info(_Kind, {send_ack, Seq, Reset}, State=#state{}) ->
     {noreply, State, enif_protobuf:encode(Msg)}.
 
 load_pb_msg_defs() ->
-    catch enif_protobuf:load_cache(libp2p_ack_stream_pb:get_proto_defs()),
-    enif_protobuf:set_opts([{string_as_list, true}]).
+    case persistent_term:get({?MODULE, enif_protobuf_loaded}, false) of
+        true -> ok;
+        false ->
+            catch begin
+                ok = enif_protobuf:load_cache(libp2p_ack_stream_pb:get_proto_defs()),
+                enif_protobuf:set_opts([{string_as_list, true}]),
+                persistent_term:put({?MODULE, enif_protobuf_loaded}, true)
+            end
+    end.
