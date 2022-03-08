@@ -70,12 +70,5 @@ verify(Msg=#libp2p_signed_identify_pb{identify=Ident=#libp2p_identify_pb{}, sign
     end.
 
 load_pb_msg_defs() ->
-    case persistent_term:get({?MODULE, enif_protobuf_loaded}, false) of
-        true -> ok;
-        false ->
-            catch begin
-                ok = enif_protobuf:load_cache(libp2p_identify_pb:get_proto_defs()),
-                enif_protobuf:set_opts([{string_as_list, true}]),
-                persistent_term:put({?MODULE, enif_protobuf_loaded}, true)
-            end
-    end.
+    ok = enif_protobuf:load_cache(libp2p_identify_pb:get_proto_defs()),
+    enif_protobuf:set_opts([{string_as_list, true}]).
