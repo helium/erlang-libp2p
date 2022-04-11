@@ -40,9 +40,10 @@
        }).
 
 -define(DEFAULT_PEERBOOK_CONNECTIONS, 5).
--define(DEFAULT_SEEDNODE_CONNECTIONS, 2).
+-define(DEFAULT_SEEDNODE_CONNECTIONS, 3).
 -define(DEFAULT_MAX_INBOUND_CONNECTIONS, 10).
 -define(DEFAULT_DROP_TIMEOUT, 5 * 60 * 1000).
+-define(DEFAULT_MAX_PEERS_FOR_RESOLUTION, 3).
 -define(GROUP_ID, "gossip").
 -define(DNS_RETRIES, 3).
 -define(DNS_TIMEOUT, 2000). % millis
@@ -283,13 +284,16 @@ handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom, workers=Workers})
             ok;
         false ->
             bloom:set(Bloom, {out, Data}),
+            {_, Pids} = lists:unzip(connection_pids(Kind, Workers)),
+            Shuffled = shuffle(Pids),
+            Split = lists:sublist(Shuffled, ?DEFAULT_MAX_PEERS_FOR_RESOLUTION),
             spawn(fun() ->
                           lists:foreach(fun(Pid) ->
-                                                %% TODO we could check the connections's Address here for
-                                                %% if we received this data from that address and avoid
-                                                %% bouncing the gossip data back
-                                                libp2p_group_worker:send(Pid, Key, Data, true)
-                                        end, connection_pids(Kind, Workers))
+                                  %% TODO we could check the connections's Address here for 
+                                  %% if we received this data from that address and avoid
+                                  %% bouncing the gossip data back
+                                  libp2p_group_worker:send(Pid, Key, Data, true)
+                          end, Split)
                   end)
     end,
     {noreply, State};
@@ -825,6 +829,9 @@ mk_multiaddr(Addr) when is_binary(Addr) ->
     libp2p_crypto:pubkey_bin_to_p2p(Addr);
 mk_multiaddr(Value) ->
     Value.
+
+shuffle(List) ->
+    [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
 update_metadata(State=#state{}) ->
     libp2p_lager_metadata:update(
