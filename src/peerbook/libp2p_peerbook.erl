@@ -104,38 +104,42 @@ put(#peerbook{tid=TID, stale_time=StaleTime}=Handle, PeerList0, Prevalidated) ->
     AllowRFC1918 = true, %% is_rfc1918_allowed(TID),
     NewPeers = lists:foldl(
                  fun(NewPeer, Acc) ->
-                         NewPeerId = libp2p_peer:pubkey_bin(NewPeer),
-                         case unsafe_fetch_peer(NewPeerId, Handle) of
-                             {error, not_found} ->
-                                 case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
-                                     true ->
-                                         store_peer(NewPeer, Handle),
-                                         [NewPeer | Acc];
-                                     false -> Acc
-                                 end;
-                             {ok, ExistingPeer} ->
-                                 %% Only store peers that are not _this_ peer,
-                                 %% are newer than what we have,
-                                 %% are not stale themselves
-                                 case NewPeerId /= ThisPeerId
-                                     andalso (AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer))
-                                     andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
-                                     andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
-                                     andalso libp2p_peer:network_id_allowable(NewPeer, libp2p_swarm:network_id(TID)) of
-                                     true ->
-                                         %% even if the peer is similar, we should still
-                                         %% store it because it's newer
-                                         store_peer(NewPeer, Handle),
-                                         case libp2p_peer:is_similar(NewPeer, ExistingPeer) of
-                                             false ->
-                                                 [NewPeer | Acc];
-                                             true ->
-                                                 Acc
-                                         end;
-                                     _ ->
-                                         Acc
-                                 end
-                         end
+                        case libp2p_peer:pubkey_bin(NewPeer) of
+                            <<>> ->
+                                Acc; %% Peer doesn't have a pubkey, skip
+                            NewPeerId ->
+                                case unsafe_fetch_peer(NewPeerId, Handle) of
+                                    {error, not_found} ->
+                                        case AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer) of
+                                            true ->
+                                                store_peer(NewPeer, Handle),
+                                                [NewPeer | Acc];
+                                            false -> Acc
+                                        end;
+                                    {ok, ExistingPeer} ->
+                                        %% Only store peers that are not _this_ peer,
+                                        %% are newer than what we have,
+                                        %% are not stale themselves
+                                        case NewPeerId /= ThisPeerId
+                                            andalso (AllowRFC1918 orelse not libp2p_peer:has_private_ip(NewPeer))
+                                            andalso libp2p_peer:supersedes(NewPeer, ExistingPeer)
+                                            andalso not libp2p_peer:is_stale(NewPeer, StaleTime)
+                                            andalso libp2p_peer:network_id_allowable(NewPeer, libp2p_swarm:network_id(TID)) of
+                                            true ->
+                                                %% even if the peer is similar, we should still
+                                                %% store it because it's newer
+                                                store_peer(NewPeer, Handle),
+                                                case libp2p_peer:is_similar(NewPeer, ExistingPeer) of
+                                                    false ->
+                                                        [NewPeer | Acc];
+                                                    true ->
+                                                        Acc
+                                                end;
+                                            _ ->
+                                                Acc
+                                        end
+                                end
+                        end,
                  end, [], PeerList),
 
     % Notify group of new peers
@@ -177,7 +181,7 @@ random(Peerbook, Exclude, Pred) ->
 random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0, Pred, Tries) ->
     Exclude = lists:map(fun rev/1, Exclude0),
     {ok, Iterator} = rocksdb:iterator(Store, []),
-    case rocksdb:iterator_move(Iterator, first) of
+    case fuzzy_rocksdb(Iterator, first) of
         {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} ->
             {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
             Difference = End - Start,
@@ -224,7 +228,7 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0,
                                                     RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
                                                 false ->
                                                     case libp2p_peer:network_id_allowable(Peer, NetworkID)
-                                                         andalso Pred(Peer) of
+                                                            andalso Pred(Peer) of
                                                         true ->
                                                             rocksdb:iterator_close(Iterator),
                                                             {rev(Addr), Peer};
@@ -238,9 +242,10 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude0,
                                     end
                             end
                     end(rocksdb:iterator_move(Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
-            end;
-        {error,invalid_iterator} ->
+            end
+        {error, Error} ->
             %% no peers yet
+            lager:warning("~p while searching for random peer", [Error]),
             false
     end.
 
@@ -516,6 +521,25 @@ terminate(_Reason, _State) ->
 %%
 %% Internal
 %%
+
+%% Should this exist? It's only needed if the peerbook continues to have <<>> pubkeys stored. 
+%% Other option is to purge peerbook of <<>> during gets / random peers
+-spec fuzzy_rocksdb(rocksdb:iterator(), atom()) -> {ok, libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | {error, atom()}.
+fuzzy_rocksdb(Iterator, ItrAction) ->
+    case rocksdb:iterator_move(Iterator, ItrAction) of
+        {ok, <<>>, _FirstPeer} ->
+            case ItrAction ->
+                first ->
+                    fuzzy_rocksdb(Iterator, next);
+                next ->
+                    fuzzy_rocksdb(Iterator, next);
+                last ->
+                    fuzzy_rocksdb(Iterator, prev);
+                prev ->
+                    fuzzy_rocksdb(Iterator, prev)
+            end;
+        Entry -> Entry;
+    end.
 
 open_rocks(DataDir, CFOpts0, TTL) ->
     CFOpts = [{create_if_missing, true}] ++ CFOpts0,
