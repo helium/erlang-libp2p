@@ -48,7 +48,7 @@ install_handler(G, Handle) ->
 
 -spec handle_gossip_data(pid(), seed | inbound | peerbook, string(), {string(), binary()}, libp2p_peerbook:peerbook()) -> {reply, iodata()} | noreply.
 handle_gossip_data(_StreamPid, _Kind, undefined, {_Path, _Data}, _Handle) ->
-    noteply;
+    noreply;
 handle_gossip_data(_StreamPid, Kind, GossipPeer, {_Path, Data}, Handle) ->
     %% check this peer is actually legitimately connected to us so
     %% we don't poison the throttle
