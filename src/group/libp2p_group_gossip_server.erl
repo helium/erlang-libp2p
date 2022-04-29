@@ -114,13 +114,16 @@ init([Sup, TID]) ->
     SideJobRegName = list_to_atom(atom_to_list(libp2p_swarm_sidejob_sup) ++ "_" ++ atom_to_list(TID)),
     PeerBookCount = get_opt(Opts, peerbook_connections, ?DEFAULT_PEERBOOK_CONNECTIONS),
     SeedNodes = get_opt(Opts, seed_nodes, []),
-    SeedNodeCount =
-        case application:get_env(libp2p, seed_node, false) of
-            false ->
-                get_opt(Opts, seednode_connections, ?DEFAULT_SEEDNODE_CONNECTIONS);
-            true ->
-                length(maybe_lookup_seed_in_dns(SeedNodes)) - 1
-        end,
+    SeedNodeCount = case get_opt(Opts, seednode_connections, undefined) of
+        undefined ->
+            case application:get_env(libp2p, seed_node, false) of
+                false ->
+                    ?DEFAULT_SEEDNODE_CONNECTIONS;
+                true ->
+                    length(maybe_lookup_seed_in_dns(SeedNodes)) - 1
+            end;
+        V -> V
+    end,
     InboundCount = get_opt(Opts, inbound_connections, ?DEFAULT_MAX_INBOUND_CONNECTIONS),
     DropTimeOut = get_opt(Opts, drop_timeout, ?DEFAULT_DROP_TIMEOUT),
     SupportedPaths = get_opt(Opts, supported_gossip_paths, ?SUPPORTED_GOSSIP_PATHS),
