@@ -82,6 +82,10 @@ init([Name, Opts]) ->
     ets:insert(TID, {?SUP, self()}),
     ets:insert(TID, {?NAME, Name}),
     ets:insert(TID, {?OPTS, Opts}),
+    case proplists:get_value(force_network_id, Opts) of
+        undefined -> true;
+        NetworkID -> ets:insert(TID, {network_id, NetworkID})
+    end,
     % Get or generate our keys
     {PubKey, SigFun, ECDHFun} = init_keys(Opts),
     ets:insert(TID, {?ADDRESS, libp2p_crypto:pubkey_to_bin(PubKey)}),
