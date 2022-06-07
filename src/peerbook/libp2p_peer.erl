@@ -286,10 +286,10 @@ network_id(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{network_id = <<>>}}) ->
 network_id(#libp2p_signed_peer_pb{peer=#libp2p_peer_pb{network_id=ID}}) ->
     ID.
 
+%% @doc We will only store peers when our own id is defined and the
+%% same as the peer network id
 network_id_allowable(Peer, MyNetworkID) ->
-    network_id(Peer) == MyNetworkID
-    orelse libp2p_peer:network_id(Peer) == undefined
-    orelse MyNetworkID == undefined.
+    MyNetworkID /= undefined andalso network_id(Peer) == MyNetworkID.
 
 %% @doc Returns whether the peer is listening on a public, externally
 %% visible IP address.
