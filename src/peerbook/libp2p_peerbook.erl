@@ -444,29 +444,6 @@ init([TID, SigFun]) ->
                 {ok, DB} ->
                     %% compact the DB on open, just in case
                     rocksdb:compact_range(DB, undefined, undefined, []),
-                    {ok, Iterator} = rocksdb:iterator(DB, []),
-                    case rocksdb:iterator_move(Iterator, first) of
-                        {ok, FirstAddr, FirstPeer} ->
-                            try libp2p_crypto:bin_to_pubkey(rev(FirstAddr)) of
-                                _ -> ok
-                            catch _:_ ->
-                                      %% legacy byte order, convert it
-                                      {ok, Batch} = rocksdb:batch(),
-                                      ok = rocksdb:batch_put(Batch, rev(FirstAddr), FirstPeer),
-                                      ok = rocksdb:batch_delete(Batch, FirstAddr),
-                                      fun FixLoop({ok, K, V}) ->
-                                              ok = rocksdb:batch_put(Batch, rev(K), V),
-                                              ok = rocksdb:batch_delete(Batch, K),
-                                              FixLoop(rocksdb:iterator_move(Iterator, next));
-                                          FixLoop(_) ->
-                                              ok
-                                      end(rocksdb:iterator_move(Iterator, next)),
-                                      ok = rocksdb:write_batch(DB, Batch, [])
-                            end;
-                        _ ->
-                            %% empty peerbook
-                            ok
-                    end,
                     Handle = #peerbook{store=DB, tid=TID, stale_time=StaleTime},
                     GossipGroup = install_gossip_handler(TID, Handle),
                     libp2p_swarm:store_peerbook(TID, Handle),
