@@ -82,9 +82,13 @@ init([Name, Opts]) ->
     ets:insert(TID, {?SUP, self()}),
     ets:insert(TID, {?NAME, Name}),
     ets:insert(TID, {?OPTS, Opts}),
-    case proplists:get_value(force_network_id, Opts) of
+    case proplists:get_value(libp2p_peerbook, Opts) of
         undefined -> true;
-        NetworkID -> ets:insert(TID, {network_id, NetworkID})
+        PeerbookOpts ->
+            case proplists:get_value(force_network_id, PeerbookOpts) of
+                undefined -> true;
+                NetworkID -> ets:insert(TID, {network_id, NetworkID})
+            end
     end,
     % Get or generate our keys
     {PubKey, SigFun, ECDHFun} = init_keys(Opts),
