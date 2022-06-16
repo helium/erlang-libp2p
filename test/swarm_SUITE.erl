@@ -13,7 +13,9 @@ all() ->
 
 init_per_testcase(TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    Swarms = test_util:setup_swarms(1, [{base_dir, ?config(base_dir, Config0)}]),
+    Swarms = test_util:setup_swarms(1, [{base_dir, ?config(base_dir, Config0)},
+                                        {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}
+                                       ]),
     [{swarms, Swarms} | Config0].
 
 end_per_testcase(stop_test, _Config) ->
@@ -30,9 +32,18 @@ accessor_test(Config) ->
 
     {ok, PubKey, _, _} = libp2p_swarm:keys(S1),
     true = libp2p_crypto:pubkey_to_bin(PubKey) == libp2p_swarm:pubkey_bin(S1),
-    case libp2p_swarm:opts(S1) of
-        [{libp2p_nat, [{enabled, false}]}, {base_dir, _}] -> ok;
-        [{base_dir, _}, {libp2p_nat, [{enabled, false}]}] -> ok
+    Opts = libp2p_swarm:opts(S1),
+    case proplists:get_value(libp2p_peerbook, Opts) of
+        undefined -> error(peerbook_undefined);
+        _ -> ok
+    end,
+    case proplists:get_value(libp2p_nat, Opts) of
+        undefined -> error(peerbook_undefined);
+        _ -> ok
+    end,
+    case proplists:get_value(base_dir, Opts) of
+        undefined -> error(peerbook_undefined);
+        _ -> ok
     end,
     "swarm" ++ _ = atom_to_list(libp2p_swarm:name(S1)),
 

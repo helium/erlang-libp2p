@@ -26,11 +26,13 @@ all() ->
 init_per_testcase(seed_test = TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
     %% Set up S2 as the seed.
-    [S2] = test_util:setup_swarms(1, [
-                                       {libp2p_group_gossip, [{peerbook_connections, 0}]},
-                                       {force_network_id, <<"GossipTestSuite">>},
-                                       {base_dir, ?config(base_dir, Config0)}
-                                     ]),
+    [S2] = test_util:setup_swarms(
+             1,
+             [
+              {libp2p_group_gossip, [{peerbook_connections, 0}]},
+              {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
+              {base_dir, ?config(base_dir, Config0)}
+             ]),
 
     S2ListenAddrs = libp2p_swarm:listen_addrs(S2),
 
@@ -40,6 +42,7 @@ init_per_testcase(seed_test = TestCase, Config) ->
                                         [ {peerbook_connections, 0},
                                           {seed_nodes, S2ListenAddrs}
                                         ]},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {force_network_id, <<"GossipTestSuite">>},
                                        {base_dir, ?config(base_dir, Config0)}
                                      ]),
@@ -60,7 +63,7 @@ init_per_testcase(TestCase, Config) ->
                                          [{peerbook_connections, 1},
                                           {peer_cache_timeout, 100}]
                                         },
-                                        {force_network_id, <<"GossipTestSuite">>},
+                                        {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                         {base_dir, ?config(base_dir, Config0)} ]),
     [{swarms, Swarms} | Config].
 
@@ -147,7 +150,7 @@ forwards_compat_gossip_test(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
@@ -155,7 +158,7 @@ forwards_compat_gossip_test(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
@@ -204,14 +207,14 @@ backwards_compat_gossip_test(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
     %% S2 represents an old swarm, so dont specifiy the gossip protocol in the config let it use default
     [S2] = test_util:setup_swarms(1, [
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
@@ -263,7 +266,7 @@ same_path_gossip_test1(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
@@ -271,7 +274,7 @@ same_path_gossip_test1(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
@@ -319,7 +322,7 @@ same_path_gossip_test2(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 
@@ -327,7 +330,7 @@ same_path_gossip_test2(Config) ->
                                        {libp2p_group_gossip, [{peerbook_connections, 1},
                                                               {peer_cache_timeout, 100},
                                                               {supported_gossip_paths, ["gossip/1.0.2", "gossip/1.0.0"]}  ]},
-                                       {force_network_id, <<"GossipTestSuite">>},
+                                       {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]},
                                        {base_dir, ?config(base_dir, Config)}
                                      ]),
 

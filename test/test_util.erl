@@ -109,7 +109,7 @@ await_gossip_group(Swarm, Swarms, Timeout0) ->
       end, Timeout, 100).
 
 await_gossip_groups(Swarms) ->
-    await_gossip_groups(Swarms, 30).
+    await_gossip_groups(Swarms, 45).
 
 await_gossip_groups(Swarms, Timeout) ->
     lists:foreach(fun(S) ->
@@ -117,7 +117,7 @@ await_gossip_groups(Swarms, Timeout) ->
                   end, Swarms).
 
 await_gossip_streams(Swarms) ->
-    await_gossip_streams(Swarms, 30).
+    await_gossip_streams(Swarms, 45).
 
 await_gossip_streams(Swarms, Timeout) when is_list(Swarms) ->
     lists:foreach(fun(S) ->
@@ -127,7 +127,7 @@ await_gossip_streams(Swarm, Timeout) ->
     await_gossip_streams([Swarm], Timeout).
 
 await_gossip_stream(Swarm, Timeout0) ->
-    Timeout = Timeout0 * 10,
+    Timeout = Timeout0 * 5,
     GossipGroup = libp2p_swarm:gossip_group(Swarm),
     GroupPids = libp2p_group_gossip:connected_pids(GossipGroup, all),
     test_util:wait_until(
@@ -137,7 +137,7 @@ await_gossip_stream(Swarm, Timeout0) ->
               catch _:_ ->
                  false
               end
-      end, Timeout, 100).
+      end, Timeout, 200).
 
 
 

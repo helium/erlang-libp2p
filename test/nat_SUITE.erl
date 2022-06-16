@@ -10,6 +10,7 @@
 ]).
 
 -export([
+    suite/0,
     basic/1,
     server/1,
     renew/1
@@ -18,6 +19,9 @@
 %%--------------------------------------------------------------------
 %% COMMON TEST CALLBACK FUNCTIONS
 %%--------------------------------------------------------------------
+
+suite() ->
+    [{timetrap,{seconds,200}}].
 
 %%--------------------------------------------------------------------
 %% @public
@@ -115,19 +119,23 @@ server(_Config) ->
     end),
 
     {ok, Swarm} = libp2p_swarm:start(nat_server_test),
+    try
+        {ok, NatServer} = libp2p_config:lookup_nat(libp2p_swarm:tid(Swarm)),
+        Self = self(),
+        ?assertEqual(true, erlang:is_process_alive(NatServer)),
+        erlang:trace(NatServer, true, [{tracer, Self}, 'receive']),
 
-    {ok, NatServer} = libp2p_config:lookup_nat(libp2p_swarm:tid(Swarm)),
-    Self = self(),
-    ?assertEqual(true, erlang:is_process_alive(NatServer)),
-    erlang:trace(NatServer, true, [{tracer, Self}, 'receive']),
+        ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
+        server_rcv(MockLease, Since)
 
-    server_rcv(MockLease, Since),
-
-    ?assert(meck:validate(nat)),
-    meck:unload(nat),
-    libp2p_swarm:stop(Swarm).
+    catch C:E ->
+            error({C, E})
+    after
+        ?assert(meck:validate(nat)),
+        meck:unload(nat),
+        libp2p_swarm:stop(Swarm)
+    end.
 
 %%--------------------------------------------------------------------
 %% @public
@@ -149,22 +157,28 @@ renew(_Config) ->
     end),
 
     {ok, Swarm} = libp2p_swarm:start(nat_renew),
-    ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
+    try
 
-    ok = test_util:wait_until(fun() ->
-        lists:member("/ip4/11.0.0.2/tcp/6666", libp2p_swarm:listen_addrs(Swarm))
-    end),
+        ok = libp2p_swarm:listen(Swarm, "/ip4/0.0.0.0/tcp/0"),
 
-    ok = test_util:wait_until(fun() ->
-        lists:member("/ip4/11.0.0.2/tcp/6667", libp2p_swarm:listen_addrs(Swarm)) andalso
-        not lists:member("/ip4/11.0.0.2/tcp/6666", libp2p_swarm:listen_addrs(Swarm))
-    end, 12, 1000),
+        ok = test_util:wait_until(
+               fun() ->
+                       lists:member("/ip4/11.0.0.2/tcp/6666", libp2p_swarm:listen_addrs(Swarm))
+               end),
 
-
-    libp2p_swarm:stop(Swarm),
-    ?assert(meck:validate(libp2p_nat)),
-    meck:unload(libp2p_nat),
-    ok.
+        ok = test_util:wait_until(
+               fun() ->
+                       lists:member("/ip4/11.0.0.2/tcp/6667", libp2p_swarm:listen_addrs(Swarm)) andalso
+                           not lists:member("/ip4/11.0.0.2/tcp/6666", libp2p_swarm:listen_addrs(Swarm))
+               end, 120, 1000)
+    catch C:E ->
+            error({C, E})
+    after
+        libp2p_swarm:stop(Swarm),
+        ?assert(meck:validate(libp2p_nat)),
+        meck:unload(libp2p_nat),
+        ok
+    end.
 
 
 
@@ -188,7 +202,7 @@ server_rcv(MockLease, Since) ->
             server_rcv(MockLease, Since);
         M ->
             ct:fail(M)
-    after 4000 ->
+    after 120000 ->
         ct:fail(timeout)
     end.
 

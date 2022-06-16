@@ -11,7 +11,9 @@ all() ->
 
 init_per_testcase(TestCase, Config) ->
     Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    Swarms = test_util:setup_swarms([{base_dir, ?config(base_dir, Config0)}]),
+    Swarms = test_util:setup_swarms([{base_dir, ?config(base_dir, Config0)},
+                                     {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}
+                                    ]),
     [{swarms, Swarms}| Config].
 
 end_per_testcase(_, Config) ->

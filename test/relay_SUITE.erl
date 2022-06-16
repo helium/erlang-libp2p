@@ -58,7 +58,8 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [
-        {libp2p_nat, [{enabled, false}]}
+        {libp2p_nat, [{enabled, false}]},
+        {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}
     ],
     Version = "relaytest/1.0.0",
 
@@ -119,7 +120,7 @@ basic(_Config) ->
                 _ -> false
             end
         end,
-        100,
+        200,
         250
     ),
 
