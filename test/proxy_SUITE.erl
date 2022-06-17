@@ -59,7 +59,8 @@ end_per_testcase(_, _Config) ->
 %%--------------------------------------------------------------------
 basic(_Config) ->
     SwarmOpts = [{libp2p_nat, [{enabled, false}]},
-                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]}
+                 {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
+                 {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}
                 ],
     Version = "proxytest/1.0.0",
 
@@ -216,7 +217,8 @@ limit_exceeded(_Config) ->
     SwarmOpts = [
         {libp2p_nat, [{enabled, false}]},
         {libp2p_group_gossip, [{peer_cache_timeout, 100}]},
-        {libp2p_proxy, [{limit, 0}]}
+        {libp2p_proxy, [{limit, 0}]},
+        {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}
     ],
     Version = "proxytest/1.0.0",
 
@@ -245,7 +247,7 @@ limit_exceeded(_Config) ->
         {libp2p_framed_stream, server, [libp2p_stream_proxy_test, self(), CSwarm]}
     ),
 
-   % Relay needs a public ip now, not just a circuit address
+    %% Relay needs a public ip now, not just a circuit address
     meck:new(libp2p_transport_tcp, [no_link, passthrough]),
     meck:expect(libp2p_transport_tcp, is_public, fun(_) -> false end),
     meck:new(libp2p_peer, [no_link, passthrough]),
@@ -317,7 +319,7 @@ limit_exceeded(_Config) ->
             _ ->
                 false
         end
-    end),
+    end, 200, 200),
     ct:pal("CCircuitAddress ~p", [CCircuitAddress]),
     ct:pal("ACircuitAddress ~p", [ACircuitAddress]),
     % Avoid trying another address

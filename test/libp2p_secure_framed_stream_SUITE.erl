@@ -60,7 +60,7 @@ end_per_testcase(_, _Config) ->
 %% @end
 %%--------------------------------------------------------------------
 invalid_key_exchange(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}, {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}],
     Version = "securetest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(insecure_server_test, SwarmOpts),
@@ -129,7 +129,7 @@ invalid_key_exchange(_Config) ->
     ok.
 
 key_exchange(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]},{libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}],
     Version = "securetest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(secure_server_test, SwarmOpts),
@@ -175,7 +175,7 @@ key_exchange(_Config) ->
     ok.
 
 stream(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]}, {libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}],
     Version = "securetest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(secure_server_echo_test, SwarmOpts),
@@ -243,7 +243,7 @@ stream(_Config) ->
 
 
 failed_stream(_Config) ->
-    SwarmOpts = [{libp2p_nat, [{enabled, false}]}],
+    SwarmOpts = [{libp2p_nat, [{enabled, false}]},{libp2p_peerbook, [{force_network_id, <<"GossipTestSuite">>}]}],
     Version = "securetest/1.0.0",
 
     {ok, ServerSwarm} = libp2p_swarm:start(secure_server_fail_qecho_test, SwarmOpts),
