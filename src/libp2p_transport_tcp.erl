@@ -492,7 +492,7 @@ handle_info(stungun_retry, State=#state{observed_addrs=Addrs, tid=TID, stun_txns
             {PeerPath, TxnID} = libp2p_stream_stungun:mk_stun_txn(),
             %% choose a random connected peer to do stungun with
             {ok, MyPeer} = libp2p_peerbook:get(libp2p_swarm:peerbook(TID), libp2p_swarm:pubkey_bin(TID)),
-            case [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer)] of
+            case [libp2p_crypto:pubkey_bin_to_p2p(P) || P <- libp2p_peer:connected_peers(MyPeer), libp2p_peer:has_public_ip(P)] of
                 [] ->
                     %% no connected peers
                     Ref = erlang:send_after(30000, self(), stungun_retry),
