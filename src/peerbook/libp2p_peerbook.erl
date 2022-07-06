@@ -181,10 +181,18 @@ get(#peerbook{tid=TID}=Handle, ID) ->
             {error, Error};
         {ok, Peer} ->
             case libp2p_peer:network_id_allowable(Peer, libp2p_swarm:network_id(TID)) of
-               false ->
-                    {error, not_found};
                 true ->
-                    {ok, Peer}
+                    {ok, Peer};
+                false when ThisPeerId == ID ->
+                    case libp2p_swarm:network_id(TID) == libp2p_peer:network_id(Peer) of
+                        true ->
+                            {ok, Peer};
+                        false ->
+                            gen_server:call(libp2p_swarm:peerbook_pid(TID), update_this_peer, infinity),
+                            get(Handle, ID)
+                    end;
+                false ->
+                    {error, not_found}
             end
     end.
 
