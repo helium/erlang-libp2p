@@ -6,13 +6,15 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1,
          association_test/1, gossip_test/1, stale_test/1,
-         peer_validation_test/1, random_iterator_test/1]).
+         peer_validation_test/1, random_iterator_test/1,
+         network_id_filter_test/1]).
 
 all() ->
     [
      accessor_test,
      bad_peer_test,
      put_test,
+     network_id_filter_test,
      gossip_test,
      stale_test,
      blacklist_test,
@@ -40,6 +42,8 @@ init_per_testcase0(random_iterator_test, Config) ->
     setup_peerbook(Config, []);
 init_per_testcase0(put_test, Config) ->
     setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}]}]);
+init_per_testcase0(network_id_filter_test, Config) ->
+    setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}] }]);
 init_per_testcase0(gossip_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 1}]
@@ -74,6 +78,8 @@ end_per_testcase(put_test, Config) ->
 end_per_testcase(peer_validation_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(random_iterator_test, Config) ->
+    teardown_peerbook(Config);
+end_per_testcase(network_id_filter_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(gossip_test, Config) ->
     [S1, _S2] = ?config(swarms, Config),
@@ -220,7 +226,54 @@ put_test(Config) ->
     0 = sets:size(sets:subtract(PeerBookValues, KnownValues)),
 
     ok.
+network_id_filter_test() -> [{timetrap, 60000}].
 
+network_id_filter_test(Config) ->
+    NetID1 = <<"default">>,
+    NetID2 = <<"network_id_filter_test">>,
+    {_PeerBook, Address} = ?config(peerbook, Config),
+    TID = ?config(tid, Config),
+    PeerBook = libp2p_swarm:peerbook(TID),
+
+    Peer1 = mk_peer(#{network_id => <<>>}),
+    Peer1Addr = libp2p_peer:pubkey_bin(Peer1),
+    Peer2 = mk_peer(#{network_id => NetID1}),
+    Peer2Addr = libp2p_peer:pubkey_bin(Peer2),
+    Peer3 = mk_peer(#{network_id => NetID2}),
+    Peer3Addr = libp2p_peer:pubkey_bin(Peer3),
+    Peers = [Peer1, Peer2, Peer3],
+
+    libp2p_swarm:network_id(TID,undefined),
+
+    %% record for local address should be implicitly created
+    {ok, LocalPeer1} = libp2p_peerbook:get(PeerBook, Address),
+    undefined = libp2p_peer:network_id(LocalPeer1),
+
+    libp2p_peerbook:put(PeerBook, Peers),
+    
+    %% while network ID is undefined, should only return local peer
+    true = lists:all(fun(P) -> 
+                             libp2p_peerbook:get(PeerBook,P) == {error, not_found} 
+                     end, [Peer1Addr, Peer2Addr, Peer3Addr]),
+
+
+    %% record for local address should be updated when network ID changes
+    libp2p_swarm:network_id(TID, NetID1),
+    {ok, LocalPeer2} = libp2p_peerbook:get(PeerBook, Address),
+    NetID1 = libp2p_peer:network_id(LocalPeer2),
+
+    {ok, _} = libp2p_peerbook:get(PeerBook, Peer2Addr),
+    {error, not_found} = libp2p_peerbook:get(PeerBook, Peer1Addr),
+    {error, not_found} = libp2p_peerbook:get(PeerBook, Peer3Addr),
+
+    libp2p_swarm:network_id(TID, NetID2),
+    {ok, LocalPeer3} = libp2p_peerbook:get(PeerBook, Address),
+    NetID2 = libp2p_peer:network_id(LocalPeer3),
+
+    {ok, _} = libp2p_peerbook:get(PeerBook, Peer3Addr),
+    {error, not_found} = libp2p_peerbook:get(PeerBook, Peer1Addr),
+    {error, not_found} = libp2p_peerbook:get(PeerBook, Peer2Addr),
+    ok.
 
 gossip_test(Config) ->
     [S1, S2] = ?config(swarms, Config),
