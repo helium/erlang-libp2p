@@ -200,12 +200,43 @@ random(Peerbook, Exclude) ->
 random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
+
+iterator_move_filtered(KeyFun, Iterator, Action) ->
+    case rocksdb:iterator_move(Iterator, Action) of
+        {ok, Key, Value} ->
+            case catch KeyFun(Key) of
+                true -> {ok, Key, Value};
+                _ ->
+                    NextAction = case Action of
+                                     first -> next;
+                                     next -> next;
+                                     prev -> prev;
+                                     last -> prev;
+                                     {seek, _} -> next;
+                                     {seek_for_prev, _} -> prev;
+                                     B when is_binary(B) -> next
+                                 end,
+                    iterator_move_filtered(KeyFun, Iterator, NextAction)
+            end;
+        Other -> Other
+    end.
+
 -spec random(peerbook(), [libp2p_crypto:pubkey_bin()], fun((libp2p_peer:peer()) -> boolean()), non_neg_integer()) -> {libp2p_crypto:pubkey_bin(), libp2p_peer:peer()} | false.
 random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, Pred, Tries) ->
     {ok, Iterator} = rocksdb:iterator(Store, []),
-    case rocksdb:iterator_move(Iterator, first) of
+    KeyFilterFun = fun(<<_:(33*8)>>) -> true;
+                   (K) when is_binary(K) ->
+                        delete_peer(rev(K), Peerbook),
+                        false;
+                   (K) ->
+                        rocksdb:delete(Store, K, []),
+                        false
+                end,
+    %% Alternately, we might filter without deleting bad keys:
+    % KeyFilterFun = fun(K) -> <<_:(33*8)>> = K end,
+    case iterator_move_filtered(KeyFilterFun, Iterator, first) of
         {ok, FirstAddr = <<Start:(33*8)/integer-unsigned-big>>, FirstPeer} ->
-            {ok, <<End:(33*8)/integer-unsigned-big>>, _} = rocksdb:iterator_move(Iterator, last),
+            {ok, <<End:(33*8)/integer-unsigned-big>>, _} = iterator_move_filtered(KeyFilterFun, Iterator, last),
             Difference = End - Start,
             case Difference of
                 0 ->
@@ -236,18 +267,18 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, 
                             %% start completely over because our iterator is bad
                             random(Peerbook, Exclude, Pred, T - 1);
                         RandLoop({error, _} = _E, T) ->
-                            RandLoop(rocksdb:iterator_move(Iterator, first), T - 1);
+                            RandLoop(iterator_move_filtered(KeyFilterFun,Iterator, first), T - 1);
                         RandLoop({ok, Addr, Bin}, T) ->
                             case lists:member(rev(Addr), Exclude) of
                                 true ->
-                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                                    RandLoop(iterator_move_filtered(KeyFilterFun, Iterator, next), T - 1);
                                 false ->
                                     %% use unsafe coming off the disk
                                     try libp2p_peer:decode_unsafe(Bin) of
                                         Peer ->
                                             case libp2p_peer:is_stale(Peer, StaleTime) of
                                                 true ->
-                                                    RandLoop(rocksdb:iterator_move(Iterator, next), T - 1);
+                                                    RandLoop(iterator_move_filtered(KeyFilterFun, Iterator, next), T - 1);
                                                 false ->
                                                     case libp2p_peer:network_id_allowable(Peer, NetworkID)
                                                          andalso Pred(Peer) of
@@ -255,15 +286,15 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, 
                                                             rocksdb:iterator_close(Iterator),
                                                             {rev(Addr), Peer};
                                                         _ ->
-                                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                                            RandLoop(iterator_move_filtered(KeyFilterFun, Iterator, next), T - 1)
                                                     end
                                             end
                                     catch
                                         _:_ ->
-                                            RandLoop(rocksdb:iterator_move(Iterator, next), T - 1)
+                                            RandLoop(iterator_move_filtered(KeyFilterFun, Iterator, next), T - 1)
                                     end
                             end
-                    end(rocksdb:iterator_move(Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
+                    end(iterator_move_filtered(KeyFilterFun, Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
             end;
         {error,invalid_iterator} ->
             %% no peers yet

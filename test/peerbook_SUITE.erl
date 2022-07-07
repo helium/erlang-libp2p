@@ -5,7 +5,8 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 -export([accessor_test/1, bad_peer_test/1, put_test/1, blacklist_test/1,
-         association_test/1, gossip_test/1, stale_test/1]).
+         association_test/1, gossip_test/1, stale_test/1,
+         peer_validation_test/1, random_iterator_test/1]).
 
 all() ->
     [
@@ -15,30 +16,31 @@ all() ->
      gossip_test,
      stale_test,
      blacklist_test,
-     association_test
+     association_test,
+     peer_validation_test,
+     random_iterator_test
     ].
 
+%% common config for all tests in this suite
+init_per_testcase(TestCase, Config) ->
+    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+    init_per_testcase0(TestCase, Config0).
 
-
-init_per_testcase(accessor_test = TestCase, Config) ->
-
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    setup_peerbook(Config0, []);
-init_per_testcase(bad_peer_test = TestCase, Config) ->
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    setup_peerbook(Config0, []);
-init_per_testcase(blacklist_test = TestCase, Config) ->
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    setup_peerbook(Config0, []);
-init_per_testcase(association_test = TestCase, Config) ->
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    setup_peerbook(Config0, []);
-init_per_testcase(put_test = TestCase, Config) ->
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
-    setup_peerbook(Config0, [{libp2p_peerbook, [{notify_time, 200}]
-                            }]);
-init_per_testcase(gossip_test = TestCase, Config) ->
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+init_per_testcase0(accessor_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase0(bad_peer_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase0(blacklist_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase0(association_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase0(peer_validation_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase0(random_iterator_test, Config) ->
+    setup_peerbook(Config, []);
+init_per_testcase0(put_test, Config) ->
+    setup_peerbook(Config, [{libp2p_peerbook, [{notify_time, 200}]}]);
+init_per_testcase0(gossip_test, Config) ->
     Swarms = test_util:setup_swarms(2, [{libp2p_group_gossip,
                                          [{peerbook_connections, 1}]
                                         },
@@ -47,16 +49,15 @@ init_per_testcase(gossip_test = TestCase, Config) ->
                                           {peer_time, 400},
                                           {force_network_id, <<"GossipTestSuite">>}]
                                         },
-                                        {base_dir, ?config(basedir, Config0)}]),
+                                        {base_dir, ?config(basedir, Config)}]),
     [{swarms, Swarms} | Config];
-init_per_testcase(stale_test = TestCase, Config) ->
-    Config0 = test_util:init_base_dir_config(?MODULE, TestCase, Config),
+init_per_testcase0(stale_test, Config) ->
     Swarms = test_util:setup_swarms(1, [{libp2p_peerbook, [{stale_time, 100},
                                                            {peer_time, 400},
                                                            {notify_time, 500},
                                                            {force_network_id, <<"GossipTestSuite">>}]
                                         },
-                                        {base_dir, ?config(priv_dir, Config0)}]),
+                                        {base_dir, ?config(basedir, Config)}]),
     [{swarms, Swarms} | Config].
 
 
@@ -69,6 +70,10 @@ end_per_testcase(blacklist_test, Config) ->
 end_per_testcase(association_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(put_test, Config) ->
+    teardown_peerbook(Config);
+end_per_testcase(peer_validation_test, Config) ->
+    teardown_peerbook(Config);
+end_per_testcase(random_iterator_test, Config) ->
     teardown_peerbook(Config);
 end_per_testcase(gossip_test, Config) ->
     [S1, _S2] = ?config(swarms, Config),
@@ -313,6 +318,70 @@ stale_test(Config) ->
           end),
     ok.
 
+peer_validation_test(Config) ->
+        PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
+        Peer1 = mk_peer(),
+        ok = libp2p_peerbook:put(PeerBook, [Peer1]),
+        true = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer1)),
+        Peer2 = mk_peer(#{network_id => undefined}),
+        ok = libp2p_peerbook:put(PeerBook, [Peer2]),
+        false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer2)),
+        Peer3 = mk_peer(#{network_id => <<>>}),
+        ok = libp2p_peerbook:put(PeerBook, [Peer3]),
+        false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer3)),
+        Peer4 = mk_peer(#{network_id => <<1,4,22,3,12>>}),
+        ok = libp2p_peerbook:put(PeerBook, [Peer4]),
+        false = libp2p_peerbook:is_key(PeerBook, libp2p_peer:pubkey_bin(Peer4)),
+        Peer5 = mk_peer(#{force_invalid_pubkey_bin => undefined}),
+        rejected = try
+                       libp2p_peerbook:put(PeerBook,[Peer5]),
+                       error({fail, accepted_undefined_pubkey})
+                   catch
+                       error:function_clause -> rejected
+                   end,
+        Peer6 = mk_peer(#{force_invalid_pubkey_bin => <<>>}),
+        rejected = try
+                       libp2p_peerbook:put(PeerBook,[Peer6]),
+                       error({fail, accepted_empty_pubkey})
+                   catch
+                       error:function_clause -> rejected
+                   end,
+        #{public := PubKey} = libp2p_crypto:generate_keys(ed25519),
+        Peer7 = mk_peer(#{force_invalid_pubkey_bin => libp2p_crypto:pubkey_to_bin(PubKey)}),
+        rejected = try
+                       libp2p_peerbook:put(PeerBook,[Peer7]),
+                       error({fail, accepted_invalid_pubkey})
+                   catch
+                       error:invalid_signature -> rejected
+                   end,
+  ok.
+
+random_iterator_test(Config) ->
+        {_, Address} = ?config(peerbook, Config),
+        PeerBook = libp2p_swarm:peerbook(?config(tid, Config)),
+        % valid peer
+        Peer1 = mk_peer(),
+        PubKey1 = libp2p_peer:pubkey_bin(Peer1),
+        % empty pubkey, will sort first
+        Peer2 = mk_peer(#{force_invalid_pubkey_bin => <<>>}),
+        % invalid pubkey, will sort before vaild peers
+        Peer3 = mk_peer(#{force_invalid_pubkey_bin => <<0,0,1,2>>}),
+        % invalid pubkey, will sort after valid peers
+        Peer4 = mk_peer(#{force_invalid_pubkey_bin => <<255,255,255,255>>}),
+        % exclude self
+        Exclude = [ Address ],
+        % no peers yet
+        false = libp2p_peerbook:random(PeerBook, Exclude),
+        % single peer
+        ok = libp2p_peerbook:put(PeerBook, [Peer1]),
+        {PubKey1, Peer1} = libp2p_peerbook:random(PeerBook, Exclude),
+        % select valid peer when invalid are present
+        ok = libp2p_peerbook:put(PeerBook, [Peer2, Peer3, Peer4], true),
+        {PubKey1, Peer1} = libp2p_peerbook:random(PeerBook, Exclude),
+        % return false when no valid peers are present
+        ok = libp2p_peerbook:remove(PeerBook, libp2p_peer:pubkey_bin(Peer1)),
+        false = libp2p_peerbook:random(PeerBook, Exclude),
+  ok.
 
 %% Util
 %%
@@ -321,13 +390,22 @@ peer_keys(PeerList) ->
     [libp2p_crypto:bin_to_b58(libp2p_peer:pubkey_bin(P)) || P <- PeerList].
 
 mk_peer() ->
+    mk_peer(#{}).
+
+mk_peer(PeerOpts) ->
+    NetworkId = maps:get(network_id, PeerOpts, <<"default">>),
     #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
-    #{ public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
-    {ok, Peer} = libp2p_peer:from_map(#{pubkey => libp2p_crypto:pubkey_to_bin(PubKey),
+    #{public := PubKey2} = libp2p_crypto:generate_keys(ecc_compact),
+    PubKeyBin = case maps:get(force_invalid_pubkey_bin, PeerOpts, not_defined) of
+                    not_defined ->
+                        libp2p_crypto:pubkey_to_bin(PubKey);
+                    Bin -> Bin
+                end,
+    {ok, Peer} = libp2p_peer:from_map(#{pubkey => PubKeyBin,
                                         listen_addrs => ["/ip4/8.8.8.8/tcp/1234"],
                                         connected => [libp2p_crypto:pubkey_to_bin(PubKey2)],
                                         nat_type => static,
-                                        network_id => <<"default">>,
+                                        network_id => NetworkId,
                                         timestamp => erlang:system_time(millisecond)},
                                       libp2p_crypto:mk_sig_fun(PrivKey)),
     Peer.
@@ -341,8 +419,8 @@ setup_peerbook(Config, Opts) ->
     #{secret := PrivKey, public := PubKey} = libp2p_crypto:generate_keys(ecc_compact),
     CompactKey = libp2p_crypto:pubkey_to_bin(PubKey),
     ets:insert(TID, {swarm_address, CompactKey}),
-    PrivDir = ?config(priv_dir, Config),
-    ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, PrivDir})}),
+    BaseDir = ?config(basedir, Config),
+    ets:insert(TID, {swarm_opts, lists:keystore(base_dir, 1, Opts, {base_dir, BaseDir})}),
     {ok, Pid} = libp2p_peerbook:start_link(TID, libp2p_crypto:mk_sig_fun(PrivKey)),
     [{peerbook, {Pid, CompactKey}}, {tid, TID} | Config].
 
