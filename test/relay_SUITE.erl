@@ -138,7 +138,7 @@ basic(_Config) ->
     % NAT fails so init relay on A manually
     ok = libp2p_relay:init(ASwarm),
     % Wait for a relay address to be provided
-    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end),
+    ok = test_util:wait_until(fun() -> [] /= get_relay_addresses(ASwarm) end, 200, 250),
 
 
     % Testing relay address
@@ -155,7 +155,7 @@ basic(_Config) ->
                     false
             end
         end,
-        100,
+        200,
         250
     ),
 

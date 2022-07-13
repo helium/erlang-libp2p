@@ -127,8 +127,8 @@ gossip_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
 
-    test_util:await_gossip_groups(Swarms),
-    test_util:await_gossip_streams(Swarms),
+    test_util:await_gossip_groups(Swarms, 100),
+    test_util:await_gossip_streams(Swarms, 100),
 
     libp2p_group_gossip:send(libp2p_swarm:tid(S2), "gossip_test", <<"hello">>),
 
@@ -377,7 +377,7 @@ seed_test(Config) ->
     S2PeerBook = libp2p_swarm:peerbook(S2),
     ok = test_util:wait_until(fun() ->
                                       libp2p_peerbook:is_key(S2PeerBook, libp2p_swarm:pubkey_bin(S1))
-                              end, 1000, 30),
+                              end, 1000, 60),
 
     %% And the S1 has a session to S2
     S1Group = libp2p_swarm:gossip_group(S1),
@@ -405,5 +405,5 @@ get_peer(Swarm) ->
 connect_await_ready(S1, S2)->
     test_util:connect_swarms(S1, S2),
     %% wait until we are fully connected
-    test_util:await_gossip_groups([S1, S2]),
-    test_util:await_gossip_streams([S1, S2]).
+    test_util:await_gossip_groups([S1, S2], 100),
+    test_util:await_gossip_streams([S1, S2], 100).
