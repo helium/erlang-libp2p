@@ -220,9 +220,9 @@ iterator_move_filtered(KeyFun, Iterator, Action) ->
                                      next -> next;
                                      prev -> prev;
                                      last -> prev;
-                                     {seek, _} -> next;
-                                     {seek_for_prev, _} -> prev;
-                                     B when is_binary(B) -> next
+                                     {seek, _} -> next
+                                     %{seek_for_prev, _} -> prev;
+                                     %B when is_binary(B) -> next
                                  end,
                     iterator_move_filtered(KeyFun, Iterator, NextAction)
             end;
@@ -302,7 +302,7 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, 
                                             RandLoop(iterator_move_filtered(KeyFilterFun, Iterator, next), T - 1)
                                     end
                             end
-                    end(iterator_move_filtered(KeyFilterFun, Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
+                    end(iterator_move_filtered(KeyFilterFun, Iterator, {seek, <<SeekPoint:(33*8)/integer-unsigned-big>>}), Tries)
             end;
         {error,invalid_iterator} ->
             %% no peers yet
@@ -542,7 +542,8 @@ handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
 handle_cast({disable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
-    rocksdb:put(Store, rev(PeerAddr), <<"disabled">>, []),
+    %% temporarily use iolist here, but it should be iodata in rocksdb
+    rocksdb:put(Store, rev(PeerAddr), [<<"disabled">>], []),
     {noreply, State};
 handle_cast({enable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
     case rocksdb:get(Store, rev(PeerAddr), []) of
@@ -862,7 +863,8 @@ fetch_peers(State=#peerbook{}) ->
 -spec store_peer(libp2p_peer:peer(), peerbook()) -> ok | {error, term()}.
 store_peer(Peer, #peerbook{store=Store}) ->
     %% reverse pubkeys so they're easier to randomly select
-    case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), libp2p_peer:encode(Peer), []) of
+    %% temporarily use iolist here but it should be iodata
+    case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), [libp2p_peer:encode(Peer)], []) of
         {error, Error} -> {error, Error};
         ok ->
             ok

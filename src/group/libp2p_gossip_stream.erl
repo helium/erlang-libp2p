@@ -5,7 +5,7 @@
 
 -behavior(libp2p_framed_stream).
 
--callback handle_data(State::any(), StreamPid::pid(), Kind:: seed | inbound | peerbook, Peer::string(), Key::string(), TID :: ets:tab(), Msg::binary()) -> ok.
+-callback handle_data(State::any(), StreamPid::pid(), Kind:: seed | inbound | peerbook, Peer::string(), Key::string(), TID :: ets:tab(), {Path :: binary(), Bin :: binary()}) -> ok.
 -callback accept_stream(State::any(),
                         Session::pid(),
                         Stream::pid(),

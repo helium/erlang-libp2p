@@ -99,7 +99,7 @@ handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
 accept_stream(Pid, SessionPid, StreamPid, Path) ->
     Ref = erlang:monitor(process, Pid),
     gen_server:cast(Pid, {accept_stream, SessionPid, Ref, StreamPid, Path}),
-    Ref.
+    ok.
 
 handle_identify(Pid, StreamPid, Path, Identify) ->
     gen_server:call(Pid, {handle_identify, StreamPid, Path, Identify}, 15000).
@@ -200,15 +200,17 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({accept_stream, _Session, ReplyRef, StreamPid, _Path}, State=#state{workers=[]}) ->
-    StreamPid ! {ReplyRef, {error, not_ready}},
-    {noreply, State};
-handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{}) ->
-    case count_workers(inbound, State) > State#state.max_inbound_connections of
+handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{workers=W}) ->
+    case maps:size(W) == 0 of
         true ->
-            StreamPid ! {ReplyRef, {error, too_many}};
-        false ->
-            libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path})
+            StreamPid ! {ReplyRef, {error, not_ready}};
+        _ ->
+            case count_workers(inbound, State) > State#state.max_inbound_connections of
+                true ->
+                    StreamPid ! {ReplyRef, {error, too_many}};
+                false ->
+                    libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path})
+            end
     end,
     {noreply, State};
 
@@ -758,7 +760,7 @@ count_workers(Kind, #state{workers=Workers}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     maps:size(KindMap).
 
--spec start_inbound_worker(any(), string(), pid(), string(), #state{}) ->  {noreply, #state{}}.
+-spec start_inbound_worker(any(), binary(), pid(), string(), #state{}) ->  {noreply, #state{}}.
 start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers}) ->
     Parent = self(),
     Ref = make_ref(),
@@ -833,6 +835,7 @@ mk_multiaddr(Addr) when is_binary(Addr) ->
 mk_multiaddr(Value) ->
     Value.
 
+-spec shuffle(list()) -> list().
 shuffle(List) ->
     [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
 

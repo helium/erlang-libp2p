@@ -114,7 +114,7 @@ handle_gossip_data(_StreamPid, Kind, GossipPeer, {_Path, Data}, Handle) ->
                     case Res == ok andalso ReRequest andalso application:get_env(libp2p, seed_node, false) of
                         true ->
                             %% this was a re-request, so gossip this update to everyone else too
-                            GossipGroup = libp2p_swarm:gossip_group(libp2p_peerbook:tid(Handle)),
+                            GossipGroup = libp2p_peerbook:tid(Handle),
                             libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
                                                      libp2p_peer_resolution_pb:encode_msg(
                                                        #libp2p_peer_resolution_msg_pb{msg = {response, Peer}, re_request=ReRequest})),
