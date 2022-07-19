@@ -75,14 +75,17 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
     lager:debug("received identity for peer ~p. Putting this peer", [Addr]),
     PeerBook = libp2p_swarm:peerbook(TID),
     try libp2p_peerbook:put(PeerBook, [libp2p_identify:peer(Identify)]) of
+%%        lip2p2_peerbook:put silently drops peers that faile validation
+%%         or that have invalid or no listen addrs, so this clause should
+%%         not be able to ever be used
+%        {error, Reason} ->
+%            lager:warning("Failed to put peerbook entry for ~p ~p", [Addr, Reason]),
+%            libp2p_session:close(Session);
         ok ->
             libp2p_config:insert_session(TID,
                                          Addr,
                                          Session),
-            libp2p_peerbook:register_session(PeerBook, Session, Identify);
-        {error, Reason} ->
-            lager:warning("Failed to put peerbook entry for ~p ~p", [Addr, Reason]),
-            libp2p_session:close(Session)
+            libp2p_peerbook:register_session(PeerBook, Session, Identify)
     catch
         error:invalid_signature ->
             lager:warning("Invalid peerbook signature for ~p", [Addr]),

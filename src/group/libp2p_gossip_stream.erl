@@ -9,7 +9,7 @@
 -callback accept_stream(State::any(),
                         Session::pid(),
                         Stream::pid(),
-                        Path::string()) -> ok | {error, term()}.
+                        Path::string()) -> ok.
 
 %% API
 -export([encode/2, encode/3]).

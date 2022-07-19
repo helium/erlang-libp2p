@@ -4,8 +4,8 @@
 -callback init_gossip_data(State::any()) -> init_result().
 -callback handle_gossip_data(StreamPid::pid(),
                              Kind :: inbound | seed | peerbook,
-                             Peer::string(),
-                             {Path::string(), Msg::binary()},
+                             Peer::libp2p_crypto:pubkey_bin()|string(),
+                             {Path::string(), Msg::binary()|[libp2p_peer:peer()]},
                              State::any()) ->
     {reply, iodata()} | noreply.
 

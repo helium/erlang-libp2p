@@ -208,7 +208,7 @@ random(Peerbook, Exclude) ->
 random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
-
+-spec iterator_move_filtered(fun(), rocksdb:itr_handle(), first|next|prev|last|{seek,iodata()}|{seek_for_prev,iodata()}|binary()) -> {ok, binary(), iodata()}|{error, any()}. 
 iterator_move_filtered(KeyFun, Iterator, Action) ->
     case rocksdb:iterator_move(Iterator, Action) of
         {ok, Key, Value} ->

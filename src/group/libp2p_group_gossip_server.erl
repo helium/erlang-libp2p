@@ -289,7 +289,7 @@ handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom, workers=Workers})
             ok;
         false ->
             bloom:set(Bloom, {out, Data}),
-            {_, Pids} = lists:unzip(connection_pids(Kind, Workers)),
+            Pids = connection_pids(Kind, Workers),
             Shuffled = shuffle(Pids),
             Split = lists:sublist(Shuffled, ?DEFAULT_MAX_PEERS_FOR_RESOLUTION),
             spawn(fun() ->
@@ -760,7 +760,7 @@ count_workers(Kind, #state{workers=Workers}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     maps:size(KindMap).
 
--spec start_inbound_worker(any(), binary(), pid(), string(), #state{}) ->  {noreply, #state{}}.
+-spec start_inbound_worker(any(), libp2p_crypto:pubkey_bin(), pid(), string(), #state{}) ->  {noreply, #state{}}.
 start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers}) ->
     Parent = self(),
     Ref = make_ref(),
