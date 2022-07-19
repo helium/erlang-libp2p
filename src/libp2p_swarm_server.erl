@@ -79,10 +79,7 @@ handle_info({handle_identify, Session, {ok, Identify}}, State=#state{tid=TID}) -
             libp2p_config:insert_session(TID,
                                          Addr,
                                          Session),
-            libp2p_peerbook:register_session(PeerBook, Session, Identify);
-        {error, Reason} ->
-            lager:warning("Failed to put peerbook entry for ~p ~p", [Addr, Reason]),
-            libp2p_session:close(Session)
+            libp2p_peerbook:register_session(PeerBook, Session, Identify)
     catch
         error:invalid_signature ->
             lager:warning("Invalid peerbook signature for ~p", [Addr]),

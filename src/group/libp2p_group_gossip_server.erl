@@ -289,7 +289,7 @@ handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom, workers=Workers})
             ok;
         false ->
             bloom:set(Bloom, {out, Data}),
-            {_, Pids} = lists:unzip(connection_pids(Kind, Workers)),
+            Pids = connection_pids(Kind, Workers),
             Shuffled = shuffle(Pids),
             Split = lists:sublist(Shuffled, ?DEFAULT_MAX_PEERS_FOR_RESOLUTION),
             spawn(fun() ->
