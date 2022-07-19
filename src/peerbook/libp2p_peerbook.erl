@@ -543,8 +543,7 @@ handle_cast({join_notify, JoinPid}, State=#state{notify_group=Group}) ->
     group_join(Group, JoinPid),
     {noreply, State};
 handle_cast({disable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
-    %% temporarily use iolist here, but it should be iodata in rocksdb
-    rocksdb:put(Store, rev(PeerAddr), [<<"disabled">>], []),
+    rocksdb:put(Store, rev(PeerAddr), <<"disabled">>, []),
     {noreply, State};
 handle_cast({enable, PeerAddr}, State=#state{peerbook=#peerbook{store=Store}}) ->
     case rocksdb:get(Store, rev(PeerAddr), []) of
@@ -864,8 +863,7 @@ fetch_peers(State=#peerbook{}) ->
 -spec store_peer(libp2p_peer:peer(), peerbook()) -> ok | {error, term()}.
 store_peer(Peer, #peerbook{store=Store}) ->
     %% reverse pubkeys so they're easier to randomly select
-    %% temporarily use iolist here but it should be iodata
-    case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), [libp2p_peer:encode(Peer)], []) of
+    case rocksdb:put(Store, rev(libp2p_peer:pubkey_bin(Peer)), libp2p_peer:encode(Peer), []) of
         {error, Error} -> {error, Error};
         ok ->
             ok
