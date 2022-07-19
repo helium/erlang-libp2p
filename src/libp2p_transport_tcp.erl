@@ -554,7 +554,7 @@ handle_info({stungun_nat, TxnID, NatType}, State=#state{tid=TID, stun_txns=StunT
                     [{"ip4", ResolvedIPAddress}, {"tcp", _}] = multiaddr:protocols(ResolvedAddr),
                     case lists:any(fun({resolved, Addr}) ->
                                            case multiaddr:protocols(Addr) of
-                                               [{"ip4", ResolvedIPAddress}, {tcp, _}] ->
+                                               [{"ip4", ResolvedIPAddress}, {"tcp", _}] ->
                                                    true;
                                                _ ->
                                                    false
@@ -1074,7 +1074,7 @@ record_observed_addr(PeerAddr, ObservedAddr, State=#state{tid=TID, observed_addr
                     [{"ip4", ResolvedIPAddress}, {"tcp", _}] = multiaddr:protocols(ObservedAddr),
                     HasResolvedThisAddress = lists:any(fun({resolved, Addr}) ->
                                                                case multiaddr:protocols(Addr) of
-                                                                   [{"ip4", ResolvedIPAddress}, {tcp, _}] ->
+                                                                   [{"ip4", ResolvedIPAddress}, {"tcp", _}] ->
                                                                        true;
                                                                    _ ->
                                                                        false
