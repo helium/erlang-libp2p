@@ -5,7 +5,7 @@
 -callback handle_gossip_data(StreamPid::pid(),
                              Kind :: inbound | seed | peerbook,
                              Peer::libp2p_crypto:pubkey_bin()|string(),
-                             {Path::string(), Msg::binary()|[libp2p_peer:peer()]},
+                             {Path::string(), Msg::binary()},
                              State::any()) ->
     {reply, iodata()} | noreply.
 

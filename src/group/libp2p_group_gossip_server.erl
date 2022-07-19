@@ -63,14 +63,6 @@ reg_name(TID)->
 %%
 
 handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
-    %% experimentally move decoding out to the caller
-    ListOrData =
-        case Key of
-            "peer" ->
-                {Path, libp2p_peer:decode_list(Bin)};
-            _ ->
-                {Path, Bin}
-        end,
     %% check the cache, see the lookup_handler function for details
     case lookup_handler(TID, Key) of
         error ->
@@ -78,7 +70,7 @@ handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
         {ok, M, S} ->
             %% Catch the callback response. This avoids a crash in the
             %% handler taking down the gossip worker itself.
-            try M:handle_gossip_data(StreamPid, Kind, Peer, ListOrData, S) of
+            try M:handle_gossip_data(StreamPid, Kind, Peer, Bin, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
                     %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
