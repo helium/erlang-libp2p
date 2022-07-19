@@ -70,7 +70,7 @@ handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
         {ok, M, S} ->
             %% Catch the callback response. This avoids a crash in the
             %% handler taking down the gossip worker itself.
-            try M:handle_gossip_data(StreamPid, Kind, Peer, Bin, S) of
+            try M:handle_gossip_data(StreamPid, Kind, Peer, {Path, Bin}, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
                     %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
