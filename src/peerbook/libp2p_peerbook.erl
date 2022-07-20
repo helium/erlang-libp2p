@@ -208,7 +208,7 @@ random(Peerbook, Exclude) ->
 random(Peerbook, Exclude, Pred) ->
     random(Peerbook, Exclude, Pred, 15).
 
-
+-spec iterator_move_filtered(fun(), rocksdb:itr_handle(), first|next|prev|last|{seek,iodata()}|{seek_for_prev,iodata()}|binary()) -> {ok, binary(), iodata()}|{error, any()}. 
 iterator_move_filtered(KeyFun, Iterator, Action) ->
     case rocksdb:iterator_move(Iterator, Action) of
         {ok, Key, Value} ->
@@ -220,9 +220,9 @@ iterator_move_filtered(KeyFun, Iterator, Action) ->
                                      next -> next;
                                      prev -> prev;
                                      last -> prev;
-                                     {seek, _} -> next;
-                                     {seek_for_prev, _} -> prev;
-                                     B when is_binary(B) -> next
+                                     {seek, _} -> next
+                                     %{seek_for_prev, _} -> prev;
+                                     %B when is_binary(B) -> next
                                  end,
                     iterator_move_filtered(KeyFun, Iterator, NextAction)
             end;
@@ -302,7 +302,7 @@ random(Peerbook=#peerbook{tid=TID, store=Store, stale_time=StaleTime}, Exclude, 
                                             RandLoop(iterator_move_filtered(KeyFilterFun, Iterator, next), T - 1)
                                     end
                             end
-                    end(iterator_move_filtered(KeyFilterFun, Iterator, <<SeekPoint:(33*8)/integer-unsigned-big>>), Tries)
+                    end(iterator_move_filtered(KeyFilterFun, Iterator, {seek, <<SeekPoint:(33*8)/integer-unsigned-big>>}), Tries)
             end;
         {error,invalid_iterator} ->
             %% no peers yet
@@ -428,8 +428,9 @@ lookup_association(Handle=#peerbook{}, AssocType, AssocAddress) ->
 %% Gossip Group
 %%
 
--spec handle_gossip_data(pid(), inbound | seed | peerbook, string(), {string(), [libp2p_peer:peer()]}, peerbook()) -> noreply.
-handle_gossip_data(_StreamPid, _Kind, _Peer, {"gossip/1.0."++_, DecodedList}, Handle) ->
+-spec handle_gossip_data(pid(), inbound | seed | peerbook, string(), {string(), binary()}, peerbook()) -> noreply.
+handle_gossip_data(_StreamPid, _Kind, _Peer, {"gossip/1.0."++_, Bin}, Handle) ->
+    DecodedList = libp2p_peer:decode_list(Bin),
     %% DecodedList = libp2p_peer:decode_list(Data),
     ?MODULE:put(Handle, DecodedList, true),
     noreply.

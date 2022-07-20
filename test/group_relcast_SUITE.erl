@@ -59,8 +59,8 @@ unicast_test(Config) ->
     test_util:connect_swarms(S1, S3),
     test_util:connect_swarms(S2, S3),
 
-    test_util:await_gossip_groups(Swarms, 100),
-    test_util:await_gossip_streams(Swarms, 100),
+    test_util:await_gossip_groups(Swarms, 300),
+    test_util:await_gossip_streams(Swarms, 300),
 
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
@@ -117,8 +117,8 @@ multicast_test(Config) ->
     test_util:connect_swarms(S1, S3),
     test_util:connect_swarms(S2, S3),
 
-    test_util:await_gossip_groups(Swarms, 100),
-    test_util:await_gossip_streams(Swarms, 100),
+    test_util:await_gossip_groups(Swarms, 300),
+    test_util:await_gossip_streams(Swarms, 300),
 
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
@@ -150,8 +150,8 @@ defer_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
 
-    test_util:await_gossip_groups(Swarms, 100),
-    test_util:await_gossip_streams(Swarms, 100),
+    test_util:await_gossip_groups(Swarms, 300),
+    test_util:await_gossip_streams(Swarms, 300),
 
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
@@ -192,8 +192,8 @@ close_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
 
-    test_util:await_gossip_groups(Swarms, 100),
-    test_util:await_gossip_streams(Swarms, 100),
+    test_util:await_gossip_groups(Swarms, 300),
+    test_util:await_gossip_streams(Swarms, 300),
 
     Members = [libp2p_swarm:pubkey_bin(S) || S <- Swarms],
 
@@ -236,8 +236,8 @@ pipeline_test(Config) ->
 
     test_util:connect_swarms(S1, S2),
 
-    test_util:await_gossip_groups(Swarms, 100),
-    test_util:await_gossip_streams(Swarms, 100),
+    test_util:await_gossip_groups(Swarms, 300),
+    test_util:await_gossip_streams(Swarms, 300),
 
     Members = [libp2p_swarm:address(S) || S <- Swarms],
 

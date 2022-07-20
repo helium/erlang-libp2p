@@ -236,7 +236,7 @@ insert_listener(TID, Addrs, Pid) ->
 lookup_listener(TID, Addr) ->
     lookup_pid(TID, ?LISTENER, Addr).
 
--spec remove_listener(ets:tab(), string()) -> true.
+-spec remove_listener(ets:tab(), string() | undefined) -> true.
 remove_listener(TID, Addr) ->
     remove_pid(TID, ?LISTENER, Addr),
     %% TODO: This was a convenient place to notify peerbook, but can
@@ -423,7 +423,8 @@ lookup_group(TID, GroupID) ->
 remove_group(TID, GroupID) ->
     remove_pid(TID, ?GROUP, GroupID).
 
--spec all_groups(ets:tab()) -> [{string(), pid()}].
+-spec all_groups(ets:tab()) -> [Match] when
+      Match::[string()|pid()].
 all_groups(TID) ->
     ets:match(TID, {{group, '$1'}, '$2'}).
 

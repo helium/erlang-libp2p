@@ -18,8 +18,7 @@
 
 -record(client_state, {
           txn_id :: binary(),
-          handler :: pid(),
-          direction :: inbound | outbound
+          handler :: pid()
          }).
 
 %%

@@ -121,7 +121,7 @@ basic(_Config) ->
             end
         end,
         200,
-        250
+        500
     ),
 
     % Force B to be the relay

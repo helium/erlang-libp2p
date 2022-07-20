@@ -63,14 +63,6 @@ reg_name(TID)->
 %%
 
 handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
-    %% experimentally move decoding out to the caller
-    ListOrData =
-        case Key of
-            "peer" ->
-                {Path, libp2p_peer:decode_list(Bin)};
-            _ ->
-                {Path, Bin}
-        end,
     %% check the cache, see the lookup_handler function for details
     case lookup_handler(TID, Key) of
         error ->
@@ -78,7 +70,7 @@ handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
         {ok, M, S} ->
             %% Catch the callback response. This avoids a crash in the
             %% handler taking down the gossip worker itself.
-            try M:handle_gossip_data(StreamPid, Kind, Peer, ListOrData, S) of
+            try M:handle_gossip_data(StreamPid, Kind, Peer, {Path, Bin}, S) of
                 {reply, Reply} ->
                     %% handler wants to reply
                     %% NOTE - This routes direct via libp2p_framed_stream:send/2 and not via the group worker
@@ -99,7 +91,7 @@ handle_data(_Pid, StreamPid, Kind, Peer, Key, TID, {Path, Bin}) ->
 accept_stream(Pid, SessionPid, StreamPid, Path) ->
     Ref = erlang:monitor(process, Pid),
     gen_server:cast(Pid, {accept_stream, SessionPid, Ref, StreamPid, Path}),
-    Ref.
+    ok.
 
 handle_identify(Pid, StreamPid, Path, Identify) ->
     gen_server:call(Pid, {handle_identify, StreamPid, Path, Identify}, 15000).
@@ -200,15 +192,17 @@ handle_call(Msg, _From, State) ->
     {reply, ok, State}.
 
 
-handle_cast({accept_stream, _Session, ReplyRef, StreamPid, _Path}, State=#state{workers=[]}) ->
-    StreamPid ! {ReplyRef, {error, not_ready}},
-    {noreply, State};
-handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{}) ->
-    case count_workers(inbound, State) > State#state.max_inbound_connections of
+handle_cast({accept_stream, Session, ReplyRef, StreamPid, Path}, State=#state{workers=W}) ->
+    case maps:size(W) == 0 of
         true ->
-            StreamPid ! {ReplyRef, {error, too_many}};
-        false ->
-            libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path})
+            StreamPid ! {ReplyRef, {error, not_ready}};
+        _ ->
+            case count_workers(inbound, State) > State#state.max_inbound_connections of
+                true ->
+                    StreamPid ! {ReplyRef, {error, too_many}};
+                false ->
+                    libp2p_session:identify(Session, self(), {ReplyRef, StreamPid, Path})
+            end
     end,
     {noreply, State};
 
@@ -287,7 +281,7 @@ handle_cast({send, Kind, Key, Data}, State=#state{bloom=Bloom, workers=Workers})
             ok;
         false ->
             bloom:set(Bloom, {out, Data}),
-            {_, Pids} = lists:unzip(connection_pids(Kind, Workers)),
+            Pids = connection_pids(Kind, Workers),
             Shuffled = shuffle(Pids),
             Split = lists:sublist(Shuffled, ?DEFAULT_MAX_PEERS_FOR_RESOLUTION),
             spawn(fun() ->
@@ -758,7 +752,7 @@ count_workers(Kind, #state{workers=Workers}) ->
     KindMap = maps:get(Kind, Workers, #{}),
     maps:size(KindMap).
 
--spec start_inbound_worker(any(), string(), pid(), string(), #state{}) ->  {noreply, #state{}}.
+-spec start_inbound_worker(any(), libp2p_crypto:pubkey_bin(), pid(), string(), #state{}) ->  {noreply, #state{}}.
 start_inbound_worker(From, Target, StreamPid, Path, State = #state{tid=TID, sidejob_sup=WorkerSup, handlers=Handlers}) ->
     Parent = self(),
     Ref = make_ref(),
@@ -833,6 +827,7 @@ mk_multiaddr(Addr) when is_binary(Addr) ->
 mk_multiaddr(Value) ->
     Value.
 
+-spec shuffle(list()) -> list().
 shuffle(List) ->
     [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- List])].
 
