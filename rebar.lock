@@ -42,7 +42,7 @@
  {<<"rand_compat">>,{pkg,<<"rand_compat">>,<<"0.0.3">>},1},
  {<<"relcast">>,
   {git,"https://github.com/helium/relcast.git",
-       {ref,"760d437f19cd44ef4b5fd659c9ebccf98abc883b"}},
+       {ref,"613b3e8ca0586faf3bf682e861620885f9b82a76"}},
   0},
  {<<"rocksdb">>,
   {git,"https://gitlab.com/vagabond1/erlang-rocksdb",
