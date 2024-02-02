@@ -36,12 +36,13 @@
                   throttle,
                   erbloom,
                   sidejob,
-                  prometheus
+                  prometheus,
+                  enif_protobuf
                  ]},
   {env,[]},
 
-  %% hex.pm packaging:
-  {licenses, ["Apache 2.0"]},
-  {maintainers, ["Helium"]},
-  {links, [{"Github", "https://github.com/helium/erlang-libp2p"}]}
- ]}.
+    %% hex.pm packaging:
+    {licenses, ["Apache 2.0"]},
+    {maintainers, ["Helium"]},
+    {links, [{"Github", "https://github.com/helium/erlang-libp2p"}]}
+]}.
