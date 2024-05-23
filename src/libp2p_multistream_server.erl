@@ -57,6 +57,7 @@ handle_msg(Msg, State) ->
         {noreply, NewState} ->
             loop(NewState);
         {exec, M, F, A} ->
+            put('__multistream_server_handler', M),
             erlang:cancel_timer(State#state.timeout),
             try erlang:apply(M, F, A) of
                 Result -> Result

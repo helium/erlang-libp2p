@@ -23,7 +23,9 @@ negotiate_handler(Handlers0, Path, Connection) ->
                 {error, Error} ->
                     lager:notice("Failed to negotiate handler for ~p: ~p", [Path, Error]),
                     {error, Error};
-                {_, Handler} -> {ok, Handler}
+                {_, Handler = {_Path, {M, _F}}} ->
+                    put('__multistream_client_handler', M),
+                    {ok, Handler}
             end
     end.
 
