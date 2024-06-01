@@ -58,7 +58,7 @@
 % API
 -export([new_connection/1, open_stream/3, receive_stream/3, update_window/3, receive_data/2]).
 % libp2p_connection
--export([close/1, close_state/1, send/3, recv/3, acknowledge/2,
+-export([close/1, close_state/1, send/3, recv/3, unrecv/2, acknowledge/2,
          fdset/1, fdclr/1, addr_info/1, controlling_process/2,
          session/1, monitor/1, set_idle_timeout/2]).
 %% libp2p_info
@@ -131,6 +131,9 @@ send(Pid, Data, Timeout) ->
 
 recv(Pid, Size, Timeout) ->
     statem(Pid, {recv, Size, Timeout}).
+
+unrecv(Pid, Data) ->
+    gen_statem:cast(Pid, {unrecv, Data}).
 
 acknowledge(_, _) ->
     ok.
@@ -284,6 +287,8 @@ handle_event({call, From}, {recv, Size, Timeout}, _State, Data0=#state{}) when ?
             lager:debug("Remote closed and no receivable data; closing"),
             {stop, normal, notify_inert(Data)}
     end;
+handle_event(cast, {unrecv, Bin}, _State, Data=#state{recv_state=#recv_state{waiter_data=WaiterData}=RecvState}) ->
+    {keep_state, Data#state{recv_state=RecvState#recv_state{waiter_data = <<Bin/binary, WaiterData/binary>>}}};
 handle_event({call, From}, {recv, Size, Timeout}, _State, Data=#state{}) ->
     % Normal open state
     {keep_state, data_recv(From, Size, Timeout, Data)};
