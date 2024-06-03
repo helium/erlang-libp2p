@@ -243,13 +243,15 @@ association_verify(Assoc=#libp2p_association_pb{}, PeerPubKeyBin) ->
 %% @doc Encodes the given association to it's binary form
 -spec association_encode(association()) -> binary().
 association_encode(Msg=#libp2p_association_pb{}) ->
-    libp2p_peer_pb:encode_msg(Msg).
+    load_pb_msg_defs(),
+    enif_protobuf:encode(Msg).
 
 %% @doc Decodes the given binary to an association and verifies it
 %% against the given peer key.
 -spec association_decode(binary(), PeerPubKeyBin::libp2p_crypto:pubkey_bin()) -> association().
 association_decode(Bin, PeerPubKeyBin) ->
-    Msg = libp2p_peer_pb:decode_msg(Bin, libp2p_association_pb),
+    load_pb_msg_defs(),
+    Msg = enif_protobuf:decode(Bin, libp2p_association_pb),
     association_verify(Msg, PeerPubKeyBin),
     Msg.
 
@@ -371,7 +373,8 @@ cleared_listen_addrs(Peer=#libp2p_signed_peer_pb{}) ->
 %% @doc Encodes the given peer into its binary form.
 -spec encode(peer()) -> binary().
 encode(Msg=#libp2p_signed_peer_pb{}) ->
-    libp2p_peer_pb:encode_msg(Msg).
+    load_pb_msg_defs(),
+    enif_protobuf:encode(Msg).
 
 %% @doc Encodes a given list of peer into a binary form. Since
 %% encoding lists is primarily used for gossipping peers around, this
@@ -379,12 +382,14 @@ encode(Msg=#libp2p_signed_peer_pb{}) ->
 -spec encode_list([peer()]) -> binary().
 encode_list(List) ->
     StrippedList = [metadata_set(P, []) || P <- List],
-    libp2p_peer_pb:encode_msg(#libp2p_peer_list_pb{peers=StrippedList}).
+    load_pb_msg_defs(),
+    enif_protobuf:encode(#libp2p_peer_list_pb{peers=StrippedList}).
 
 %% @doc Decodes a given binary into a list of peers.
 -spec decode_list(binary()) -> [peer()].
 decode_list(Bin) ->
-    List = libp2p_peer_pb:decode_msg(Bin, libp2p_peer_list_pb),
+    load_pb_msg_defs(),
+    List = enif_protobuf:decode(Bin, libp2p_peer_list_pb),
     List#libp2p_peer_list_pb.peers.
 
 %% @doc Decodes a given binary into a peer.
@@ -400,7 +405,8 @@ decode(Bin) ->
 %% @doc Decodes a binary peer without verification, use with care.
 -spec decode_unsafe(binary()) -> peer().
 decode_unsafe(Bin) ->
-    libp2p_peer_pb:decode_msg(Bin, libp2p_signed_peer_pb).
+    load_pb_msg_defs(),
+    enif_protobuf:decode(Bin, libp2p_signed_peer_pb).
 
 %% @doc Cryptographically verifies a given peer and it's
 %% associations. Returns true if the given peer can be verified or
@@ -409,7 +415,8 @@ decode_unsafe(Bin) ->
 -spec verify(peer()) -> true.
 verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs, signed_metadata=MD}, signature=Signature}) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
-    EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
+    load_pb_msg_defs(),
+    EncodedPeer = enif_protobuf:encode(Peer),
     PubKey = libp2p_crypto:bin_to_pubkey(pubkey_bin(Msg)),
     case libp2p_crypto:verify(EncodedPeer, Signature, PubKey) of
         true ->
@@ -429,7 +436,8 @@ verify(Msg=#libp2p_signed_peer_pb{peer=Peer0=#libp2p_peer_pb{associations=Assocs
 -spec sign_peer(#libp2p_peer_pb{}, libp2p_crypto:sig_fun()) -> {ok, peer()} | {error, term()}.
 sign_peer(Peer0 = #libp2p_peer_pb{signed_metadata=MD}, SigFun) ->
     Peer = Peer0#libp2p_peer_pb{signed_metadata=lists:usort(MD)},
-    EncodedPeer = libp2p_peer_pb:encode_msg(Peer),
+    load_pb_msg_defs(),
+    EncodedPeer = enif_protobuf:encode(Peer),
     try SigFun(EncodedPeer) of
         {error, Error} ->
             {error, Error};
@@ -442,6 +450,7 @@ sign_peer(Peer0 = #libp2p_peer_pb{signed_metadata=MD}, SigFun) ->
     end.
 
 encode_map(Map) ->
+    load_pb_msg_defs(),
     lists:sort(maps:fold(fun(K, V, Acc) when is_binary(K), is_integer(V) ->
                                  [{binary_to_list(K), #libp2p_metadata_value_pb{value = {int, V}}}|Acc];
                             (K, V, Acc) when is_binary(K), is_float(V) ->
@@ -457,3 +466,8 @@ encode_map(Map) ->
                                  lager:warning("invalid metadata key ~p with value ~p, keys must be binaries", [K, V]),
                                  Acc
                          end, [], Map)).
+
+load_pb_msg_defs() ->
+    ok = enif_protobuf:load_cache(libp2p_peer_pb:get_proto_defs()),
+    enif_protobuf:set_opts([{string_as_list, true}]).
+

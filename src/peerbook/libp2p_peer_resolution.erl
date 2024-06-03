@@ -16,14 +16,14 @@
 resolve(TID, PK, Ts) ->
     lager:debug("ARP request for ~p", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
     libp2p_group_gossip:send(TID, ?GOSSIP_GROUP_KEY,
-                             libp2p_peer_resolution_pb:encode_msg(
+                             enif_protobuf:encode(
                                #libp2p_peer_resolution_msg_pb{
                                   msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}})),
     ok.
 
 re_resolve(TID, PK, Ts) ->
     libp2p_group_gossip:send(TID, seed, ?GOSSIP_GROUP_KEY,
-                             libp2p_peer_resolution_pb:encode_msg(
+                             enif_protobuf:encode(
                                #libp2p_peer_resolution_msg_pb{
                                   msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}},
                                   re_request = true})),
@@ -31,6 +31,7 @@ re_resolve(TID, PK, Ts) ->
 
 
 install_handler(G, Handle) ->
+    load_pb_msg_defs(),
     Limit = application:get_env(libp2p, arp_limit, 10),
     throttle:setup(?MODULE, Limit, per_minute),
     prometheus:start(),
@@ -54,7 +55,7 @@ handle_gossip_data(_StreamPid, Kind, GossipPeer, {_Path, Data}, Handle) ->
     %% we don't poison the throttle
     case is_valid_peer(Kind, GossipPeer, Handle) of
         true ->
-            case libp2p_peer_resolution_pb:decode_msg(Data, libp2p_peer_resolution_msg_pb) of
+            case enif_protobuf:decode(Data, libp2p_peer_resolution_msg_pb) of
                 #libp2p_peer_resolution_msg_pb{msg = {request, #libp2p_peer_request_pb{pubkey=PK, timestamp=Ts}}, re_request=ReRequest} ->
                     case throttle_check(GossipPeer, ReRequest) of
                         {ok, _, _} ->
@@ -71,7 +72,7 @@ handle_gossip_data(_StreamPid, Kind, GossipPeer, {_Path, Data}, Handle) ->
                                         true ->
                                             lager:debug("ARP response for ~p Success", [libp2p_crypto:pubkey_bin_to_p2p(PK)]),
                                             prometheus_gauge:inc(arp_responses),
-                                            {reply, libp2p_peer_resolution_pb:encode_msg(
+                                            {reply, enif_protobuf:encode(
                                                       #libp2p_peer_resolution_msg_pb{msg = {response, Peer}})};
                                         false ->
                                             maybe_re_resolve(Handle, ReRequest, PK, Ts),
@@ -116,7 +117,7 @@ handle_gossip_data(_StreamPid, Kind, GossipPeer, {_Path, Data}, Handle) ->
                             %% this was a re-request, so gossip this update to everyone else too
                             GossipGroup = libp2p_peerbook:tid(Handle),
                             libp2p_group_gossip:send(GossipGroup, ?GOSSIP_GROUP_KEY,
-                                                     libp2p_peer_resolution_pb:encode_msg(
+                                                     enif_protobuf:encode(
                                                        #libp2p_peer_resolution_msg_pb{msg = {response, Peer}, re_request=ReRequest})),
                             noreply;
                         false ->
@@ -159,3 +160,7 @@ throttle_check(GossipPeer, true) ->
     throttle:check(?MODULE, {rand:uniform(10), GossipPeer});
 throttle_check(GossipPeer, false) ->
     throttle:check(?MODULE, GossipPeer).
+
+load_pb_msg_defs() ->
+    ok = enif_protobuf:load_cache(libp2p_peer_resolution_pb:get_proto_defs()),
+    enif_protobuf:set_opts([{string_as_list, true}]).

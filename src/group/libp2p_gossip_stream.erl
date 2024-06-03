@@ -16,7 +16,6 @@
 %% libp2p_framed_stream
 -export([server/4, client/2, init/3, handle_data/3, handle_info/3]).
 
-
 -record(state,
         {
           tid :: ets:tab(),
@@ -35,11 +34,11 @@
 encode(Key, Data) ->
     %% replies are routed via encode/2 from the gossip server
     Msg = #libp2p_gossip_frame_pb{key=Key, data=Data},
-    libp2p_gossip_pb:encode_msg(Msg).
+    enif_protobuf:encode(Msg).
 
 encode(Key, Data, Path) ->
     Msg = #libp2p_gossip_frame_pb{key=Key, data=apply_path_encode(Path, Data)},
-    libp2p_gossip_pb:encode_msg(Msg).
+    enif_protobuf:encode(Msg).
 
 %% libp2p_framed_stream
 %%
@@ -50,6 +49,7 @@ server(Connection, _Path, _TID, Args) ->
     libp2p_framed_stream:server(?MODULE, Connection, Args).
 
 init(server, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
+    load_pb_msg_defs(),
     lager:debug("initiating server with path ~p", [Path]),
     {ok, Session} = libp2p_connection:session(Connection),
     HandlerModule:accept_stream(HandlerState, Session, self(), Path),
@@ -63,6 +63,7 @@ init(server, Connection, [Path, HandlerModule, HandlerState, TID, Bloom]) ->
 
 init(client, Connection, [Path, HandlerModule, HandlerState, TID, Bloom, Kind, SelectedAddr]) ->
     lager:debug("initiating client with path ~p", [Path]),
+    load_pb_msg_defs(),
     {ok, #state{connection=Connection,
                 tid = TID,
                 peer = SelectedAddr,
@@ -80,7 +81,7 @@ handle_data(_Role, Data, State=#state{handler_module=HandlerModule,
                                   kind=Kind,
                                   path=Path}) ->
     #libp2p_gossip_frame_pb{key=Key, data=Bin} =
-        libp2p_gossip_pb:decode_msg(Data, libp2p_gossip_frame_pb),
+        enif_protobuf:decode(Data, libp2p_gossip_frame_pb),
     DecodedData = apply_path_decode(Path, Bin),
     case bloom:check(Bloom, {in, DecodedData}) of
         true ->
@@ -137,3 +138,6 @@ apply_path_decode(_UnknownPath, Data)->
     lager:debug("not decompressing for path ~p..",[_UnknownPath]),
     Data.
 
+load_pb_msg_defs() ->
+    ok = enif_protobuf:load_cache(libp2p_gossip_pb:get_proto_defs()),
+    enif_protobuf:set_opts([{string_as_list, true}]).
